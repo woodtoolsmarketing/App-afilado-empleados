@@ -54,7 +54,10 @@ cuándo se habilitan, en vez de estar ocultos.
 | Micrófono ligado a Gemini | ✅ |
 | Campos obligatorios, señalando los incompletos | ✅ |
 | Rechazar observaciones tipo "." o de una sola palabra | ✅ (en la app **y** en la base) |
-| Agregar nuevo destino con autocompletado de Google | ✅ |
+| Agregar nuevo destino: cliente existente / cliente nuevo | ✅ |
+| Cliente existente: buscar por código **o** razón social, uno completa al otro | ✅ |
+| Cliente existente: la ubicación se completa sola desde su ficha | ✅ |
+| Cliente nuevo: nombre/razón social + dirección de Google | ✅ |
 | CP completado automáticamente | ✅ |
 | Prioridad alta / media / baja | ✅ |
 | Historial de envíos hasta 90 días | ✅ |
@@ -73,6 +76,31 @@ cuándo se habilitan, en vez de estar ocultos.
 | Imprimir la planilla en A4 | ✅ |
 | Mapa en vivo con la foto de cada vendedor | ✅ |
 | Ver quién está entrando a la app | ✅ |
+
+---
+
+## Clientes cargados desde la calle
+
+Que un vendedor pueda dar de alta un cliente obligó a dos cambios de permisos
+que conviene tener presentes:
+
+1. **Los vendedores ahora ven todo el padrón activo**, no sólo su cartera. Sin
+   eso, el buscador de "cliente existente" no encuentra a un cliente de un
+   compañero al que hay que cubrir, ni a uno todavía sin asignar. Lo que se
+   expone es la ficha comercial: código, nombre, dirección y contacto.
+
+2. **Los vendedores pueden crear clientes, pero sólo provisorios y a su
+   nombre.** Nacen con un código automático `P-000123` y la marca `provisorio`.
+   No pueden crear un cliente definitivo ni asignárselo a otro vendedor.
+
+El panel de escritorio muestra los provisorios en un aviso arriba de todo, y
+dejan de figurar ahí en cuanto la oficina les cambia el código por el
+definitivo. Sin ese aviso, las fichas a medio completar se perderían en el
+padrón.
+
+> Si preferís que los vendedores **no** puedan crear clientes, o que sigan
+> viendo sólo su cartera, se revierte cambiando dos políticas de RLS en
+> `supabase/migrations/20260803120900_clientes_en_ruta.sql`.
 
 ---
 

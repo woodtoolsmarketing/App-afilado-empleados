@@ -39,6 +39,11 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
+  const provisorios = useMemo(
+    () => (clientes ?? []).filter((c) => c.provisorio && c.activo),
+    [clientes],
+  )
+
   const filtrados = useMemo(() => {
     const t = busqueda.trim().toLowerCase()
     if (!t) return clientes ?? []
@@ -74,6 +79,28 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
 
       {mensaje && <div className="aviso exito">{mensaje}</div>}
 
+      {/* Los clientes que los vendedores cargan desde la calle nacen sin código
+          real ni datos fiscales. Si no se muestran acá, quedan enterrados en el
+          padrón y nadie los completa nunca. */}
+      {provisorios.length > 0 && (
+        <div className="aviso atencion">
+          <strong>
+            {provisorios.length} cliente{provisorios.length === 1 ? '' : 's'} cargado
+            {provisorios.length === 1 ? '' : 's'} desde la calle
+          </strong>{' '}
+          {provisorios.length === 1 ? 'espera' : 'esperan'} que le
+          {provisorios.length === 1 ? '' : 's'} asignes el código definitivo y completes la ficha:{' '}
+          {provisorios.map((c, i) => (
+            <span key={c.id}>
+              {i > 0 && ' · '}
+              <button className="chico" onClick={() => setEditando(c)}>
+                {c.razon_social}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="tarjeta">
         <input
           placeholder="Buscar por código, razón social, nombre de fantasía o CUIT…"
@@ -106,6 +133,12 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
                 <tr key={c.id}>
                   <td>
                     <code>{c.codigo}</code>
+                    {c.provisorio && (
+                      <>
+                        <br />
+                        <span className="pastilla ambar">PROVISORIO</span>
+                      </>
+                    )}
                   </td>
                   <td>
                     {c.razon_social}
@@ -239,6 +272,10 @@ function FormularioCliente({
         contacto_nombre: form.contacto_nombre.trim() || null,
         vendedor_id: form.vendedor_id || null,
         notas: form.notas.trim() || null,
+        // Asignarle un código real es lo que da por completada la ficha que
+        // arrancó el vendedor en la calle. Mientras conserve el `P-` automático
+        // sigue apareciendo en el aviso de pendientes.
+        provisorio: form.codigo.trim().toUpperCase().startsWith('P-'),
       }
 
       const { data: guardado, error: errCliente } = cliente
@@ -295,6 +332,14 @@ function FormularioCliente({
         <h2>{cliente ? 'Editar cliente' : 'Nuevo cliente'}</h2>
 
         {error && <div className="aviso error">{error}</div>}
+
+        {cliente?.provisorio && (
+          <div className="aviso atencion">
+            Este cliente lo cargó un vendedor durante el recorrido. Cambiale el código
+            <code> {cliente.codigo} </code> por el definitivo y completá los datos que falten; con
+            eso deja de figurar como provisorio.
+          </div>
+        )}
 
         <div className="fila">
           <div className="campo">

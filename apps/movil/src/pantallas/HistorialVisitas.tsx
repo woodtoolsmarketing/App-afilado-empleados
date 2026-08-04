@@ -26,12 +26,12 @@ import {
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
- * "HISTORIAL DE ENVÍOS"
+ * "HISTORIAL DE VISITAS"
  *
  * Un acordeón por día. Cada renglón muestra el cliente y cuándo se cerró la
  * visita; al tocarlo se abre el detalle completo con las observaciones.
  *
- * El tope de 90 días no es sólo de la interfaz: la función `historial_envios`
+ * El tope de 90 días no es sólo de la interfaz: la función `historial_visitas`
  * de Postgres le recorta el rango a los vendedores aunque pidan más atrás. Lo
  * anterior a esa ventana vive en los Excel del bucket privado, al que sólo
  * llegan los administradores.
@@ -55,7 +55,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
 
-        <TituloPanel>{'HISTORIAL\nDE ENVÍOS'}</TituloPanel>
+        <TituloPanel>{'HISTORIAL\nDE VISITAS'}</TituloPanel>
 
         <Desplegable<PeriodoHistorial>
           etiqueta="PERIODO"
@@ -109,7 +109,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
           </Aviso>
         ) : !data || data.length === 0 ? (
           <Vacio
-            titulo="Sin envíos en este período"
+            titulo="Sin visitas en este período"
             detalle="Probá con otro rango de fechas."
             icono="📅"
           />
@@ -123,7 +123,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
                 setAbiertos((a) => ({ ...a, [dia.rol_visita_id]: !a[dia.rol_visita_id] }))
               }
               alElegir={(detalle) =>
-                navigation.navigate('DetalleEnvio', {
+                navigation.navigate('DetalleVisita', {
                   rolVisitaId: dia.rol_visita_id,
                   paradaId: detalle.parada_id,
                   fecha: dia.fecha,

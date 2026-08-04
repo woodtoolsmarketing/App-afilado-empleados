@@ -11,12 +11,12 @@ import { obtenerResumenDeHoy } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
- * "TUS ENVÍOS DE HOY SON: 13"
+ * "TUS VISITAS DE HOY SON: 13"
  *
  * Es el centro de la app. Muestra cuántos destinos quedan y da las cuatro
  * acciones del mockup.
  */
-export function PantallaEnvios({ navigation }: PropsPantalla<'Envios'>) {
+export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
   const perfil = usarSesion((s) => s.perfil)
 
   const {
@@ -41,15 +41,15 @@ export function PantallaEnvios({ navigation }: PropsPantalla<'Envios'>) {
         <BarraPanel alVolver={() => navigation.goBack()} />
 
         {isLoading ? (
-          <Cargando texto="Buscando tus envíos de hoy…" />
+          <Cargando texto="Buscando tus visitas de hoy…" />
         ) : error ? (
-          <Aviso tono="error" titulo="No pudimos cargar tus envíos">
+          <Aviso tono="error" titulo="No pudimos cargar tus visitas">
             Revisá la conexión y volvé a entrar. Si el problema sigue, avisá a la oficina.
           </Aviso>
         ) : (
           <>
             <TituloPanel destacado={String(resumen?.total_paradas ?? 0)}>
-              TUS ENVÍOS DE HOY SON:
+              TUS VISITAS DE HOY SON:
             </TituloPanel>
 
             {resumen && resumen.total_paradas > 0 ? (
@@ -92,7 +92,7 @@ export function PantallaEnvios({ navigation }: PropsPantalla<'Envios'>) {
             />
 
             <BotonMenu
-              titulo={'HISTORIAL DE\nENVÍOS'}
+              titulo={'HISTORIAL DE\nVISITAS'}
               alTocar={() => navigation.navigate('Historial')}
             />
 

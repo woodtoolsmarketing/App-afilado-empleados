@@ -272,7 +272,7 @@ export async function obtenerHistorial(
 ): Promise<DiaHistorial[]> {
   const { desde, hasta } = rangoDelPeriodo(periodo, personalizado)
 
-  const { data, error } = await supabase.rpc('historial_envios', {
+  const { data, error } = await supabase.rpc('historial_visitas', {
     p_desde: desde,
     p_hasta: hasta,
   })

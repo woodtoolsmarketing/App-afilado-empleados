@@ -1,0 +1,88 @@
+import type {
+  ClienteBuscado,
+  FormularioDestinoNuevo,
+  ParadaCompleta,
+  PrioridadParada,
+} from '@woodtools/compartido'
+
+import { supabase } from '../nucleo/supabase'
+
+/**
+ * Búsqueda y alta de clientes desde la calle.
+ *
+ * El buscador acepta indistintamente el código o la razón social: es la misma
+ * consulta, porque el vendedor a veces se acuerda del número y a veces del
+ * nombre, y obligarlo a elegir de antemano sería trabajo suyo para comodidad
+ * nuestra.
+ */
+
+export async function buscarClientes(texto: string, limite = 15): Promise<ClienteBuscado[]> {
+  const { data, error } = await supabase.rpc('buscar_clientes', {
+    p_texto: texto,
+    p_limite: limite,
+  })
+
+  if (error) throw error
+  return (data ?? []) as ClienteBuscado[]
+}
+
+/** Agrega al recorrido un cliente que ya está en el padrón. */
+export async function agregarDestinoExistente(params: {
+  rolVisitaId: string
+  cliente: ClienteBuscado
+  prioridad: PrioridadParada
+}): Promise<ParadaCompleta> {
+  if (!params.cliente.direccion_id) {
+    throw new Error(
+      'Ese cliente no tiene dirección cargada. Avisá a la oficina para que le completen la ficha.',
+    )
+  }
+
+  const { data, error } = await supabase.rpc('agregar_parada', {
+    p_rol_visita_id: params.rolVisitaId,
+    p_direccion_id: params.cliente.direccion_id,
+    p_prioridad: params.prioridad,
+    p_cliente_id: params.cliente.cliente_id,
+  })
+
+  if (error) throw error
+  return data as ParadaCompleta
+}
+
+/**
+ * Crea un cliente nuevo y lo agrega al recorrido, todo en una transacción.
+ *
+ * El cliente nace **provisorio**, con un código automático `P-000123`. La
+ * oficina después le pone el código real y completa los datos fiscales; el
+ * panel de escritorio los muestra aparte para que no se traspapelen.
+ */
+export async function agregarDestinoClienteNuevo(params: {
+  rolVisitaId: string
+  form: FormularioDestinoNuevo
+}): Promise<ParadaCompleta> {
+  const { form } = params
+
+  const { data, error } = await supabase.rpc('agregar_destino_cliente_nuevo', {
+    p_rol_visita_id: params.rolVisitaId,
+    p_razon_social: form.razon_social.trim(),
+    p_direccion_formateada: form.direccion_formateada.trim(),
+    p_codigo_postal: form.codigo_postal.trim(),
+    p_lat: form.lat,
+    p_lng: form.lng,
+    p_prioridad: form.prioridad,
+    p_google_place_id: form.google_place_id,
+    p_localidad: form.localidad,
+    p_provincia: form.provincia,
+    p_telefono: form.telefono.trim() || null,
+    p_contacto: form.contacto_nombre.trim() || null,
+  })
+
+  if (error) {
+    // Los CHECK de la función devuelven 23514 con un mensaje ya redactado
+    // para el vendedor; no hay nada que traducir.
+    if (error.code === '23514') throw new Error(error.message)
+    throw error
+  }
+
+  return data as ParadaCompleta
+}

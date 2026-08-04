@@ -8,11 +8,11 @@ import { usarSesion } from '../nucleo/sesion'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
-import { PantallaDetalleEnvio } from '../pantallas/DetalleEnvio'
+import { PantallaDetalleVisita } from '../pantallas/DetalleVisita'
 import { PantallaEnPreparacion } from '../pantallas/EnPreparacion'
-import { PantallaEnvios } from '../pantallas/Envios'
+import { PantallaVisitas } from '../pantallas/Visitas'
 import { PantallaEstadoCuenta } from '../pantallas/EstadoCuenta'
-import { PantallaHistorial } from '../pantallas/HistorialEnvios'
+import { PantallaHistorial } from '../pantallas/HistorialVisitas'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
@@ -66,12 +66,12 @@ export function Navegacion() {
         ) : (
           <>
             <Pila.Screen name="Menu" component={PantallaMenu} />
-            <Pila.Screen name="Envios" component={PantallaEnvios} />
+            <Pila.Screen name="Visitas" component={PantallaVisitas} />
             <Pila.Screen name="Recorrido" component={PantallaRecorrido} />
             <Pila.Screen name="DestinoVisitado" component={PantallaDestinoVisitado} />
             <Pila.Screen name="AgregarDestino" component={PantallaAgregarDestino} />
             <Pila.Screen name="Historial" component={PantallaHistorial} />
-            <Pila.Screen name="DetalleEnvio" component={PantallaDetalleEnvio} />
+            <Pila.Screen name="DetalleVisita" component={PantallaDetalleVisita} />
             <Pila.Screen name="Configuracion" component={PantallaConfiguracion} />
             <Pila.Screen name="EnPreparacion" component={PantallaEnPreparacion} />
           </>

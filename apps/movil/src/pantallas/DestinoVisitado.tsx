@@ -112,7 +112,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
       if (esUltima) {
         Alert.alert('Recorrido finalizado', 'Cerraste todos los destinos del día. Buen trabajo.')
-        navigation.navigate('Envios')
+        navigation.navigate('Visitas')
         return
       }
 

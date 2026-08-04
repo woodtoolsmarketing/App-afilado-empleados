@@ -45,7 +45,7 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         </Text>
 
         <BotonMenu
-          titulo="ENVÍOS"
+          titulo="VISITAS"
           subtitulo={
             pendientes === null
               ? undefined
@@ -53,7 +53,7 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
                 ? `${pendientes} destino${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'} hoy`
                 : 'Sin destinos pendientes hoy'
           }
-          alTocar={() => navigation.navigate('Envios')}
+          alTocar={() => navigation.navigate('Visitas')}
         />
 
         <BotonMenu
@@ -64,16 +64,16 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         />
 
         <BotonMenu
-          titulo="CALENDARIO DE ENVÍOS"
+          titulo="CALENDARIO DE VISITAS"
           subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Calendario de envíos' })}
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Calendario de visitas' })}
           style={estilos.futuro}
         />
 
         <BotonMenu
-          titulo="MAPA DE ENVÍOS"
+          titulo="MAPA DE VISITAS"
           subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Mapa de envíos' })}
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Mapa de visitas' })}
           style={estilos.futuro}
         />
 

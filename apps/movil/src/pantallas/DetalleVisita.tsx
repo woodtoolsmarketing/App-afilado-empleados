@@ -20,10 +20,10 @@ import { obtenerDetalleParada } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
- * Detalle de un envío del historial: qué se hizo en la visita y qué quedó
+ * Detalle de un visita del historial: qué se hizo en la visita y qué quedó
  * escrito en las observaciones.
  */
-export function PantallaDetalleEnvio({ navigation, route }: PropsPantalla<'DetalleEnvio'>) {
+export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'DetalleVisita'>) {
   const { paradaId, fecha } = route.params
 
   const { data: parada, isLoading } = useQuery({
@@ -43,10 +43,10 @@ export function PantallaDetalleEnvio({ navigation, route }: PropsPantalla<'Detal
         {isLoading ? (
           <Cargando />
         ) : !parada ? (
-          <Vacio titulo="No encontramos ese envío" icono="🔍" />
+          <Vacio titulo="No encontramos ese visita" icono="🔍" />
         ) : (
           <>
-            <TituloPanel>DETALLE DEL ENVÍO</TituloPanel>
+            <TituloPanel>DETALLE DE LA VISITA</TituloPanel>
 
             <View style={estilos.tarjeta}>
               <Text style={estilos.cliente}>

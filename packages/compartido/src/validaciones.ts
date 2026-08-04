@@ -9,7 +9,8 @@
  */
 
 import type {
-  FormularioDestino,
+  FormularioDestinoExistente,
+  FormularioDestinoNuevo,
   FormularioVisita,
   ResultadoValidacion,
 } from './tipos'
@@ -115,15 +116,52 @@ export function validarFormularioVisita(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Formulario "AGREGAR NUEVO DESTINO"
+// Formularios de "AGREGAR NUEVO DESTINO"
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type CampoDestino = 'direccion' | 'codigo_postal' | 'prioridad'
+/** Acepta "1704" y también "B1704ARQ", los dos formatos que usa el Correo. */
+const CODIGO_POSTAL = /^[A-Za-z]?\d{4}([A-Za-z]{3})?$/
 
-export function validarFormularioDestino(
-  form: FormularioDestino,
-): ResultadoValidacion<CampoDestino> {
-  const errores: Partial<Record<CampoDestino, string>> = {}
+export type CampoDestinoExistente = 'cliente' | 'prioridad'
+
+export function validarDestinoExistente(
+  form: FormularioDestinoExistente,
+): ResultadoValidacion<CampoDestinoExistente> {
+  const errores: Partial<Record<CampoDestinoExistente, string>> = {}
+
+  if (!form.cliente) {
+    errores.cliente = 'Buscá el cliente por código o razón social y elegilo de la lista'
+  } else if (form.cliente.lat === null || form.cliente.lng === null) {
+    // El cliente existe pero su ficha no tiene coordenadas: sin eso no entra
+    // en el recorrido. Lo tiene que corregir la oficina.
+    errores.cliente =
+      'Ese cliente no tiene la ubicación cargada. Avisá a la oficina para que le completen la dirección.'
+  }
+
+  if (!form.prioridad) {
+    errores.prioridad = 'Elegí la prioridad del destino'
+  }
+
+  return { valido: Object.keys(errores).length === 0, errores }
+}
+
+export type CampoDestinoNuevo =
+  | 'razon_social'
+  | 'direccion'
+  | 'codigo_postal'
+  | 'prioridad'
+
+export function validarDestinoNuevo(
+  form: FormularioDestinoNuevo,
+): ResultadoValidacion<CampoDestinoNuevo> {
+  const errores: Partial<Record<CampoDestinoNuevo, string>> = {}
+
+  const nombre = form.razon_social.trim()
+  if (!nombre) {
+    errores.razon_social = 'Ingresá el nombre o la razón social del cliente'
+  } else if (nombre.length < 3) {
+    errores.razon_social = 'El nombre es demasiado corto'
+  }
 
   if (!form.direccion_formateada.trim()) {
     errores.direccion = 'Ingresá la dirección'
@@ -135,7 +173,7 @@ export function validarFormularioDestino(
 
   if (!form.codigo_postal.trim()) {
     errores.codigo_postal = 'Falta el código postal'
-  } else if (!/^[A-Za-z]?\d{4}([A-Za-z]{3})?$/.test(form.codigo_postal.trim())) {
+  } else if (!CODIGO_POSTAL.test(form.codigo_postal.trim())) {
     errores.codigo_postal = 'El código postal no parece válido (ej. 1704 o B1704ARQ)'
   }
 
@@ -182,7 +220,7 @@ export function formatearHora(fecha: Date | string | null | undefined): string {
 
 const DIAS = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO']
 
-/** "LUNES 6/7", como en el historial de envíos. */
+/** "LUNES 6/7", como en el historial de visitas. */
 export function formatearDiaHistorial(fecha: Date | string): string {
   const d = typeof fecha === 'string' ? new Date(`${fecha}T12:00:00`) : fecha
   return `${DIAS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`

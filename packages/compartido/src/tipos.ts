@@ -120,6 +120,12 @@ export interface Cliente {
   contacto_nombre: string | null
   vendedor_id: string | null
   activo: boolean
+  /**
+   * Cliente creado por un vendedor durante el recorrido: tiene un código
+   * automático `P-000123` y le faltan los datos fiscales. La oficina lo
+   * completa desde el panel.
+   */
+  provisorio: boolean
   notas: string | null
   creado_en: string
   actualizado_en: string
@@ -273,29 +279,74 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
   observacion_origen: 'texto',
 }
 
-/** Formulario "AGREGAR NUEVO DESTINO" */
-export interface FormularioDestino {
+/**
+ * "AGREGAR NUEVO DESTINO" tiene dos caminos, y piden datos distintos:
+ *  · cliente existente → se lo busca y la dirección viene sola de su ficha
+ *  · cliente nuevo     → hay que cargar nombre y dirección a mano
+ */
+export type ModoDestino = 'existente' | 'nuevo'
+
+/** Un cliente tal como lo devuelve el buscador, con su dirección principal. */
+export interface ClienteBuscado {
+  cliente_id: string
+  codigo: string
+  razon_social: string
+  nombre_fantasia: string | null
+  contacto_nombre: string | null
+  telefono: string | null
+  provisorio: boolean
+  direccion_id: string | null
+  direccion: string | null
+  codigo_postal: string | null
+  lat: number | null
+  lng: number | null
+}
+
+/** Formulario "AGREGAR NUEVO DESTINO → Cliente existente" */
+export interface FormularioDestinoExistente {
+  /** Lo que el vendedor tipeó en el campo "Código". */
+  codigo: string
+  /** Lo que tipeó en "Razón social". Al elegir uno, se completa el otro. */
+  razon_social: string
+  /** Se llena recién al elegir un cliente de las sugerencias. */
+  cliente: ClienteBuscado | null
+  prioridad: PrioridadParada | null
+}
+
+export const FORMULARIO_DESTINO_EXISTENTE_VACIO: FormularioDestinoExistente = {
+  codigo: '',
+  razon_social: '',
+  cliente: null,
+  prioridad: null,
+}
+
+/** Formulario "AGREGAR NUEVO DESTINO → Cliente nuevo" */
+export interface FormularioDestinoNuevo {
+  razon_social: string
   direccion_formateada: string
   codigo_postal: string
   prioridad: PrioridadParada | null
   lat: number | null
   lng: number | null
   google_place_id: string | null
-  cliente_id: string | null
   localidad: string | null
   provincia: string | null
+  telefono: string
+  contacto_nombre: string
 }
 
-export const FORMULARIO_DESTINO_VACIO: FormularioDestino = {
+export const FORMULARIO_DESTINO_NUEVO_VACIO: FormularioDestinoNuevo = {
+  razon_social: '',
   direccion_formateada: '',
   codigo_postal: '',
   prioridad: null,
   lat: null,
   lng: null,
   google_place_id: null,
-  cliente_id: null,
   localidad: null,
   provincia: null,
+  telefono: '',
+  contacto_nombre: '',
 }
 
 /** Resultado de una validación: qué campos están mal y por qué. */

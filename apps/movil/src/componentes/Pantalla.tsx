@@ -103,7 +103,7 @@ export function BarraPanel({
   )
 }
 
-/** Título grande en mayúsculas, como "TUS ENVÍOS DE HOY SON: 13". */
+/** Título grande en mayúsculas, como "TUS VISITAS DE HOY SON: 13". */
 export function TituloPanel({
   children,
   destacado,

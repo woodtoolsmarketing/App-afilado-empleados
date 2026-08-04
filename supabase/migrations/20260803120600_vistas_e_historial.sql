@@ -58,7 +58,7 @@ comment on view public.vista_rol_de_visita is
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- vista_envios_de_hoy — lo que la app muestra en "TUS ENVÍOS DE HOY SON: 13"
+-- vista_resumen_jornada — lo que la app muestra en "TUS VISITAS DE HOY SON: 13"
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace view public.vista_resumen_jornada
 with (security_invoker = true) as
@@ -88,12 +88,12 @@ group by rv.id;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- historial_envios — agrupado por día, para la pantalla "HISTORIAL DE ENVÍOS"
+-- historial_visitas — agrupado por día, para la pantalla "HISTORIAL DE VISITAS"
 --
 -- Devuelve como máximo los últimos `retencion_historial_dias` (90 por defecto).
 -- Un admin puede pedir más atrás; a un vendedor se le recorta el rango.
 -- ─────────────────────────────────────────────────────────────────────────────
-create or replace function public.historial_envios(
+create or replace function public.historial_visitas(
   p_desde       date default null,
   p_hasta       date default null,
   p_vendedor_id uuid default null
@@ -173,8 +173,8 @@ begin
 end;
 $$;
 
-comment on function public.historial_envios is
-  'Historial agrupado por día para la pantalla "HISTORIAL DE ENVÍOS". A los vendedores se les recorta el rango a la retención vigente (90 días).';
+comment on function public.historial_visitas is
+  'Historial agrupado por día para la pantalla "HISTORIAL DE VISITAS". A los vendedores se les recorta el rango a la retención vigente (90 días).';
 
 
 -- ─────────────────────────────────────────────────────────────────────────────

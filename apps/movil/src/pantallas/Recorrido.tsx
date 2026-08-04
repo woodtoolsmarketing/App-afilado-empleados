@@ -123,7 +123,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     onSuccess: () => {
       void cliente.invalidateQueries()
       Alert.alert('Recorrido finalizado', 'Se cerró la jornada de hoy.')
-      navigation.navigate('Envios')
+      navigation.navigate('Visitas')
     },
   })
 
