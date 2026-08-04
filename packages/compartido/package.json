@@ -1,0 +1,17 @@
+{
+  "name": "@woodtools/compartido",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tipos, tokens de marca y validaciones compartidas entre la app móvil y el panel de escritorio",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./marca": "./src/marca.ts",
+    "./tipos": "./src/tipos.ts",
+    "./validaciones": "./src/validaciones.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10"
+  }
+}

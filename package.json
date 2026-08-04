@@ -1,0 +1,31 @@
+{
+  "name": "woodtools-rol-de-visita",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema interno de rol de visita de WoodTools S.R.L.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "movil": "npm run start --workspace=@woodtools/movil",
+    "movil:android": "npm run android --workspace=@woodtools/movil",
+    "escritorio": "npm run dev --workspace=@woodtools/escritorio",
+    "tipos": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > packages/compartido/src/base-de-datos.ts",
+    "db:reset": "supabase db reset",
+    "db:push": "supabase db push",
+    "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial",
+    "secretos": "supabase secrets set --env-file .env",
+    "verificar": "npm run verificar:compartido && npm run verificar:movil && npm run verificar:escritorio",
+    "verificar:compartido": "tsc -p packages/compartido/tsconfig.json --noEmit",
+    "verificar:movil": "tsc -p apps/movil/tsconfig.json --noEmit",
+    "verificar:escritorio": "tsc -p apps/escritorio/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "supabase": "^2.111.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

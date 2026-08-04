@@ -1,0 +1,82 @@
+import { colores } from '@woodtools/compartido'
+import { NavigationContainer, type Theme } from '@react-navigation/native'
+import { createNativeStackNavigator } from '@react-navigation/native-stack'
+
+import { Cargando } from '../componentes/Estado'
+import { Pantalla } from '../componentes/Pantalla'
+import { usarSesion } from '../nucleo/sesion'
+import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
+import { PantallaConfiguracion } from '../pantallas/Configuracion'
+import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
+import { PantallaDetalleEnvio } from '../pantallas/DetalleEnvio'
+import { PantallaEnPreparacion } from '../pantallas/EnPreparacion'
+import { PantallaEnvios } from '../pantallas/Envios'
+import { PantallaEstadoCuenta } from '../pantallas/EstadoCuenta'
+import { PantallaHistorial } from '../pantallas/HistorialEnvios'
+import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
+import { PantallaMenu } from '../pantallas/Menu'
+import { PantallaRecorrido } from '../pantallas/Recorrido'
+import type { ParametrosApp } from './tipos'
+
+const Pila = createNativeStackNavigator<ParametrosApp>()
+
+const tema: Theme = {
+  dark: false,
+  colors: {
+    primary: colores.rojo,
+    background: colores.rojo,
+    card: colores.rojo,
+    text: colores.blanco,
+    border: colores.negro,
+    notification: colores.rojoAccion,
+  },
+  fonts: {
+    regular: { fontFamily: 'Poppins_400Regular', fontWeight: '400' },
+    medium: { fontFamily: 'Poppins_500Medium', fontWeight: '500' },
+    bold: { fontFamily: 'Poppins_700Bold', fontWeight: '700' },
+    heavy: { fontFamily: 'Poppins_800ExtraBold', fontWeight: '800' },
+  },
+}
+
+/**
+ * Enrutado por estado de sesión.
+ *
+ * Hay tres pilas mutuamente excluyentes, no una sola con guardas: mientras la
+ * cuenta no esté habilitada, las pantallas de la app ni siquiera existen en el
+ * árbol de navegación.
+ */
+export function Navegacion() {
+  const estado = usarSesion((s) => s.estado)
+
+  if (estado === 'cargando') {
+    return (
+      <Pantalla>
+        <Cargando texto="Verificando tu cuenta…" />
+      </Pantalla>
+    )
+  }
+
+  return (
+    <NavigationContainer theme={tema}>
+      <Pila.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+        {estado === 'sin_sesion' ? (
+          <Pila.Screen name="Menu" component={PantallaIniciarSesion} />
+        ) : estado !== 'habilitado' ? (
+          <Pila.Screen name="Menu" component={PantallaEstadoCuenta} />
+        ) : (
+          <>
+            <Pila.Screen name="Menu" component={PantallaMenu} />
+            <Pila.Screen name="Envios" component={PantallaEnvios} />
+            <Pila.Screen name="Recorrido" component={PantallaRecorrido} />
+            <Pila.Screen name="DestinoVisitado" component={PantallaDestinoVisitado} />
+            <Pila.Screen name="AgregarDestino" component={PantallaAgregarDestino} />
+            <Pila.Screen name="Historial" component={PantallaHistorial} />
+            <Pila.Screen name="DetalleEnvio" component={PantallaDetalleEnvio} />
+            <Pila.Screen name="Configuracion" component={PantallaConfiguracion} />
+            <Pila.Screen name="EnPreparacion" component={PantallaEnPreparacion} />
+          </>
+        )}
+      </Pila.Navigator>
+    </NavigationContainer>
+  )
+}

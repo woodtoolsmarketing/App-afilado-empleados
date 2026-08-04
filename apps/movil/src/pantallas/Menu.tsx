@@ -1,0 +1,124 @@
+import { colores, espaciado, tipografia } from '@woodtools/compartido'
+import { useQuery } from '@tanstack/react-query'
+import { StyleSheet, Text, View } from 'react-native'
+
+import { BotonMenu } from '../componentes/Botones'
+import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
+import { Encabezado } from '../componentes/Encabezado'
+import { usarSesion } from '../nucleo/sesion'
+import { obtenerResumenDeHoy } from '../servicios/jornada'
+import type { PropsPantalla } from '../navegacion/tipos'
+
+/**
+ * Menú principal.
+ *
+ * Decisión de diseño: se sacó el botón "CONTINUAR" del mockup. Con una lista de
+ * botones grandes, exigir "elegir y después confirmar" duplica los toques sin
+ * aportar nada — y en la calle, con una mano, cada toque cuenta. Cada opción
+ * entra directo.
+ *
+ * Las opciones que todavía no están implementadas se muestran igual, atenuadas
+ * y con la leyenda de cuándo se habilitan, para que el vendedor sepa que la app
+ * va a crecer y no piense que algo se rompió.
+ */
+export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
+  const perfil = usarSesion((s) => s.perfil)
+
+  const { data: resumen } = useQuery({
+    queryKey: ['resumen-hoy', perfil?.id],
+    queryFn: () => obtenerResumenDeHoy(perfil!.id),
+    enabled: !!perfil,
+    refetchOnWindowFocus: true,
+  })
+
+  const pendientes = resumen ? resumen.total_paradas - resumen.visitadas - resumen.no_visitadas : null
+
+  return (
+    <Pantalla>
+      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+
+      <Panel contentStyle={estilos.contenido}>
+        <BarraPanel />
+
+        <Text style={estilos.titulo} accessibilityRole="header">
+          MENÚ
+        </Text>
+
+        <BotonMenu
+          titulo="ENVÍOS"
+          subtitulo={
+            pendientes === null
+              ? undefined
+              : pendientes > 0
+                ? `${pendientes} destino${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'} hoy`
+                : 'Sin destinos pendientes hoy'
+          }
+          alTocar={() => navigation.navigate('Envios')}
+        />
+
+        <BotonMenu
+          titulo="NOTAS DE PEDIDO"
+          subtitulo="Se habilita en el próximo paso"
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Notas de pedido' })}
+          style={estilos.futuro}
+        />
+
+        <BotonMenu
+          titulo="CALENDARIO DE ENVÍOS"
+          subtitulo="Se habilita en el próximo paso"
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Calendario de envíos' })}
+          style={estilos.futuro}
+        />
+
+        <BotonMenu
+          titulo="MAPA DE ENVÍOS"
+          subtitulo="Se habilita en el próximo paso"
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Mapa de envíos' })}
+          style={estilos.futuro}
+        />
+
+        <BotonMenu
+          titulo="COMUNICACIÓN INTERNA"
+          subtitulo="Se habilita en el próximo paso"
+          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Comunicación interna' })}
+          style={estilos.futuro}
+        />
+
+        <BotonMenu
+          titulo="CONFIGURACIÓN"
+          alTocar={() => navigation.navigate('Configuracion')}
+        />
+
+        <View style={estilos.pie}>
+          <Text style={estilos.pieTexto}>WoodTools S.R.L. · Uso interno</Text>
+        </View>
+      </Panel>
+    </Pantalla>
+  )
+}
+
+const estilos = StyleSheet.create({
+  contenido: {
+    gap: espaciado.md,
+  },
+  titulo: {
+    fontFamily: tipografia.familia.titulo,
+    fontSize: tipografia.tamano.xl,
+    color: colores.tinta,
+    textAlign: 'center',
+    letterSpacing: 1,
+    marginBottom: espaciado.xs,
+  },
+  futuro: {
+    opacity: 0.62,
+  },
+  pie: {
+    alignItems: 'center',
+    paddingTop: espaciado.base,
+  },
+  pieTexto: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaTenue,
+  },
+})

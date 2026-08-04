@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Todo el código ejecutable viene del bundle: no se carga ni un script de
+      terceros. Las únicas conexiones salientes son a Supabase (datos y
+      Realtime) y a los servidores de mosaicos del mapa, que llegan como
+      imágenes y no pueden ejecutar nada.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self' data:;"
+    />
+    <title>WoodTools · Panel de administración</title>
+  </head>
+  <body>
+    <div id="raiz"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

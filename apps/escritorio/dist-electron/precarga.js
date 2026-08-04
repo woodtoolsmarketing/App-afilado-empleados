@@ -1,0 +1,1 @@
+"use strict";const e=require("electron");e.contextBridge.exposeInMainWorld("woodtools",{imprimir:()=>e.ipcRenderer.invoke("imprimir"),abrirExterno:r=>e.ipcRenderer.invoke("abrir-externo",r),version:()=>e.ipcRenderer.invoke("version")});

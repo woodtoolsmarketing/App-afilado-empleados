@@ -1,0 +1,387 @@
+import type { Cliente, Direccion, Perfil } from '@woodtools/compartido'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+
+import { supabase } from '../nucleo/supabase'
+
+type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
+
+/** Alta, baja y modificación de la cartera de clientes. */
+export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
+  const cliente = useQueryClient()
+  const [busqueda, setBusqueda] = useState('')
+  const [editando, setEditando] = useState<ClienteConDirecciones | 'nuevo' | null>(null)
+  const [mensaje, setMensaje] = useState<string | null>(null)
+
+  const { data: clientes, isLoading } = useQuery({
+    queryKey: ['clientes'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*, direcciones ( * )')
+        .order('razon_social')
+      if (error) throw error
+      return data as ClienteConDirecciones[]
+    },
+  })
+
+  const { data: vendedores } = useQuery({
+    queryKey: ['vendedores'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('perfiles')
+        .select('id, nombre_completo, codigo_vendedor')
+        .eq('rol', 'vendedor')
+        .eq('estado', 'aprobado')
+        .order('nombre_completo')
+      if (error) throw error
+      return data as Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
+    },
+  })
+
+  const filtrados = useMemo(() => {
+    const t = busqueda.trim().toLowerCase()
+    if (!t) return clientes ?? []
+    return (clientes ?? []).filter((c) =>
+      `${c.codigo} ${c.razon_social} ${c.nombre_fantasia ?? ''} ${c.cuit ?? ''}`
+        .toLowerCase()
+        .includes(t),
+    )
+  }, [clientes, busqueda])
+
+  const alternarActivo = useMutation({
+    mutationFn: async (c: Cliente) => {
+      const { error } = await supabase.from('clientes').update({ activo: !c.activo }).eq('id', c.id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Cliente actualizado.')
+      void cliente.invalidateQueries({ queryKey: ['clientes'] })
+    },
+  })
+
+  return (
+    <>
+      <header className="encabezado-pagina">
+        <div>
+          <h1>Clientes</h1>
+          <p>{clientes?.length ?? 0} clientes en la cartera.</p>
+        </div>
+        <button className="primario" disabled={soloLectura} onClick={() => setEditando('nuevo')}>
+          + Nuevo cliente
+        </button>
+      </header>
+
+      {mensaje && <div className="aviso exito">{mensaje}</div>}
+
+      <div className="tarjeta">
+        <input
+          placeholder="Buscar por código, razón social, nombre de fantasía o CUIT…"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          aria-label="Buscar clientes"
+        />
+      </div>
+
+      <section className="tarjeta">
+        {isLoading ? (
+          <p>Cargando…</p>
+        ) : filtrados.length === 0 ? (
+          <p className="vacio">No hay clientes que coincidan.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente Nº</th>
+                <th>Razón social</th>
+                <th>Contacto</th>
+                <th>Vendedor</th>
+                <th>Direcciones</th>
+                <th>Estado</th>
+                <th style={{ width: 170 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <code>{c.codigo}</code>
+                  </td>
+                  <td>
+                    {c.razon_social}
+                    {c.nombre_fantasia && (
+                      <>
+                        <br />
+                        <small style={{ color: 'var(--tinta-tenue)' }}>{c.nombre_fantasia}</small>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {c.contacto_nombre ?? '—'}
+                    {c.telefono && (
+                      <>
+                        <br />
+                        <small style={{ color: 'var(--tinta-tenue)' }}>{c.telefono}</small>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {vendedores?.find((v) => v.id === c.vendedor_id)?.nombre_completo ?? 'Sin asignar'}
+                  </td>
+                  <td>
+                    {c.direcciones.length === 0 ? (
+                      <span className="pastilla roja">Sin dirección</span>
+                    ) : (
+                      <small>{c.direcciones.find((d) => d.principal)?.direccion_formateada ?? c.direcciones[0].direccion_formateada}</small>
+                    )}
+                  </td>
+                  <td>
+                    <span className={`pastilla ${c.activo ? 'verde' : 'gris'}`}>
+                      {c.activo ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="acciones">
+                      <button className="chico" disabled={soloLectura} onClick={() => setEditando(c)}>
+                        Editar
+                      </button>
+                      <button
+                        className="chico"
+                        disabled={soloLectura}
+                        onClick={() => alternarActivo.mutate(c)}
+                      >
+                        {c.activo ? 'Dar de baja' : 'Reactivar'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {editando && (
+        <FormularioCliente
+          cliente={editando === 'nuevo' ? null : editando}
+          vendedores={vendedores ?? []}
+          alCerrar={() => setEditando(null)}
+          alGuardar={() => {
+            setEditando(null)
+            setMensaje('Cliente guardado.')
+            void cliente.invalidateQueries({ queryKey: ['clientes'] })
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function FormularioCliente({
+  cliente,
+  vendedores,
+  alCerrar,
+  alGuardar,
+}: {
+  cliente: ClienteConDirecciones | null
+  vendedores: Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
+  alCerrar: () => void
+  alGuardar: () => void
+}) {
+  const principal = cliente?.direcciones.find((d) => d.principal) ?? cliente?.direcciones[0]
+
+  const [form, setForm] = useState({
+    codigo: cliente?.codigo ?? '',
+    razon_social: cliente?.razon_social ?? '',
+    nombre_fantasia: cliente?.nombre_fantasia ?? '',
+    cuit: cliente?.cuit ?? '',
+    telefono: cliente?.telefono ?? '',
+    email: cliente?.email ?? '',
+    contacto_nombre: cliente?.contacto_nombre ?? '',
+    vendedor_id: cliente?.vendedor_id ?? '',
+    notas: cliente?.notas ?? '',
+    direccion: principal?.direccion_formateada ?? '',
+    codigo_postal: principal?.codigo_postal ?? '',
+    lat: principal?.lat?.toString() ?? '',
+    lng: principal?.lng?.toString() ?? '',
+  })
+  const [error, setError] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
+
+  function actualizar(campo: keyof typeof form, valor: string) {
+    setForm((f) => ({ ...f, [campo]: valor }))
+  }
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+
+    if (!form.codigo.trim() || !form.razon_social.trim()) {
+      setError('El código de cliente y la razón social son obligatorios.')
+      return
+    }
+    // Sin coordenadas el cliente no se puede meter en un recorrido: la ruta se
+    // calcula sobre lat/lng, no sobre texto.
+    if (form.direccion.trim() && (!form.lat.trim() || !form.lng.trim())) {
+      setError('Si cargás una dirección, poné también la latitud y la longitud.')
+      return
+    }
+
+    setGuardando(true)
+    try {
+      const datos = {
+        codigo: form.codigo.trim(),
+        razon_social: form.razon_social.trim(),
+        nombre_fantasia: form.nombre_fantasia.trim() || null,
+        cuit: form.cuit.trim() || null,
+        telefono: form.telefono.trim() || null,
+        email: form.email.trim() || null,
+        contacto_nombre: form.contacto_nombre.trim() || null,
+        vendedor_id: form.vendedor_id || null,
+        notas: form.notas.trim() || null,
+      }
+
+      const { data: guardado, error: errCliente } = cliente
+        ? await supabase.from('clientes').update(datos).eq('id', cliente.id).select('id').single()
+        : await supabase.from('clientes').insert(datos).select('id').single()
+
+      if (errCliente) throw errCliente
+
+      if (form.direccion.trim()) {
+        const datosDireccion = {
+          cliente_id: guardado.id,
+          direccion_formateada: form.direccion.trim(),
+          codigo_postal: form.codigo_postal.trim() || null,
+          lat: Number(form.lat),
+          lng: Number(form.lng),
+          principal: true,
+          etiqueta: 'Principal',
+        }
+
+        const { error: errDireccion } = principal
+          ? await supabase.from('direcciones').update(datosDireccion).eq('id', principal.id)
+          : await supabase.from('direcciones').insert(datosDireccion)
+
+        if (errDireccion) throw errDireccion
+      }
+
+      alGuardar()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 50,
+        padding: 20,
+      }}
+      onClick={alCerrar}
+    >
+      <form
+        className="tarjeta"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={guardar}
+        style={{ width: 'min(760px, 95vw)', maxHeight: '90vh', overflowY: 'auto', margin: 0 }}
+      >
+        <h2>{cliente ? 'Editar cliente' : 'Nuevo cliente'}</h2>
+
+        {error && <div className="aviso error">{error}</div>}
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="codigo">Cliente Nº *</label>
+            <input id="codigo" value={form.codigo} onChange={(e) => actualizar('codigo', e.target.value)} />
+          </div>
+          <div className="campo" style={{ flex: 3 }}>
+            <label htmlFor="razon">Razón social *</label>
+            <input id="razon" value={form.razon_social} onChange={(e) => actualizar('razon_social', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="fantasia">Nombre de fantasía</label>
+            <input id="fantasia" value={form.nombre_fantasia} onChange={(e) => actualizar('nombre_fantasia', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="cuit">CUIT</label>
+            <input id="cuit" value={form.cuit} onChange={(e) => actualizar('cuit', e.target.value)} placeholder="30-12345678-9" />
+          </div>
+        </div>
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="contacto">Contacto habitual</label>
+            <input id="contacto" value={form.contacto_nombre} onChange={(e) => actualizar('contacto_nombre', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="telefono">Teléfono</label>
+            <input id="telefono" value={form.telefono} onChange={(e) => actualizar('telefono', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="email">Correo</label>
+            <input id="email" type="email" value={form.email} onChange={(e) => actualizar('email', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="campo">
+          <label htmlFor="vendedor">Vendedor a cargo</label>
+          <select id="vendedor" value={form.vendedor_id} onChange={(e) => actualizar('vendedor_id', e.target.value)}>
+            <option value="">Sin asignar</option>
+            {vendedores.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.nombre_completo}
+                {v.codigo_vendedor ? ` (#${v.codigo_vendedor})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <h2 style={{ marginTop: 20 }}>Dirección principal</h2>
+
+        <div className="campo">
+          <label htmlFor="direccion">Dirección</label>
+          <input id="direccion" value={form.direccion} onChange={(e) => actualizar('direccion', e.target.value)} />
+        </div>
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="cp">Código postal</label>
+            <input id="cp" value={form.codigo_postal} onChange={(e) => actualizar('codigo_postal', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="lat">Latitud</label>
+            <input id="lat" value={form.lat} onChange={(e) => actualizar('lat', e.target.value)} placeholder="-34.6037" />
+          </div>
+          <div className="campo">
+            <label htmlFor="lng">Longitud</label>
+            <input id="lng" value={form.lng} onChange={(e) => actualizar('lng', e.target.value)} placeholder="-58.3816" />
+          </div>
+        </div>
+
+        <div className="campo">
+          <label htmlFor="notas">Notas</label>
+          <textarea id="notas" rows={3} value={form.notas} onChange={(e) => actualizar('notas', e.target.value)} />
+        </div>
+
+        <div className="acciones" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+          <button type="button" onClick={alCerrar}>
+            Cancelar
+          </button>
+          <button type="submit" className="primario" disabled={guardando}>
+            {guardando ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
