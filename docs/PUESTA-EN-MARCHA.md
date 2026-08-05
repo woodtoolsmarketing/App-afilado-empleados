@@ -109,6 +109,21 @@ select email, rol, estado, nombre_completo from public.perfiles;
 > Creá **dos** administradores. Si el único pierde el acceso, no queda nadie que
 > pueda aprobar a nadie — ni siquiera a sí mismo.
 
+### Si te dice "Failed to create user: {}"
+
+Ese error vacío lo daba un CHECK mal puesto: `perfiles_vendedor_necesita_codigo`
+exigía código de vendedor a **todo** perfil con rol `vendedor`, pero el trigger
+crea cada alta como `vendedor` + `pendiente` y sin código, porque el código lo
+asigna el administrador recién al aprobar. El CHECK rechazaba el insert, el
+trigger reventaba y el alta en `auth.users` se revertía entera.
+
+No se podía crear **ningún** usuario, ni desde el panel ni desde la app.
+
+Lo arregla `20260805191846_perfiles_codigo_al_aprobar.sql`, que deja la regla
+como el circuito ya la usaba: un vendedor **aprobado** necesita código; uno que
+espera aprobación, no. De paso, `resolver_alta_usuario` ahora avisa con palabras
+en vez de dejar escapar un 23514 crudo al panel.
+
 - [ ] Hecho
 
 ---
@@ -302,6 +317,41 @@ update public.perfiles
 
 > Para sacar lat/lng de una dirección: Google Maps web → clic derecho sobre el
 > punto → el primer renglón del menú son las coordenadas, se copian con un clic.
+
+- [ ] Hecho
+
+---
+
+## 10 bis · La impresora de la oficina
+
+**Ya está cargada para las pruebas: `192.168.1.167`, puerto 631, ruta
+`/ipp/print`.** La leen la app y el probador de la misma fila, así que cambiarla
+no requiere recompilar nada:
+
+```sql
+update public.configuracion
+   set valor = jsonb_build_object('ip', '192.168.1.167', 'puerto', 631, 'ruta', '/ipp/print')
+ where clave = 'impresora_oficina';
+```
+
+Sólo un admin puede modificarla; cualquier usuario habilitado puede leerla.
+
+- [x] Hecho
+
+---
+
+## 10 ter · Probar desde la PC
+
+`npm run probador` arma un HTML suelto que se conecta al mismo Supabase y
+recorre los circuitos sin compilar un APK. Sirve sobre todo al principio: su
+pantalla de **Diagnóstico** dice qué está puesto y qué falta de esta misma
+checklist.
+
+Ojo con un detalle: la PC queda registrada como **un dispositivo más**, sin
+autorizar, y hay que habilitarla en el panel → Usuarios igual que un teléfono.
+Es a propósito — es la forma de probar ese candado sin reinstalar nada.
+
+Detalles en [`herramientas/probador/README.md`](../herramientas/probador/README.md).
 
 - [ ] Hecho
 

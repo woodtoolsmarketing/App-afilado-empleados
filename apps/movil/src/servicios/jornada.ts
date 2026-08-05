@@ -247,7 +247,10 @@ export function rangoDelPeriodo(
       desde.setDate(hasta.getDate() - 7)
       break
     case 'mes':
-      desde.setMonth(hasta.getMonth() - 1)
+      // Días, no meses: `setMonth(mes - 1)` desborda los días 29 a 31. Un 31 de
+      // marzo pedía "31 de febrero" y JavaScript lo normalizaba al 3 de marzo,
+      // así que el vendedor veía dos días de historial en vez de un mes.
+      desde.setDate(hasta.getDate() - 30)
       break
     case 'noventa':
       desde.setDate(hasta.getDate() - 90)

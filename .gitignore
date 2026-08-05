@@ -45,3 +45,12 @@ desktop.ini
 .cache/
 .turbo/
 *.tsbuildinfo
+
+# Render de prueba del talonario (se regenera, no se versiona)
+nota-pedido-prueba.html
+
+# Probador: se genera con `npm run probador` y lleva la config del .env dentro
+herramientas/probador/probador.html
+
+# Bundles de SQL que se regeneran (no se versionan)
+supabase/PENDIENTES.sql

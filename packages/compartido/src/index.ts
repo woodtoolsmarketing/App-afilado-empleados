@@ -1,3 +1,6 @@
 export * from './marca'
+export * from './nota-pedido-impresion'
+export * from './notas-pedido'
+export * from './rol-de-visita-impresion'
 export * from './tipos'
 export * from './validaciones'

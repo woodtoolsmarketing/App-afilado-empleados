@@ -100,7 +100,7 @@ padrón.
 
 > Si preferís que los vendedores **no** puedan crear clientes, o que sigan
 > viendo sólo su cartera, se revierte cambiando dos políticas de RLS en
-> `supabase/migrations/20260803120900_clientes_en_ruta.sql`.
+> `supabase/migrations/20260804140331_clientes_en_ruta.sql`.
 
 ---
 

@@ -1,0 +1,485 @@
+import {
+  colores,
+  espaciado,
+  ETIQUETA_ESTADO_NOTA,
+  ETIQUETA_HERRAMIENTA,
+  ETIQUETA_TIPO_MECHA,
+  ETIQUETA_TIPO_NOTA,
+  ETIQUETA_TIPO_SERVICIO,
+  formatearFechaCorta,
+  formatearHora,
+  formatearPesos,
+  radios,
+  tipografia,
+  type EstadoNotaPedido,
+  type Herramienta,
+  type TipoMecha,
+  type TipoServicio,
+} from '@woodtools/compartido'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, StyleSheet, Text, View } from 'react-native'
+
+import { BotonMenu, BotonSecundario } from '../componentes/Botones'
+import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
+import { Encabezado } from '../componentes/Encabezado'
+import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { imprimirNotas } from '../servicios/impresion'
+import { marcarImpresas, obtenerNota } from '../servicios/notasPedido'
+import type { PropsPantalla } from '../navegacion/tipos'
+
+/**
+ * Detalle de una nota de pedido.
+ *
+ * Muestra lo que quedó registrado y deja imprimirla o guardarla como PDF. Es la
+ * pantalla a la que se llega tanto desde las pendientes como desde el
+ * historial, así que se adapta: una nota ya impresa no ofrece "imprimir" como
+ * acción principal.
+ */
+
+/** Nombres legibles de las medidas guardadas en `detalle`. */
+const ETIQUETA_MEDIDA: Record<string, string> = {
+  diametro_exterior: 'Diámetro exterior',
+  diametro: 'Diámetro',
+  ancho_corte: 'Ancho de corte',
+  largo: 'Largo',
+  ancho: 'Ancho',
+  largo_util: 'Largo útil',
+  espesor: 'Espesor',
+  paso: 'Paso',
+  mano: 'Mano',
+  promocion_detalle: 'Promoción',
+}
+
+interface ItemNota {
+  id: string
+  orden: number
+  servicio: TipoServicio
+  herramienta: Herramienta | null
+  codigo_herramienta: string | null
+  descripcion: string | null
+  cantidad: number
+  cantidad_dientes: number | null
+  precio_unitario: number | null
+  precio_total: number | null
+  codigos_computo: string[]
+  promocion: boolean
+  dientes_rotos: boolean
+  detalle: Record<string, unknown>
+}
+
+export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'DetalleNota'>) {
+  const { notaId } = route.params
+  const cliente = useQueryClient()
+
+  const { data: nota, isLoading } = useQuery({
+    queryKey: ['nota', notaId],
+    queryFn: () => obtenerNota(notaId),
+  })
+
+  const imprimir = useMutation({
+    mutationFn: async (comoPdf: boolean) => {
+      const r = await imprimirNotas({ notaIds: [notaId], comoPdf })
+      if (!comoPdf) await marcarImpresas([notaId])
+      return r
+    },
+    onSuccess: (r, comoPdf) => {
+      void cliente.invalidateQueries()
+      Alert.alert(comoPdf ? 'PDF generado' : 'Enviado a la impresora', r.mensaje)
+    },
+    onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
+  })
+
+  if (isLoading) {
+    return (
+      <Pantalla>
+        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Panel>
+          <Cargando />
+        </Panel>
+      </Pantalla>
+    )
+  }
+
+  if (!nota) {
+    return (
+      <Pantalla>
+        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Panel>
+          <Vacio titulo="No encontramos esa nota" icono="🔍" />
+        </Panel>
+      </Pantalla>
+    )
+  }
+
+  const n = nota as Record<string, any>
+  const items: ItemNota[] = (n.items ?? []).slice().sort((a: ItemNota, b: ItemNota) => a.orden - b.orden)
+  const sinNumero = n.numero === null
+  const estado = n.estado as EstadoNotaPedido
+  const yaImpresa = estado === 'impresa' || estado === 'entregada'
+
+  return (
+    <Pantalla>
+      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+
+      <Panel contentStyle={estilos.contenido}>
+        <BarraPanel
+          alVolver={() => navigation.goBack()}
+          fecha={new Date(n.creado_en)}
+        />
+
+        <TituloPanel>
+          {sinNumero ? 'NOTA DE PEDIDO' : `NOTA DE PEDIDO\nNº ${String(n.numero).padStart(6, '0')}`}
+        </TituloPanel>
+
+        {sinNumero ? (
+          <Aviso tono="atencion" titulo="Todavía sin número">
+            El cliente es nuevo y Administración le tiene que asignar el código. Hasta entonces la
+            nota existe y el trabajo está registrado, pero no es un comprobante numerado.
+          </Aviso>
+        ) : null}
+
+        <View style={estilos.pastillas}>
+          {n.tipo_nota ? (
+            <Pastilla
+              texto={ETIQUETA_TIPO_NOTA[n.tipo_nota as 'factura' | 'presupuesto']}
+              color={n.tipo_nota === 'factura' ? colores.azul : colores.tintaSuave}
+            />
+          ) : null}
+          <Pastilla texto={ETIQUETA_ESTADO_NOTA[estado]} color={colorEstado(estado)} />
+          {(n.servicios ?? []).map((s: TipoServicio) => (
+            <Pastilla key={s} texto={ETIQUETA_TIPO_SERVICIO[s]} color={colores.rojo} />
+          ))}
+        </View>
+
+        {/* ── Cliente ─────────────────────────────────────────────────────── */}
+        <View style={estilos.tarjeta}>
+          <Text style={estilos.tarjetaTitulo}>CLIENTE</Text>
+          <Text style={estilos.cliente}>{n.cliente_nombre}</Text>
+          {n.cliente_codigo ? <Dato etiqueta="Cliente Nº" valor={n.cliente_codigo} /> : null}
+          {n.cliente_cuit ? <Dato etiqueta="CUIT" valor={n.cliente_cuit} /> : null}
+          {n.zona ? <Dato etiqueta="Zona" valor={n.zona} /> : null}
+          <Dato
+            etiqueta="Vendedor"
+            valor={
+              n.vendedor?.codigo_vendedor
+                ? `${n.vendedor.nombre_completo} (#${n.vendedor.codigo_vendedor})`
+                : (n.vendedor?.nombre_completo ?? '—')
+            }
+          />
+        </View>
+
+        {n.datos_cliente ? (
+          <View style={estilos.tarjeta}>
+            <Text style={estilos.tarjetaTitulo}>
+              DATOS DEL CLIENTE {n.datos_cliente_origen === 'voz' ? '🎤' : ''}
+            </Text>
+            <Text style={estilos.texto}>{n.datos_cliente}</Text>
+          </View>
+        ) : null}
+
+        {n.descripcion_herramienta ? (
+          <View style={estilos.tarjeta}>
+            <Text style={estilos.tarjetaTitulo}>
+              DESCRIPCIÓN GENERAL {n.descripcion_herramienta_origen === 'voz' ? '🎤' : ''}
+            </Text>
+            <Text style={estilos.texto}>{n.descripcion_herramienta}</Text>
+          </View>
+        ) : null}
+
+        {/* ── Renglones ───────────────────────────────────────────────────── */}
+        <Text style={estilos.subtitulo}>HERRAMIENTAS</Text>
+
+        {items.map((i) => (
+          <RenglonDetalle key={i.id} item={i} />
+        ))}
+
+        {/* ── Cierre ──────────────────────────────────────────────────────── */}
+        <View style={estilos.tarjeta}>
+          <Dato
+            etiqueta="Fecha de entrega"
+            valor={n.fecha_entrega ? formatearFechaCorta(`${n.fecha_entrega}T12:00:00`) : '—'}
+          />
+          <Dato
+            etiqueta="Tipo de cambio"
+            valor={n.tipo_cambio ? formatearPesos(Number(n.tipo_cambio)) : '—'}
+          />
+          <Dato
+            etiqueta="Emitida"
+            valor={`${formatearFechaCorta(n.creado_en)} a las ${formatearHora(n.creado_en)}`}
+          />
+          {n.total ? (
+            <View style={estilos.totalFila}>
+              <Text style={estilos.totalRotulo}>TOTAL</Text>
+              <Text style={estilos.totalValor}>{formatearPesos(Number(n.total))}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {yaImpresa ? (
+          <Aviso tono="info">
+            {`Ya se imprimió el ${formatearFechaCorta(n.impresa_en ?? n.creado_en)}. Podés volver a imprimirla si hace falta.`}
+          </Aviso>
+        ) : null}
+
+        <BotonMenu
+          titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
+          subtitulo="Original y duplicado"
+          alTocar={() => imprimir.mutate(false)}
+          cargando={imprimir.isPending}
+        />
+
+        <BotonSecundario
+          titulo="Guardar como PDF"
+          alTocar={() => imprimir.mutate(true)}
+          cargando={imprimir.isPending}
+        />
+      </Panel>
+    </Pantalla>
+  )
+}
+
+function RenglonDetalle({ item }: { item: ItemNota }) {
+  const medidas = Object.entries(item.detalle ?? {})
+    .filter(([k, v]) => ETIQUETA_MEDIDA[k] && v !== '' && v !== null)
+    .map(([k, v]) => {
+      // El tipo de mecha se guarda como código; acá se muestra legible.
+      if (k === 'mano') return [ETIQUETA_MEDIDA[k], String(v)] as const
+      return [ETIQUETA_MEDIDA[k], String(v)] as const
+    })
+
+  const tipoMecha = item.detalle?.tipo_mecha as TipoMecha | undefined
+
+  return (
+    <View style={estilos.renglon}>
+      <View style={estilos.renglonCabecera}>
+        <Text style={estilos.renglonNumero}>{item.orden}</Text>
+        <View style={estilos.renglonTitulos}>
+          <Text style={estilos.renglonHerramienta}>
+            {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'VENTA'}
+            {tipoMecha ? ` · ${ETIQUETA_TIPO_MECHA[tipoMecha]}` : ''}
+          </Text>
+          <Text style={estilos.renglonServicio}>
+            {ETIQUETA_TIPO_SERVICIO[item.servicio]} · {item.cantidad} un.
+          </Text>
+        </View>
+      </View>
+
+      {item.codigo_herramienta ? (
+        <Dato etiqueta="Código" valor={item.codigo_herramienta} />
+      ) : null}
+      {item.descripcion ? <Text style={estilos.renglonDesc}>{item.descripcion}</Text> : null}
+
+      {medidas.length > 0 ? (
+        <View style={estilos.medidas}>
+          {medidas.map(([etiqueta, valor]) => (
+            <View key={etiqueta} style={estilos.medida}>
+              <Text style={estilos.medidaEtiqueta}>{etiqueta}</Text>
+              <Text style={estilos.medidaValor}>{valor}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {item.codigos_computo?.length > 0 ? (
+        <View style={estilos.codigos}>
+          {item.codigos_computo.map((c) => (
+            <Pastilla key={c} texto={c} color={colores.verdeOscuro} />
+          ))}
+        </View>
+      ) : null}
+
+      {item.cantidad_dientes ? (
+        <Dato etiqueta="Dientes" valor={String(item.cantidad_dientes)} />
+      ) : null}
+      {item.dientes_rotos ? (
+        <Pastilla texto="CON DIENTES ROTOS" color={colores.ambarOscuro} />
+      ) : null}
+      {item.promocion ? <Pastilla texto="CON PROMOCIÓN" color={colores.azul} /> : null}
+
+      {item.precio_unitario ? (
+        <Dato etiqueta="Precio unitario" valor={formatearPesos(Number(item.precio_unitario))} />
+      ) : null}
+      {item.precio_total ? (
+        <View style={estilos.renglonTotal}>
+          <Text style={estilos.renglonTotalValor}>
+            {formatearPesos(Number(item.precio_total))}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  return (
+    <View style={estilos.dato}>
+      <Text style={estilos.datoEtiqueta}>{etiqueta}</Text>
+      <Text style={estilos.datoValor} numberOfLines={2}>
+        {valor}
+      </Text>
+    </View>
+  )
+}
+
+function colorEstado(estado: EstadoNotaPedido): string {
+  switch (estado) {
+    case 'pendiente_cliente':
+      return colores.ambarOscuro
+    case 'impresa':
+      return colores.azul
+    case 'entregada':
+      return colores.verdeOscuro
+    case 'anulada':
+      return colores.rojoAccion
+    default:
+      return colores.tintaSuave
+  }
+}
+
+const estilos = StyleSheet.create({
+  contenido: { gap: espaciado.md },
+  pastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', justifyContent: 'center' },
+
+  tarjeta: {
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: 2,
+  },
+  tarjetaTitulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.rojo,
+    letterSpacing: 0.8,
+    marginBottom: espaciado.xs,
+  },
+  cliente: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.base,
+    color: colores.tinta,
+    marginBottom: espaciado.xs,
+  },
+  texto: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tinta,
+    lineHeight: tipografia.tamano.sm * tipografia.interlineado.holgado,
+  },
+
+  subtitulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tintaSuave,
+    letterSpacing: 1,
+    marginTop: espaciado.xs,
+  },
+
+  renglon: {
+    backgroundColor: colores.panelClaro,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: espaciado.xs,
+  },
+  renglonCabecera: { flexDirection: 'row', alignItems: 'center', gap: espaciado.md },
+  renglonNumero: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colores.rojo,
+    color: colores.blanco,
+    textAlign: 'center',
+    lineHeight: 32,
+    fontFamily: tipografia.familia.titulo,
+    fontSize: tipografia.tamano.sm,
+    overflow: 'hidden',
+  },
+  renglonTitulos: { flex: 1 },
+  renglonHerramienta: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tinta,
+  },
+  renglonServicio: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  renglonDesc: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+
+  medidas: { flexDirection: 'row', flexWrap: 'wrap', gap: espaciado.sm, marginTop: espaciado.xs },
+  medida: {
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 1,
+    borderColor: colores.panelOscuro,
+    borderRadius: radios.sm,
+    paddingHorizontal: espaciado.sm,
+    paddingVertical: 3,
+  },
+  medidaEtiqueta: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaTenue,
+  },
+  medidaValor: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+
+  codigos: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', marginTop: espaciado.xs },
+
+  renglonTotal: { alignItems: 'flex-end', marginTop: espaciado.xs },
+  renglonTotalValor: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.base,
+    color: colores.verdeOscuro,
+  },
+
+  dato: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: espaciado.md,
+    paddingVertical: 3,
+  },
+  datoEtiqueta: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  datoValor: {
+    flexShrink: 1,
+    textAlign: 'right',
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+
+  totalFila: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 2,
+    borderTopColor: colores.negro,
+    marginTop: espaciado.sm,
+    paddingTop: espaciado.sm,
+  },
+  totalRotulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tinta,
+    letterSpacing: 1,
+  },
+  totalValor: {
+    fontFamily: tipografia.familia.titulo,
+    fontSize: tipografia.tamano.lg,
+    color: colores.tinta,
+  },
+})

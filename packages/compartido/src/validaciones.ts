@@ -120,7 +120,7 @@ export function validarFormularioVisita(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Acepta "1704" y también "B1704ARQ", los dos formatos que usa el Correo. */
-const CODIGO_POSTAL = /^[A-Za-z]?\d{4}([A-Za-z]{3})?$/
+export const CODIGO_POSTAL = /^[A-Za-z]?\d{4}([A-Za-z]{3})?$/
 
 export type CampoDestinoExistente = 'cliente' | 'prioridad'
 

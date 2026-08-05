@@ -75,6 +75,9 @@ export function usarSesion() {
   return {
     ...estado,
     esAdmin: estado.perfil?.rol === 'admin',
+    // Administracion completa precios y asigna codigos de cliente; el admin
+    // puede todo eso ademas de lo suyo.
+    esAdministracion: estado.perfil?.rol === 'admin' || estado.perfil?.rol === 'administracion',
     recargar: cargarPerfil,
     salir: () => supabase.auth.signOut(),
     setError: (error: string | null) => setEstado((e) => ({ ...e, error })),

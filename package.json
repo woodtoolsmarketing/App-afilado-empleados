@@ -14,12 +14,15 @@
     "tipos": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > packages/compartido/src/base-de-datos.ts",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
-    "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial",
+    "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial cotizacion-dolar",
     "secretos": "supabase secrets set --env-file .env",
-    "verificar": "npm run verificar:compartido && npm run verificar:movil && npm run verificar:escritorio",
+    "probador": "node herramientas/probador/construir.mjs",
+    "cargar:catalogo": "node herramientas/cargar-catalogo.cjs",
+    "verificar": "npm run verificar:compartido && npm run verificar:movil && npm run verificar:escritorio && npm run verificar:probador",
     "verificar:compartido": "tsc -p packages/compartido/tsconfig.json --noEmit",
     "verificar:movil": "tsc -p apps/movil/tsconfig.json --noEmit",
-    "verificar:escritorio": "tsc -p apps/escritorio/tsconfig.json --noEmit"
+    "verificar:escritorio": "tsc -p apps/escritorio/tsconfig.json --noEmit",
+    "verificar:probador": "tsc -p herramientas/probador/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "supabase": "^2.111.0",

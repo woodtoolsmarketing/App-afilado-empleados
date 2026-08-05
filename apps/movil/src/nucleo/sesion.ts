@@ -1,4 +1,4 @@
-import type { Perfil } from '@woodtools/compartido'
+import { ETIQUETA_ROL, type Perfil } from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import { create } from 'zustand'
@@ -222,6 +222,6 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 /** Etiqueta que se muestra bajo el nombre: "Vendedor #27". */
 export function etiquetaVendedor(perfil: Perfil | null): string {
   if (!perfil) return ''
-  const rol = perfil.rol === 'vendedor' ? 'Vendedor' : perfil.rol === 'admin' ? 'Administrador' : 'Supervisor'
+  const rol = ETIQUETA_ROL[perfil.rol]
   return perfil.codigo_vendedor ? `${rol} #${perfil.codigo_vendedor}` : rol
 }

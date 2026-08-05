@@ -4,8 +4,8 @@ import {
   formatearDiaHistorial,
   formatearFechaCorta,
   formatearHora,
-  radios,
   tipografia,
+  TOQUE_MINIMO,
 } from '@woodtools/compartido'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { useQuery } from '@tanstack/react-query'
@@ -43,6 +43,14 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
   const [calendario, setCalendario] = useState<'desde' | 'hasta' | null>(null)
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({})
 
+  /**
+   * El primer día arranca abierto, igual que en el historial de notas: entrar y
+   * ver una pila de títulos sin un solo dato no le dice nada al vendedor.
+   * Se resuelve con `??` porque los días llegan después de montar la pantalla y
+   * cambian con el período: lo que se recuerda es lo que el vendedor tocó.
+   */
+  const estaAbierto = (clave: string, indice: number) => abiertos[clave] ?? indice === 0
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['historial', periodo, desde.toDateString(), hasta.toDateString()],
     queryFn: () => obtenerHistorial(periodo, { desde, hasta }),
@@ -59,6 +67,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
 
         <Desplegable<PeriodoHistorial>
           etiqueta="PERIODO"
+          etiquetaCentrada
           valor={periodo}
           items={[
             { valor: 'semana', etiqueta: 'ÚLTIMA SEMANA' },
@@ -114,13 +123,16 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
             icono="📅"
           />
         ) : (
-          data.map((dia) => (
+          data.map((dia, i) => (
             <DiaAcordeon
               key={dia.rol_visita_id}
               dia={dia}
-              abierto={!!abiertos[dia.rol_visita_id]}
+              abierto={estaAbierto(dia.rol_visita_id, i)}
               alAlternar={() =>
-                setAbiertos((a) => ({ ...a, [dia.rol_visita_id]: !a[dia.rol_visita_id] }))
+                setAbiertos((a) => ({
+                  ...a,
+                  [dia.rol_visita_id]: !(a[dia.rol_visita_id] ?? i === 0),
+                }))
               }
               alElegir={(detalle) =>
                 navigation.navigate('DetalleVisita', {
@@ -165,12 +177,10 @@ function DiaAcordeon({
         style={({ pressed }) => [estilos.diaCabecera, pressed && estilos.tocado]}
       >
         <Text style={estilos.diaTitulo}>{formatearDiaHistorial(dia.fecha)}</Text>
-        <View style={estilos.diaResumen}>
-          <Text style={estilos.diaConteo}>
-            {dia.visitadas}/{dia.total_paradas}
-          </Text>
-          <Text style={estilos.flecha}>{abierto ? '▲' : '▼'}</Text>
-        </View>
+        <Text style={estilos.flecha}>{abierto ? '▲' : '▼'}</Text>
+        <Text style={estilos.diaConteo}>
+          {dia.visitadas}/{dia.total_paradas}
+        </Text>
       </Pressable>
 
       {abierto ? (
@@ -230,49 +240,39 @@ const estilos = StyleSheet.create({
   rango: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
 
-  dia: {
-    borderWidth: 2,
-    borderColor: colores.negro,
-    borderRadius: radios.sm,
-    backgroundColor: colores.panelClaro,
-    overflow: 'hidden',
-  },
+  // Mismo acordeón que el historial de notas de pedido: el día es texto suelto
+  // sobre el panel, sin caja. Que las dos pantallas se vean igual era el punto.
+  dia: {},
   diaCabecera: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: espaciado.md,
-    paddingVertical: espaciado.md,
-    minHeight: 62,
+    gap: espaciado.sm,
+    paddingVertical: espaciado.xs,
+    minHeight: TOQUE_MINIMO,
   },
   tocado: { opacity: 0.7 },
   diaTitulo: {
     fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
+    fontSize: tipografia.tamano.xl,
     color: colores.tinta,
     letterSpacing: 0.4,
   },
-  diaResumen: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
+  // El "3/8" se queda: dice cuántas de las planificadas se cumplieron, que es
+  // información que el historial de notas no tiene y no se puede deducir.
   diaConteo: {
     fontFamily: tipografia.familia.fuerte,
     fontSize: tipografia.tamano.sm,
     color: colores.tintaSuave,
+    marginLeft: 'auto',
   },
-  flecha: { fontSize: tipografia.tamano.sm, color: colores.tintaSuave },
+  flecha: { fontSize: tipografia.tamano.lg, color: colores.tintaSuave },
 
-  diaCuerpo: {
-    backgroundColor: colores.campoBlanco,
-    borderTopWidth: 1.5,
-    borderTopColor: colores.negro,
-    paddingVertical: espaciado.xs,
-  },
+  diaCuerpo: { paddingBottom: espaciado.xs },
   renglon: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: espaciado.sm,
-    paddingHorizontal: espaciado.md,
-    paddingVertical: espaciado.sm,
-    minHeight: 52,
+    minHeight: 48,
   },
   punto: { width: 10, height: 10, borderRadius: 5 },
   renglonTexto: {

@@ -314,6 +314,7 @@ function FilaPendiente({
           <select value={rol} onChange={(e) => setRol(e.target.value as RolUsuario)}>
             <option value="vendedor">Vendedor</option>
             <option value="supervisor">Supervisor</option>
+            <option value="administracion">Administración</option>
             <option value="admin">Administrador</option>
           </select>
           <input

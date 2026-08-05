@@ -14,6 +14,17 @@ export type ParametrosApp = {
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   Configuracion: undefined
   EnPreparacion: { modulo: string }
+
+  // ── Notas de pedido (Paso 2) ──────────────────────────────────────────────
+  NotasPedido: undefined
+  /** Al volver de "Generar nuevo cliente" llega el cliente ya creado. */
+  GenerarNota:
+    | { clienteCreadoId?: string; clienteCreadoNombre?: string; clienteCreadoCuit?: string }
+    | undefined
+  NuevoCliente: { nombreInicial?: string; documentoInicial?: string } | undefined
+  NotasPendientes: undefined
+  HistorialNotas: undefined
+  DetalleNota: { notaId: string }
 }
 
 export type PropsPantalla<T extends keyof ParametrosApp> = NativeStackScreenProps<ParametrosApp, T>

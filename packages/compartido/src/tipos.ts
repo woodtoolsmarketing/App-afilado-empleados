@@ -6,7 +6,21 @@
  * y ajustá acá lo que haga falta.
  */
 
-export type RolUsuario = 'vendedor' | 'supervisor' | 'admin'
+/**
+ * · vendedor       → usa la app móvil, ve sólo lo suyo
+ * · supervisor     → ve a todos los vendedores en vivo, no modifica altas
+ * · administracion → ve todas las notas de pedido, asigna códigos de cliente y
+ *                    completa los precios que faltan. No maneja recorridos.
+ * · admin          → control total
+ */
+export type RolUsuario = 'vendedor' | 'supervisor' | 'administracion' | 'admin'
+
+export const ETIQUETA_ROL: Record<RolUsuario, string> = {
+  vendedor: 'Vendedor',
+  supervisor: 'Supervisor',
+  administracion: 'Administración',
+  admin: 'Administrador',
+}
 
 export type EstadoUsuario =
   | 'pendiente'
@@ -31,6 +45,53 @@ export type OrigenParada = 'planificada' | 'agregada_en_ruta'
 export type MotivoNoVisita = 'cliente_ausente' | 'direccion_erronea'
 
 export type OrigenObservacion = 'texto' | 'voz'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notas de pedido (Paso 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TipoServicio =
+  | 'venta'
+  | 'afilado'
+  | 'reparacion'
+  | 'rectificado'
+  | 'hermanado'
+  | 'rebaje'
+  | 'reclamo'
+
+/** El tipo define si la nota impresa lleva el logo: FACTURA sí, PRESUPUESTO no. */
+export type TipoNotaPedido = 'factura' | 'presupuesto'
+
+export type EstadoNotaPedido =
+  /** Cargada para un cliente que todavía no existe: sin número definitivo. */
+  | 'pendiente_cliente'
+  | 'pendiente'
+  | 'impresa'
+  | 'entregada'
+  | 'anulada'
+
+export const ETIQUETA_TIPO_SERVICIO: Record<TipoServicio, string> = {
+  venta: 'VENTA',
+  afilado: 'AFILADO',
+  reparacion: 'REPARACIÓN',
+  rectificado: 'RECTIFICADO',
+  hermanado: 'HERMANADO',
+  rebaje: 'REBAJE',
+  reclamo: 'RECLAMO',
+}
+
+export const ETIQUETA_TIPO_NOTA: Record<TipoNotaPedido, string> = {
+  factura: 'FACTURA',
+  presupuesto: 'PRESUPUESTO',
+}
+
+export const ETIQUETA_ESTADO_NOTA: Record<EstadoNotaPedido, string> = {
+  pendiente_cliente: 'Esperando código de cliente',
+  pendiente: 'Pendiente',
+  impresa: 'Impresa',
+  entregada: 'Entregada',
+  anulada: 'Anulada',
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Etiquetas legibles — se usan en la UI para no repetir strings sueltos
@@ -286,15 +347,23 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
  */
 export type ModoDestino = 'existente' | 'nuevo'
 
-/** Un cliente tal como lo devuelve el buscador, con su dirección principal. */
+/**
+ * Un cliente tal como lo devuelve el buscador, con su dirección principal.
+ *
+ * Trae código, razón social y CUIT juntos porque el encabezado de la nota de
+ * pedido busca por cualquiera de los tres y completa los otros dos.
+ */
 export interface ClienteBuscado {
   cliente_id: string
   codigo: string
   razon_social: string
   nombre_fantasia: string | null
+  cuit: string | null
   contacto_nombre: string | null
   telefono: string | null
+  email: string | null
   provisorio: boolean
+  vendedor_id: string | null
   direccion_id: string | null
   direccion: string | null
   codigo_postal: string | null

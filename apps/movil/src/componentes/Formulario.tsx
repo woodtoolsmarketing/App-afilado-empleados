@@ -30,14 +30,23 @@ export function Etiqueta({
   children,
   sobreRojo = false,
   obligatorio = false,
+  centrada = false,
 }: {
   children: ReactNode
   /** Cuando la etiqueta va sobre el fondo rojo (pantalla de login). */
   sobreRojo?: boolean
   obligatorio?: boolean
+  /** Para los selectores que encabezan una pantalla, como el PERIODO. */
+  centrada?: boolean
 }) {
   return (
-    <Text style={[estilos.etiqueta, sobreRojo && estilos.etiquetaSobreRojo]}>
+    <Text
+      style={[
+        estilos.etiqueta,
+        sobreRojo && estilos.etiquetaSobreRojo,
+        centrada && estilos.etiquetaCentrada,
+      ]}
+    >
       {children}
       {obligatorio ? <Text style={estilos.asterisco}> *</Text> : null}
     </Text>
@@ -210,6 +219,7 @@ export function Desplegable<T extends string>({
   error,
   obligatorio,
   deshabilitado,
+  etiquetaCentrada,
 }: {
   etiqueta?: string
   marcador?: string
@@ -219,30 +229,50 @@ export function Desplegable<T extends string>({
   error?: string | null
   obligatorio?: boolean
   deshabilitado?: boolean
+  /**
+   * Centra el rótulo. Lo usan los dos historiales, donde el PERIODO no es un
+   * campo más de un formulario sino el control que manda en la pantalla.
+   */
+  etiquetaCentrada?: boolean
 }) {
   const [abierto, setAbierto] = useState(false)
   const elegido = items.find((i) => i.valor === valor)
 
   return (
     <View style={estilos.campoContenedor}>
-      {etiqueta ? <Etiqueta obligatorio={obligatorio}>{etiqueta}</Etiqueta> : null}
+      {etiqueta ? (
+        <Etiqueta obligatorio={obligatorio} centrada={etiquetaCentrada}>
+          {etiqueta}
+        </Etiqueta>
+      ) : null}
 
+      {/*
+        El triángulo va FUERA de la caja blanca, como en el mockup, pero DENTRO
+        de lo que se toca: es el gesto más obvio para abrir un desplegable y
+        dejarlo sin toque sería peor que el desvío visual que se corrige.
+
+        Por eso el Pressable es la fila entera —caja + triángulo— y el recuadro
+        pasó a ser un View adentro. El borde rojo del error sigue en la caja,
+        que es lo que el vendedor mira.
+      */}
       <Pressable
         onPress={() => setAbierto(true)}
         disabled={deshabilitado}
         accessibilityRole="button"
         accessibilityLabel={`${etiqueta ?? 'Opción'}: ${elegido?.etiqueta ?? marcador}`}
         style={({ pressed }) => [
-          estilos.campoCaja,
-          estilos.desplegableCaja,
+          estilos.desplegableFila,
           pressed && estilos.filaPresionada,
-          !!error && estilos.campoConError,
           deshabilitado && estilos.deshabilitado,
         ]}
       >
-        <Text style={[estilos.campoTexto, !elegido && estilos.marcador]} numberOfLines={1}>
-          {elegido?.etiqueta ?? marcador}
-        </Text>
+        <View
+          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+        >
+          <Text style={[estilos.campoTexto, !elegido && estilos.marcador]} numberOfLines={1}>
+            {elegido?.etiqueta ?? marcador}
+          </Text>
+        </View>
         <Text style={estilos.flecha}>▼</Text>
       </Pressable>
 
@@ -287,6 +317,7 @@ const estilos = StyleSheet.create({
     fontSize: tipografia.tamano.base,
     color: colores.tinta,
   },
+  etiquetaCentrada: { textAlign: 'center' },
   etiquetaSobreRojo: {
     color: colores.blanco,
     fontSize: tipografia.tamano.xl,
@@ -423,14 +454,20 @@ const estilos = StyleSheet.create({
     opacity: 0.45,
   },
 
+  desplegableFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: TOQUE_MINIMO,
+  },
   desplegableCaja: {
-    justifyContent: 'space-between',
+    flex: 1,
     backgroundColor: colores.campoBlanco,
   },
   flecha: {
-    fontSize: tipografia.tamano.sm,
+    fontSize: tipografia.tamano.xl,
     color: colores.tintaSuave,
-    paddingLeft: espaciado.sm,
+    // Padding y no margen: es lo que le da ancho propio dentro del área táctil.
+    paddingHorizontal: espaciado.sm,
   },
 
   velo: {

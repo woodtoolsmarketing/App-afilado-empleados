@@ -1,5 +1,7 @@
 import type {
+  Cliente,
   ClienteBuscado,
+  FormularioClienteNuevo,
   FormularioDestinoNuevo,
   ParadaCompleta,
   PrioridadParada,
@@ -85,4 +87,47 @@ export async function agregarDestinoClienteNuevo(params: {
   }
 
   return data as ParadaCompleta
+}
+
+/**
+ * Alta de un cliente desde "GENERAR NUEVO CLIENTE".
+ *
+ * Junta todo lo que Administración necesita para darlo de alta en el sistema,
+ * así no tienen que llamar al vendedor para pedirle el CUIT o la dirección.
+ * Nace provisorio: existe y es buscable, pero con código automático.
+ */
+export async function crearClienteProvisorio(
+  form: FormularioClienteNuevo,
+): Promise<Cliente> {
+  // Varios teléfonos en un solo campo, separados con " / ": es como los anota
+  // la oficina en la ficha de papel.
+  const telefonos = form.telefonos
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(' / ')
+
+  const { data, error } = await supabase.rpc('crear_cliente_provisorio', {
+    p_razon_social: form.razon_social.trim(),
+    p_documento: form.documento.trim() || null,
+    p_direccion_formateada: form.direccion.trim() || null,
+    p_codigo_postal: form.codigo_postal.trim() || null,
+    p_lat: form.lat,
+    p_lng: form.lng,
+    p_telefonos: telefonos || null,
+    p_email: form.email.trim() || null,
+    p_nombre_fantasia: form.nombre_fantasia.trim() || null,
+    p_google_place_id: form.google_place_id,
+    p_localidad: form.localidad,
+    p_provincia: form.provincia,
+  })
+
+  if (error) {
+    if (error.code === '23514') throw new Error(error.message)
+    if (error.code === '23505') {
+      throw new Error('Ya existe un cliente con ese código. Probá buscarlo antes de crearlo.')
+    }
+    throw error
+  }
+
+  return data as Cliente
 }

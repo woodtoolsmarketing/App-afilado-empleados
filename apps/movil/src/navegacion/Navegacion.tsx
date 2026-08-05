@@ -8,11 +8,17 @@ import { usarSesion } from '../nucleo/sesion'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
+import { PantallaDetalleNota } from '../pantallas/DetalleNota'
 import { PantallaDetalleVisita } from '../pantallas/DetalleVisita'
 import { PantallaEnPreparacion } from '../pantallas/EnPreparacion'
 import { PantallaVisitas } from '../pantallas/Visitas'
 import { PantallaEstadoCuenta } from '../pantallas/EstadoCuenta'
 import { PantallaHistorial } from '../pantallas/HistorialVisitas'
+import { PantallaGenerarNota } from '../pantallas/GenerarNota'
+import { PantallaHistorialNotas } from '../pantallas/HistorialNotas'
+import { PantallaNotasPedido } from '../pantallas/NotasPedido'
+import { PantallaNuevoCliente } from '../pantallas/NuevoCliente'
+import { PantallaNotasPendientes } from '../pantallas/NotasPendientes'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
@@ -73,6 +79,12 @@ export function Navegacion() {
             <Pila.Screen name="Historial" component={PantallaHistorial} />
             <Pila.Screen name="DetalleVisita" component={PantallaDetalleVisita} />
             <Pila.Screen name="Configuracion" component={PantallaConfiguracion} />
+            <Pila.Screen name="NotasPedido" component={PantallaNotasPedido} />
+            <Pila.Screen name="GenerarNota" component={PantallaGenerarNota} />
+            <Pila.Screen name="NuevoCliente" component={PantallaNuevoCliente} />
+            <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
+            <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
+            <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />
             <Pila.Screen name="EnPreparacion" component={PantallaEnPreparacion} />
           </>
         )}

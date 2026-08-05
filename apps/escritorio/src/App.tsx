@@ -3,9 +3,11 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { supabase } from './nucleo/supabase'
 import { usarSesion } from './nucleo/sesion'
+import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaClientes } from './paginas/Clientes'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
+import { PaginaNotasPedido } from './paginas/NotasPedido'
 import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
 import { PaginaTablero } from './paginas/Tablero'
 import { PaginaUsuarios } from './paginas/Usuarios'
@@ -34,6 +36,14 @@ export function App() {
           <Route path="/" element={<PaginaTablero />} />
           <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
           <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
+          <Route
+            path="/a-confirmar"
+            element={<PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />}
+          />
+          <Route
+            path="/notas"
+            element={<PaginaNotasPedido soloLectura={!sesion.esAdministracion} />}
+          />
           <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
           <Route path="/mapa" element={<PaginaMapaEnVivo />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -70,12 +80,38 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  const { data: sinCliente } = useQuery({
+    queryKey: ['notas-sin-cliente'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('notas_pedido')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente_cliente')
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
+  const { data: aConfirmar } = useQuery({
+    queryKey: ['a-confirmar-total'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('catalogo_articulos')
+        .select('id', { count: 'exact', head: true })
+        .eq('precio_a_confirmar', true)
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
   const enlaces = [
     { a: '/', icono: '▦', texto: 'Tablero' },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
+    { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente },
     { a: '/roles', icono: '▤', texto: 'Roles de visita' },
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
+    { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
   ]
 
   return (

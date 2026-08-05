@@ -7,6 +7,7 @@ import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarSesion } from '../nucleo/sesion'
 import { obtenerResumenDeHoy } from '../servicios/jornada'
+import { notasPendientes as listarNotasPendientes } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -33,6 +34,13 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
 
   const pendientes = resumen ? resumen.total_paradas - resumen.visitadas - resumen.no_visitadas : null
 
+  const { data: notas } = useQuery({
+    queryKey: ['notas-pendientes'],
+    queryFn: listarNotasPendientes,
+    enabled: !!perfil,
+  })
+  const notasPendientes = notas?.length
+
   return (
     <Pantalla>
       <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
@@ -58,9 +66,14 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
 
         <BotonMenu
           titulo="NOTAS DE PEDIDO"
-          subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Notas de pedido' })}
-          style={estilos.futuro}
+          subtitulo={
+            notasPendientes === undefined
+              ? undefined
+              : notasPendientes > 0
+                ? `${notasPendientes} pendiente${notasPendientes === 1 ? '' : 's'}`
+                : 'Sin notas pendientes'
+          }
+          alTocar={() => navigation.navigate('NotasPedido')}
         />
 
         <BotonMenu
