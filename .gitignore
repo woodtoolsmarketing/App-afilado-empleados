@@ -54,3 +54,6 @@ herramientas/probador/probador.html
 
 # Bundles de SQL que se regeneran (no se versionan)
 supabase/PENDIENTES.sql
+
+# ID de dispositivo del probador: se genera una vez y no se versiona
+herramientas/probador/.instalacion-id

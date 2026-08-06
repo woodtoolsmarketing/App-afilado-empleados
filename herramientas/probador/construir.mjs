@@ -13,6 +13,7 @@
  *   node herramientas/probador/construir.mjs
  */
 
+import crypto from 'node:crypto'
 import { build } from 'esbuild'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -65,10 +66,36 @@ if (faltan.length) {
  * La app tampoco las lleva. Cuando necesita dictar o geocodificar llama a una
  * Edge Function, y el secreto se queda del lado del servidor.
  */
+/**
+ * Identidad del "dispositivo" del probador.
+ *
+ * El teléfono guarda su GUID en el Keystore, que sobrevive a todo salvo una
+ * desinstalación. El navegador, abriendo un `file://`, no tiene nada parecido:
+ * el `localStorage` de un archivo local se pierde solo, y cada pérdida generaba
+ * un ID nuevo, un dispositivo nuevo y otra vuelta de "no autorizado". Se
+ * autorizaba una PC que dejaba de existir al rato.
+ *
+ * Así que el ID lo fija el build y vive en un archivo al lado del script. Se
+ * genera una vez, sobrevive a las reconstrucciones, y es el mismo en cualquier
+ * copia del HTML: se autoriza una vez y listo.
+ */
+function instalacionId() {
+  const archivo = path.join(AQUI, '.instalacion-id')
+  if (fs.existsSync(archivo)) {
+    const guardado = fs.readFileSync(archivo, 'utf8').trim()
+    if (guardado) return guardado
+  }
+  const id = crypto.randomUUID()
+  fs.writeFileSync(archivo, `${id}\n`, 'utf8')
+  console.log(`\n  Dispositivo nuevo: ${id}\n  Hay que autorizarlo una vez desde el panel.`)
+  return id
+}
+
 const CONFIG = {
   url: env.SUPABASE_URL,
   anonKey: env.SUPABASE_ANON_KEY,
   dominioUsuario: env.DOMINIO_USUARIO ?? 'woodtools.com.ar',
+  instalacionId: instalacionId(),
 }
 
 /**

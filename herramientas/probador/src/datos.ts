@@ -9,18 +9,26 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
+  agruparParaNotas,
   aNumero,
   FAMILIA_CATALOGO,
   MEDIDA_PARA_CODIGO,
-  totalDeRenglones,
+  totalDelRenglon,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
+  type GrupoNota,
   type Herramienta,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
 
-declare const CONFIG: { url: string; anonKey: string; dominioUsuario: string }
+declare const CONFIG: {
+  url: string
+  anonKey: string
+  dominioUsuario: string
+  /** Lo fija el build y no cambia entre reconstrucciones. Ver construir.mjs. */
+  instalacionId: string
+}
 
 export const supabase: SupabaseClient = createClient(CONFIG.url, CONFIG.anonKey, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'woodtools.probador' },
@@ -42,14 +50,15 @@ export function normalizarUsuario(usuario: string): string {
 // Eso hace que el probador sirva justamente para probar ese circuito.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CLAVE_INSTALACION = 'woodtools.probador.instalacion_id'
-
+/**
+ * El ID lo fija el build, no el navegador.
+ *
+ * Antes se generaba al azar y se guardaba en `localStorage`. Desde un `file://`
+ * eso se pierde solo, y cada pérdida creaba un dispositivo nuevo que había que
+ * volver a autorizar: se autorizaba una PC que dejaba de existir al rato.
+ */
 export function instalacionId(): string {
-  const guardado = localStorage.getItem(CLAVE_INSTALACION)
-  if (guardado) return guardado
-  const id = crypto.randomUUID()
-  localStorage.setItem(CLAVE_INSTALACION, id)
-  return id
+  return CONFIG.instalacionId
 }
 
 export interface EstadoAutorizacion {
@@ -410,6 +419,24 @@ export async function obtenerCotizacion(fecha?: string) {
   return data as { fecha: string; venta: number; aproximada?: boolean }
 }
 
+export interface ArticuloCatalogo {
+  codigo: string
+  descripcion: string
+  medida: string | null
+  precio: number
+  moneda: 'ARS' | 'USD' | null
+  precio_pesos: number | null
+  familia: string | null
+  sin_precio: boolean
+}
+
+/** El mismo buscador del catálogo que usa la app para cotizar una venta. */
+export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
+  const { data, error } = await supabase.rpc('buscar_articulos', { p_texto: texto })
+  if (error) throw error
+  return (data ?? []) as ArticuloCatalogo[]
+}
+
 export async function buscarClientes(texto: string) {
   const { data, error } = await supabase.rpc('buscar_clientes', { p_texto: texto })
   if (error) throw error
@@ -427,7 +454,11 @@ export interface CodigoComputo {
   amplitud: number
 }
 
-export async function resolverCodigoDeItem(item: FormularioItemNota): Promise<CodigoComputo[] | null> {
+export async function resolverCodigoDeItem(
+  item: FormularioItemNota,
+  /** Se pisa para buscar el código de REPARACIÓN de los dientes rotos. */
+  servicio: TipoServicio = item.servicio,
+): Promise<CodigoComputo[] | null> {
   if (!item.herramienta) return null
   const campo = MEDIDA_PARA_CODIGO[item.herramienta]
   if (!campo) return null
@@ -439,6 +470,10 @@ export async function resolverCodigoDeItem(item: FormularioItemNota): Promise<Co
     p_familia: FAMILIA_CATALOGO[item.herramienta as Herramienta],
     p_medida: medida,
     p_dimension: item.herramienta === 'mecha' ? 'diametro' : 'ancho_corte',
+    // Sin esto, a una sierra para AFILAR le salían códigos de REPARACIÓN, y
+    // hasta de otra herramienta: la familia sola no alcanza para elegir.
+    p_servicio: servicio,
+    p_herramienta: item.herramienta,
   })
   if (error) throw error
   return (data ?? []) as CodigoComputo[]
@@ -491,83 +526,130 @@ export interface DatosNuevaNota {
   items: FormularioItemNota[]
   tipoCambio: number
   cotizacionFecha: string
+  /** Renglones de observación, uno por línea de la columna "Observaciones". */
+  observaciones?: string[]
 }
 
-/** Copia fiel de `crearNotaPedido`, incluida la regla del número pendiente. */
-export async function crearNotaPedido(datos: DatosNuevaNota) {
+export interface NotaCreada {
+  id: string
+  numero: number | null
+  estado: string
+  grupo: GrupoNota
+  total: number
+}
+
+/**
+ * Copia fiel de `crearNotaPedido`, incluida la regla del número pendiente y el
+ * reparto en varias notas según cómo se factura cada cosa.
+ */
+export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada[]> {
   const { data: sesion } = await supabase.auth.getSession()
   const vendedorId = sesion.session?.user.id
   if (!vendedorId) throw new Error('No hay sesión')
 
   const enc = datos.encabezado
   const esPendienteCliente = !enc.cliente_id || enc.cliente_provisorio
-  const total = totalDeRenglones(datos.items)
+  const grupos = agruparParaNotas(datos.items, datos.tipoCambio)
+  if (grupos.length === 0) throw new Error('La nota necesita al menos un renglón')
+  const observaciones = (datos.observaciones ?? []).filter((o) => o.trim())
 
-  const { data: nota, error } = await supabase
-    .from('notas_pedido')
-    .insert({
-      vendedor_id: vendedorId,
-      cliente_id: enc.cliente_id,
-      cliente_codigo: enc.cliente_codigo || null,
-      cliente_nombre: enc.cliente_nombre,
-      cliente_cuit: enc.cliente_cuit || null,
-      zona: enc.zona || null,
-      datos_cliente: enc.datos_cliente || null,
-      datos_cliente_origen: enc.datos_cliente_origen,
-      descripcion_herramienta: enc.descripcion_herramienta || null,
-      descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
-      servicios: datos.servicios,
-      tipo_nota: datos.tipoNota,
-      estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
-      fecha_entrega: datos.fechaEntrega,
-      tipo_cambio: datos.tipoCambio,
-      cotizacion_fecha: datos.cotizacionFecha,
-      total: total || null,
-    })
-    .select('id, numero, estado')
-    .single()
+  const creadas: NotaCreada[] = []
 
-  if (error) throw error
+  try {
+    for (const g of grupos) {
+      const { data: nota, error } = await supabase
+        .from('notas_pedido')
+        .insert({
+          vendedor_id: vendedorId,
+          cliente_id: enc.cliente_id,
+          cliente_codigo: enc.cliente_codigo || null,
+          cliente_nombre: enc.cliente_nombre,
+          cliente_cuit: enc.cliente_cuit || null,
+          zona: enc.zona || null,
+          datos_cliente: enc.datos_cliente || null,
+          datos_cliente_origen: enc.datos_cliente_origen,
+          descripcion_herramienta: enc.descripcion_herramienta || null,
+          descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+          servicios: g.servicios,
+          tipo_nota: datos.tipoNota,
+          estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
+          fecha_entrega: datos.fechaEntrega,
+          // El afilado se cobra en pesos: su nota sale sin tipo de cambio.
+          // Con renglones en dólares va igual, que es lo único que permite
+          // convertir el total.
+          tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
+          cotizacion_fecha:
+            g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
+          total: g.total || null,
+          observaciones,
+        })
+        .select('id, numero, estado')
+        .single()
 
-  const items = datos.items.map((i, orden) => ({
-    nota_id: (nota as Record<string, any>).id,
-    orden: orden + 1,
-    servicio: i.servicio,
-    herramienta: i.herramienta,
-    codigo_herramienta: i.codigo_herramienta || null,
-    descripcion: i.descripcion || null,
-    cantidad: Math.max(1, Math.round(aNumero(i.cantidad || i.unidades)) || 1),
-    cantidad_dientes: aNumero(i.cantidad_dientes) || null,
-    precio_unitario: aNumero(i.precio_por_diente || i.precio) || null,
-    precio_total: aNumero(i.precio_total || i.precio) || null,
-    codigos_computo: i.codigos_computo,
-    promocion: i.promocion,
-    dientes_rotos: i.dientes_rotos,
-    detalle: Object.fromEntries(
-      Object.entries({
-        diametro_exterior: i.diametro_exterior,
-        diametro: i.diametro,
-        ancho_corte: i.ancho_corte,
-        largo: i.largo,
-        ancho: i.ancho,
-        largo_util: i.largo_util,
-        espesor: i.espesor,
-        paso: i.paso,
-        tipo_mecha: i.tipo_mecha,
-        mano: i.mano,
-        promocion_detalle: i.promocion_detalle,
-        afilado_reparacion: i.afilado_reparacion,
-      }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
-    ),
-  }))
+      if (error) throw error
+      const notaId = (nota as Record<string, any>).id as string
 
-  const { error: errItems } = await supabase.from('notas_pedido_items').insert(items)
-  if (errItems) {
-    await supabase.from('notas_pedido').delete().eq('id', (nota as Record<string, any>).id)
-    throw errItems
+      const items = g.items.map((i, orden) => ({
+        nota_id: notaId,
+        orden: orden + 1,
+        servicio: i.servicio,
+        herramienta: i.herramienta,
+        codigo_herramienta: i.codigo_herramienta || null,
+        descripcion: i.descripcion || null,
+        cantidad: Math.max(1, Math.round(aNumero(i.cantidad || i.unidades)) || 1),
+        cantidad_dientes: aNumero(i.cantidad_dientes) || null,
+        precio_unitario: aNumero(i.precio_por_diente || i.precio) || null,
+        precio_total: totalDelRenglon(i) || null,
+        moneda: i.servicio === 'venta' ? i.moneda : 'ARS',
+        codigos_computo: i.codigos_computo,
+        promocion: i.promocion,
+        dientes_rotos: i.dientes_rotos,
+        detalle: Object.fromEntries(
+          Object.entries({
+            diametro_exterior: i.diametro_exterior,
+            diametro: i.diametro,
+            ancho_corte: i.ancho_corte,
+            largo: i.largo,
+            ancho: i.ancho,
+            largo_util: i.largo_util,
+            espesor: i.espesor,
+            paso: i.paso,
+            tipo_mecha: i.tipo_mecha,
+            mano: i.mano,
+            promocion_detalle: i.promocion_detalle,
+            afilado_reparacion: i.afilado_reparacion,
+            origen_fresa: i.origen_fresa,
+            dientes_rotos_cantidad: i.dientes_rotos
+              ? aNumero(i.dientes_rotos_cantidad) || null
+              : null,
+            reparar_dientes: i.dientes_rotos ? i.reparar_dientes : null,
+            codigo_reparacion: i.codigo_reparacion,
+            precio_reparacion_unitario: aNumero(i.precio_reparacion_por_diente) || null,
+          }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+        ),
+      }))
+
+      const { error: errItems } = await supabase.from('notas_pedido_items').insert(items)
+      if (errItems) {
+        await supabase.from('notas_pedido').delete().eq('id', notaId)
+        throw errItems
+      }
+
+      creadas.push({
+        ...(nota as { id: string; numero: number | null; estado: string }),
+        grupo: g.grupo,
+        total: g.total,
+      })
+    }
+  } catch (e) {
+    // Media venta cargada es peor que nada: se deshace la tanda entera.
+    if (creadas.length > 0) {
+      await supabase.from('notas_pedido').delete().in('id', creadas.map((n) => n.id))
+    }
+    throw e
   }
 
-  return nota as { id: string; numero: number | null; estado: string }
+  return creadas
 }
 
 export async function crearClienteProvisorio(params: {

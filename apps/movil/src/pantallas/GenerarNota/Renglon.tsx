@@ -1,18 +1,24 @@
 import {
   aNumero,
-  calcularTotalPorDientes,
   CAMPOS_POR_HERRAMIENTA,
   colores,
+  describirRango,
+  dientesAAfilar,
   espaciado,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_TIPO_MECHA,
+  formatearMedida,
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
+  lineasDelRenglon,
   MECHAS_CON_MANO,
+  MEDIDA_PARA_CODIGO,
+  normalizarMedida,
   radios,
   SINGULAR_HERRAMIENTA,
   soloNumeros,
   tipografia,
+  totalDelRenglon,
   type CampoItem,
   type FormularioItemNota,
   type Herramienta,
@@ -25,7 +31,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
-import { resolverCodigoDeItem, type CodigoComputo } from '../../servicios/notasPedido'
+import {
+  medidasDisponibles,
+  resolverCodigoDeItem,
+  type CodigoComputo,
+} from '../../servicios/notasPedido'
 
 /**
  * Un renglón de la nota.
@@ -54,11 +64,48 @@ const ETIQUETAS: Record<CampoItem, string> = {
   tipo_mecha: 'TIPO DE MECHA',
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
+  dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
+  reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO/S DE CÓMPUTO',
   precio_por_diente: 'PRECIO POR DIENTE',
   precio_total: 'PRECIO TOTAL',
 }
+
+/**
+ * Junta los campos numéricos cortos consecutivos de a dos, para que entren en
+ * una fila. Cada elemento del resultado es o un campo suelto o un par.
+ *
+ * Se agrupan sólo los cortos y sólo si son consecutivos: así el orden que
+ * define `CAMPOS_POR_HERRAMIENTA` se mantiene, y en particular el bloque de
+ * códigos sigue cayendo justo después de la medida que lo dispara.
+ */
+function agruparPares(campos: CampoItem[]): Array<CampoItem | [CampoItem, CampoItem]> {
+  const salida: Array<CampoItem | [CampoItem, CampoItem]> = []
+  for (let i = 0; i < campos.length; i++) {
+    const actual = campos[i]
+    const siguiente = campos[i + 1]
+    if (CORTOS.has(actual) && siguiente && CORTOS.has(siguiente)) {
+      salida.push([actual, siguiente])
+      i++
+    } else {
+      salida.push(actual)
+    }
+  }
+  return salida
+}
+
+/** Numéricos de pocos caracteres: entran holgados de a dos por fila. */
+const CORTOS = new Set<CampoItem>([
+  'cantidad', 'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
+  'largo_util', 'espesor', 'paso', 'cantidad_dientes',
+])
+
+/** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
+const MEDIDAS = new Set<CampoItem>([
+  'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
+  'largo_util', 'espesor', 'paso',
+])
 
 /** El rótulo de "cantidad de dientes" cambia según el servicio. */
 function etiquetaDientes(servicio: TipoServicio): string {
@@ -170,34 +217,136 @@ export function PasoRenglon({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [medidaClave, item.herramienta])
 
-  // ── Precio total = precio por diente × cantidad de dientes ──────────────
+  // ── Precio total ─────────────────────────────────────────────────────────
+  //
+  // La cuenta vive en el paquete compartido: dientes × cantidad, menos los
+  // rotos, más la reparación si la pidieron. Acá sólo se refleja el resultado.
   useEffect(() => {
     if (!campos.includes('precio_por_diente') || !campos.includes('cantidad_dientes')) return
-    const total = calcularTotalPorDientes(
-      aNumero(item.precio_por_diente),
-      aNumero(item.cantidad_dientes),
-    )
+    const total = totalDelRenglon(item)
     const actual = aNumero(item.precio_total)
     if (total > 0 && Math.abs(total - actual) > 0.005) {
       alCambiar({ precio_total: String(total) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.precio_por_diente, item.cantidad_dientes, item.herramienta])
+  }, [
+    item.precio_por_diente,
+    item.cantidad_dientes,
+    item.cantidad,
+    item.herramienta,
+    item.dientes_rotos,
+    item.dientes_rotos_cantidad,
+    item.reparar_dientes,
+    item.precio_reparacion_por_diente,
+  ])
+
+  // ── El código de cómputo de la reparación de los dientes rotos ───────────
+  //
+  // Es OTRO código y OTRO precio que el del afilado: mismo ancho de corte,
+  // pero servicio "reparación". Se busca solo apenas contestan que sí, para
+  // que el vendedor no tenga que salir a buscarlo a mano.
+  const [buscandoReparacion, setBuscandoReparacion] = useState(false)
+  const [sinCodigoReparacion, setSinCodigoReparacion] = useState(false)
+
+  useEffect(() => {
+    if (item.reparar_dientes !== true || !item.dientes_rotos) {
+      setSinCodigoReparacion(false)
+      return
+    }
+    let cancelado = false
+    setBuscandoReparacion(true)
+    setSinCodigoReparacion(false)
+
+    void resolverCodigoDeItem(item, 'reparacion')
+      .then((encontrados) => {
+        if (cancelado) return
+        if (!encontrados || encontrados.length === 0) {
+          setSinCodigoReparacion(encontrados !== null)
+          return
+        }
+        const mejor = encontrados[0]
+        if (mejor.codigo === item.codigo_reparacion) return
+        alCambiar({
+          codigo_reparacion: mejor.codigo,
+          precio_reparacion_por_diente:
+            mejor.precio_pesos !== null ? String(mejor.precio_pesos) : '',
+        })
+      })
+      .catch(() => {
+        if (!cancelado) setSinCodigoReparacion(true)
+      })
+      .finally(() => {
+        if (!cancelado) setBuscandoReparacion(false)
+      })
+
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.reparar_dientes, item.dientes_rotos, medidaClave, item.herramienta])
+
+  // ── "¿Qué medidas hay?" ──────────────────────────────────────────────────
+  const [medidas, setMedidas] = useState<CodigoComputo[] | null>(null)
+  const [verMedidas, setVerMedidas] = useState(false)
+
+  useEffect(() => {
+    if (!verMedidas || !item.herramienta || medidas) return
+    void medidasDisponibles(item.herramienta, item.servicio)
+      .then(setMedidas)
+      .catch(() => setMedidas([]))
+  }, [verMedidas, item.herramienta, item.servicio, medidas])
+
+  useEffect(() => {
+    setMedidas(null)
+    setVerMedidas(false)
+  }, [item.herramienta, item.servicio])
+
+  /**
+   * Tocar una medida de la lista carga su piso en el campo correspondiente.
+   * Es la forma corta de "quiero ése": pone una medida que cae dentro del
+   * rango y deja que el buscador haga el resto, en vez de que el vendedor
+   * tenga que deducir qué número tipear.
+   */
+  function aplicarMedidaSugerida(m: CodigoComputo): void {
+    if (!item.herramienta || m.rango_min === null) return
+    const campo = MEDIDA_PARA_CODIGO[item.herramienta]
+    if (!campo) return
+    setVerMedidas(false)
+    alCambiar({
+      [campo]: String(m.rango_min).replace('.', ','),
+      codigos_computo: [],
+    } as Partial<FormularioItemNota>)
+  }
 
   function campoNumerico(campo: CampoItem, etiqueta: string, ancho?: 'tercio' | 'mitad') {
     const valor = (item as unknown as Record<string, string>)[campo] ?? ''
     const esPrecio = campo === 'precio_por_diente' || campo === 'precio_total'
+    const esMedida = MEDIDAS.has(campo)
+
     return (
       <Campo
         key={campo}
         etiqueta={etiqueta}
         obligatorio
         value={valor}
-        onChangeText={(t) => alCambiar({ [campo]: soloNumeros(t) } as Partial<FormularioItemNota>)}
+        onChangeText={(t) =>
+          alCambiar({
+            // Las medidas van con coma: el punto se toma como coma, porque el
+            // teclado numérico de Android da uno u otro según el teléfono y
+            // los dos quieren decir lo mismo.
+            [campo]: esMedida ? normalizarMedida(t) : soloNumeros(t),
+          } as Partial<FormularioItemNota>)
+        }
         keyboardType="decimal-pad"
         error={errores[campo]}
         contenedorStyle={ancho === 'tercio' ? estilos.tercio : ancho === 'mitad' ? estilos.mitad : undefined}
-        ayuda={esPrecio && aNumero(valor) > 0 ? formatearPesos(aNumero(valor)) : undefined}
+        ayuda={
+          esPrecio && aNumero(valor) > 0
+            ? formatearPesos(aNumero(valor))
+            : esMedida && aNumero(valor) > 0
+              ? formatearMedida(valor)
+              : undefined
+        }
       />
     )
   }
@@ -241,8 +390,18 @@ export function PasoRenglon({
         />
       ) : null}
 
-      {/* Campos propios de la herramienta */}
-      {campos.map((campo) => {
+      {/* Campos propios de la herramienta.
+          Los numéricos cortos se agrupan de a dos por fila (ver `agruparPares`):
+          una medida son cinco caracteres y ocupaba el ancho entero de la
+          pantalla, que es la mitad del scroll que había que hacer. */}
+      {agruparPares(campos).map((campo) => {
+        if (Array.isArray(campo)) {
+          return (
+            <View key={campo.join('+')} style={estilos.par}>
+              {campo.map((c) => campoNumerico(c, ETIQUETAS[c], 'tercio'))}
+            </View>
+          )
+        }
         if (campo === 'tipo_mecha') return null
 
         if (campo === 'cantidad') {
@@ -254,7 +413,31 @@ export function PasoRenglon({
         }
 
         if (campo === 'cantidad_dientes') {
-          return campoNumerico(campo, etiquetaDientes(item.servicio), 'mitad')
+          // Los dientes se cargan POR herramienta. Lo que se computa y se cobra
+          // es el total, así que si hay más de una se muestra la cuenta hecha:
+          // que el vendedor la vea antes de firmar, no después.
+          const porHerramienta = aNumero(item.cantidad_dientes)
+          const unidades = aNumero(item.cantidad)
+          const totalDientes = porHerramienta * unidades
+          const rotos = item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0
+          const aAfilar = dientesAAfilar(item)
+
+          return (
+            <View key={campo}>
+              {campoNumerico(campo, etiquetaDientes(item.servicio), 'mitad')}
+              {unidades > 1 && totalDientes > 0 ? (
+                <Text style={estilos.totalDientes}>
+                  {`${unidades} × ${porHerramienta} = ${totalDientes} dientes en total`}
+                </Text>
+              ) : null}
+              {/* Los rotos no se afilan: la cuenta que se cobra es ésta. */}
+              {rotos > 0 && totalDientes > 0 ? (
+                <Text style={estilos.totalDientes}>
+                  {`${totalDientes} − ${rotos} rotos = ${aAfilar} dientes a afilar`}
+                </Text>
+              ) : null}
+            </View>
+          )
         }
 
         if (campo === 'descripcion') {
@@ -294,15 +477,128 @@ export function PasoRenglon({
           )
         }
 
-        if (campo === 'dientes_rotos' || campo === 'afilado_reparacion') {
-          const valor = campo === 'dientes_rotos' ? item.dientes_rotos : item.afilado_reparacion
+        if (campo === 'afilado_reparacion') {
           return (
             <Casilla
               key={campo}
               etiqueta={etiquetaSiNo(campo, item.servicio)}
-              valor={valor}
-              alCambiar={(v) => alCambiar({ [campo]: v } as Partial<FormularioItemNota>)}
+              valor={item.afilado_reparacion}
+              alCambiar={(v) => alCambiar({ afilado_reparacion: v })}
             />
+          )
+        }
+
+        if (campo === 'dientes_rotos') {
+          return (
+            <Casilla
+              key={campo}
+              etiqueta={etiquetaSiNo(campo, item.servicio)}
+              valor={item.dientes_rotos}
+              alCambiar={(v) =>
+                alCambiar(
+                  // Destildar borra todo lo que colgaba de ahí: dejar una
+                  // cantidad de rotos escondida descontaría dientes que nadie
+                  // volvió a mirar.
+                  v
+                    ? { dientes_rotos: true }
+                    : {
+                        dientes_rotos: false,
+                        dientes_rotos_cantidad: '',
+                        reparar_dientes: null,
+                        codigo_reparacion: '',
+                        precio_reparacion_por_diente: '',
+                      },
+                )
+              }
+            />
+          )
+        }
+
+        if (campo === 'dientes_rotos_cantidad') {
+          if (!item.dientes_rotos) return null
+          return (
+            <Campo
+              key={campo}
+              etiqueta={ETIQUETAS[campo]}
+              obligatorio
+              value={item.dientes_rotos_cantidad}
+              // Sólo números enteros: medio diente roto no existe.
+              onChangeText={(t) => alCambiar({ dientes_rotos_cantidad: t.replace(/\D/g, '') })}
+              keyboardType="number-pad"
+              contenedorStyle={estilos.mitad}
+              error={errores.dientes_rotos_cantidad}
+              ayuda="Se descuentan de los dientes a afilar."
+            />
+          )
+        }
+
+        if (campo === 'reparar_dientes') {
+          if (!item.dientes_rotos) return null
+          const linea = lineasDelRenglon(item).find((l) => l.concepto === 'reparacion')
+
+          return (
+            <View key={campo} style={estilos.bloqueRotos}>
+              {/*
+                Sin valor por defecto a propósito: la respuesta cambia el
+                precio, así que un "no" silencioso sería cobrarle de menos al
+                cliente sin que nadie lo haya decidido.
+              */}
+              <Desplegable<'si' | 'no'>
+                etiqueta={ETIQUETAS[campo]}
+                obligatorio
+                marcador="Contestá sí o no"
+                valor={item.reparar_dientes === null ? null : item.reparar_dientes ? 'si' : 'no'}
+                items={[
+                  {
+                    valor: 'si',
+                    etiqueta: 'SÍ, REPARARLOS',
+                    descripcion: 'Se cobra aparte, con el código de reparación',
+                  },
+                  {
+                    valor: 'no',
+                    etiqueta: 'NO',
+                    descripcion: 'Sólo se descuentan de los dientes a afilar',
+                  },
+                ]}
+                alCambiar={(v) =>
+                  alCambiar(
+                    v === 'si'
+                      ? { reparar_dientes: true }
+                      : {
+                          reparar_dientes: false,
+                          codigo_reparacion: '',
+                          precio_reparacion_por_diente: '',
+                        },
+                  )
+                }
+                error={errores.reparar_dientes}
+              />
+
+              {buscandoReparacion ? (
+                <View style={estilos.buscando}>
+                  <ActivityIndicator size="small" color={colores.rojo} />
+                  <Text style={estilos.buscandoTexto}>Buscando el código de reparación…</Text>
+                </View>
+              ) : null}
+
+              {linea ? (
+                <View style={estilos.lineaRotos}>
+                  <Pastilla texto={linea.codigo || 'sin código'} color={colores.ambarOscuro} />
+                  <Text style={estilos.lineaRotosTexto}>
+                    {`${linea.cantidad} × ${formatearPesos(linea.precioUnitario)} = ${formatearPesos(linea.total)}`}
+                  </Text>
+                </View>
+              ) : null}
+
+              {sinCodigoReparacion ? (
+                <Aviso tono="atencion" titulo="Sin código de reparación">
+                  El catálogo no tiene un código de reparación para esa medida. Cargalo a mano o
+                  consultá con Administración.
+                </Aviso>
+              ) : null}
+
+              <MensajeError>{errores.codigo_reparacion}</MensajeError>
+            </View>
           )
         }
 
@@ -353,6 +649,11 @@ export function PasoRenglon({
                       >
                         <View style={estilos.opcionFila}>
                           <Text style={estilos.opcionCodigo}>{c.codigo}</Text>
+                          {/* El rango va al lado del código: es lo que explica
+                              por qué ése y no otro. */}
+                          <Text style={estilos.opcionRango}>
+                            {describirRango(c.rango_min, c.rango_max)}
+                          </Text>
                           <Text style={estilos.opcionPrecio}>
                             {c.precio_pesos !== null ? formatearPesos(Number(c.precio_pesos)) : '—'}
                           </Text>
@@ -380,9 +681,59 @@ export function PasoRenglon({
 
               {sinCodigo ? (
                 <Aviso tono="atencion">
-                  No hay ningún código que cubra esa medida. Revisá el valor, o cargalo a mano si el
-                  trabajo es especial.
+                  No hay ningún código que cubra esa medida. Mirá abajo qué medidas tiene cargadas
+                  el catálogo.
                 </Aviso>
+              ) : null}
+
+              {/* La lista de medidas disponibles: la respuesta a "¿y entonces
+                  qué medidas hay?", que antes se contestaba probando números. */}
+              <Pressable
+                onPress={() => setVerMedidas((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: verMedidas }}
+                style={estilos.verMedidas}
+              >
+                <Text style={estilos.verMedidasTexto}>
+                  {verMedidas ? '▲' : '▼'}  ¿Qué medidas hay para{' '}
+                  {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'esta herramienta'}?
+                </Text>
+              </Pressable>
+
+              {verMedidas ? (
+                medidas === null ? (
+                  <View style={estilos.buscando}>
+                    <ActivityIndicator size="small" color={colores.rojo} />
+                    <Text style={estilos.buscandoTexto}>Buscando…</Text>
+                  </View>
+                ) : medidas.length === 0 ? (
+                  <Aviso tono="atencion">
+                    Esta herramienta no tiene medidas cargadas en el catálogo: sus precios van por
+                    modelo, no por rango. Buscá el código por descripción.
+                  </Aviso>
+                ) : (
+                  <View style={estilos.opciones}>
+                    {medidas.map((m) => (
+                      <Pressable
+                        key={m.codigo}
+                        onPress={() => aplicarMedidaSugerida(m)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Usar ${m.codigo}, ${describirRango(m.rango_min, m.rango_max)}`}
+                        style={({ pressed }) => [estilos.opcion, pressed && estilos.tocado]}
+                      >
+                        <View style={estilos.opcionFila}>
+                          <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
+                          <Text style={estilos.opcionRango}>
+                            {describirRango(m.rango_min, m.rango_max)}
+                          </Text>
+                        </View>
+                        <Text style={estilos.opcionDesc} numberOfLines={1}>
+                          {m.descripcion}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )
               ) : null}
 
               <MensajeError>{errores.codigos_computo}</MensajeError>
@@ -415,8 +766,41 @@ function rotuloServicio(s: TipoServicio): string {
 }
 
 const estilos = StyleSheet.create({
-  tercio: { maxWidth: 190 },
-  mitad: { maxWidth: 240 },
+  // Los campos cortos van de a dos por fila: una medida ocupa cinco caracteres
+  // y antes se comía el ancho entero, obligando a scrollear por nada.
+  par: { flexDirection: 'row', gap: espaciado.sm },
+  tercio: { flex: 1 },
+  mitad: { flex: 1 },
+
+  totalDientes: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.verdeOscuro,
+    marginTop: -espaciado.xs,
+  },
+
+  bloqueRotos: { gap: espaciado.xs },
+  lineaRotos: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm, flexWrap: 'wrap' },
+  lineaRotosTexto: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.ambarOscuro,
+  },
+
+  verMedidas: { paddingVertical: espaciado.sm },
+  verMedidasTexto: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.rojo,
+    textDecorationLine: 'underline',
+  },
+  opcionRango: {
+    flex: 1,
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaSuave,
+    textAlign: 'center',
+  },
 
   herramientaFija: {
     backgroundColor: colores.panelClaro,

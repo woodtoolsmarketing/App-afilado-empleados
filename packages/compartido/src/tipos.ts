@@ -369,6 +369,9 @@ export interface ClienteBuscado {
   codigo_postal: string | null
   lat: number | null
   lng: number | null
+  /** De la dirección principal. Con esto la nota le asigna la zona sola. */
+  localidad: string | null
+  provincia: string | null
 }
 
 /** Formulario "AGREGAR NUEVO DESTINO → Cliente existente" */

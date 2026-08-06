@@ -17,14 +17,27 @@ export type ParametrosApp = {
 
   // ── Notas de pedido (Paso 2) ──────────────────────────────────────────────
   NotasPedido: undefined
-  /** Al volver de "Generar nuevo cliente" llega el cliente ya creado. */
+  /**
+   * Al volver de "Generar nuevo cliente" llega el cliente ya creado. La
+   * localidad y la provincia vienen para que la nota le asigne la zona sola,
+   * igual que cuando el cliente ya existía.
+   */
   GenerarNota:
-    | { clienteCreadoId?: string; clienteCreadoNombre?: string; clienteCreadoCuit?: string }
+    | {
+        clienteCreadoId?: string
+        clienteCreadoNombre?: string
+        clienteCreadoCuit?: string
+        clienteCreadoLocalidad?: string
+        clienteCreadoProvincia?: string
+        clienteCreadoDireccion?: string
+      }
     | undefined
   NuevoCliente: { nombreInicial?: string; documentoInicial?: string } | undefined
   NotasPendientes: undefined
   HistorialNotas: undefined
   DetalleNota: { notaId: string }
+  /** Lo que va a salir en papel, antes de mandarlo a la impresora. */
+  VistaPrevia: { notaIds: string[]; incluirRolDeVisita?: boolean }
 }
 
 export type PropsPantalla<T extends keyof ParametrosApp> = NativeStackScreenProps<ParametrosApp, T>

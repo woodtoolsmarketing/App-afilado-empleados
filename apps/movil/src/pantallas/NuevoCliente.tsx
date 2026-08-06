@@ -146,6 +146,11 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
                 clienteCreadoId: nuevo.id,
                 clienteCreadoNombre: nuevo.razon_social,
                 clienteCreadoCuit: nuevo.cuit ?? '',
+                // La ubicación viaja para que la nota le asigne la zona sola,
+                // igual que cuando el cliente ya existía.
+                clienteCreadoLocalidad: form.localidad ?? undefined,
+                clienteCreadoProvincia: form.provincia ?? undefined,
+                clienteCreadoDireccion: form.direccion || undefined,
               }),
           },
         ],

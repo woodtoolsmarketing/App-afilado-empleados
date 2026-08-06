@@ -1,11 +1,17 @@
 import {
+  agruparParaNotas,
   aNumero,
   colores,
+  DESCRIPCION_GRUPO_NOTA,
   ENCABEZADO_VACIO,
   espaciado,
+  ETIQUETA_GRUPO_NOTA,
+  ETIQUETA_HERRAMIENTA,
+  ETIQUETA_ORIGEN_FRESA,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
   formatearFechaCorta,
+  formatearMoneda,
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
@@ -16,12 +22,15 @@ import {
   SUMAR_OTRA,
   tipografia,
   totalDeRenglones,
+  totalDelRenglon,
+  totalDelRenglonEnPesos,
   validarEncabezadoNota,
   validarItemNota,
   validarRenglones,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type Herramienta,
+  type OrigenFresa,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -45,6 +54,7 @@ import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
 import { usarSesion, etiquetaVendedor } from '../../nucleo/sesion'
 import { crearNotaPedido, obtenerCotizacion } from '../../servicios/notasPedido'
+import { BuscadorArticulo } from './BuscadorArticulo'
 import { PasoEncabezado } from './Encabezado'
 import { PasoRenglon } from './Renglon'
 import type { PropsPantalla } from '../../navegacion/tipos'
@@ -83,12 +93,40 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [activo, setActivo] = useState(0)
   const [errores, setErrores] = useState<Record<string, string | undefined>>({})
   const [intentado, setIntentado] = useState(false)
+  const [seleccionandoHerramientas, setSeleccionandoHerramientas] = useState(false)
+  const [herramientasElegidas, setHerramientasElegidas] = useState<Herramienta[]>([])
+  /**
+   * Las observaciones van a la columna "Observaciones" del talonario, que hasta
+   * ahora salía siempre vacía. Se cargan de a una porque el papel las reparte
+   * por renglón: una observación por fila.
+   */
+  const [observaciones, setObservaciones] = useState<string[]>([])
+  const [observacionNueva, setObservacionNueva] = useState('')
+
+  function agregarObservacion() {
+    const texto = observacionNueva.trim()
+    if (!texto) return
+    setObservaciones((o) => [...o, texto])
+    setObservacionNueva('')
+  }
 
   const renglon = items[activo] ?? items[0]
 
   // Al volver de "Generar nuevo cliente" se completa el encabezado solo: el
   // vendedor no tiene que volver a buscar lo que acaba de crear.
   const creadoId = route.params?.clienteCreadoId
+  /**
+   * La ubicación del cliente recién creado, para que el encabezado le asigne
+   * la zona. Se guarda en estado porque los parámetros de ruta se limpian
+   * enseguida —si no, volver a esta pantalla revive el alta— y la asignación
+   * tiene que sobrevivir a esa limpieza.
+   */
+  const [ubicacionNueva, setUbicacionNueva] = useState<{
+    localidad?: string | null
+    provincia?: string | null
+    direccion?: string | null
+  } | null>(null)
+
   useEffect(() => {
     if (!creadoId) return
     setEncabezado((e) => ({
@@ -100,6 +138,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       cliente_nuevo: false,
       cliente_provisorio: true,
     }))
+    setUbicacionNueva({
+      localidad: route.params?.clienteCreadoLocalidad ?? null,
+      provincia: route.params?.clienteCreadoProvincia ?? null,
+      direccion: route.params?.clienteCreadoDireccion ?? null,
+    })
     navigation.setParams({ clienteCreadoId: undefined })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creadoId])
@@ -168,15 +211,72 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * medio cargar termina en una nota que no se puede crear y en un vendedor
    * buscando cuál de los seis le falta.
    */
-  function sumarRenglon(herramienta: Herramienta | null) {
+  function sumarRenglon(herramienta: Herramienta | null, servicio = renglon.servicio) {
     setIntentado(true)
     const { valido, errores: e } = validarItemNota(renglon)
     setErrores(e as Record<string, string | undefined>)
     if (!valido) return
 
-    const nuevos = [...items, renglonNuevo(renglon.servicio, herramienta)]
+    const nuevos = [...items, renglonNuevo(servicio, herramienta)]
     setItems(nuevos)
     setActivo(nuevos.length - 1)
+    setIntentado(false)
+    setErrores({})
+  }
+
+  /**
+   * "No todas son de la misma medida."
+   *
+   * Parte el renglón en dos: quedan las mismas herramientas en total, pero cada
+   * grupo con su medida, su código de cómputo y su precio. Es la única forma de
+   * cotizar bien dos anchos distintos, porque el código sale del ancho.
+   *
+   * Se separa de a uno: para tres medidas distintas, se vuelve a tocar. Repartir
+   * automáticamente en N grupos iguales sería adivinar cuántas van en cada uno.
+   */
+  function separarPorMedida() {
+    const actual = renglon
+    const total = Math.max(2, Math.round(aNumero(actual.cantidad)))
+
+    const grupo1 = { ...actual, cantidad: String(total - 1) }
+    const grupo2: FormularioItemNota = {
+      ...actual,
+      cantidad: '1',
+      // La medida y todo lo que dependa de ella se limpian: son las que van a
+      // ser distintas, y dejarlas copiadas invita a olvidarse de cambiarlas.
+      diametro_exterior: '',
+      diametro: '',
+      ancho_corte: '',
+      largo: '',
+      ancho: '',
+      largo_util: '',
+      espesor: '',
+      paso: '',
+      cantidad_dientes: '',
+      codigos_computo: [],
+      precio_por_diente: '',
+      precio_total: '',
+    }
+
+    const nuevos = [...items]
+    nuevos.splice(activo, 1, grupo1, grupo2)
+    setItems(nuevos)
+    setActivo(activo + 1)
+    setIntentado(false)
+    setErrores({})
+  }
+
+  /** Agrega un renglón por cada herramienta marcada en la lista múltiple. */
+  function agregarHerramientasElegidas() {
+    if (herramientasElegidas.length === 0) return
+    const nuevos = [
+      ...items,
+      ...herramientasElegidas.map((hta) => renglonNuevo(renglon.servicio, hta)),
+    ]
+    setItems(nuevos)
+    setActivo(items.length)
+    setHerramientasElegidas([])
+    setSeleccionandoHerramientas(false)
     setIntentado(false)
     setErrores({})
   }
@@ -230,17 +330,37 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         items,
         tipoCambio: cotizacion.venta,
         cotizacionFecha: cotizacion.fecha,
+        observaciones,
       })
     },
-    onSuccess: async (nota) => {
+    onSuccess: async (notas) => {
       await cliente.invalidateQueries()
-      const sinNumero = nota.numero === null
+
+      // Puede haber salido más de una: afilado y venta no van en el mismo
+      // comprobante. Se dice cuáles son y con qué número quedó cada una.
+      const detalle = notas
+        .map((n) => {
+          const numero = n.numero === null ? 'sin número todavía' : `Nº ${String(n.numero).padStart(6, '0')}`
+          return `· ${ETIQUETA_GRUPO_NOTA[n.grupo]} — ${numero} — ${formatearPesos(n.total)}`
+        })
+        .join('\n')
+
+      const sinNumero = notas.some((n) => n.numero === null)
+      const aviso = sinNumero
+        ? '\n\nEl cliente todavía no tiene código, así que quedan esperando que Administración se lo asigne. El trabajo ya está registrado.'
+        : ''
+
       Alert.alert(
-        sinNumero ? 'Nota guardada, sin número todavía' : 'Nota de pedido creada',
-        sinNumero
-          ? 'El cliente es nuevo, así que la nota queda esperando que Administración le asigne el código. El trabajo ya quedó registrado.'
-          : `Quedó como Nº ${String(nota.numero).padStart(6, '0')}.`,
-        [{ text: 'Listo', onPress: () => navigation.navigate('NotasPedido') }],
+        notas.length === 1 ? 'Nota de pedido creada' : `Se crearon ${notas.length} notas de pedido`,
+        `${detalle}${aviso}`,
+        [
+          {
+            text: 'Ver antes de imprimir',
+            onPress: () =>
+              navigation.navigate('VistaPrevia', { notaIds: notas.map((n) => n.id) }),
+          },
+          { text: 'Listo', onPress: () => navigation.navigate('NotasPedido') },
+        ],
       )
     },
     onError: (e: Error) => Alert.alert('No pudimos crear la nota', e.message),
@@ -259,7 +379,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     guardar.mutate()
   }
 
-  const totalNota = totalDeRenglones(items)
+  const tipoCambio = cotizacion?.venta ?? 0
+  const totalNota = totalDeRenglones(items, tipoCambio)
+  // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
+  // que hay cargado, para poder avisarlo antes de crear y no después.
+  const grupos = agruparParaNotas(items, tipoCambio)
 
   return (
     <Pantalla>
@@ -301,6 +425,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   })
                 }
                 errores={errores}
+                ubicacionInicial={ubicacionNueva}
               />
 
               <Desplegable<TipoNotaPedido>
@@ -412,6 +537,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   item={renglon}
                   alCambiar={cambiarItem}
                   errores={errores}
+                  tipoCambio={cotizacion?.venta ?? 0}
                 />
               ) : (
                 <PasoRenglon
@@ -421,6 +547,30 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   errores={errores}
                 />
               )}
+
+              {/* ── Cómo se va a repartir en notas ──────────────────────────
+                  El afilado se cobra en pesos y la venta se cotiza en dólares:
+                  no pueden ir en el mismo comprobante. Se muestra antes de
+                  crear para que no sea una sorpresa al final. */}
+              {grupos.length > 1 ? (
+                <View style={estilos.grupos}>
+                  <Text style={estilos.gruposTitulo}>
+                    ESTO SALE EN {grupos.length} NOTAS DE PEDIDO
+                  </Text>
+                  {grupos.map((g) => (
+                    <View key={g.grupo} style={estilos.grupo}>
+                      <View style={estilos.grupoFila}>
+                        <Text style={estilos.grupoNombre}>{ETIQUETA_GRUPO_NOTA[g.grupo]}</Text>
+                        <Text style={estilos.grupoTotal}>{formatearPesos(g.total)}</Text>
+                      </View>
+                      <Text style={estilos.grupoDetalle}>
+                        {g.items.length} {g.items.length === 1 ? 'renglón' : 'renglones'} ·{' '}
+                        {DESCRIPCION_GRUPO_NOTA[g.grupo]}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
 
               {/* El tipo de cambio no se tipea: se trae y se congela en la nota. */}
               <View style={estilos.cambio}>
@@ -450,18 +600,109 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 />
               ) : (
                 <>
+                  {/*
+                    Varias herramientas de la misma medida entran en un renglón.
+                    Medidas distintas, no: cada ancho da un código de cómputo y
+                    un precio distintos, así que separarlas es lo único que
+                    puede cotizar bien. El botón hace esa separación.
+                  */}
+                  {aNumero(renglon.cantidad) > 1 && renglon.herramienta ? (
+                    <BotonSecundario
+                      titulo={`⊘  SEPARAR: NO TODAS SON DE LA MISMA MEDIDA`}
+                      alTocar={separarPorMedida}
+                    />
+                  ) : null}
+
                   {renglon.herramienta ? (
                     <BotonSecundario
                       titulo={`⊕  ${SUMAR_OTRA[renglon.herramienta]}`}
                       alTocar={() => sumarRenglon(renglon.herramienta)}
                     />
                   ) : null}
+
                   <BotonSecundario
-                    titulo="⊕  AGREGAR OTRA HERRAMIENTA"
-                    alTocar={() => sumarRenglon(null)}
+                    titulo={
+                      seleccionandoHerramientas
+                        ? '▲  CERRAR LA LISTA'
+                        : '⊕  AGREGAR OTRAS HERRAMIENTAS'
+                    }
+                    alTocar={() => setSeleccionandoHerramientas((v) => !v)}
                   />
+
+                  {seleccionandoHerramientas ? (
+                    <View style={estilos.multiple}>
+                      <Text style={estilos.multipleTitulo}>
+                        Marcá todas las que traiga el cliente. Se agrega un renglón por cada una.
+                      </Text>
+                      {HERRAMIENTAS_POR_SERVICIO[renglon.servicio].map((hta) => (
+                        <Casilla
+                          key={hta}
+                          etiqueta={ETIQUETA_HERRAMIENTA[hta]}
+                          valor={herramientasElegidas.includes(hta)}
+                          alCambiar={(v) =>
+                            setHerramientasElegidas((prev) =>
+                              v ? [...prev, hta] : prev.filter((x) => x !== hta),
+                            )
+                          }
+                        />
+                      ))}
+                      <BotonSecundario
+                        titulo={`AGREGAR ${herramientasElegidas.length || ''} RENGLÓN${herramientasElegidas.length === 1 ? '' : 'ES'}`}
+                        alTocar={agregarHerramientasElegidas}
+                      />
+                    </View>
+                  ) : null}
                 </>
               )}
+
+              {/* ── Renglones de OTRO servicio ──────────────────────────────
+                  Los botones de arriba siempre siguen el servicio del renglón
+                  abierto: estando en una venta, todos agregaban otra venta y no
+                  había forma visible de sumar el afilado que el cliente trajo
+                  en la misma visita. Había que agregar un renglón y después
+                  cambiarle el servicio con el desplegable de arriba, que nadie
+                  encontró. Estos botones hacen las dos cosas de una. */}
+              {servicios.filter((s) => s !== renglon.servicio).map((s) => (
+                <BotonSecundario
+                  key={s}
+                  titulo={`⊕  AGREGAR RENGLÓN DE ${ETIQUETA_TIPO_SERVICIO[s]}`}
+                  alTocar={() => sumarRenglon(null, s)}
+                />
+              ))}
+
+              {/* ── Observaciones ──────────────────────────────────────────
+                  Van a la columna "Observaciones" del talonario, una por
+                  renglón, igual que en el formulario de papel. */}
+              <View style={estilos.observaciones}>
+                <Text style={estilos.observacionesTitulo}>OBSERVACIONES</Text>
+
+                {observaciones.map((o, i) => (
+                  <View key={`${o}-${i}`} style={estilos.observacion}>
+                    <Text style={estilos.observacionNumero}>{i + 1}</Text>
+                    <Text style={estilos.observacionTexto}>{o}</Text>
+                    <Pressable
+                      onPress={() => setObservaciones((prev) => prev.filter((_, k) => k !== i))}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar la observación ${i + 1}`}
+                    >
+                      <Text style={estilos.observacionQuitar}>✕</Text>
+                    </Pressable>
+                  </View>
+                ))}
+
+                <Campo
+                  etiqueta=""
+                  value={observacionNueva}
+                  onChangeText={setObservacionNueva}
+                  placeholder="Ej. Retira el jueves a la mañana"
+                  multiline
+                  numberOfLines={2}
+                  onSubmitEditing={agregarObservacion}
+                />
+
+                <BotonSecundario titulo="⊕  AGREGAR RENGLÓN" alTocar={agregarObservacion} />
+              </View>
 
               {totalNota > 0 ? (
                 <Aviso
@@ -479,7 +720,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               ) : null}
 
               <BotonMenu
-                titulo={'CREAR NOTA\nDE PEDIDO'}
+                titulo={grupos.length > 1 ? `CREAR ${grupos.length}\nNOTAS DE PEDIDO` : 'CREAR NOTA\nDE PEDIDO'}
                 alTocar={alCrear}
                 cargando={guardar.isPending}
               />
@@ -511,7 +752,7 @@ function TarjetaRenglon({
   alEditar: () => void
   alQuitar: () => void
 }) {
-  const total = aNumero(item.precio_total || item.precio)
+  const total = totalDelRenglon(item)
   const completo = validarItemNota(item).valido
 
   return (
@@ -535,7 +776,13 @@ function TarjetaRenglon({
             <Pastilla key={c} texto={c} color={colores.verdeOscuro} />
           ))}
           {!completo ? <Pastilla texto="FALTAN DATOS" color={colores.rojoAccion} /> : null}
-          {total > 0 ? <Text style={estilos.tarjetaTotal}>{formatearPesos(total)}</Text> : null}
+          {/* En la moneda del renglón: un total en dólares mostrado con "$"
+              se lee como pesos y son mil veces menos plata. */}
+          {total > 0 ? (
+            <Text style={estilos.tarjetaTotal}>
+              {formatearMoneda(total, item.servicio === 'venta' ? item.moneda : 'ARS')}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
 
@@ -561,20 +808,68 @@ function FormularioVenta({
   item,
   alCambiar,
   errores,
+  tipoCambio,
 }: {
   item: FormularioItemNota
   alCambiar: (c: Partial<FormularioItemNota>) => void
   errores: Record<string, string | undefined>
+  tipoCambio: number
 }) {
+  const unidades = aNumero(item.unidades)
+  const unitario = aNumero(item.precio)
+  const total = totalDelRenglon(item)
+  const enPesos = totalDelRenglonEnPesos(item, tipoCambio)
+
   return (
     <>
-      <Campo
-        etiqueta="CÓDIGO HERRAMIENTA"
+      {/*
+        Qué se vende no es decorativo: decide en qué nota de pedido cae. Las
+        sierras sin fin y las fresas nacionales llevan comprobante propio.
+      */}
+      <Desplegable<Herramienta>
+        etiqueta="QUÉ SE VENDE"
         obligatorio
-        value={item.codigo_herramienta}
-        onChangeText={(t) => alCambiar({ codigo_herramienta: t.toUpperCase() })}
-        placeholder="Ej. SFUSOL080"
-        autoCapitalize="characters"
+        marcador="Elegí la herramienta"
+        valor={item.herramienta}
+        items={HERRAMIENTAS_POR_SERVICIO.venta.map((h) => ({
+          valor: h,
+          etiqueta: ETIQUETA_HERRAMIENTA[h],
+          descripcion:
+            h === 'sierra_sin_fin' ? 'Va en una nota de pedido aparte' : undefined,
+        }))}
+        alCambiar={(h) => alCambiar({ herramienta: h, origen_fresa: null })}
+        error={errores.herramienta}
+      />
+
+      {item.herramienta === 'fresa' ? (
+        <Desplegable<OrigenFresa>
+          etiqueta="ORIGEN DE LA FRESA"
+          obligatorio
+          marcador="Nacional o importada"
+          valor={item.origen_fresa}
+          items={[
+            {
+              valor: 'nacional',
+              etiqueta: ETIQUETA_ORIGEN_FRESA.nacional,
+              descripcion: 'Nota aparte, facturada en pesos',
+            },
+            {
+              valor: 'importada',
+              etiqueta: ETIQUETA_ORIGEN_FRESA.importada,
+              descripcion: 'Va con el resto de la venta, cotizada en dólares',
+            },
+          ]}
+          alCambiar={(o) => alCambiar({ origen_fresa: o })}
+          error={errores.origen_fresa}
+        />
+      ) : null}
+
+      {/* El código, el precio y las características salen de la lista: no se
+          tipean. Era el lugar donde más fácil se equivocaba uno. */}
+      <BuscadorArticulo
+        item={item}
+        alElegir={alCambiar}
+        tipoCambio={tipoCambio}
         error={errores.codigo_herramienta}
       />
 
@@ -584,7 +879,7 @@ function FormularioVenta({
         onChangeText={(t) => alCambiar({ descripcion: t })}
         multiline
         numberOfLines={3}
-        ayuda="Se completa sola al elegir el código del catálogo."
+        ayuda="Viene de la lista. Podés agregarle lo que haga falta."
       />
 
       <Campo
@@ -614,16 +909,33 @@ function FormularioVenta({
         />
       ) : null}
 
+      {/* Es el precio de UNA unidad, en la moneda de la lista. Antes se
+          guardaba como total y tres unidades a $100 se facturaban $100. */}
       <Campo
-        etiqueta="PRECIO"
+        etiqueta={item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO'}
         obligatorio
         value={item.precio}
         onChangeText={(t) => alCambiar({ precio: soloNumeros(t) })}
         keyboardType="decimal-pad"
         contenedorStyle={estilos.medio}
         error={errores.precio}
-        ayuda={aNumero(item.precio) > 0 ? formatearPesos(aNumero(item.precio)) : undefined}
+        ayuda={unitario > 0 ? formatearMoneda(unitario, item.moneda) : undefined}
       />
+
+      {total > 0 && unidades > 0 ? (
+        <View>
+          <Text style={estilos.totalVenta}>
+            {`${unidades} × ${formatearMoneda(unitario, item.moneda)} = ${formatearMoneda(total, item.moneda)}`}
+          </Text>
+          {/* Lo que sale en dólares se cotiza en dólares y así se imprime; el
+              equivalente en pesos es de referencia, para el vendedor. */}
+          {item.moneda === 'USD' && tipoCambio > 0 ? (
+            <Text style={estilos.totalVentaPesos}>
+              {`≈ ${formatearPesos(enPesos)} al cambio de hoy`}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
     </>
   )
 }
@@ -650,6 +962,98 @@ const estilos = StyleSheet.create({
     color: colores.tinta,
   },
   resumenPastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
+
+  totalVenta: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.sm,
+    color: colores.verdeOscuro,
+  },
+  totalVentaPesos: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+
+  observaciones: {
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    backgroundColor: colores.campoBlanco,
+    padding: espaciado.md,
+    gap: espaciado.xs,
+  },
+  observacionesTitulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.rojo,
+    letterSpacing: 0.8,
+  },
+  observacion: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
+  observacionNumero: {
+    fontFamily: tipografia.familia.titulo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.rojo,
+    minWidth: 16,
+  },
+  observacionTexto: {
+    flex: 1,
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+  observacionQuitar: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.base,
+    color: colores.rojoAccion,
+    paddingHorizontal: espaciado.xs,
+  },
+
+  grupos: {
+    borderWidth: 2,
+    borderColor: colores.azul,
+    borderRadius: radios.sm,
+    backgroundColor: colores.campoBlanco,
+    padding: espaciado.md,
+    gap: espaciado.sm,
+  },
+  gruposTitulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.azul,
+    letterSpacing: 0.8,
+  },
+  grupo: { gap: 2 },
+  grupoFila: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
+  grupoNombre: {
+    flex: 1,
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+  grupoTotal: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.verdeOscuro,
+  },
+  grupoDetalle: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaSuave,
+  },
+
+  multiple: {
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    backgroundColor: colores.campoBlanco,
+    padding: espaciado.md,
+    gap: espaciado.xs,
+  },
+  multipleTitulo: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
 
   renglones: { gap: espaciado.xs },
   renglonesTitulo: {

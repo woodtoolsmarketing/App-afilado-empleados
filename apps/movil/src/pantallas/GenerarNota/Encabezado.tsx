@@ -1,17 +1,22 @@
 import {
   colores,
   espaciado,
+  etiquetaZona,
   ETIQUETA_TIPO_SERVICIO,
   radios,
   tipografia,
+  zonaParaUbicacion,
+  ZONAS,
   type ClienteBuscado,
   type FormularioNotaEncabezado,
   type TipoServicio,
+  type UbicacionCliente,
+  type ZonaSugerida,
 } from '@woodtools/compartido'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { Campo, Casilla, MensajeError } from '../../componentes/Formulario'
+import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { buscarClientes } from '../../servicios/clientes'
@@ -45,6 +50,7 @@ export function PasoEncabezado({
   alCambiarServicios,
   alCrearCliente,
   errores,
+  ubicacionInicial,
 }: {
   form: FormularioNotaEncabezado
   alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
@@ -53,11 +59,20 @@ export function PasoEncabezado({
   /** Abre "GENERAR NUEVO CLIENTE" con lo que ya se escribió. */
   alCrearCliente: () => void
   errores: Record<string, string | undefined>
+  /** La del cliente que acaba de crearse, para asignarle la zona al volver. */
+  ubicacionInicial?: UbicacionCliente | null
 }) {
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * Cómo quedó la última búsqueda de zona: sirve para explicar de dónde salió
+   * el número, y para ofrecer las opciones cuando la localidad está en más de
+   * una zona. Nada de esto se guarda: es ayuda para elegir.
+   */
+  const [zonaAuto, setZonaAuto] = useState<ZonaSugerida | null>(null)
+  const [zonaDudosa, setZonaDudosa] = useState<ZonaSugerida[]>([])
 
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
@@ -86,6 +101,46 @@ export function PasoEncabezado({
     alCambiar({ [campo]: texto, cliente_id: null } as Partial<FormularioNotaEncabezado>)
   }
 
+  /**
+   * La zona sale de dónde está el cliente.
+   *
+   * Se aplica sola cuando no hay duda. Cuando la localidad está en más de una
+   * zona —"Victoria" es Entre Ríos en la 136 y en la 143, "Las Heras" es
+   * Buenos Aires o Mendoza— se muestran las dos y elige el vendedor: poner un
+   * número que nadie miró en un comprobante es peor que preguntar.
+   *
+   * Nunca pisa una zona ya elegida a mano.
+   */
+  function asignarZona(u: UbicacionCliente, forzar = false): void {
+    const { unica, candidatas } = zonaParaUbicacion(u)
+    setZonaDudosa(candidatas.length > 1 ? candidatas : [])
+    setZonaAuto(unica)
+
+    if (!unica) return
+    if (form.zona && !forzar) return
+    alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+  }
+
+  function elegirZona(id: string): void {
+    const zona = ZONAS.find((z) => z.id === id)
+    if (!zona) return
+    setZonaAuto(null)
+    setZonaDudosa([])
+    alCambiar({ zona: zona.codigo, zona_id: zona.id })
+  }
+
+  // Al volver de "Generar nuevo cliente" con una dirección de Google ya
+  // resuelta, la zona se asigna igual que si el cliente hubiera existido.
+  const ubicacionClave = ubicacionInicial
+    ? `${ubicacionInicial.localidad ?? ''}|${ubicacionInicial.provincia ?? ''}|${ubicacionInicial.direccion ?? ''}`
+    : ''
+
+  useEffect(() => {
+    if (!ubicacionInicial || !ubicacionClave.replace(/\|/g, '')) return
+    asignarZona(ubicacionInicial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ubicacionClave])
+
   function elegirCliente(c: ClienteBuscado) {
     setResultados([])
     setConsulta('')
@@ -112,6 +167,13 @@ export function PasoEncabezado({
       datos_cliente: form.datos_cliente.trim() ? form.datos_cliente : datos,
       cliente_nuevo: false,
     })
+
+    // Elegir otro cliente sí pisa la zona: es la ubicación la que manda, y
+    // dejar la del cliente anterior sería peor que cualquier duda.
+    asignarZona(
+      { localidad: c.localidad, provincia: c.provincia, direccion: c.direccion },
+      true,
+    )
   }
 
   const conAfilado = servicios.includes('afilado')
@@ -161,33 +223,63 @@ export function PasoEncabezado({
         <Text style={estilos.enlaceNuevoTexto}>¿Es nuevo cliente?</Text>
       </Pressable>
 
-      <View style={estilos.fila}>
-        <Campo
-          etiqueta="CUIT"
-          value={form.cliente_cuit}
-          onChangeText={(t) => alTipear('cliente_cuit', t)}
-          placeholder="30-12345678-9"
-          keyboardType="numbers-and-punctuation"
-          contenedorStyle={estilos.mitad}
-        />
-        <Campo
-          etiqueta="VENDEDOR"
-          value={form.vendedor}
-          onChangeText={(t) => alCambiar({ vendedor: t })}
-          contenedorStyle={estilos.mitad}
-          editable={false}
-        />
-      </View>
-
+      {/* El VENDEDOR va abajo como dato fijo en vez de un campo deshabilitado:
+          no se edita nunca y ocupaba media pantalla. */}
       <Campo
+        etiqueta="CUIT"
+        value={form.cliente_cuit}
+        onChangeText={(t) => alTipear('cliente_cuit', t)}
+        placeholder="30-12345678-9"
+        keyboardType="numbers-and-punctuation"
+        contenedorStyle={estilos.mitad}
+      />
+
+      {/* ── Zona ───────────────────────────────────────────────────────────────
+          Dejó de ser texto libre: el número de zona es el que usa la oficina
+          para repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste" escritos a
+          mano son tres zonas distintas para cualquier planilla. */}
+      <Desplegable<string>
         etiqueta="ZONA"
-        value={form.zona}
-        onChangeText={(t) => alCambiar({ zona: t })}
-        placeholder="Oeste"
-        autoCapitalize="words"
-        contenedorStyle={estilos.corto}
+        obligatorio
+        marcador="Elegí la zona"
+        valor={form.zona_id || null}
+        items={ZONAS.map((z) => ({
+          valor: z.id,
+          etiqueta: etiquetaZona(z),
+          descripcion: z.localidades.slice(0, 4).join(', '),
+        }))}
+        alCambiar={elegirZona}
         error={errores.zona}
       />
+
+      {zonaAuto ? (
+        <Text style={estilos.zonaAuto}>
+          Asignada sola por {zonaAuto.localidad}
+          {zonaAuto.origen === 'direccion' ? ', que aparece en la dirección' : ''}. Cambiala si no
+          corresponde.
+        </Text>
+      ) : null}
+
+      {zonaDudosa.length > 1 ? (
+        <View style={estilos.zonaDudosa}>
+          <Text style={estilos.zonaDudosaTitulo}>
+            Esa localidad está en más de una zona. Elegí cuál:
+          </Text>
+          {zonaDudosa.map((c) => (
+            <Pressable
+              key={c.zona.id}
+              onPress={() => elegirZona(c.zona.id)}
+              accessibilityRole="button"
+              style={({ pressed }) => [estilos.zonaOpcion, pressed && estilos.sugerenciaTocada]}
+            >
+              <Text style={estilos.zonaOpcionTexto}>{etiquetaZona(c.zona)}</Text>
+              <Text style={estilos.sugerenciaDato}>coincide por {c.localidad}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <Text style={estilos.vendedor}>VENDEDOR: {form.vendedor}</Text>
 
       {resultados.length > 0 ? (
         <View style={estilos.sugerencias}>
@@ -245,17 +337,22 @@ export function PasoEncabezado({
         placeholder="Qué trae el cliente, en general"
       />
 
-      {/* ── Tipo de servicio ──────────────────────────────────────────────── */}
+      {/* ── Tipo de servicio ──────────────────────────────────────────────────
+          En dos columnas: son siete casillas de una palabra cada una y en una
+          sola columna ocupaban una pantalla entera de scroll para nada. */}
       <Text style={estilos.tituloBloque}>TIPO DE SERVICIO</Text>
 
-      {disponibles.map((s) => (
-        <Casilla
-          key={s}
-          etiqueta={ETIQUETA_TIPO_SERVICIO[s]}
-          valor={servicios.includes(s)}
-          alCambiar={() => alternarServicio(s)}
-        />
-      ))}
+      <View style={estilos.servicios}>
+        {disponibles.map((s) => (
+          <View key={s} style={estilos.servicio}>
+            <Casilla
+              etiqueta={ETIQUETA_TIPO_SERVICIO[s]}
+              valor={servicios.includes(s)}
+              alCambiar={() => alternarServicio(s)}
+            />
+          </View>
+        ))}
+      </View>
 
       <MensajeError>{errores.servicios}</MensajeError>
     </>
@@ -265,7 +362,48 @@ export function PasoEncabezado({
 const estilos = StyleSheet.create({
   fila: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
-  corto: { maxWidth: 200 },
+
+  vendedor: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+
+  zonaAuto: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.verdeOscuro,
+    marginTop: -espaciado.xs,
+  },
+  zonaDudosa: {
+    borderWidth: 2,
+    borderColor: colores.ambarOscuro,
+    borderRadius: radios.sm,
+    backgroundColor: colores.campoBlanco,
+    overflow: 'hidden',
+  },
+  zonaDudosaTitulo: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+    paddingHorizontal: espaciado.md,
+    paddingTop: espaciado.sm,
+  },
+  zonaOpcion: {
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  zonaOpcionTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tinta,
+  },
+
+  servicios: { flexDirection: 'row', flexWrap: 'wrap' },
+  // 48% y no 50%: deja el respiro entre columnas sin pelear con el `gap`.
+  servicio: { width: '48%' },
 
   enlaceNuevo: { alignSelf: 'flex-start', paddingVertical: espaciado.xs },
   enlaceNuevoTexto: {

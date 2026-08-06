@@ -218,6 +218,12 @@ porque el segundo depende de lo que se elija en el primero.
 mismo y al elegir un cliente se completan los tres, más los datos de contacto.
 Lo que el vendedor ya escribió a mano nunca se pisa.
 
+Va apretado a propósito: Cód. Cliente + Nombre en una fila, CUIT + Zona en otra,
+y los siete tipos de servicio en dos columnas. El vendedor queda como una línea
+de texto y no como un campo deshabilitado, porque no se edita nunca y ocupaba
+media pantalla. En el paso 2, los numéricos cortos van de a dos por fila: una
+medida son cinco caracteres y se comía el ancho entero.
+
 "REBAJE" aparece recién cuando se tilda AFILADO, como en los mockups; si se
 destilda afilado, se va con él.
 
@@ -237,7 +243,27 @@ Automatismos:
   `MEDIDA_PARA_CODIGO` tienen que seguir coincidiendo.
 - El **precio** viene del catálogo, ya convertido a pesos cuando la lista está
   en dólares, y avisa cuando lo hizo.
-- **Precio total = precio por diente × cantidad de dientes**, recalculado solo.
+- **Precio total = precio por diente × dientes × cantidad de herramientas**,
+  recalculado solo. El factor de cantidad faltaba: los dientes son *por*
+  herramienta, así que dos sierras de 96 son 192 dientes para afilar y la nota
+  cobraba la mitad. El probador tenía además una copia de la cuenta que se
+  quedó vieja cuando se arregló la de la app — ahora los dos llaman a
+  `calcularTotalPorDientes` del paquete compartido, que es el punto de tenerlo.
+- **Varias herramientas de la misma medida** van en un renglón. Medidas
+  distintas, no: cada ancho da un código de cómputo y un precio distintos, así
+  que el botón "no todas son de la misma medida" **parte el renglón en dos
+  grupos**, cada uno con su cantidad. Meterlas en un solo renglón obligaría a
+  inventar un precio promedio, y en el talonario de papel cada medida es una
+  fila aparte igual.
+- **"Agregar otras herramientas"** es una lista con casillas: agrega un renglón
+  por cada una marcada.
+- Las **medidas se escriben con coma** y el punto se toma como coma —el teclado
+  de Android da uno u otro según el teléfono— y se muestran con su unidad:
+  `3,2 mm`.
+- Cada código de cómputo muestra **su rango** al lado (`de 3 mm a 4 mm`), que es
+  lo que explica por qué ése y no otro, y hay un desplegable **"¿qué medidas
+  hay?"** que lista los rangos cargados para esa herramienta. Antes, cuando una
+  medida no caía en ninguno, la única salida era probar números.
 - El **tipo de cambio** se trae al abrir y queda congelado en la nota. No es un
   dato que el vendedor tenga que averiguar.
 - Los campos de precio sólo aceptan números y muestran el valor formateado.
@@ -330,21 +356,138 @@ dice cuando no coincide, que es el error más común al tipearlo.
 
 ---
 
-## Para que esto corra
+## Zonas de venta
 
-Cuatro migraciones quedan **pendientes de aplicar** en el proyecto, en este orden:
+[`packages/compartido/src/zonas.ts`](../packages/compartido/src/zonas.ts) tiene
+la planilla de zonas de la empresa: 31 entradas con su código, su nombre y sus
+localidades. **La zona dejó de ser un campo de texto libre.** Era el dato que la
+oficina usa para repartir el trabajo y llegaba escrito como "Oeste", "oeste" o
+"Z. Oeste", que para cualquier planilla son tres zonas distintas.
+
+Ahora es un selector, y **se completa solo con la ubicación del cliente**: al
+elegirlo en la nota se busca su localidad en las listas y la zona sale sola, con
+un renglón que dice por qué ("Asignada sola por Ramos Mejía"). La migración
+`20260806165031_buscar_clientes_con_localidad` agrega localidad y provincia a lo
+que devuelve `buscar_clientes`; sin eso no había con qué buscar.
+
+Tres cosas que el dato obliga a manejar y no son obvias:
+
+- **El código no es único.** El 121 está dos veces en la planilla (Cañada de
+  Gómez y Santa Fe Capital). Cada zona tiene un `id` propio y lo que se guarda
+  en la nota es el `codigo`, que es lo que la oficina lee. Cuando las dos
+  candidatas comparten código no se pregunta nada: la respuesta es la misma.
+- **Hay localidades repetidas entre zonas**, y no por error: "Las Heras" es
+  Buenos Aires (116) y Mendoza (126); "Maipú", Buenos Aires (120) y Mendoza
+  (126); "Victoria" en Entre Ríos aparece en la 136 y en la 143. La provincia
+  desempata cuando se la conoce; cuando no alcanza, **se ofrecen las dos y elige
+  el vendedor**. Poner un número que nadie miró en un comprobante es peor que
+  preguntar.
+- **Sólo las zonas que SON una provincia entera** (110 CABA, 146 Noroeste, 147
+  Sur, 150 Litoral, 151 Chaco/Formosa) se reconocen por el nombre de la
+  provincia. Sin esa distinción, la 121 "Santa Fe Capital" se llevaba puesto
+  todo lo que estuviera en la provincia de Santa Fe —Rosario incluido— y la 148
+  se quedaba con cualquier dirección de Neuquén.
+
+Probado contra 19 casos: Ramos Mejía → 107, Quilmes → 102, Banfield → 104, City
+Bell → 103, San Isidro → 101, CABA → 110, Las Heras/Mendoza → 126, Las
+Heras/Buenos Aires → 116, Rosario/Santa Fe → 142, Rosario del Tala/Entre Ríos →
+143, San Justo/Santa Fe → 149, San Justo/Buenos Aires → 107, Junín de los
+Andes → 152. Y "Victoria" sin provincia queda ambigua, que es lo correcto.
+
+> **Para revisar con la empresa.** Las cuatro zonas que la planilla marcaba
+> "(Todos)" —101 Norte, 103 La Plata, 107 Oeste, 110 CABA— vinieron sin listado
+> de localidades. Se armó uno con los partidos habituales de cada una para que
+> la asignación automática funcione; están marcadas con `listadoEstimado` en el
+> catálogo. Conviene que alguien de la casa las mire.
+
+## Una nota de pedido por forma de facturar
+
+El afilado se cobra en pesos y la venta se cotiza en dólares: **no pueden ir en
+el mismo comprobante**. El vendedor carga todo junto, como lo trae el cliente, y
+`agruparParaNotas` reparte en cuatro grupos posibles:
+
+| Grupo | Qué cae ahí | Tipo de cambio |
+|---|---|---|
+| `servicio` | Afilado, reparación, rectificado, hermanado, rebaje, reclamo | **vacío** — se cobra en pesos |
+| `venta_general` | Venta de sierras, cabezales, cuchillas, mechas y fresas importadas | sí |
+| `venta_sierra_sin_fin` | Venta de sierras sin fin | sí |
+| `venta_fresa_nacional` | Venta de fresas de producción nacional | **vacío** — se facturan en pesos |
+
+La pantalla avisa **antes** de crear ("ESTO SALE EN 2 NOTAS DE PEDIDO", con el
+total de cada una), y al terminar dice con qué número quedó cada una. Si falla
+la segunda, se borran las que ya se habían creado: medio pedido cargado es peor
+que ninguno.
+
+Para poder repartir, la venta ahora pide **qué se vende** (antes no tenía
+herramienta) y, si es una fresa, **si es nacional o importada**. Y el precio de
+la venta pasó a ser **unitario**: antes se guardaba como total y tres unidades a
+$100 se facturaban $100.
+
+## Dientes rotos
+
+Un diente roto no se afila. Al marcar "¿TIENE DIENTES ROTOS?" aparecen dos
+campos: **cuántos** (sólo números enteros) y **"¿DESEA REPARAR LOS DIENTES?"**,
+que arranca sin contestar a propósito — la respuesta cambia el precio, así que
+un "no" silencioso sería cobrarle de menos al cliente sin que nadie lo haya
+decidido.
+
+- **No los repara** → los rotos se descuentan del total a afilar y no se cobran.
+- **Sí los repara** → además se busca el código de cómputo de **reparación** por
+  el mismo ancho de corte, y esa reparación se computa aparte, en su propio
+  renglón de la nota.
+
+```
+2 sierras × 96 dientes = 192, con 5 rotos que se reparan
+  8002   187 dientes × $    355,50  = $  66.478,50    (afilado)
+  6001     5 dientes × $ 15.003,52  = $  75.017,60    (reparación)
+```
+
+La cuenta vive en `lineasDeComputo` del paquete compartido y la llaman los
+cuatro lugares que la necesitan —formulario, vista previa, alta en la base e
+impresión—: ya pasó una vez que una copia se quedara atrás y cotizara la mitad.
+
+## Columnas de precio en el talonario
+
+La tabla comercial pasó de `Precio` a **`Precio unitario` + `Precio total`**, con
+los rótulos apilados en dos renglones para no comerse el ancho. El unitario es
+lo que sale de la lista de precios (el precio por diente en el afilado) y el
+total es la multiplicación. El código de cómputo cedió el espacio: bajó de 20% a
+14%, que le sobraba.
+
+Medido sobre el render: la hoja sigue en 190 × 258 mm y ninguna celda desborda,
+ni con un total de ocho cifras ni con dos códigos separados por coma. El
+duplicado no cambia —sigue siendo código y cantidad— y sigue llenando los
+281 mm de la A4.
+
+## Vista previa antes de imprimir
+
+Botón "👁 Ver antes de imprimir" en las notas pendientes, en el detalle de la
+nota y apenas se crea una.
+
+En el **probador** se muestra la hoja de verdad dentro de un iframe: en una
+pantalla de PC la A4 entra y se lee. En la **app** se muestran los mismos datos
+apilados en el orden del talonario, porque una A4 encogida a un teléfono no se
+lee; para ver la hoja tal cual está "Guardar como PDF", que genera el documento
+real. Los dos salen de `notaImprimibleDesdeFila`, la misma función que arma el
+HTML que se imprime: si ahí dice 187 dientes, eso es lo que sale en papel.
+
+---
+
+## Para que esto corra
 
 ```bash
 npx supabase db push
 ```
 
+Las migraciones del catálogo y de storage ya están aplicadas. Quedan por
+aplicar, si se levanta el proyecto de cero, las tres últimas:
+
 | Migración | Qué hace |
 |---|---|
-| `20260805185000_storage.sql` | Los dos buckets. Ya existen en el servidor pero no estaban registrados; la migración es idempotente |
-| `20260805185500_catalogo_datos.sql` | Los 1.315 códigos. **La tabla está vacía**: hasta que esto corra, la app no cotiza nada |
-| `20260805190000_muelas_en_dolares.sql` | MUELAS en USD |
-| `20260805200000_historial_notas_orden_y_huso.sql` | Historial en orden de calendario y agrupado por día de Buenos Aires |
+| `20260806135141_catalogo_clasificar_servicio_y_herramienta` | Clasifica los artículos por servicio y herramienta. Sin esto, a una sierra para afilar le salían códigos de reparación |
+| `20260806135159_buscar_codigo_computo_por_servicio` | El buscador filtra por servicio y herramienta |
+| `20260806165031_buscar_clientes_con_localidad` | `buscar_clientes` devuelve localidad y provincia, para asignar la zona sola |
 
 Los nombres de archivo de las migraciones ya aplicadas se reconciliaron con las
-versiones que tiene el servidor. Sin eso, `db push` volvía a correr cuatro
-migraciones ya aplicadas y fallaba en el primer `create policy`.
+versiones que tiene el servidor. Sin eso, `db push` volvía a correr migraciones
+ya aplicadas y fallaba en el primer `create policy`.

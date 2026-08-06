@@ -15,13 +15,24 @@
  */
 
 import {
+  agruparParaNotas,
   aNumero,
   CAMPOS_POR_HERRAMIENTA,
+  caracteristicasDeArticulo,
   colores,
+  DESCRIPCION_GRUPO_NOTA,
+  describirRango,
+  etiquetaZona,
+  formatearMedida,
+  formatearMoneda,
+  resumenCaracteristicas,
+  normalizarMedida,
   ENCABEZADO_VACIO,
   ETIQUETA_ESTADO_NOTA,
+  ETIQUETA_GRUPO_NOTA,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_MOTIVO_NO_VISITA,
+  ETIQUETA_ORIGEN_FRESA,
   ETIQUETA_ROL,
   ETIQUETA_TIPO_MECHA,
   ETIQUETA_TIPO_NOTA,
@@ -33,6 +44,7 @@ import {
   generarDocumentoImpresion,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
+  lineasDelRenglon,
   MECHAS_CON_MANO,
   notaImprimibleDesdeFila,
   renglonNuevo,
@@ -41,17 +53,23 @@ import {
   soloNumeros,
   SUMAR_OTRA,
   totalDeRenglones,
+  totalDelRenglon,
+  totalDelRenglonEnPesos,
   validarEncabezadoNota,
   validarItemNota,
   validarRenglones,
+  zonaParaUbicacion,
+  ZONAS,
   type CampoItem,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type Herramienta,
   type ManoMecha,
+  type OrigenFresa,
   type TipoMecha,
   type TipoNotaPedido,
   type TipoServicio,
+  type ZonaSugerida,
 } from '@woodtools/compartido'
 
 import * as d from './datos'
@@ -709,6 +727,11 @@ function pantallaNotasPendientes(): HTMLElement {
         'div',
         {},
         casilla('SUMAR EL ROL DE VISITA DE HOY', conRol, (v) => (conRol = v)),
+        // Mirar antes de imprimir: va arriba porque es el orden en que
+        // conviene hacerlo.
+        botonSecundario('👁  Ver antes de imprimir', () =>
+          pantalla(() => pantallaVistaPrevia(ids, conRol)),
+        ),
         botonMenu('IMPRIMIR NOTAS\nDE PEDIDO', conAviso(() => imprimir(ids, conRol), estadoAccion), {
           subtitulo: `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} · abre el diálogo del navegador`,
         }),
@@ -830,6 +853,76 @@ async function imprimir(ids: string[], incluirRolDeVisita: boolean): Promise<voi
 }
 
 /**
+ * Vista previa: la hoja como va a salir, antes de mandarla a la impresora.
+ *
+ * Acá se muestra el HTML de verdad dentro de un iframe —no una maqueta— porque
+ * en una pantalla de PC la hoja A4 entra y se lee. Es el mismo documento que se
+ * imprime: si acá está bien, en papel está bien.
+ *
+ * La app móvil hace lo mismo pero con los datos apilados: una A4 encogida a un
+ * teléfono no se lee, así que allá se muestran los mismos números en el orden
+ * del talonario.
+ */
+function pantallaVistaPrevia(ids: string[], conRol: boolean): HTMLElement {
+  const marco = h('iframe', {
+    attr: { title: 'Vista previa de la nota de pedido' },
+    estilo: {
+      width: '820px',
+      height: '1160px',
+      border: '0',
+      background: '#fff',
+      // La hoja entra en el ancho del panel achicándola; se puede leer igual
+      // y, sobre todo, se puede comparar contra el papel.
+      transform: 'scale(0.44)',
+      transformOrigin: 'top left',
+    },
+  }) as HTMLIFrameElement
+
+  // El contenedor compensa el alto que la escala le saca al iframe: sin esto
+  // queda un agujero blanco de media pantalla debajo de la hoja.
+  const caja = h(
+    'div',
+    { estilo: { width: '100%', height: '510px', overflow: 'hidden' } },
+    marco,
+  )
+
+  const estadoAccion = h('div')
+  const cont = h('div', {}, cargando('Armando la hoja…'))
+
+  void construirDocumento(ids, conRol)
+    .then((html) => {
+      vaciar(cont).appendChild(caja)
+      const doc = marco.contentDocument
+      if (!doc) throw new Error('El navegador no dejó preparar la vista previa.')
+      doc.open()
+      doc.write(html)
+      doc.close()
+    })
+    .catch((e: Error) => {
+      vaciar(cont).appendChild(aviso('error', 'No pudimos armar la vista previa', e.message))
+    })
+
+  return panel(
+    barra(),
+    titulo('VISTA PREVIA\nANTES DE IMPRIMIR'),
+    aviso(
+      'info',
+      'Qué estás viendo',
+      'La hoja tal cual sale: original y duplicado de cada nota. Revisá los códigos de cómputo, las cantidades y los precios. Si algo está mal, volvé y corregí antes de imprimir.',
+    ),
+    cont,
+    botonMenu('IMPRIMIR', conAviso(() => imprimir(ids, conRol), estadoAccion), {
+      subtitulo: `${ids.length} nota${ids.length === 1 ? '' : 's'} · abre el diálogo del navegador`,
+    }),
+    botonSecundario(
+      'Abrirla en otra pestaña, a tamaño real',
+      conAviso(() => verDocumento(ids, conRol), estadoAccion),
+    ),
+    estadoAccion,
+  )
+}
+
+/**
  * "Guardar como PDF" del navegador es el propio diálogo de impresión, así que
  * el equivalente honesto acá es abrir el documento para verlo y decidir. La app
  * sí genera un PDF de verdad con expo-print.
@@ -908,6 +1001,9 @@ function pantallaDetalleNota(notaId: string): HTMLElement {
           return h(
             'div',
             {},
+            botonSecundario('👁  Ver antes de imprimir', () =>
+              pantalla(() => pantallaVistaPrevia([notaId], false)),
+            ),
             botonMenu('IMPRIMIR', conAviso(() => imprimir([notaId], false), estadoAccion), {
               subtitulo: 'Original y duplicado',
             }),
@@ -940,6 +1036,10 @@ interface BorradorNota {
   errores: Record<string, string | undefined>
   intentado: boolean
   cotizacion: { fecha: string; venta: number } | null
+  /** Renglones de la columna "Observaciones" del talonario. */
+  observaciones: string[]
+  /** Lo que se está escribiendo antes de tocar "Agregar renglón". */
+  observacionNueva: string
 }
 
 let borrador: BorradorNota = nuevoBorrador()
@@ -956,6 +1056,8 @@ function nuevoBorrador(): BorradorNota {
     errores: {},
     intentado: false,
     cotizacion: null,
+    observaciones: [],
+    observacionNueva: '',
   }
 }
 
@@ -970,6 +1072,14 @@ function pantallaGenerarNota(): HTMLElement {
 }
 
 const SERVICIOS_BASE: TipoServicio[] = ['venta', 'afilado', 'reparacion', 'rectificado', 'hermanado']
+
+/**
+ * Cómo quedó la última búsqueda de zona. Vive fuera del borrador porque no es
+ * un dato de la nota: es la explicación de dónde salió el número, y las
+ * opciones cuando la localidad cae en más de una zona.
+ */
+let zonaSugerida: ZonaSugerida | null = null
+let zonaCandidatas: ZonaSugerida[] = []
 
 function pasoEncabezado(): HTMLElement {
   const enc = borrador.encabezado
@@ -1010,6 +1120,22 @@ function pasoEncabezado(): HTMLElement {
         ? enc.datos_cliente
         : [c.razon_social, c.direccion, c.telefono, c.email].filter(Boolean).join(' — '),
     })
+
+    // La zona sale de dónde está el cliente. Si la localidad cae en más de una
+    // —"Victoria" es Entre Ríos en la 136 y en la 143— se muestran las dos y
+    // elige el vendedor.
+    const { unica, candidatas } = zonaParaUbicacion({
+      localidad: c.localidad,
+      provincia: c.provincia,
+      direccion: c.direccion,
+    })
+    zonaSugerida = unica
+    zonaCandidatas = candidatas.length > 1 ? candidatas : []
+    if (unica) {
+      enc.zona = unica.zona.codigo
+      enc.zona_id = unica.zona.id
+    }
+
     refrescar()
   }
 
@@ -1056,7 +1182,46 @@ function pasoEncabezado(): HTMLElement {
       ? aviso('atencion', 'Cliente provisorio', 'La nota se guarda igual y queda sin número hasta que Administración le asigne el código.')
       : null,
     err.cliente ? aviso('error', null, err.cliente) : null,
-    campo('ZONA', { valor: enc.zona, error: err.zona, alCambiar: (v) => (enc.zona = v) }),
+    // La zona dejó de ser texto libre: es el número que usa la oficina para
+    // repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste" escritos a mano son
+    // tres zonas distintas para cualquier planilla.
+    desplegable('ZONA', {
+      valor: enc.zona_id || null,
+      items: ZONAS.map((z) => ({ valor: z.id, etiqueta: etiquetaZona(z) })),
+      alCambiar: (id) => {
+        const zona = ZONAS.find((z) => z.id === id)
+        if (!zona) return
+        enc.zona = zona.codigo
+        enc.zona_id = zona.id
+        zonaSugerida = null
+        zonaCandidatas = []
+        refrescar()
+      },
+    }),
+    err.zona ? h('span.campo-error-texto', { texto: err.zona }) : null,
+    zonaSugerida
+      ? aviso(
+          'exito',
+          null,
+          `Zona asignada sola por ${zonaSugerida.localidad}. Cambiala si no corresponde.`,
+        )
+      : null,
+    zonaCandidatas.length > 1
+      ? h(
+          'div.tarjeta',
+          {},
+          h('div.tarjeta-dato', { texto: 'Esa localidad está en más de una zona. Elegí cuál:' }),
+          ...zonaCandidatas.map((c) =>
+            botonSecundario(`${etiquetaZona(c.zona)} — coincide por ${c.localidad}`, () => {
+              enc.zona = c.zona.codigo
+              enc.zona_id = c.zona.id
+              zonaSugerida = null
+              zonaCandidatas = []
+              refrescar()
+            }),
+          ),
+        )
+      : null,
     campo('DATOS DEL CLIENTE', {
       valor: enc.datos_cliente,
       multilinea: true,
@@ -1070,7 +1235,9 @@ function pasoEncabezado(): HTMLElement {
       alCambiar: (v) => (enc.descripcion_herramienta = v),
     }),
     h('h3', { texto: 'TIPO DE SERVICIO', estilo: { textAlign: 'center', margin: '0' } }),
-    ...disponibles.map((s) =>
+    // Dos columnas: son siete casillas de una palabra y en una sola columna
+    // ocupaban una pantalla entera de scroll para nada.
+    h('div.servicios', {}, ...disponibles.map((s) =>
       casilla(ETIQUETA_TIPO_SERVICIO[s], borrador.servicios.includes(s), (v) => {
         const nuevos = v ? [...borrador.servicios, s] : borrador.servicios.filter((x) => x !== s)
         borrador.servicios = nuevos.includes('afilado') ? nuevos : nuevos.filter((x) => x !== 'rebaje')
@@ -1083,7 +1250,7 @@ function pasoEncabezado(): HTMLElement {
         })
         refrescar()
       }),
-    ),
+    )),
     err.servicios ? aviso('error', null, err.servicios) : null,
     desplegable('TIPO DE NOTA DE PEDIDO', {
       valor: borrador.tipoNota,
@@ -1116,6 +1283,12 @@ function pasoEncabezado(): HTMLElement {
   )
 }
 
+/** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
+const MEDIDAS = new Set<CampoItem>([
+  'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
+  'largo_util', 'espesor', 'paso',
+])
+
 const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
@@ -1131,6 +1304,8 @@ const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   tipo_mecha: 'TIPO DE MECHA',
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
+  dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
+  reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO/S DE CÓMPUTO',
   precio_por_diente: 'PRECIO POR DIENTE',
@@ -1143,52 +1318,13 @@ function pasoRenglones(): HTMLElement {
   const herramientas = HERRAMIENTAS_POR_SERVICIO[item.servicio]
   const campos = item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
 
-  const bloqueCodigos = h('div')
+  // Los inputs del renglón anterior ya no existen: sus referencias tampoco.
+  for (const clave of Object.keys(refsCampos)) delete refsCampos[clave]
 
-  // Mismo automatismo que la app: apenas hay medida se busca el código.
-  void d.resolverCodigoDeItem(item).then((codigos) => {
-    vaciar(bloqueCodigos)
-    if (!codigos) return
-    if (!codigos.length) {
-      bloqueCodigos.appendChild(aviso('atencion', null, 'No hay ningún código que cubra esa medida.'))
-      return
-    }
-    for (const c of codigos) {
-      const elegido = item.codigos_computo.includes(c.codigo)
-      bloqueCodigos.appendChild(
-        h(
-          'div.tarjeta',
-          {
-            clase: elegido ? 'elegida' : '',
-            estilo: { cursor: 'pointer' },
-            al: {
-              click: () => {
-                item.codigos_computo = elegido
-                  ? item.codigos_computo.filter((x) => x !== c.codigo)
-                  : [...item.codigos_computo, c.codigo]
-                if (!elegido && c.precio_pesos !== null) item.precio_por_diente = String(c.precio_pesos)
-                recalcular(item)
-                refrescar()
-              },
-            },
-          },
-          h(
-            'div.fila',
-            {},
-            h('strong', { texto: c.codigo }),
-            h('span', {
-              texto: c.precio_pesos !== null ? formatearPesos(Number(c.precio_pesos)) : '—',
-              estilo: { marginLeft: 'auto', color: colores.verdeOscuro, fontWeight: '600' },
-            }),
-          ),
-          h('div.tarjeta-dato', { texto: c.descripcion }),
-          c.moneda === 'USD'
-            ? h('div.tarjeta-dato', { texto: `Lista en US$ ${Number(c.precio).toFixed(2)} · convertido al cambio de hoy` })
-            : null,
-        ),
-      )
-    }
-  })
+  const bloqueCodigos = h('div')
+  nodoCodigos = bloqueCodigos
+  codigoPropuesto = null
+  pedirCodigos(item, 0)
 
   return panel(
     barra(),
@@ -1253,12 +1389,13 @@ function pasoRenglones(): HTMLElement {
       : null,
 
     herramientas.length > 1
-      ? desplegable('HERRAMIENTA', {
+      ? desplegable(item.servicio === 'venta' ? 'QUÉ SE VENDE' : 'HERRAMIENTA', {
           valor: item.herramienta,
           items: herramientas.map((x) => ({ valor: x, etiqueta: ETIQUETA_HERRAMIENTA[x] })),
           alCambiar: (v) => {
             item.herramienta = v
             item.codigos_computo = []
+            item.origen_fresa = null
             refrescar()
           },
         })
@@ -1269,7 +1406,23 @@ function pasoRenglones(): HTMLElement {
           })()
         : null,
 
-    item.herramienta === 'mecha'
+    // El origen de la fresa decide en qué nota cae: nacional lleva una nota
+    // aparte y en pesos, importada va con el resto de la venta en dólares.
+    item.servicio === 'venta' && item.herramienta === 'fresa'
+      ? desplegable('ORIGEN DE LA FRESA', {
+          valor: item.origen_fresa,
+          items: [
+            { valor: 'nacional' as OrigenFresa, etiqueta: `${ETIQUETA_ORIGEN_FRESA.nacional} · nota aparte, en pesos` },
+            { valor: 'importada' as OrigenFresa, etiqueta: `${ETIQUETA_ORIGEN_FRESA.importada} · con el resto, en dólares` },
+          ],
+          alCambiar: (v) => {
+            item.origen_fresa = v
+            refrescar()
+          },
+        })
+      : null,
+
+    item.servicio !== 'venta' && item.herramienta === 'mecha'
       ? desplegable('TIPO DE MECHA', {
           valor: item.tipo_mecha,
           items: (Object.keys(ETIQUETA_TIPO_MECHA) as TipoMecha[]).map((t) => ({ valor: t, etiqueta: ETIQUETA_TIPO_MECHA[t] })),
@@ -1281,7 +1434,41 @@ function pasoRenglones(): HTMLElement {
         })
       : null,
 
-    ...campos.map((c) => dibujarCampo(item, c, err, bloqueCodigos)),
+    // La venta no pide medidas: el código del artículo ya la identifica. Lo
+    // que sí pide es qué es, porque de eso depende en qué nota cae.
+    ...(item.servicio === 'venta'
+      ? camposVenta(item, err)
+      : campos.map((c) => dibujarCampo(item, c, err, bloqueCodigos))),
+
+    // Cómo se reparte todo esto en comprobantes. Se muestra antes de crear
+    // para que no sea una sorpresa al final.
+    (() => {
+      const grupos = agruparParaNotas(borrador.items, borrador.cotizacion?.venta ?? 0)
+      if (grupos.length < 2) return null
+      return h(
+        'div.tarjeta',
+        {},
+        h('div.tarjeta-dato', { texto: `ESTO SALE EN ${grupos.length} NOTAS DE PEDIDO` }),
+        ...grupos.map((g) =>
+          h(
+            'div',
+            {},
+            h(
+              'div.fila',
+              {},
+              h('strong', { texto: ETIQUETA_GRUPO_NOTA[g.grupo] }),
+              h('span', {
+                texto: formatearPesos(g.total),
+                estilo: { marginLeft: 'auto', color: colores.verdeOscuro, fontWeight: '600' },
+              }),
+            ),
+            h('div.tarjeta-dato', {
+              texto: `${g.items.length} ${g.items.length === 1 ? 'renglón' : 'renglones'} · ${DESCRIPCION_GRUPO_NOTA[g.grupo]}`,
+            }),
+          ),
+        ),
+      )
+    })(),
 
     borrador.cotizacion
       ? aviso('info', 'TIPO DE CAMBIO', `${formatearPesos(borrador.cotizacion.venta)} · dólar oficial del ${formatearFechaCorta(borrador.cotizacion.fecha)}`)
@@ -1292,9 +1479,28 @@ function pasoRenglones(): HTMLElement {
       : null,
     botonSecundario('⊕  AGREGAR OTRA HERRAMIENTA', () => sumarRenglon(null)),
 
-    totalDeRenglones(borrador.items) > 0
-      ? aviso('exito', `Total de la nota · ${borrador.items.length} renglón${borrador.items.length === 1 ? '' : 'es'}`, formatearPesos(totalDeRenglones(borrador.items)))
-      : null,
+    // Los botones de arriba siguen el servicio del renglón abierto: estando en
+    // una venta, todos agregaban otra venta y no había forma visible de sumar
+    // el afilado que el cliente trajo en la misma visita. Había que agregar un
+    // renglón y cambiarle el servicio con el desplegable de arriba, que nadie
+    // encontró. Éstos hacen las dos cosas de una.
+    ...borrador.servicios
+      .filter((s) => s !== item.servicio)
+      .map((s) =>
+        botonSecundario(`⊕  AGREGAR RENGLÓN DE ${ETIQUETA_TIPO_SERVICIO[s]}`, () =>
+          sumarRenglon(null, s),
+        ),
+      ),
+
+    bloqueObservaciones(),
+
+    // El total se repinta solo al cambiar cantidad, dientes o precio: se guarda
+    // el nodo para poder tocarlo sin volver a dibujar el formulario.
+    (() => {
+      nodoTotal = h('div')
+      pintarTotalDeLaNota()
+      return nodoTotal
+    })(),
 
     borrador.intentado && Object.keys(err).length
       ? aviso('error', 'Faltan datos', 'Revisá los campos marcados antes de crear la nota.')
@@ -1304,24 +1510,471 @@ function pasoRenglones(): HTMLElement {
   )
 }
 
-function sumarRenglon(herramienta: Herramienta | null): void {
+function sumarRenglon(
+  herramienta: Herramienta | null,
+  servicio: TipoServicio = borrador.items[borrador.activo].servicio,
+): void {
   borrador.intentado = true
   const { valido, errores } = validarItemNota(borrador.items[borrador.activo])
   borrador.errores = errores as Record<string, string | undefined>
   if (!valido) return refrescar()
 
-  borrador.items = [...borrador.items, renglonNuevo(borrador.items[borrador.activo].servicio, herramienta)]
+  borrador.items = [...borrador.items, renglonNuevo(servicio, herramienta)]
   borrador.activo = borrador.items.length - 1
   borrador.intentado = false
   borrador.errores = {}
   refrescar()
 }
 
+/**
+ * Las observaciones de la nota, que van a la columna "Observaciones" del
+ * talonario. Se cargan de a una porque el papel las reparte por renglón.
+ */
+function bloqueObservaciones(): HTMLElement {
+  function agregar(): void {
+    const texto = borrador.observacionNueva.trim()
+    if (!texto) return
+    borrador.observaciones = [...borrador.observaciones, texto]
+    borrador.observacionNueva = ''
+    refrescar()
+  }
+
+  return h(
+    'div.tarjeta',
+    {},
+    h('div.tarjeta-dato', { texto: 'OBSERVACIONES' }),
+    ...borrador.observaciones.map((o, i) =>
+      h(
+        'div.fila',
+        {},
+        h('strong', { texto: String(i + 1) }),
+        h('span', { texto: o, estilo: { flex: '1' } }),
+        botonSecundario('✕', () => {
+          borrador.observaciones = borrador.observaciones.filter((_, k) => k !== i)
+          refrescar()
+        }),
+      ),
+    ),
+    campo('', {
+      valor: borrador.observacionNueva,
+      marcador: 'Ej. Retira el jueves a la mañana',
+      multilinea: true,
+      alCambiar: (v) => (borrador.observacionNueva = v),
+    }),
+    botonSecundario('⊕  AGREGAR RENGLÓN', agregar),
+  )
+}
+
+/**
+ * Referencias a los inputs del renglón que se está editando.
+ *
+ * Existen para poder tocar un campo sin repintar la pantalla entera. Se limpian
+ * cada vez que se dibuja el paso 2, porque los nodos viejos dejan de existir.
+ */
+const refsCampos: Record<
+  string,
+  { entrada: HTMLInputElement; ayuda: HTMLElement; texto: (v: string) => string }
+> = {}
+
+/** El nodo donde se listan los códigos, y el temporizador de la búsqueda. */
+let nodoCodigos: HTMLElement | null = null
+let relojCodigos: ReturnType<typeof setTimeout> | null = null
+/** El último código que propusimos solos, para no pisar una elección manual. */
+let codigoPropuesto: string | null = null
+
+/**
+ * El total sale de `totalDelRenglon` del paquete compartido, no de una cuenta
+ * propia. Tenía una acá duplicada y se quedó sin el factor de cantidad cuando
+ * se arregló la de la app: dos sierras seguían cotizando como una. Cualquier
+ * cuenta que la app haga, el probador la tiene que llamar, no copiar.
+ */
 function recalcular(item: FormularioItemNota): void {
   const campos = item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
   if (!campos.includes('precio_por_diente') || !campos.includes('cantidad_dientes')) return
-  const total = aNumero(item.precio_por_diente) * aNumero(item.cantidad_dientes)
-  if (total > 0) item.precio_total = String(Math.round(total * 100) / 100)
+  const total = totalDelRenglon(item)
+  if (total > 0) item.precio_total = String(total)
+}
+
+/**
+ * Busca el código de cómputo de la REPARACIÓN de los dientes rotos.
+ *
+ * Es la misma medida —el ancho de corte— pero otro servicio, así que da otro
+ * código y otro precio. Se dispara cuando contestan que sí quieren repararlos.
+ */
+function pedirCodigoReparacion(item: FormularioItemNota, donde: HTMLElement): void {
+  vaciar(donde).appendChild(cargando('Buscando el código de reparación…'))
+
+  void d
+    .resolverCodigoDeItem(item, 'reparacion')
+    .then((codigos) => {
+      vaciar(donde)
+      if (!codigos) return
+      if (!codigos.length) {
+        donde.appendChild(
+          aviso(
+            'atencion',
+            'Sin código de reparación',
+            'El catálogo no tiene un código de reparación para esa medida.',
+          ),
+        )
+        return
+      }
+
+      const mejor = codigos[0]
+      item.codigo_reparacion = mejor.codigo
+      item.precio_reparacion_por_diente = mejor.precio_pesos !== null ? String(mejor.precio_pesos) : ''
+      recalcularYPintar(item)
+
+      const linea = lineasDelRenglon(item).find((l) => l.concepto === 'reparacion')
+      donde.appendChild(
+        h(
+          'div.tarjeta',
+          {},
+          h(
+            'div.fila',
+            {},
+            pastilla(mejor.codigo, colores.ambarOscuro),
+            h('span.tarjeta-dato', { texto: describirRango(mejor.rango_min, mejor.rango_max) }),
+            h('span', {
+              texto: linea
+                ? `${linea.cantidad} × ${formatearPesos(linea.precioUnitario)} = ${formatearPesos(linea.total)}`
+                : '',
+              estilo: { marginLeft: 'auto', color: colores.ambarOscuro, fontWeight: '600' },
+            }),
+          ),
+          h('div.tarjeta-dato', { texto: mejor.descripcion }),
+        ),
+      )
+    })
+    .catch(() => {
+      vaciar(donde).appendChild(
+        aviso('error', null, 'No pudimos buscar el código de reparación.'),
+      )
+    })
+}
+
+/**
+ * Busca los códigos que cubren la medida y reescribe SÓLO su bloque.
+ *
+ * Se hace con debounce porque se dispara en cada tecla del ancho de corte, y
+ * sin repintar la pantalla porque eso mataría el cursor del campo que se está
+ * tipeando justo arriba.
+ */
+function pedirCodigos(item: FormularioItemNota, espera = 250): void {
+  if (relojCodigos) clearTimeout(relojCodigos)
+  relojCodigos = setTimeout(() => {
+    const destino = nodoCodigos
+    if (!destino) return
+
+    void d
+      .resolverCodigoDeItem(item)
+      .then((codigos) => {
+        // Si mientras tanto se cambió de renglón, este resultado ya no va.
+        if (nodoCodigos !== destino) return
+        vaciar(destino)
+        if (!codigos) return
+        if (!codigos.length) {
+          destino.appendChild(
+            aviso('atencion', null, 'No hay ningún código que cubra esa medida.'),
+          )
+          return
+        }
+
+        // Se propone el más ajustado, pero sólo si no hay una elección manual:
+        // lo que puso el vendedor no se pisa aunque cambie la medida.
+        const elegidos = item.codigos_computo
+        const intocado =
+          elegidos.length === 0 || (elegidos.length === 1 && elegidos[0] === codigoPropuesto)
+        if (intocado) {
+          const mejor = codigos[0]
+          codigoPropuesto = mejor.codigo
+          item.codigos_computo = [mejor.codigo]
+          if (mejor.precio_pesos !== null) {
+            item.precio_por_diente = String(mejor.precio_pesos)
+            const ref = refsCampos.precio_por_diente
+            if (ref) {
+              ref.entrada.value = item.precio_por_diente
+              ref.ayuda.textContent = ref.texto(item.precio_por_diente)
+            }
+          }
+          recalcularYPintar(item)
+        }
+
+        for (const c of codigos) {
+          const elegido = item.codigos_computo.includes(c.codigo)
+          destino.appendChild(
+            h(
+              'div.tarjeta',
+              {
+                clase: elegido ? 'elegida' : '',
+                estilo: { cursor: 'pointer' },
+                al: {
+                  click: () => {
+                    item.codigos_computo = elegido
+                      ? item.codigos_computo.filter((x) => x !== c.codigo)
+                      : [...item.codigos_computo, c.codigo]
+                    if (!elegido && c.precio_pesos !== null) {
+                      item.precio_por_diente = String(c.precio_pesos)
+                      const ref = refsCampos.precio_por_diente
+                      if (ref) {
+                        ref.entrada.value = item.precio_por_diente
+                        ref.ayuda.textContent = ref.texto(item.precio_por_diente)
+                      }
+                    }
+                    codigoPropuesto = null
+                    recalcularYPintar(item)
+                    pedirCodigos(item, 0)
+                  },
+                },
+              },
+              h(
+                'div.fila',
+                {},
+                h('strong', { texto: c.codigo }),
+                // El rango explica por qué ése y no otro.
+                h('span.tarjeta-dato', { texto: describirRango(c.rango_min, c.rango_max) }),
+                h('span', {
+                  texto: c.precio_pesos !== null ? formatearPesos(Number(c.precio_pesos)) : '—',
+                  estilo: { marginLeft: 'auto', color: colores.verdeOscuro, fontWeight: '600' },
+                }),
+              ),
+              h('div.tarjeta-dato', { texto: c.descripcion }),
+              c.moneda === 'USD'
+                ? h('div.tarjeta-dato', {
+                    texto: `Lista en US$ ${Number(c.precio).toFixed(2)} · convertido al cambio de hoy`,
+                  })
+                : null,
+            ),
+          )
+        }
+      })
+      .catch(() => vaciar(destino))
+  }, espera)
+}
+
+/** El total de la nota, que vive fuera del renglón y también hay que refrescar. */
+let nodoTotal: HTMLElement | null = null
+
+function pintarTotalDeLaNota(): void {
+  if (!nodoTotal) return
+  // En pesos: la nota puede mezclar artículos de lista en dólares con otros
+  // en pesos, y sumarlos como si fueran lo mismo no daría plata de ninguna.
+  const total = totalDeRenglones(borrador.items, borrador.cotizacion?.venta ?? 0)
+  vaciar(nodoTotal)
+  if (total > 0) {
+    nodoTotal.appendChild(
+      aviso(
+        'exito',
+        `Total · ${borrador.items.length} ${borrador.items.length === 1 ? 'renglón' : 'renglones'}`,
+        formatearPesos(total),
+      ),
+    )
+  }
+}
+
+/** Recalcula y refleja el total en su campo, sin volver a dibujar nada más. */
+function recalcularYPintar(item: FormularioItemNota): void {
+  const antes = item.precio_total
+  recalcular(item)
+  if (item.precio_total === antes) return
+
+  const ref = refsCampos.precio_total
+  if (ref) {
+    ref.entrada.value = item.precio_total
+    ref.ayuda.textContent = ref.texto(item.precio_total)
+  }
+  pintarTotalDeLaNota()
+}
+
+/**
+ * El renglón de venta.
+ *
+ * Es el único que no pide medidas: el código del artículo ya lo identifica. El
+ * precio que se carga es el de UNA unidad y el total es la multiplicación.
+ */
+function camposVenta(
+  item: FormularioItemNota,
+  err: Record<string, string | undefined>,
+): Array<HTMLElement | null> {
+  const nodoTotalVenta = h('div.tarjeta-dato')
+
+  function pintarTotalVenta(): void {
+    const unidades = aNumero(item.unidades)
+    const total = totalDelRenglon(item)
+    const enPesos = totalDelRenglonEnPesos(item, borrador.cotizacion?.venta ?? 0)
+    nodoTotalVenta.textContent =
+      total > 0 && unidades > 0
+        ? `${unidades} × ${formatearMoneda(aNumero(item.precio), item.moneda)} = ${formatearMoneda(total, item.moneda)}` +
+          (item.moneda === 'USD' && enPesos > 0 ? `  ≈ ${formatearPesos(enPesos)}` : '')
+        : ''
+    pintarTotalDeLaNota()
+  }
+  pintarTotalVenta()
+
+  return [
+    buscadorDeArticulos(item, err, pintarTotalVenta),
+    campo('DESCRIPCIÓN', {
+      valor: item.descripcion,
+      multilinea: true,
+      alCambiar: (v) => (item.descripcion = v),
+    }),
+    campo('UNIDADES', {
+      valor: item.unidades,
+      error: err.unidades,
+      alCambiar: (v) => {
+        item.unidades = soloNumeros(v)
+        pintarTotalVenta()
+      },
+    }),
+    casilla('PROMOCIÓN', item.promocion, (v) => {
+      item.promocion = v
+      if (!v) item.promocion_detalle = ''
+      refrescar()
+    }),
+    item.promocion
+      ? campo('¿CUÁL ES LA PROMOCIÓN?', {
+          valor: item.promocion_detalle,
+          error: err.promocion_detalle,
+          alCambiar: (v) => (item.promocion_detalle = v),
+        })
+      : null,
+    campo(item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO', {
+      valor: item.precio,
+      error: err.precio,
+      ayuda: 'Lo que vale UNA unidad, en la moneda de la lista.',
+      alCambiar: (v) => {
+        item.precio = soloNumeros(v)
+        pintarTotalVenta()
+      },
+    }),
+    nodoTotalVenta,
+  ]
+}
+
+/**
+ * Buscador del catálogo de precios.
+ *
+ * El vendedor tipea el código o parte de la descripción y elige. Al elegir se
+ * completa el renglón entero: código, descripción, precio, moneda y las
+ * características que la lista trae escritas adentro de la descripción
+ * —diámetro, ancho de corte y dientes—, que son las que después hay que copiar
+ * a la columna técnica de la nota.
+ */
+function buscadorDeArticulos(
+  item: FormularioItemNota,
+  err: Record<string, string | undefined>,
+  alCambiarPrecio: () => void,
+): HTMLElement {
+  const resultados = h('div')
+  const elegido = h('div')
+  let reloj: ReturnType<typeof setTimeout> | null = null
+
+  function pintarElegido(): void {
+    vaciar(elegido)
+    if (!item.codigo_herramienta) return
+    const c = caracteristicasDeArticulo(item.descripcion, null)
+    const resumen = resumenCaracteristicas(c)
+    const cambio = borrador.cotizacion?.venta ?? 0
+    elegido.appendChild(
+      h(
+        'div.tarjeta',
+        { clase: 'elegida' },
+        h(
+          'div.fila',
+          {},
+          pastilla(item.codigo_herramienta, colores.verdeOscuro),
+          item.moneda === 'USD' ? pastilla('LISTA EN US$', colores.azul) : null,
+        ),
+        h('div', { texto: item.descripcion }),
+        resumen ? h('div.tarjeta-dato', { texto: resumen }) : null,
+        item.moneda === 'USD' && cambio > 0
+          ? h('div.tarjeta-dato', {
+              texto: `Al cambio de hoy: ${formatearPesos(aNumero(item.precio) * cambio)} por unidad`,
+            })
+          : null,
+      ),
+    )
+  }
+  pintarElegido()
+
+  function buscar(texto: string): void {
+    if (reloj) clearTimeout(reloj)
+    if (texto.trim().length < 2) return void vaciar(resultados)
+    reloj = setTimeout(() => {
+      void d
+        .buscarArticulos(texto.trim())
+        .then((articulos) => {
+          vaciar(resultados)
+          if (!articulos.length) {
+            resultados.appendChild(
+              aviso('atencion', null, 'No hay ningún artículo con eso. Probá con menos letras.'),
+            )
+            return
+          }
+          for (const a of articulos) {
+            const c = caracteristicasDeArticulo(a.descripcion, a.medida)
+            const resumen = resumenCaracteristicas(c)
+            const moneda = a.moneda === 'USD' ? 'USD' : 'ARS'
+            resultados.appendChild(
+              h(
+                'div.tarjeta',
+                {
+                  estilo: { cursor: 'pointer' },
+                  al: {
+                    click: () => {
+                      item.codigo_herramienta = a.codigo
+                      item.descripcion = a.descripcion
+                      item.precio = String(a.precio)
+                      item.moneda = moneda
+                      // Las características van a los mismos campos que usa el
+                      // afilado, así que salen impresas sin volver a tipearlas.
+                      if (c.diametro_exterior) item.diametro_exterior = c.diametro_exterior
+                      if (c.ancho_corte) item.ancho_corte = c.ancho_corte
+                      if (c.dientes) item.cantidad_dientes = c.dientes
+                      if (c.largo) item.largo = c.largo
+                      if (c.ancho) item.ancho = c.ancho
+                      if (c.espesor) item.espesor = c.espesor
+                      alCambiarPrecio()
+                      refrescar()
+                    },
+                  },
+                },
+                h(
+                  'div.fila',
+                  {},
+                  h('strong', { texto: a.codigo }),
+                  h('span', {
+                    texto: a.sin_precio
+                      ? 'a confirmar'
+                      : formatearMoneda(Number(a.precio), moneda),
+                    estilo: { marginLeft: 'auto', color: colores.verdeOscuro, fontWeight: '600' },
+                  }),
+                ),
+                h('div', { texto: a.descripcion }),
+                resumen ? h('div.tarjeta-dato', { texto: resumen }) : null,
+                moneda === 'USD' && a.precio_pesos
+                  ? h('div.tarjeta-dato', { texto: `≈ ${formatearPesos(Number(a.precio_pesos))}` })
+                  : null,
+              ),
+            )
+          }
+        })
+        .catch(() => vaciar(resultados))
+    }, 300)
+  }
+
+  return h(
+    'div',
+    {},
+    campo('BUSCAR EN LA LISTA DE PRECIOS', {
+      marcador: 'Código o descripción — ej. LG2B o sierra 300',
+      error: err.codigo_herramienta,
+      ayuda: 'Al elegir se completan solos el precio y las características.',
+      alCambiar: buscar,
+    }),
+    resultados,
+    elegido,
+  )
 }
 
 function dibujarCampo(
@@ -1358,11 +2011,76 @@ function dibujarCampo(
     })
   }
 
-  if (c === 'dientes_rotos' || c === 'afilado_reparacion') {
-    return casilla(ETIQUETAS_CAMPO[c], item[c], (v) => {
-      ;(item as Record<string, any>)[c] = v
+  if (c === 'afilado_reparacion') {
+    return casilla(ETIQUETAS_CAMPO[c], item.afilado_reparacion, (v) => {
+      item.afilado_reparacion = v
       refrescar()
     })
+  }
+
+  if (c === 'dientes_rotos') {
+    return casilla(ETIQUETAS_CAMPO[c], item.dientes_rotos, (v) => {
+      item.dientes_rotos = v
+      // Destildar borra todo lo que colgaba de ahí: una cantidad de rotos
+      // escondida descontaría dientes que nadie volvió a mirar.
+      if (!v) {
+        item.dientes_rotos_cantidad = ''
+        item.reparar_dientes = null
+        item.codigo_reparacion = ''
+        item.precio_reparacion_por_diente = ''
+      }
+      refrescar()
+    })
+  }
+
+  if (c === 'dientes_rotos_cantidad') {
+    if (!item.dientes_rotos) return null
+    return campo(ETIQUETAS_CAMPO[c], {
+      valor: item.dientes_rotos_cantidad,
+      error: err.dientes_rotos_cantidad,
+      ayuda: 'Se descuentan de los dientes a afilar.',
+      alMontar: ({ entrada, ayuda }) => {
+        refsCampos[c] = { entrada, ayuda, texto: () => 'Se descuentan de los dientes a afilar.' }
+      },
+      alCambiar: (v) => {
+        // Sólo enteros: medio diente roto no existe.
+        const limpio = v.replace(/\D/g, '')
+        item.dientes_rotos_cantidad = limpio
+        const ref = refsCampos[c]
+        if (ref && ref.entrada.value !== limpio) ref.entrada.value = limpio
+        recalcularYPintar(item)
+      },
+    })
+  }
+
+  if (c === 'reparar_dientes') {
+    if (!item.dientes_rotos) return null
+    const bloqueReparacion = h('div')
+    if (item.reparar_dientes === true) pedirCodigoReparacion(item, bloqueReparacion)
+
+    return h(
+      'div',
+      {},
+      // Sin valor por defecto a propósito: la respuesta cambia el precio.
+      desplegable('¿DESEA REPARAR LOS DIENTES?', {
+        valor: item.reparar_dientes === null ? null : item.reparar_dientes ? 'si' : 'no',
+        items: [
+          { valor: 'si' as const, etiqueta: 'SÍ, REPARARLOS · se cobran aparte' },
+          { valor: 'no' as const, etiqueta: 'NO · sólo se descuentan' },
+        ],
+        alCambiar: (v) => {
+          item.reparar_dientes = v === 'si'
+          if (v === 'no') {
+            item.codigo_reparacion = ''
+            item.precio_reparacion_por_diente = ''
+          }
+          refrescar()
+        },
+      }),
+      bloqueReparacion,
+      err.reparar_dientes ? h('span.campo-error-texto', { texto: err.reparar_dientes }) : null,
+      err.codigo_reparacion ? h('span.campo-error-texto', { texto: err.codigo_reparacion }) : null,
+    )
   }
 
   if (c === 'descripcion') {
@@ -1379,19 +2097,39 @@ function dibujarCampo(
       ? `CANTIDAD DE ${item.herramienta ? SINGULAR_HERRAMIENTA[item.herramienta] : 'HERRAMIENTAS'}`
       : ETIQUETAS_CAMPO[c]
 
+  const valorActual = (item as unknown as Record<string, string>)[c] ?? ''
+  const esMedida = MEDIDAS.has(c)
+  const esPrecio = c === 'precio_por_diente' || c === 'precio_total'
+
+  const textoAyuda = (v: string) =>
+    esPrecio && aNumero(v) > 0
+      ? formatearPesos(aNumero(v))
+      : esMedida && aNumero(v) > 0
+        ? formatearMedida(v)
+        : ''
+
   return campo(etiqueta, {
-    valor: (item as unknown as Record<string, string>)[c] ?? '',
+    valor: valorActual,
     error: err[c],
-    ayuda:
-      (c === 'precio_por_diente' || c === 'precio_total') &&
-      aNumero((item as unknown as Record<string, string>)[c] ?? '') > 0
-        ? formatearPesos(aNumero((item as unknown as Record<string, string>)[c] ?? ''))
-        : undefined,
+    ayuda: textoAyuda(valorActual),
+    alMontar: ({ entrada, ayuda }) => {
+      refsCampos[c] = { entrada, ayuda, texto: textoAyuda }
+    },
     alCambiar: (v) => {
-      ;(item as unknown as Record<string, string>)[c] = soloNumeros(v)
-      recalcular(item)
-      // Cambiar la medida vuelve a disparar la búsqueda del código.
-      if (c === 'ancho_corte' || c === 'ancho' || c === 'diametro') refrescar()
+      // Las medidas van con coma; el punto se toma como coma.
+      const limpio = esMedida ? normalizarMedida(v) : soloNumeros(v)
+      ;(item as unknown as Record<string, string>)[c] = limpio
+
+      const ref = refsCampos[c]
+      if (ref) {
+        if (ref.entrada.value !== limpio) ref.entrada.value = limpio
+        ref.ayuda.textContent = textoAyuda(limpio)
+      }
+
+      // Nada de repintar la pantalla: se actualiza sólo lo que cambió. Repintar
+      // recreaba el input y el cursor se iba al principio en cada tecla.
+      recalcularYPintar(item)
+      if (esMedida) pedirCodigos(item)
     },
   })
 }
@@ -1407,7 +2145,7 @@ async function crear(): Promise<void> {
   if (!borrador.cotizacion) return alert('Todavía no tenemos la cotización del dólar')
 
   try {
-    const nota = await d.crearNotaPedido({
+    const notas = await d.crearNotaPedido({
       encabezado: borrador.encabezado,
       servicios: borrador.servicios,
       tipoNota: borrador.tipoNota!,
@@ -1415,15 +2153,32 @@ async function crear(): Promise<void> {
       items: borrador.items,
       tipoCambio: borrador.cotizacion.venta,
       cotizacionFecha: borrador.cotizacion.fecha,
+      observaciones: borrador.observaciones,
     })
+
+    // Puede haber salido más de una: el afilado y la venta no van en el mismo
+    // comprobante.
+    const detalle = notas
+      .map((n) => {
+        const numero = n.numero === null ? 'sin número todavía' : `Nº ${String(n.numero).padStart(6, '0')}`
+        return `· ${ETIQUETA_GRUPO_NOTA[n.grupo]} — ${numero} — ${formatearPesos(n.total)}`
+      })
+      .join('\n')
+    const pendiente = notas.some((n) => n.numero === null)
+      ? '\n\nEl cliente todavía no tiene código: quedan esperando que Administración se lo asigne.'
+      : ''
+
     alert(
-      nota.numero === null
-        ? 'Nota guardada, sin número todavía. El cliente es nuevo y queda esperando el código de Administración.'
-        : `Nota de pedido creada: Nº ${String(nota.numero).padStart(6, '0')}`,
+      `${notas.length === 1 ? 'Nota de pedido creada' : `Se crearon ${notas.length} notas de pedido`}\n\n${detalle}${pendiente}`,
     )
+
+    const ids = notas.map((n) => n.id)
     borrador = nuevoBorrador()
+    zonaSugerida = null
+    zonaCandidatas = []
     pila.length = 0
     pantalla(pantallaNotasPedido, { apilar: false })
+    pantalla(() => pantallaVistaPrevia(ids, false))
   } catch (e) {
     alert(`No pudimos crear la nota: ${(e as Error).message}`)
   }

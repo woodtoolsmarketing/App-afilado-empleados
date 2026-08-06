@@ -114,6 +114,14 @@ export function aviso(
   )
 }
 
+/**
+ * Un campo de texto.
+ *
+ * `alMontar` entrega el input y el renglón de ayuda ya creados. Es lo que
+ * permite actualizarlos **en el lugar** en vez de repintar la pantalla: repintar
+ * en cada tecla recrea el input, y un input recreado pierde el cursor y lo manda
+ * al principio, así que no se podía tipear un número de dos cifras.
+ */
 export function campo(
   etiqueta: string,
   opciones: {
@@ -124,25 +132,43 @@ export function campo(
     ayuda?: string
     alCambiar?: (valor: string) => void
     multilinea?: boolean
+    alMontar?: (partes: { entrada: HTMLInputElement; ayuda: HTMLElement }) => void
   } = {},
 ): HTMLElement {
   const entrada = h(opciones.multilinea ? 'textarea' : 'input', {
     clase: `campo-caja${opciones.error ? ' campo-error' : ''}`,
     attr: { type: opciones.tipo ?? 'text', placeholder: opciones.marcador ?? '', rows: 3 },
     al: {
-      input: (e) => opciones.alCambiar?.((e.target as HTMLInputElement).value),
+      input: (e) => {
+        const campoTexto = e.target as HTMLInputElement
+        const posicion = campoTexto.selectionStart
+        const antes = campoTexto.value
+        opciones.alCambiar?.(antes)
+        // Si el handler normalizó el texto (una coma por un punto, por ejemplo)
+        // hay que devolver el cursor a donde estaba, o salta al final.
+        if (campoTexto.value !== antes && posicion !== null) {
+          const corrimiento = campoTexto.value.length - antes.length
+          const nueva = Math.max(0, posicion + corrimiento)
+          campoTexto.setSelectionRange(nueva, nueva)
+        }
+      },
     },
   }) as HTMLInputElement
   entrada.value = opciones.valor ?? ''
 
-  return h(
+  const ayuda = h('span.campo-ayuda', { texto: opciones.ayuda ?? '' })
+
+  const nodo = h(
     'label.campo',
     {},
     h('span.campo-etiqueta', { texto: etiqueta }),
     entrada,
-    opciones.ayuda ? h('span.campo-ayuda', { texto: opciones.ayuda }) : null,
+    ayuda,
     opciones.error ? h('span.campo-error-texto', { texto: opciones.error }) : null,
   )
+
+  opciones.alMontar?.({ entrada, ayuda })
+  return nodo
 }
 
 export function desplegable<T extends string>(
@@ -153,6 +179,23 @@ export function desplegable<T extends string>(
   const select = h('select.desplegable-caja', {
     al: { change: (e) => opciones.alCambiar((e.target as HTMLSelectElement).value as T) },
   }) as HTMLSelectElement
+
+  /*
+   * Sin nada elegido va primero un marcador vacío.
+   *
+   * Antes no estaba, así que el navegador mostraba la primera opción como si
+   * estuviera seleccionada mientras el valor real seguía en null. El vendedor
+   * veía "FACTURA", tocaba CONTINUAR y le decía que faltaba elegir el tipo de
+   * nota: elegir lo que ya se veía elegido no dispara ningún `change`.
+   */
+  if (opciones.valor === null) {
+    const marcador = document.createElement('option')
+    marcador.value = ''
+    marcador.textContent = 'Elegí una opción'
+    marcador.disabled = true
+    marcador.selected = true
+    select.appendChild(marcador)
+  }
 
   for (const item of opciones.items) {
     const op = document.createElement('option')
@@ -402,6 +445,9 @@ textarea.campo-caja { min-height: 90px; resize: vertical; }
 .tarjeta-dato { font-size: ${px(tipografia.tamano.xs)}; color: var(--tinta-suave); }
 .fila { display: flex; gap: ${px(espaciado.sm)}; align-items: center; flex-wrap: wrap; }
 .fila > .campo { flex: 1; }
+
+/* Dos columnas para las casillas de una palabra: la mitad del scroll. */
+.servicios { display: grid; grid-template-columns: 1fr 1fr; column-gap: ${px(espaciado.sm)}; }
 
 /* ── Diagnóstico ─────────────────────────────────────────────────────────── */
 .diag { display: flex; flex-direction: column; gap: ${px(espaciado.xs)}; }

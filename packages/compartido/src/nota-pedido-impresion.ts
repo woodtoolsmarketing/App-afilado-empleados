@@ -18,6 +18,8 @@
  * las tiene y la gente de fábrica las usa para anotar a mano.
  */
 
+import { formatearMoneda, type Moneda } from './catalogo'
+import { lineasDeComputo, type DatosComputo } from './notas-pedido'
 import {
   ESTILOS_ROL_DE_VISITA,
   generarHtmlRolDeVisita,
@@ -48,6 +50,12 @@ export interface RenglonTecnico {
 export interface RenglonComercial {
   codigo_computo: string
   cantidad: number | string
+  /**
+   * Lo que vale UNA unidad de lo que se computa: el precio por diente que sale
+   * de la lista de precios, o el precio de la unidad en una venta.
+   */
+  precio_unitario: string
+  /** El resultado: cantidad × precio unitario. */
   precio: string
   condicion_venta: string
   anticipo: string
@@ -71,6 +79,13 @@ export interface NotaParaImprimir {
 
   tipo_cambio: string
   emision: string
+  /**
+   * La fecha que el vendedor acordó con el cliente. Va impresa en "Fca.
+   * Entrega": el resto de esa caja son fechas que completa la fábrica a mano,
+   * pero ésta ya se sabe cuando se emite la nota y es lo que el cliente espera
+   * leer.
+   */
+  fecha_entrega?: string
 }
 
 export interface OpcionesImpresion {
@@ -86,14 +101,16 @@ const FILAS_TECNICAS = 11
 const FILAS_COMERCIALES = 11
 
 /**
- * El duplicado va más apretado.
+ * El duplicado tiene el chrome apretado —encabezado, rótulos y cajas chicas—
+ * pero **llena la hoja**: el espacio que se le gana al adorno se le da a las
+ * filas donde el taller escribe a mano. Una hoja A4 a medio usar es papel
+ * igual de gastado que una con márgenes gordos.
  *
- * Es la copia del taller: lleva sólo código de cómputo y cantidad, así que las
- * once filas en blanco del original son papel de más. Con siete siguen
- * entrando las anotaciones a mano y la hoja queda más corta.
+ * La tabla comercial se estira sola hasta el borde inferior (ver `.duplicado`
+ * en los estilos), así que estos números son el piso, no el total.
  */
-const FILAS_TECNICAS_DUPLICADO = 7
-const FILAS_COMERCIALES_DUPLICADO = 7
+const FILAS_TECNICAS_DUPLICADO = 9
+const FILAS_COMERCIALES_DUPLICADO = 10
 
 function escapar(v: unknown): string {
   return String(v ?? '')
@@ -129,9 +146,27 @@ const TECNICO_VACIO = (): RenglonTecnico => ({
   z_paso: '',
 })
 
+/**
+ * Reparte las observaciones en la columna que les corresponde.
+ *
+ * Van una por renglón, como en el talonario de papel. Si hay más observaciones
+ * que renglones de cómputo se agregan filas: la observación es del cliente y no
+ * se puede perder porque no haya sobrado una fila.
+ */
+function conObservaciones(filas: RenglonComercial[], observaciones: string[]): RenglonComercial[] {
+  if (observaciones.length === 0) return filas
+  const salida = filas.slice()
+  observaciones.forEach((texto, i) => {
+    if (!salida[i]) salida[i] = COMERCIAL_VACIO()
+    salida[i] = { ...salida[i], observaciones: texto }
+  })
+  return salida
+}
+
 const COMERCIAL_VACIO = (): RenglonComercial => ({
   codigo_computo: '',
   cantidad: '',
+  precio_unitario: '',
   precio: '',
   condicion_venta: '',
   anticipo: '',
@@ -202,6 +237,7 @@ export function generarHtmlNotaPedido(
       return `<tr>
         <td>${escapar(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
+        <td class="num">${escapar(c.precio_unitario)}</td>
         <td class="num">${escapar(c.precio)}</td>
         <td>${condicion}</td>
         <td class="num">${escapar(c.anticipo)}</td>
@@ -210,12 +246,16 @@ export function generarHtmlNotaPedido(
     })
     .join('')
 
+  // "Precio unitario" y "Precio total" van apilados en dos renglones: puestos
+  // de corrido se comían el ancho de las columnas de al lado. El código de
+  // cómputo cede el espacio, que es el que le sobraba.
   const comercialesCabecera = esDuplicado
     ? `<tr><th class="w-codigo">Código de Cómputo</th><th class="w-cant">Cantidad</th></tr>`
     : `<tr>
         <th class="w-codigo">Código de Cómputo</th>
         <th class="w-cant">Cantidad</th>
-        <th>Precio</th>
+        <th class="w-precio">Precio<br>unitario</th>
+        <th class="w-precio">Precio<br>total</th>
         <th>Condicion de Venta</th>
         <th>Anticipo</th>
         <th>Observaciones</th>
@@ -260,7 +300,9 @@ export function generarHtmlNotaPedido(
         <div class="control-linea"><span>Emision Plano:</span><span class="fecha-vacia">___/___/___</span></div>
         <div class="control-linea"><span>Recibido Fca.:</span><span class="fecha-vacia">___/___/___</span></div>
         <div class="control-linea"><span>Finalizado Fca.:</span><span class="fecha-vacia">___/___/___</span></div>
-        <div class="control-linea"><span>Fca. Entrega:</span><span class="fecha-vacia">___/___/___</span></div>
+        <div class="control-linea"><span>Fca. Entrega:</span><span class="fecha-vacia">${
+          nota.fecha_entrega ? escapar(nota.fecha_entrega) : '___/___/___'
+        }</span></div>
       </td>
       <td class="numero-caja">
         <div class="numero-titulo">NOTA DE PEDIDO</div>
@@ -389,7 +431,13 @@ export const ESTILOS_NOTA_PEDIDO = `
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
 .w-desc { width: 16%; } .w-tick { width: 3.5%; } .w-otro { width: 9%; }
-.w-codigo { width: 20%; } .w-cant { width: 9%; }
+/* El código de cómputo bajó de 20% a 14% para hacerle lugar a las dos
+   columnas de precio. Entra igual: son códigos de cuatro dígitos, y en el peor
+   caso —dos códigos separados por coma— sigue entrando. En el duplicado, que
+   sólo tiene dos columnas, se lo deja ancho. */
+.w-codigo { width: 14%; } .w-cant { width: 8%; } .w-precio { width: 11%; }
+.duplicado .w-codigo { width: 20%; }
+.comercial th { line-height: 1.1; }
 .cambio { letter-spacing: 1px; }
 
 .firmas { display: flex; justify-content: space-around; margin-top: 14mm; text-align: center; }
@@ -412,7 +460,16 @@ export const ESTILOS_NOTA_PEDIDO = `
    Es la copia del taller: no lleva precios ni condiciones, así que el aire del
    original es papel desperdiciado. Se achica todo lo que no sea espacio para
    escribir a mano, y las filas de escritura se dejan usables. */
-.duplicado { font-size: 8.5pt; }
+/* Llena la hoja: A4 (297mm) menos los 8mm de margen de cada lado. La tabla
+   comercial es la única que crece, así que todo el espacio sobrante termina
+   siendo renglones para escribir y no aire entre bloques. */
+.duplicado {
+  font-size: 8.5pt;
+  min-height: 281mm;
+  display: flex;
+  flex-direction: column;
+}
+.duplicado .comercial { flex: 1 0 auto; }
 .duplicado .control-titulo, .duplicado .numero-titulo { font-size: 10pt; padding: 1px; }
 .duplicado .control-linea { line-height: 1.25; }
 .duplicado .numero { font-size: 13pt; padding: 2px 0 3px; }
@@ -455,6 +512,40 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       ? ''
       : Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+  /**
+   * La fila guardada, traducida a lo que la cuenta necesita.
+   *
+   * Es el mismo cálculo que hace el formulario —viene de `lineasDeComputo`—
+   * para que lo que se imprime no pueda diferir de lo que el vendedor vio.
+   */
+  const computoDeFila = (i: Record<string, any>): DatosComputo => ({
+    concepto: i.servicio === 'venta' ? 'venta' : i.servicio === 'reparacion' ? 'reparacion' : 'afilado',
+    cantidad: Math.max(1, Number(i.cantidad) || 1),
+    // En una VENTA los dientes son una característica de la herramienta que se
+    // vende, no algo que se cobre por unidad: lo que se computa son las
+    // unidades. Sin esta condición, vender 3 sierras de 72 dientes computaba
+    // 216 y multiplicaba el precio unitario por eso.
+    dientesPorHerramienta: i.servicio === 'venta' ? 0 : Number(i.cantidad_dientes) || 0,
+    precioUnitario: Number(i.precio_unitario) || 0,
+    // Media lista de precios está en dólares y el renglón se cotiza así.
+    moneda: (i.moneda === 'USD' ? 'USD' : 'ARS') as Moneda,
+    // En la venta no hay código de cómputo: lo que se computa es el código del
+    // artículo. `?? []` no alcanzaba porque la columna guarda un array vacío,
+    // no null, y la nota salía sin código en la columna de cómputo.
+    codigos: i.codigos_computo?.length
+      ? i.codigos_computo
+      : i.codigo_herramienta
+        ? [i.codigo_herramienta]
+        : [],
+    dientesRotos: i.dientes_rotos ? Number(i.detalle?.dientes_rotos_cantidad) || 0 : 0,
+    repararDientes: i.detalle?.reparar_dientes === true,
+    codigoReparacion: d(i, 'codigo_reparacion'),
+    precioReparacionPorDiente: Number(i.detalle?.precio_reparacion_unitario) || 0,
+    // En venta el unitario ya está guardado, así que no hay total directo que
+    // usar: si lo hubiera, tres unidades se imprimirían como una.
+    precioTotalDirecto: i.servicio === 'venta' ? 0 : Number(i.precio_total) || 0,
+  })
+
   return {
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
@@ -468,7 +559,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       descripcion: i.descripcion ?? i.codigo_herramienta ?? '',
       afilado: i.servicio === 'afilado',
       rectificado: i.servicio === 'rectificado',
-      reparacion: i.servicio === 'reparacion',
+      // También cuando se reparan los dientes rotos de una herramienta que
+      // vino a afilar: sobre esa pieza se hacen las dos operaciones.
+      reparacion: i.servicio === 'reparacion' || i.detalle?.reparar_dientes === true,
       tensado: false,
       rellenado: false,
       otro: ['hermanado', 'rebaje', 'reclamo', 'venta'].includes(i.servicio) ? i.servicio : '',
@@ -480,16 +573,36 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       ancho_corte: d(i, 'ancho_corte') || d(i, 'espesor'),
       z_paso: i.cantidad_dientes ? String(i.cantidad_dientes) : d(i, 'paso'),
     })),
-    comerciales: items.map((i) => ({
-      codigo_computo: i.codigos_computo?.join(', ') ?? '',
-      cantidad: i.cantidad_dientes ?? i.cantidad,
-      precio: monto(i.precio_total ?? null),
-      condicion_venta: '',
-      anticipo: '',
-      observaciones: '',
-    })),
+    // Un renglón puede dar más de una línea: cuando hay dientes rotos que se
+    // reparan, la reparación se computa aparte y con su propio código.
+    //
+    // Lo que se computa son los dientes TOTALES menos los rotos: los Z de la
+    // columna técnica son por herramienta, y dos sierras de 96 son 192 dientes.
+    comerciales: conObservaciones(
+      items.flatMap((i) =>
+        lineasDeComputo(computoDeFila(i)).map((l) => ({
+          codigo_computo: l.codigo,
+          cantidad: l.cantidad,
+          // Los dólares van con su símbolo. Un número sin moneda al lado de
+          // otro en pesos es la forma más rápida de cobrar mal.
+          precio_unitario: l.precioUnitario ? formatearMoneda(l.precioUnitario, l.moneda) : '',
+          precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
+          condicion_venta: l.concepto === 'reparacion' ? 'Reparación dientes' : '',
+          anticipo: '',
+          observaciones: '',
+        })),
+      ),
+      nota.observaciones ?? [],
+    ),
+    // Vacío en las notas de afilado: se cobra en pesos y una cotización ahí
+    // sólo hace dudar de en qué moneda está el total.
     tipo_cambio: nota.tipo_cambio ? monto(Number(nota.tipo_cambio)) : '',
     emision: new Date(nota.creado_en).toLocaleDateString('es-AR'),
+    // `fecha_entrega` es un `date` de Postgres: al mediodía, para que el huso
+    // no la corra un día para atrás al pasarla por Date.
+    fecha_entrega: nota.fecha_entrega
+      ? new Date(`${nota.fecha_entrega}T12:00:00`).toLocaleDateString('es-AR')
+      : undefined,
   }
 }
 

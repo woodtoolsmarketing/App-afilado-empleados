@@ -19,6 +19,7 @@ import { PantallaHistorialNotas } from '../pantallas/HistorialNotas'
 import { PantallaNotasPedido } from '../pantallas/NotasPedido'
 import { PantallaNuevoCliente } from '../pantallas/NuevoCliente'
 import { PantallaNotasPendientes } from '../pantallas/NotasPendientes'
+import { PantallaVistaPreviaNota } from '../pantallas/VistaPreviaNota'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
@@ -85,6 +86,7 @@ export function Navegacion() {
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />
+            <Pila.Screen name="VistaPrevia" component={PantallaVistaPreviaNota} />
             <Pila.Screen name="EnPreparacion" component={PantallaEnPreparacion} />
           </>
         )}

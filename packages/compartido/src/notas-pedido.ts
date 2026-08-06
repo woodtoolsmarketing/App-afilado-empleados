@@ -11,6 +11,7 @@
  * que la pantalla muestre un campo que el validador ignora, ni al revés.
  */
 
+import { aPesos, type Moneda } from './catalogo'
 import type { ResultadoValidacion, TipoNotaPedido, TipoServicio } from './tipos'
 import { CODIGO_POSTAL } from './validaciones'
 
@@ -78,7 +79,9 @@ export const FAMILIA_CATALOGO: Record<Herramienta, string> = {
 
 /** Qué herramientas se ofrecen según el servicio elegido. */
 export const HERRAMIENTAS_POR_SERVICIO: Record<TipoServicio, Herramienta[]> = {
-  venta: [],
+  // La venta también pide herramienta, y no por prolijidad: de ella depende en
+  // qué nota de pedido cae el artículo. Ver `grupoDeFacturacion`.
+  venta: ['sierra', 'fresa', 'cabezal', 'sierra_sin_fin', 'mecha', 'cuchilla'],
   afilado: ['sierra', 'fresa', 'cabezal', 'sierra_sin_fin', 'mecha', 'cuchilla'],
   reparacion: ['sierra', 'fresa', 'cabezal'],
   rectificado: ['sierra', 'fresa', 'cabezal'],
@@ -144,6 +147,8 @@ export type CampoItem =
   | 'tipo_mecha'
   | 'mano'
   | 'dientes_rotos'
+  | 'dientes_rotos_cantidad'
+  | 'reparar_dientes'
   | 'afilado_reparacion'
   | 'codigos_computo'
   | 'precio_por_diente'
@@ -166,17 +171,20 @@ export type CampoItem =
 export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
   sierra: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes', 'dientes_rotos',
+    'descripcion', 'cantidad_dientes',
+    'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   fresa: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes', 'dientes_rotos',
+    'descripcion', 'cantidad_dientes',
+    'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   cabezal: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes', 'dientes_rotos',
+    'descripcion', 'cantidad_dientes',
+    'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   incisor: [
@@ -220,7 +228,14 @@ export interface FormularioNotaEncabezado {
   cliente_nombre: string
   cliente_cuit: string
   vendedor: string
+  /** El código de zona, que es lo que se imprime en la nota ("107"). */
   zona: string
+  /**
+   * Cuál de las zonas del catálogo se eligió. No se guarda: existe porque el
+   * código no es único —el 121 está dos veces— y el selector tiene que saber
+   * cuál de las dos está marcada.
+   */
+  zona_id: string
   datos_cliente: string
   datos_cliente_origen: 'texto' | 'voz'
   descripcion_herramienta: string
@@ -244,6 +259,7 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   cliente_cuit: '',
   vendedor: '',
   zona: '',
+  zona_id: '',
   datos_cliente: '',
   datos_cliente_origen: 'texto',
   descripcion_herramienta: '',
@@ -336,6 +352,20 @@ export function validarClienteNuevo(
   return { valido: Object.keys(errores).length === 0, errores }
 }
 
+/**
+ * De dónde viene la fresa que se vende.
+ *
+ * No es un dato descriptivo: decide en qué nota de pedido cae. Las importadas
+ * se cotizan en dólares y van con el resto de la venta; las de producción
+ * nacional se facturan en pesos y llevan nota propia.
+ */
+export type OrigenFresa = 'nacional' | 'importada'
+
+export const ETIQUETA_ORIGEN_FRESA: Record<OrigenFresa, string> = {
+  nacional: 'PRODUCCIÓN NACIONAL',
+  importada: 'IMPORTADA',
+}
+
 /** Un renglón de la nota. Los campos que no apliquen quedan vacíos. */
 export interface FormularioItemNota {
   servicio: TipoServicio
@@ -347,6 +377,17 @@ export interface FormularioItemNota {
   promocion: boolean
   promocion_detalle: string
   precio: string
+  /** Sólo en la venta de fresas: define en qué nota de pedido cae. */
+  origen_fresa: OrigenFresa | null
+  /**
+   * En qué moneda está `precio`.
+   *
+   * Media lista de precios está en dólares, y ahí el renglón se cotiza en
+   * dólares —precio unitario × unidades, todo en U$S— con el tipo de cambio
+   * impreso en la nota para convertir. Convertirlo nosotros a pesos escondería
+   * el precio de lista, que es el que el cliente reconoce.
+   */
+  moneda: Moneda
 
   // Comunes de servicio
   cantidad: string
@@ -373,6 +414,22 @@ export interface FormularioItemNota {
   // Si/No con "no" por defecto, como pidieron
   dientes_rotos: boolean
   afilado_reparacion: boolean
+
+  // ── Dientes rotos ─────────────────────────────────────────────────────────
+  //
+  // Un diente roto no se afila: se descuenta del total a afilar. Y si además
+  // se lo repara, esa reparación se cobra aparte, con su propio código de
+  // cómputo —el de reparación por ancho de corte— y su propio precio.
+  /** Cuántos, en números. Sólo cuenta si `dientes_rotos` está en sí. */
+  dientes_rotos_cantidad: string
+  /**
+   * `null` mientras no lo contesten: es una pregunta que cambia el precio, así
+   * que no puede tener un default silencioso.
+   */
+  reparar_dientes: boolean | null
+  /** Código de cómputo de la reparación. Se busca solo por el ancho de corte. */
+  codigo_reparacion: string
+  precio_reparacion_por_diente: string
 }
 
 export const ITEM_VACIO: FormularioItemNota = {
@@ -383,6 +440,8 @@ export const ITEM_VACIO: FormularioItemNota = {
   promocion: false,
   promocion_detalle: '',
   precio: '',
+  origen_fresa: null,
+  moneda: 'ARS',
   cantidad: '',
   descripcion: '',
   cantidad_dientes: '',
@@ -401,6 +460,10 @@ export const ITEM_VACIO: FormularioItemNota = {
   mano: null,
   dientes_rotos: false,
   afilado_reparacion: false,
+  dientes_rotos_cantidad: '',
+  reparar_dientes: null,
+  codigo_reparacion: '',
+  precio_reparacion_por_diente: '',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,14 +485,27 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   tipo_mecha: 'el tipo de mecha',
   mano: 'si es derecha o izquierda',
   dientes_rotos: '',
+  dientes_rotos_cantidad: 'cuántos dientes están rotos',
+  reparar_dientes: 'si querés reparar los dientes',
   afilado_reparacion: '',
   codigos_computo: 'el código de cómputo',
   precio_por_diente: 'el precio por diente',
   precio_total: 'el precio total',
 }
 
-/** Los Si/No tienen "no" por defecto: nunca están "sin completar". */
-const NO_OBLIGATORIOS: CampoItem[] = ['dientes_rotos', 'afilado_reparacion']
+/**
+ * Campos que el validador no exige por sí solos.
+ *
+ * Los Si/No tienen "no" por defecto, así que nunca están "sin completar". Los
+ * dos de dientes rotos sí se exigen, pero condicionalmente —sólo cuando el
+ * vendedor marcó que hay dientes rotos— y esa regla está escrita aparte.
+ */
+const NO_OBLIGATORIOS: CampoItem[] = [
+  'dientes_rotos',
+  'afilado_reparacion',
+  'dientes_rotos_cantidad',
+  'reparar_dientes',
+]
 
 function esNumeroValido(v: string): boolean {
   if (!v.trim()) return false
@@ -440,7 +516,7 @@ function esNumeroValido(v: string): boolean {
 const CAMPOS_NUMERICOS = new Set<CampoItem>([
   'cantidad', 'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
   'largo_util', 'espesor', 'paso', 'cantidad_dientes', 'precio_por_diente',
-  'precio_total',
+  'precio_total', 'dientes_rotos_cantidad',
 ])
 
 export function validarItemNota(
@@ -449,6 +525,14 @@ export function validarItemNota(
   const errores: Record<string, string> = {}
 
   if (item.servicio === 'venta') {
+    if (!item.herramienta) {
+      errores.herramienta = 'Elegí qué se vende'
+    }
+    // De qué origen es la fresa decide en qué nota de pedido cae: sin eso no
+    // se puede armar el comprobante.
+    if (item.herramienta === 'fresa' && !item.origen_fresa) {
+      errores.origen_fresa = 'Indicá si la fresa es de producción nacional o importada'
+    }
     if (!item.codigo_herramienta.trim()) {
       errores.codigo_herramienta = 'Ingresá el código de la herramienta'
     }
@@ -456,7 +540,7 @@ export function validarItemNota(
       errores.unidades = 'Ingresá cuántas unidades'
     }
     if (!esNumeroValido(item.precio)) {
-      errores.precio = 'Ingresá el precio'
+      errores.precio = 'Ingresá el precio unitario'
     }
     // La promoción sólo se completa si la marcaron; si no, queda en "no".
     if (item.promocion && !item.promocion_detalle.trim()) {
@@ -468,6 +552,29 @@ export function validarItemNota(
   if (!item.herramienta) {
     errores.herramienta = 'Elegí la herramienta'
     return { valido: false, errores }
+  }
+
+  // ── Dientes rotos ─────────────────────────────────────────────────────────
+  // Se valida aparte porque es condicional: los campos existen siempre pero
+  // sólo se exigen cuando el vendedor marcó que hay dientes rotos.
+  if (item.dientes_rotos && CAMPOS_POR_HERRAMIENTA[item.herramienta].includes('dientes_rotos')) {
+    const rotos = aNumero(item.dientes_rotos_cantidad)
+    const totales = aNumero(item.cantidad_dientes) * Math.max(1, aNumero(item.cantidad))
+
+    if (!esNumeroValido(item.dientes_rotos_cantidad)) {
+      errores.dientes_rotos_cantidad = 'Ingresá cuántos dientes están rotos'
+    } else if (totales > 0 && rotos > totales) {
+      // Restar más dientes de los que hay dejaría el renglón en negativo.
+      errores.dientes_rotos_cantidad = `No pueden ser más de ${totales}, que es el total de dientes`
+    }
+
+    if (item.reparar_dientes === null) {
+      errores.reparar_dientes = 'Contestá si querés reparar los dientes'
+    }
+    if (item.reparar_dientes === true && !item.codigo_reparacion.trim()) {
+      errores.codigo_reparacion =
+        'Falta el código de cómputo de la reparación. Completá el ancho de corte para que se busque solo.'
+    }
   }
 
   for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {
@@ -484,6 +591,16 @@ export function validarItemNota(
       if (item.codigos_computo.length === 0) {
         errores.codigos_computo =
           'Falta el código de cómputo. Completá la medida para que se busque solo, o elegilo de la lista.'
+      }
+      continue
+    }
+
+    // El precio total no se tipea: sale de la cuenta. Se valida el resultado y
+    // no el casillero, porque el casillero puede estar todavía vacío mientras
+    // el formulario termina de calcular y eso no es un error del vendedor.
+    if (campo === 'precio_total') {
+      if (totalDelRenglon(item) <= 0) {
+        errores.precio_total = 'Falta el precio total. Revisá el precio y las cantidades.'
       }
       continue
     }
@@ -540,7 +657,13 @@ const ABREVIATURA_MEDIDA: Partial<Record<CampoItem, string>> = {
 export function resumenRenglon(item: FormularioItemNota): string {
   if (item.servicio === 'venta') {
     const unidades = aNumero(item.unidades)
-    return [item.codigo_herramienta || 'Sin código', unidades > 0 ? `× ${unidades}` : null]
+    return [
+      'VENTA',
+      item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : null,
+      item.origen_fresa ? ETIQUETA_ORIGEN_FRESA[item.origen_fresa] : null,
+      item.codigo_herramienta || 'Sin código',
+      unidades > 0 ? `× ${unidades}` : null,
+    ]
       .filter(Boolean)
       .join(' · ')
   }
@@ -563,9 +686,14 @@ export function resumenRenglon(item: FormularioItemNota): string {
   return partes.join(' · ')
 }
 
-/** Lo que se factura por la nota entera: la suma de todos sus renglones. */
-export function totalDeRenglones(items: FormularioItemNota[]): number {
-  return items.reduce((suma, i) => suma + aNumero(i.precio_total || i.precio), 0)
+/**
+ * Lo que se factura por la nota entera, **en pesos**.
+ *
+ * `tipoCambio` sólo hace falta cuando hay renglones cotizados en dólares; sin
+ * ellos el resultado es el mismo con cualquier valor.
+ */
+export function totalDeRenglones(items: FormularioItemNota[], tipoCambio = 0): number {
+  return redondear(items.reduce((suma, i) => suma + totalDelRenglonEnPesos(i, tipoCambio), 0))
 }
 
 export interface ValidacionRenglones {
@@ -683,6 +811,11 @@ export function aNumero(v: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
+/** Dos decimales, que es como se factura. */
+function redondear(n: number): number {
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0
+}
+
 /**
  * Precio total de un renglón de afilado: precio por diente × cantidad de
  * dientes. Es la cuenta que pidieron y la que evita que el vendedor la haga a
@@ -691,9 +824,322 @@ export function aNumero(v: string): number {
 export function calcularTotalPorDientes(
   precioPorDiente: number,
   cantidadDientes: number,
+  cantidadHerramientas = 1,
 ): number {
   if (!Number.isFinite(precioPorDiente) || !Number.isFinite(cantidadDientes)) return 0
-  return Math.round(precioPorDiente * cantidadDientes * 100) / 100
+  // Los dientes son POR herramienta. Dos sierras de 96 dientes son 192 dientes
+  // para afilar: sin este factor la nota cobraba la mitad.
+  const unidades = Number.isFinite(cantidadHerramientas) && cantidadHerramientas > 0
+    ? cantidadHerramientas
+    : 1
+  return redondear(precioPorDiente * cantidadDientes * unidades)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cómputo del renglón
+//
+// Un renglón puede dar MÁS DE UNA línea de cómputo. El caso es el de los
+// dientes rotos: un diente roto no se afila, así que se descuenta del total a
+// afilar, y si además se lo repara esa reparación se cobra aparte, con el
+// código de reparación que corresponde al ancho de corte.
+//
+//   2 sierras de 96 dientes, 5 rotos, con reparación
+//     → AFILADO      187 dientes × $ 248,85
+//     → REPARACIÓN     5 dientes × $ 1.500,35
+//
+// Si el cliente NO quiere repararlos, los 5 simplemente no se cobran.
+//
+// La cuenta vive acá y no en la pantalla porque la usan cuatro lugares —el
+// formulario, la vista previa, el alta en la base y la impresión— y ya pasó
+// una vez que una copia se quedara atrás y cotizara la mitad.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ConceptoComputo = 'afilado' | 'reparacion' | 'venta'
+
+export interface LineaComputo {
+  concepto: ConceptoComputo
+  /** Los códigos de cómputo de esta línea, ya unidos por coma. */
+  codigo: string
+  /** Lo que se computa: dientes en el afilado, unidades en la venta. */
+  cantidad: number
+  precioUnitario: number
+  total: number
+  /** La moneda de esta línea. El afilado siempre en pesos. */
+  moneda: Moneda
+}
+
+/**
+ * Los datos que alimentan la cuenta, sin depender de si vienen del formulario
+ * o de una fila de la base. Las dos formas existen y tienen nombres distintos.
+ */
+export interface DatosComputo {
+  concepto: ConceptoComputo
+  /** Cuántas herramientas: el factor que multiplica a los dientes. */
+  cantidad: number
+  /** Dientes POR herramienta. 0 en lo que no se cobra por diente. */
+  dientesPorHerramienta: number
+  precioUnitario: number
+  codigos: string[]
+  dientesRotos: number
+  repararDientes: boolean
+  codigoReparacion: string
+  precioReparacionPorDiente: number
+  /**
+   * Para lo que no se cobra por diente (mechas, cuchillas, sierras sin fin):
+   * el precio total que tipeó el vendedor. El unitario se deduce de ahí.
+   */
+  precioTotalDirecto: number
+  /** La moneda del renglón. El afilado siempre es en pesos. */
+  moneda: Moneda
+}
+
+export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
+  const unidades = Math.max(1, d.cantidad || 1)
+  const codigo = d.codigos.filter(Boolean).join(', ')
+
+  // Sin dientes no hay nada que descontar: la línea es una sola y el unitario
+  // sale de dividir, que es la única lectura posible de un total tipeado.
+  if (!d.dientesPorHerramienta) {
+    const total = redondear(d.precioTotalDirecto || d.precioUnitario * unidades)
+    return [
+      {
+        concepto: d.concepto,
+        codigo,
+        cantidad: unidades,
+        precioUnitario: redondear(total / unidades),
+        total,
+        moneda: d.moneda,
+      },
+    ]
+  }
+
+  const dientesTotales = d.dientesPorHerramienta * unidades
+  const rotos = Math.min(Math.max(0, d.dientesRotos), dientesTotales)
+  const aAfilar = dientesTotales - rotos
+
+  const lineas: LineaComputo[] = [
+    {
+      concepto: d.concepto,
+      codigo,
+      cantidad: aAfilar,
+      precioUnitario: d.precioUnitario,
+      total: redondear(aAfilar * d.precioUnitario),
+      moneda: d.moneda,
+    },
+  ]
+
+  if (rotos > 0 && d.repararDientes) {
+    lineas.push({
+      concepto: 'reparacion',
+      codigo: d.codigoReparacion,
+      cantidad: rotos,
+      precioUnitario: d.precioReparacionPorDiente,
+      total: redondear(rotos * d.precioReparacionPorDiente),
+      // El afilado y su reparación se cobran los dos en pesos.
+      moneda: 'ARS',
+    })
+  }
+
+  return lineas
+}
+
+/** Adaptador del formulario a la cuenta. */
+export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
+  const esVenta = item.servicio === 'venta'
+  return {
+    concepto: esVenta ? 'venta' : item.servicio === 'reparacion' ? 'reparacion' : 'afilado',
+    cantidad: Math.max(1, Math.round(aNumero(esVenta ? item.unidades : item.cantidad)) || 1),
+    dientesPorHerramienta: esVenta ? 0 : aNumero(item.cantidad_dientes),
+    precioUnitario: aNumero(esVenta ? item.precio : item.precio_por_diente),
+    codigos: esVenta
+      ? item.codigo_herramienta
+        ? [item.codigo_herramienta]
+        : []
+      : item.codigos_computo,
+    dientesRotos: item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
+    repararDientes: item.reparar_dientes === true,
+    codigoReparacion: item.codigo_reparacion,
+    precioReparacionPorDiente: aNumero(item.precio_reparacion_por_diente),
+    // En venta el precio tipeado es UNITARIO, así que no hay total directo:
+    // dejarlo acá haría que 3 unidades a $100 se facturaran $100.
+    precioTotalDirecto: esVenta ? 0 : aNumero(item.precio_total),
+    // El afilado se cobra en pesos siempre; sólo la venta puede ir en dólares.
+    moneda: esVenta ? item.moneda : 'ARS',
+  }
+}
+
+export function lineasDelRenglon(item: FormularioItemNota): LineaComputo[] {
+  return lineasDeComputo(computoDeRenglon(item))
+}
+
+/**
+ * Lo que se cobra por el renglón, **en su moneda**: afilado + reparación de los
+ * rotos, o unidades × precio en la venta.
+ */
+export function totalDelRenglon(item: FormularioItemNota): number {
+  return redondear(lineasDelRenglon(item).reduce((s, l) => s + l.total, 0))
+}
+
+/**
+ * Lo mismo, pasado a pesos.
+ *
+ * Existe porque el total de la nota es un solo número y una nota de venta puede
+ * mezclar artículos de lista en dólares con otros en pesos. Sumar los dos como
+ * si fueran lo mismo daría un total que no es plata de ninguna moneda.
+ */
+export function totalDelRenglonEnPesos(item: FormularioItemNota, tipoCambio: number): number {
+  return redondear(
+    lineasDelRenglon(item).reduce((s, l) => s + aPesos(l.total, l.moneda, tipoCambio), 0),
+  )
+}
+
+/** ¿Hay algún renglón cotizado en dólares? */
+export function tieneRenglonesEnDolares(items: FormularioItemNota[]): boolean {
+  return items.some((i) => lineasDelRenglon(i).some((l) => l.moneda === 'USD'))
+}
+
+/** Dientes que quedan para afilar, ya descontados los rotos. */
+export function dientesAAfilar(item: FormularioItemNota): number {
+  const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+  const totales = aNumero(item.cantidad_dientes) * unidades
+  const rotos = item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0
+  return Math.max(0, totales - Math.min(rotos, totales))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// En qué nota de pedido cae cada renglón
+//
+// Un mismo cliente puede traer una sierra a afilar y llevarse una fresa: son
+// dos comprobantes distintos porque se facturan distinto. El afilado se cobra
+// en pesos y la venta se cotiza en dólares, y adentro de la venta hay dos
+// cosas que la empresa factura por separado: las sierras sin fin y las fresas
+// de producción nacional.
+//
+// El vendedor carga todo junto, como lo trae el cliente. El reparto en notas
+// lo hace la app.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GrupoNota =
+  | 'servicio'
+  | 'venta_general'
+  | 'venta_sierra_sin_fin'
+  | 'venta_fresa_nacional'
+
+export const ETIQUETA_GRUPO_NOTA: Record<GrupoNota, string> = {
+  servicio: 'AFILADO Y SERVICIOS',
+  venta_general: 'VENTA',
+  venta_sierra_sin_fin: 'VENTA · SIERRAS SIN FIN',
+  venta_fresa_nacional: 'VENTA · FRESAS NACIONALES',
+}
+
+export const DESCRIPCION_GRUPO_NOTA: Record<GrupoNota, string> = {
+  servicio: 'Se cobra en pesos. La nota sale sin tipo de cambio.',
+  venta_general: 'Productos cotizados en dólares. La nota lleva el tipo de cambio.',
+  venta_sierra_sin_fin: 'Van en su propia nota. Cotizadas en dólares.',
+  venta_fresa_nacional: 'Van en su propia nota y se facturan en pesos.',
+}
+
+/**
+ * ¿La nota lleva el tipo de cambio impreso?
+ *
+ * El afilado se cobra en pesos, así que poner una cotización sólo confunde: el
+ * recuadro va vacío. Las fresas de producción nacional también se facturan en
+ * pesos, por definición.
+ */
+export function grupoLlevaTipoDeCambio(grupo: GrupoNota): boolean {
+  return grupo === 'venta_general' || grupo === 'venta_sierra_sin_fin'
+}
+
+export function grupoDeFacturacion(item: FormularioItemNota): GrupoNota {
+  if (item.servicio !== 'venta') return 'servicio'
+  if (item.herramienta === 'sierra_sin_fin') return 'venta_sierra_sin_fin'
+  if (item.herramienta === 'fresa' && item.origen_fresa === 'nacional') {
+    return 'venta_fresa_nacional'
+  }
+  return 'venta_general'
+}
+
+export interface NotaAgrupada {
+  grupo: GrupoNota
+  items: FormularioItemNota[]
+  /** Los servicios que quedan dentro de esta nota, para su encabezado. */
+  servicios: TipoServicio[]
+  /** En pesos, para poder compararlo entre notas y guardarlo en una columna. */
+  total: number
+  llevaTipoDeCambio: boolean
+  /** true cuando alguno de sus renglones se cotiza en dólares. */
+  tieneDolares: boolean
+}
+
+/**
+ * Reparte los renglones en las notas que correspondan, conservando el orden en
+ * que el vendedor los cargó.
+ */
+export function agruparParaNotas(
+  items: FormularioItemNota[],
+  tipoCambio = 0,
+): NotaAgrupada[] {
+  const orden: GrupoNota[] = []
+  const porGrupo = new Map<GrupoNota, FormularioItemNota[]>()
+
+  for (const item of items) {
+    const grupo = grupoDeFacturacion(item)
+    if (!porGrupo.has(grupo)) {
+      porGrupo.set(grupo, [])
+      orden.push(grupo)
+    }
+    porGrupo.get(grupo)!.push(item)
+  }
+
+  return orden.map((grupo) => {
+    const suyos = porGrupo.get(grupo)!
+    const servicios: TipoServicio[] = []
+    for (const i of suyos) if (!servicios.includes(i.servicio)) servicios.push(i.servicio)
+    return {
+      grupo,
+      items: suyos,
+      servicios,
+      total: totalDeRenglones(suyos, tipoCambio),
+      llevaTipoDeCambio: grupoLlevaTipoDeCambio(grupo),
+      tieneDolares: tieneRenglonesEnDolares(suyos),
+    }
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Medidas
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Toda medida se escribe con coma decimal, y el punto se acepta como si fuera
+ * coma: el vendedor tipea `3.2` o `3,2` según el teclado que le tocó y las dos
+ * cosas significan lo mismo. Deja pasar un solo separador.
+ */
+export function normalizarMedida(texto: string): string {
+  const limpio = String(texto ?? '').replace(/[^\d.,]/g, '').replace(/\./g, ',')
+  const [entero, ...resto] = limpio.split(',')
+  return resto.length ? `${entero},${resto.join('')}` : entero
+}
+
+/** "3,2 mm" — con la unidad, que es lo que evita la duda de si son mm o pulgadas. */
+export function formatearMedida(valor: string | number | null | undefined): string {
+  if (valor === null || valor === undefined || valor === '') return ''
+  const n = typeof valor === 'number' ? valor : aNumero(valor)
+  if (!Number.isFinite(n) || n === 0) return ''
+  return `${n.toLocaleString('es-AR', { maximumFractionDigits: 2 })} mm`
+}
+
+/** "de 3 a 4 mm", "hasta 4 mm", "de 130 mm en adelante". */
+export function describirRango(
+  rangoMin: number | null | undefined,
+  rangoMax: number | null | undefined,
+): string {
+  const min = rangoMin ?? null
+  const max = rangoMax ?? null
+  if (min === null && max === null) return 'sin rango'
+  if (min === null || min === 0) return `hasta ${formatearMedida(max)}`
+  if (max === null) return `de ${formatearMedida(min)} en adelante`
+  return `de ${formatearMedida(min)} a ${formatearMedida(max)}`
 }
 
 /** "$ 1.234,56" — formato argentino, que es como se lee la nota. */

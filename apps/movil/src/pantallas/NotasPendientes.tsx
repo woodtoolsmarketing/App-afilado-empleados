@@ -117,6 +117,18 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               alCambiar={setConRolDeVisita}
             />
 
+            {/* Antes de imprimir se puede mirar. Va arriba del botón de
+                imprimir porque es el orden en que conviene hacerlo. */}
+            <BotonSecundario
+              titulo="👁  Ver antes de imprimir"
+              alTocar={() =>
+                navigation.navigate('VistaPrevia', {
+                  notaIds: objetivo.map((n) => n.id),
+                  incluirRolDeVisita: conRolDeVisita,
+                })
+              }
+            />
+
             <BotonMenu
               titulo={'IMPRIMIR NOTAS\nDE PEDIDO'}
               subtitulo={

@@ -221,6 +221,11 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
           </Aviso>
         ) : null}
 
+        <BotonSecundario
+          titulo="👁  Ver antes de imprimir"
+          alTocar={() => navigation.navigate('VistaPrevia', { notaIds: [notaId] })}
+        />
+
         <BotonMenu
           titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
           subtitulo="Original y duplicado"

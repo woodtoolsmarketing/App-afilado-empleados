@@ -54,6 +54,15 @@ Ese tercer punto es a propósito: es la forma de probar el circuito de
 autorización de dispositivos sin tener que reinstalar la app en un teléfono. El
 ID de instalación se muestra en pantalla para poder encontrarlo en el panel.
 
+**El ID lo fija el build**, no el navegador. La primera versión lo generaba al
+azar y lo guardaba en `localStorage`; desde un `file://` eso se pierde solo, y
+cada pérdida creaba un dispositivo nuevo que había que volver a autorizar —se
+autorizaba una PC que dejaba de existir al rato. Ahora vive en
+`herramientas/probador/.instalacion-id`, sobrevive a las reconstrucciones y es
+el mismo en cualquier copia del HTML: se autoriza una vez y listo.
+
+Si borrás ese archivo, el próximo build genera uno nuevo y lo avisa por consola.
+
 ## Diagnóstico
 
 El botón **"Ver diagnóstico del backend"** —disponible antes de entrar— chequea
