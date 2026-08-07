@@ -279,9 +279,11 @@ export async function imprimirNotas(params: {
   const paginas = notas.flatMap((n) => {
     const imprimible = notaImprimibleDesdeFila(n as Record<string, any>)
     const conLogo = (n as Record<string, any>).tipo_nota === 'factura'
+    // El logo va en las DOS copias de una factura, como en el talonario
+    // preimpreso: el original del cliente y el duplicado del taller.
     const opciones: OpcionesImpresion[] = [
       { copia: 'original', conLogo },
-      { copia: 'duplicado', conLogo: false },
+      { copia: 'duplicado', conLogo },
     ]
     return opciones.map((o) => ({ nota: imprimible, opciones: o }))
   })

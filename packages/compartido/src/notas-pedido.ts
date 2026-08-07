@@ -66,6 +66,62 @@ export const SUMAR_OTRA: Record<Herramienta, string> = {
   cuchilla: 'SUMAR OTRA CUCHILLA',
 }
 
+/**
+ * Cómo se llama la herramienta en la descripción del renglón.
+ *
+ * Es lo que la fábrica lee para saber qué le llegó, y lo escribe siempre igual:
+ * "S.C." una sierra circular, "SSF" una sierra sin fin. Se completa sola al
+ * elegir la herramienta —el vendedor la puede cambiar— porque tipearlo a mano
+ * en cada renglón terminaba en "sierra", "Sierra", "s.c." y "SC" para la misma
+ * cosa.
+ */
+export const DESCRIPCION_SERVICIO: Record<Herramienta, string> = {
+  sierra: 'S.C.',
+  fresa: 'Fresa',
+  cabezal: 'Cabezal',
+  incisor: 'Incisor',
+  sierra_sin_fin: 'SSF',
+  mecha: 'Mecha',
+  cuchilla: 'Cuchilla',
+}
+
+/** Lo mismo, para cuando se vende: la herramienta sale nueva. */
+export const DESCRIPCION_VENTA: Record<Herramienta, string> = {
+  sierra: 'S.C. nueva',
+  fresa: 'Fresa nueva',
+  cabezal: 'Cabezal nuevo',
+  incisor: 'Incisor nuevo',
+  sierra_sin_fin: 'SSF nueva',
+  mecha: 'Mecha nueva',
+  cuchilla: 'Cuchilla nueva',
+}
+
+/** La descripción que corresponde a esa herramienta en ese servicio. */
+export function descripcionSugerida(
+  herramienta: Herramienta | null,
+  servicio: TipoServicio,
+): string {
+  if (!herramienta) return ''
+  return servicio === 'venta'
+    ? DESCRIPCION_VENTA[herramienta]
+    : DESCRIPCION_SERVICIO[herramienta]
+}
+
+/**
+ * ¿La descripción es una de las que ponemos solos?
+ *
+ * Sirve para saber si se puede reemplazar al cambiar de herramienta: lo que
+ * escribió el vendedor no se pisa nunca.
+ */
+export function esDescripcionSugerida(texto: string): boolean {
+  const t = texto.trim()
+  if (!t) return true
+  return (
+    Object.values(DESCRIPCION_SERVICIO).includes(t) ||
+    Object.values(DESCRIPCION_VENTA).includes(t)
+  )
+}
+
 /** Familia del catálogo de precios contra la que se busca el código de cómputo. */
 export const FAMILIA_CATALOGO: Record<Herramienta, string> = {
   sierra: 'afilado_general',
@@ -135,6 +191,7 @@ export type ManoMecha = 'derecha' | 'izquierda'
 export type CampoItem =
   | 'cantidad'
   | 'diametro_exterior'
+  | 'diametro_interior'
   | 'diametro'
   | 'ancho_corte'
   | 'largo'
@@ -171,25 +228,25 @@ export type CampoItem =
 export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
   sierra: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes',
+    'diametro_interior', 'descripcion', 'cantidad_dientes',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   fresa: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes',
+    'diametro_interior', 'descripcion', 'cantidad_dientes',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   cabezal: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes',
+    'diametro_interior', 'descripcion', 'cantidad_dientes',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   incisor: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'descripcion', 'cantidad_dientes', 'afilado_reparacion',
+    'diametro_interior', 'descripcion', 'cantidad_dientes', 'afilado_reparacion',
     'precio_por_diente', 'precio_total',
   ],
   sierra_sin_fin: [
@@ -218,6 +275,54 @@ export const MEDIDA_PARA_CODIGO: Record<Herramienta, CampoItem | null> = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Condición de venta
+//
+// Va en su columna del talonario y hasta ahora salía siempre vacía: no había
+// dónde cargarla. Es un dato de cobranza, así que se guarda como opción y no
+// como texto libre —"ctdo", "contado", "CONTADO" son tres condiciones distintas
+// para cualquier planilla— con un detalle aparte para los dos casos que lo
+// necesitan.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CondicionVenta =
+  | 'contado'
+  | 'transferencia'
+  | 'link_de_pago'
+  | 'cheque'
+  | 'cuenta_corriente'
+  | 'otro'
+
+export const ETIQUETA_CONDICION_VENTA: Record<CondicionVenta, string> = {
+  contado: 'Contado',
+  transferencia: 'Transferencia bancaria',
+  link_de_pago: 'Link de pago',
+  cheque: 'Cheque de 0 a 60 días',
+  cuenta_corriente: 'Cuenta corriente',
+  otro: 'Otro',
+}
+
+/** Las dos que piden algo más: los días del cheque y el texto de "Otro". */
+export const CONDICIONES_CON_DETALLE: CondicionVenta[] = ['cheque', 'otro']
+
+/** Tope de días del cheque. Sale del nombre de la opción. */
+export const DIAS_CHEQUE_MAXIMO = 60
+
+/**
+ * Cómo se escribe la condición en la nota impresa.
+ * `Cheque a 30 días`, `Otro: retira y paga en fábrica`, `Contado`.
+ */
+export function describirCondicionVenta(
+  condicion: CondicionVenta | null,
+  detalle?: string | null,
+): string {
+  if (!condicion) return ''
+  const texto = String(detalle ?? '').trim()
+  if (condicion === 'cheque') return texto ? `Cheque a ${texto} días` : 'Cheque'
+  if (condicion === 'otro') return texto || 'Otro'
+  return ETIQUETA_CONDICION_VENTA[condicion]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Formularios
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -228,6 +333,11 @@ export interface FormularioNotaEncabezado {
   cliente_nombre: string
   cliente_cuit: string
   vendedor: string
+  /**
+   * El número que va en "Vendedor Nº". Sale del perfil, pero se puede corregir:
+   * hay altas viejas sin código cargado y el comprobante lo necesita igual.
+   */
+  vendedor_numero: string
   /** El código de zona, que es lo que se imprime en la nota ("107"). */
   zona: string
   /**
@@ -258,6 +368,7 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   cliente_nombre: '',
   cliente_cuit: '',
   vendedor: '',
+  vendedor_numero: '',
   zona: '',
   zona_id: '',
   datos_cliente: '',
@@ -399,6 +510,17 @@ export interface FormularioItemNota {
 
   // Medidas
   diametro_exterior: string
+  /**
+   * El agujero. **Opcional**: la lista de precios ya lo trae, y lo normal es
+   * que la herramienta venga con el de fábrica.
+   *
+   * Se carga sólo cuando difiere, que es justamente el dato que importa: más
+   * grande significa que la agrandaron, más chico que lleva buje reductor. Ver
+   * `ajusteDeAgujero`.
+   */
+  diametro_interior: string
+  /** El de fábrica, que trae el catálogo. No lo tipea nadie. */
+  diametro_interior_catalogo: string
   diametro: string
   ancho_corte: string
   largo: string
@@ -449,6 +571,8 @@ export const ITEM_VACIO: FormularioItemNota = {
   precio_por_diente: '',
   precio_total: '',
   diametro_exterior: '',
+  diametro_interior: '',
+  diametro_interior_catalogo: '',
   diametro: '',
   ancho_corte: '',
   largo: '',
@@ -473,6 +597,7 @@ export const ITEM_VACIO: FormularioItemNota = {
 const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   cantidad: 'la cantidad',
   diametro_exterior: 'el diámetro exterior',
+  diametro_interior: 'el diámetro interior',
   diametro: 'el diámetro',
   ancho_corte: 'el ancho de corte',
   largo: 'el largo',
@@ -505,6 +630,9 @@ const NO_OBLIGATORIOS: CampoItem[] = [
   'afilado_reparacion',
   'dientes_rotos_cantidad',
   'reparar_dientes',
+  // El agujero lo trae la lista de precios: sólo se carga cuando difiere del
+  // de fábrica. Exigirlo sería pedir que copien un dato que ya tenemos.
+  'diametro_interior',
 ]
 
 function esNumeroValido(v: string): boolean {
@@ -514,9 +642,9 @@ function esNumeroValido(v: string): boolean {
 }
 
 const CAMPOS_NUMERICOS = new Set<CampoItem>([
-  'cantidad', 'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
-  'largo_util', 'espesor', 'paso', 'cantidad_dientes', 'precio_por_diente',
-  'precio_total', 'dientes_rotos_cantidad',
+  'cantidad', 'diametro_exterior', 'diametro_interior', 'diametro', 'ancho_corte',
+  'largo', 'ancho', 'largo_util', 'espesor', 'paso', 'cantidad_dientes',
+  'precio_por_diente', 'precio_total', 'dientes_rotos_cantidad',
 ])
 
 export function validarItemNota(
@@ -733,6 +861,8 @@ export type CampoEncabezado =
   | 'tipo_nota'
   | 'servicios'
   | 'fecha_entrega'
+  | 'condicion_venta'
+  | 'condicion_venta_detalle'
 
 export function validarEncabezadoNota(
   enc: FormularioNotaEncabezado,
@@ -740,9 +870,27 @@ export function validarEncabezadoNota(
     servicios: TipoServicio[]
     tipoNota: TipoNotaPedido | null
     fechaEntrega: string | null
+    condicionVenta?: CondicionVenta | null
+    condicionVentaDetalle?: string
   },
 ): ResultadoValidacion<CampoEncabezado> {
   const errores: Partial<Record<CampoEncabezado, string>> = {}
+
+  // La condición de venta es cómo se cobra: sin eso la nota no se puede pasar
+  // a cobranzas. Las dos que piden detalle lo exigen.
+  const detalle = String(extra.condicionVentaDetalle ?? '').trim()
+  if (!extra.condicionVenta) {
+    errores.condicion_venta = 'Elegí la condición de venta'
+  } else if (extra.condicionVenta === 'cheque') {
+    const dias = Number(detalle)
+    if (!detalle || !/^\d+$/.test(detalle)) {
+      errores.condicion_venta_detalle = 'Indicá a cuántos días es el cheque'
+    } else if (dias > DIAS_CHEQUE_MAXIMO) {
+      errores.condicion_venta_detalle = `El cheque va de 0 a ${DIAS_CHEQUE_MAXIMO} días`
+    }
+  } else if (extra.condicionVenta === 'otro' && !detalle) {
+    errores.condicion_venta_detalle = 'Contá cuál es la condición'
+  }
 
   // Un cliente nuevo todavía no tiene código: la nota se guarda igual y queda
   // esperando que Administración se lo asigne.
@@ -1007,6 +1155,97 @@ export function dientesAAfilar(item: FormularioItemNota): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// El agujero de la herramienta
+//
+// La lista de precios trae el diámetro interior de fábrica (`d=30`). Cuando el
+// cliente trae una con otro agujero, eso cambia el trabajo y hay que decirlo en
+// la nota:
+//
+//   · más grande  → alguien se lo AGRANDÓ
+//   · más chico   → lleva un BUJE REDUCTOR
+//
+// Es un dato del taller, no un precio, así que va a la descripción general de
+// la herramienta y no a la tabla de cómputo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AjusteAgujero = 'agrandado' | 'buje_reductor' | 'de_fabrica'
+
+export const ETIQUETA_AJUSTE_AGUJERO: Record<AjusteAgujero, string> = {
+  agrandado: 'agrandado',
+  buje_reductor: 'buje reductor',
+  de_fabrica: 'de fábrica',
+}
+
+export interface AgujeroDelRenglon {
+  /** La medida que va a la nota: la cargada, o la de catálogo si no cargaron. */
+  medida: string
+  ajuste: AjusteAgujero
+  /** Sin medida de catálogo no hay con qué comparar. */
+  comparable: boolean
+}
+
+/**
+ * Qué agujero lleva el renglón y si difiere del de fábrica.
+ *
+ * Sin nada cargado se usa el del catálogo. Cargar la misma medida que el
+ * catálogo también sirve —queda escrita— y no es un ajuste.
+ *
+ * **En una VENTA no hay ajuste posible.** La herramienta sale nueva, con el
+ * agujero que trae de fábrica: no hay una pieza del cliente contra la cual
+ * comparar. La medida se toma del artículo elegido y se escribe sola; el campo
+ * para cargarla a mano es de los renglones de servicio, que es donde el
+ * cliente puede traer una con el agujero agrandado o con buje.
+ */
+export function agujeroDelRenglon(item: FormularioItemNota): AgujeroDelRenglon {
+  const catalogo = item.diametro_interior_catalogo.trim()
+  const cargado = item.diametro_interior.trim()
+
+  if (item.servicio === 'venta') {
+    return { medida: catalogo || cargado, ajuste: 'de_fabrica', comparable: false }
+  }
+
+  if (!cargado) {
+    return { medida: catalogo, ajuste: 'de_fabrica', comparable: !!catalogo }
+  }
+  if (!catalogo) {
+    // No hay contra qué comparar: se respeta lo cargado y no se inventa ajuste.
+    return { medida: cargado, ajuste: 'de_fabrica', comparable: false }
+  }
+
+  const a = aNumero(cargado)
+  const b = aNumero(catalogo)
+  if (!a || !b || Math.abs(a - b) < 0.001) {
+    return { medida: cargado, ajuste: 'de_fabrica', comparable: true }
+  }
+  return {
+    medida: cargado,
+    ajuste: a > b ? 'agrandado' : 'buje_reductor',
+    comparable: true,
+  }
+}
+
+/**
+ * Los avisos de agujero que van a la descripción general de la herramienta.
+ * Uno por renglón que difiera, con la herramienta y las dos medidas, para que
+ * en el taller se sepa a cuál de las piezas corresponde.
+ */
+export function avisosDeAgujero(items: FormularioItemNota[]): string[] {
+  const avisos: string[] = []
+  for (const item of items) {
+    // La venta no genera avisos: la herramienta sale con su agujero de fábrica.
+    if (item.servicio === 'venta') continue
+    const a = agujeroDelRenglon(item)
+    if (a.ajuste === 'de_fabrica' || !a.comparable) continue
+    const que = item.herramienta ? DESCRIPCION_SERVICIO[item.herramienta] : 'Herramienta'
+    const como = a.ajuste === 'agrandado' ? 'con agujero agrandado' : 'con buje reductor'
+    avisos.push(
+      `${que} ${como}: ${a.medida} mm (de fábrica ${item.diametro_interior_catalogo.trim()} mm)`,
+    )
+  }
+  return avisos
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // En qué nota de pedido cae cada renglón
 //
 // Un mismo cliente puede traer una sierra a afilar y llevarse una fresa: son
@@ -1140,6 +1379,59 @@ export function describirRango(
   if (min === null || min === 0) return `hasta ${formatearMedida(max)}`
   if (max === null) return `de ${formatearMedida(min)} en adelante`
   return `de ${formatearMedida(min)} a ${formatearMedida(max)}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El número de vendedor
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * El número de vendedor como va impreso en la nota: **sin los ceros de
+ * adelante**.
+ *
+ * El Gestión los guarda rellenados a tres dígitos (`007`, `010`, `100`) y en el
+ * talonario se escriben como el número que son. Quitar el relleno no cambia el
+ * número: `007` y `7` son el mismo vendedor, y `010` y `100` quedan intactos
+ * porque su cero no es relleno.
+ *
+ * `excepciones` lleva los códigos que conservan el cero de adelante porque en
+ * la casa se los nombra así. Va como parámetro y no como una lista acá adentro
+ * para que se pueda cambiar sin tocar esta función.
+ */
+/**
+ * Códigos de vendedor que conservan el cero de adelante.
+ *
+ * PENDIENTE: son los de Valentín y Carlos, que en la casa se nombran con el
+ * cero. Hasta saber cuáles son exactamente, la lista va vacía y todos los
+ * códigos se imprimen sin relleno. Completar acá y no en la base: es una
+ * convención de cómo se los llama, no un dato del vendedor.
+ */
+export const VENDEDORES_CON_CERO: string[] = []
+
+export function numeroDeVendedorImpreso(
+  codigo: string | null | undefined,
+  excepciones: string[] = [],
+): string {
+  const t = String(codigo ?? '').trim()
+  if (!t) return ''
+  if (excepciones.includes(t)) return t
+  // Sólo se sacan ceros de adelante, y nunca todos: "000" queda en "0".
+  const sinCeros = t.replace(/^0+(?=\d)/, '')
+  return sinCeros || t
+}
+
+/**
+ * Cuando una carga produce varias notas, cada una avisa con cuáles va.
+ * "Va con nota de pedido 000011, 000012".
+ */
+export function avisoDeNotasHermanas(
+  numeros: Array<number | null>,
+  propio: number | null,
+): string | null {
+  const otras = numeros.filter((n): n is number => n !== null && n !== propio)
+  if (otras.length === 0) return null
+  const lista = otras.map((n) => String(n).padStart(6, '0')).join(', ')
+  return `Va con nota de pedido ${lista}`
 }
 
 /** "$ 1.234,56" — formato argentino, que es como se lee la nota. */

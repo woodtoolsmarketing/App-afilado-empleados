@@ -41,8 +41,14 @@ const ANCHO_CORTE_B = new RegExp(`\\bB\\s*=?\\s*${NUMERO}`)
  * Se exige decimal para no confundirlo con el modelo o con otra medida entera.
  */
 const ANCHO_CORTE_SUELTO = new RegExp(`\\bD\\s*=?\\s*[0-9]+(?:[.,][0-9]+)?\\s+([0-9]+[.,][0-9]+)`)
-/** `Z=72`, `Z 24`, `Z12+12`, `Z=30+4`. Los sumandos se suman. */
-const DIENTES = /\bZ\s*=?\s*([0-9]+(?:\s*\+\s*[0-9]+)*)/
+/**
+ * `Z=72`, `Z 24`, `Z12+12`, `Z=30+4`. Los sumandos se suman.
+ *
+ * Sin distinguir mayúsculas: media docena de sierras de la lista escriben
+ * `z=120` en minúscula. El `\b` delante evita comerse la z final de otra
+ * palabra.
+ */
+const DIENTES = /\bZ\s*=?\s*([0-9]+(?:\s*\+\s*[0-9]+)*)/i
 /** `12x12x1.5`, `54.5x29x3` — largo × ancho × espesor de un inserto o cuchilla. */
 const TRES_MEDIDAS = new RegExp(`\\b${NUMERO}\\s*[xX]\\s*${NUMERO}\\s*[xX]\\s*${NUMERO}`)
 /** `25x30` — sólo dos, cuando no hay espesor. */
@@ -150,6 +156,95 @@ export function resumenCaracteristicas(c: CaracteristicasArticulo): string {
 /** ¿Se entendió algo de la descripción? */
 export function tieneCaracteristicas(c: CaracteristicasArticulo): boolean {
   return Object.keys(c).length > 0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconocer la herramienta que trajo el cliente
+//
+// En un renglón de afilado no hay artículo elegido: el vendedor carga las
+// medidas de la pieza que tiene en la mano. Pero esa pieza está en la lista de
+// precios —122 de las 130 sierras traen `D=` y `d=`— así que se la puede
+// reconocer por sus medidas y sacar de ahí el agujero de fábrica, que es contra
+// lo que se compara para saber si fue agrandado o lleva buje reductor.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Lo mínimo que necesita el reconocedor. Lo cumple `ArticuloCatalogo`. */
+export interface ArticuloReconocible {
+  codigo: string
+  descripcion: string
+  medida?: string | null
+  familia?: string | null
+}
+
+export interface MedidasBuscadas {
+  diametro_exterior?: string
+  ancho_corte?: string
+  dientes?: string
+}
+
+/** Compara dos medidas escritas como texto, con tolerancia de redondeo. */
+function mismaMedida(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false
+  const n = (t: string) => Number(t.replace(',', '.'))
+  const x = n(a)
+  const y = n(b)
+  return Number.isFinite(x) && Number.isFinite(y) && Math.abs(x - y) < 0.051
+}
+
+export interface Coincidencia<T> {
+  articulo: T
+  caracteristicas: CaracteristicasArticulo
+  /** Cuántas de las medidas buscadas coinciden. */
+  puntaje: number
+}
+
+/**
+ * De un conjunto de candidatos, el que mejor coincide con las medidas cargadas.
+ *
+ * El diámetro exterior es **excluyente**: sin él no hay identificación posible
+ * y una coincidencia parcial serviría el agujero de otra herramienta. Se exige
+ * exacto y no por texto, porque buscar "D=30" en la base trae también los
+ * "D=300".
+ *
+ * El ancho de corte y los dientes suman y desempatan entre las variantes del
+ * mismo diámetro.
+ *
+ * **Ante la duda no se elige.** Con Ø300 hay veinte sierras en la lista, y no
+ * todas comparten agujero: casi todas son `d=30` pero la `LT16MD CD3` es
+ * `d=130`. Si las mejores candidatas no coinciden en el agujero, se devuelve
+ * null: un "de fábrica" equivocado inventa un buje reductor que nadie pidió.
+ */
+export function reconocerHerramienta<T extends ArticuloReconocible>(
+  candidatos: T[],
+  buscadas: MedidasBuscadas,
+): Coincidencia<T> | null {
+  if (!buscadas.diametro_exterior) return null
+
+  const posibles: Array<Coincidencia<T>> = []
+
+  for (const articulo of candidatos) {
+    const c = caracteristicasDeArticulo(articulo.descripcion, articulo.medida)
+    if (!mismaMedida(c.diametro_exterior, buscadas.diametro_exterior)) continue
+    if (!c.diametro_interior) continue
+
+    let puntaje = 1
+    if (mismaMedida(c.ancho_corte, buscadas.ancho_corte)) puntaje++
+    if (buscadas.dientes && c.dientes === String(Number(buscadas.dientes))) puntaje++
+
+    posibles.push({ articulo, caracteristicas: c, puntaje })
+  }
+
+  if (posibles.length === 0) return null
+
+  const mejorPuntaje = Math.max(...posibles.map((p) => p.puntaje))
+  const empatadas = posibles.filter((p) => p.puntaje === mejorPuntaje)
+
+  // Todas las mejores tienen que coincidir en el agujero. Si no, la medida
+  // cargada no alcanza para saber cuál de las herramientas es.
+  const agujeros = new Set(empatadas.map((p) => p.caracteristicas.diametro_interior))
+  if (agujeros.size > 1) return null
+
+  return empatadas[0]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

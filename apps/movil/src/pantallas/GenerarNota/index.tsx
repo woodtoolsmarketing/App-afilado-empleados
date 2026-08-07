@@ -3,8 +3,10 @@ import {
   aNumero,
   colores,
   DESCRIPCION_GRUPO_NOTA,
+  DIAS_CHEQUE_MAXIMO,
   ENCABEZADO_VACIO,
   espaciado,
+  ETIQUETA_CONDICION_VENTA,
   ETIQUETA_GRUPO_NOTA,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_ORIGEN_FRESA,
@@ -27,6 +29,7 @@ import {
   validarEncabezadoNota,
   validarItemNota,
   validarRenglones,
+  type CondicionVenta,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type Herramienta,
@@ -83,9 +86,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [encabezado, setEncabezado] = useState<FormularioNotaEncabezado>({
     ...ENCABEZADO_VACIO,
     vendedor: etiquetaVendedor(perfil),
+    // Del perfil, pero editable: hay altas sin código cargado.
+    vendedor_numero: perfil?.codigo_vendedor ?? '',
   })
   const [servicios, setServicios] = useState<TipoServicio[]>([])
   const [tipoNota, setTipoNota] = useState<TipoNotaPedido | null>(null)
+  /** Cómo se cobra. Va a la columna "Condicion de Venta" del talonario. */
+  const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)
+  const [condicionDetalle, setCondicionDetalle] = useState('')
   const [fechaEntrega, setFechaEntrega] = useState<Date | null>(null)
   const [calendario, setCalendario] = useState(false)
   const [items, setItems] = useState<FormularioItemNota[]>([ITEM_VACIO])
@@ -183,6 +191,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       servicios: servs,
       tipoNota,
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
+      condicionVenta,
+      condicionVentaDetalle: condicionDetalle,
     })
     setErrores(e as Record<string, string | undefined>)
   }
@@ -311,6 +321,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       servicios,
       tipoNota,
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
+      condicionVenta,
+      condicionVentaDetalle: condicionDetalle,
     })
     setErrores(e as Record<string, string | undefined>)
     if (!valido) return
@@ -331,6 +343,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         tipoCambio: cotizacion.venta,
         cotizacionFecha: cotizacion.fecha,
         observaciones,
+        condicionVenta: condicionVenta!,
+        condicionVentaDetalle: condicionDetalle,
       })
     },
     onSuccess: async (notas) => {
@@ -451,6 +465,60 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 }}
                 error={errores.tipo_nota}
               />
+
+              {/* ── Condición de venta ──────────────────────────────────────
+                  Va a la columna del talonario que hasta ahora salía vacía.
+                  Es opción cerrada y no texto libre: "ctdo" y "contado" son
+                  dos condiciones distintas para cualquier planilla. */}
+              <Desplegable<CondicionVenta>
+                etiqueta="CONDICIÓN DE VENTA"
+                obligatorio
+                marcador="Cómo se cobra"
+                valor={condicionVenta}
+                items={(Object.keys(ETIQUETA_CONDICION_VENTA) as CondicionVenta[]).map((c) => ({
+                  valor: c,
+                  etiqueta: ETIQUETA_CONDICION_VENTA[c],
+                }))}
+                alCambiar={(c) => {
+                  setCondicionVenta(c)
+                  // El detalle es de la opción anterior: no se arrastra.
+                  setCondicionDetalle('')
+                  if (intentado) revalidarEncabezado(encabezado, servicios)
+                }}
+                error={errores.condicion_venta}
+              />
+
+              {condicionVenta === 'cheque' ? (
+                <Campo
+                  etiqueta="¿A CUÁNTOS DÍAS?"
+                  obligatorio
+                  value={condicionDetalle}
+                  // Sólo números: es una cantidad de días, no un texto.
+                  onChangeText={(t) => {
+                    setCondicionDetalle(t.replace(/\D/g, '').slice(0, 2))
+                    if (intentado) revalidarEncabezado(encabezado, servicios)
+                  }}
+                  keyboardType="number-pad"
+                  contenedorStyle={estilos.corto}
+                  placeholder="30"
+                  ayuda={`De 0 a ${DIAS_CHEQUE_MAXIMO} días.`}
+                  error={errores.condicion_venta_detalle}
+                />
+              ) : null}
+
+              {condicionVenta === 'otro' ? (
+                <Campo
+                  etiqueta="¿CUÁL ES LA CONDICIÓN?"
+                  obligatorio
+                  value={condicionDetalle}
+                  onChangeText={(t) => {
+                    setCondicionDetalle(t)
+                    if (intentado) revalidarEncabezado(encabezado, servicios)
+                  }}
+                  placeholder="Ej. Retira y paga en fábrica"
+                  error={errores.condicion_venta_detalle}
+                />
+              ) : null}
 
               <BotonSecundario
                 titulo={

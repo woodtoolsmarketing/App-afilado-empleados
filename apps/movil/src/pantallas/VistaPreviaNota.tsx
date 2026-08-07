@@ -183,17 +183,25 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
                 .filter(Boolean)
                 .join(' · ')}
             </Text>
+            {/* La casilla de operación lleva la cantidad de dientes cuando el
+                trabajo se cuenta por dientes: "Afilado 187". */}
             <View style={estilos.operaciones}>
-              {[
-                ['Afilado', t.afilado],
-                ['Rectificado', t.rectificado],
-                ['Reparación', t.reparacion],
-                ['Tensado', t.tensado],
-                ['Rellenado', t.rellenado],
-              ]
-                .filter(([, tildado]) => tildado)
-                .map(([rotulo]) => (
-                  <Pastilla key={String(rotulo)} texto={String(rotulo)} color={colores.verdeOscuro} />
+              {(
+                [
+                  ['Afilado', t.afilado],
+                  ['Rectificado', t.rectificado],
+                  ['Reparación', t.reparacion],
+                  ['Tensado', t.tensado],
+                  ['Rellenado', t.rellenado],
+                ] as Array<[string, boolean | number | string]>
+              )
+                .filter(([, valor]) => valor !== false && valor !== '' && valor !== 0)
+                .map(([rotulo, valor]) => (
+                  <Pastilla
+                    key={rotulo}
+                    texto={valor === true ? rotulo : `${rotulo} ${valor}`}
+                    color={colores.verdeOscuro}
+                  />
                 ))}
               {t.otro ? <Pastilla texto={String(t.otro).toUpperCase()} color={colores.tintaSuave} /> : null}
             </View>
@@ -236,8 +244,14 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
       ) : null}
 
       <View style={estilos.pie}>
+        <Text style={estilos.dato}>Condición de venta: {nota.condicion_venta || '—'}</Text>
         <Text style={estilos.dato}>
           Tipo de cambio: {nota.tipo_cambio ? nota.tipo_cambio : '(vacío — se cobra en pesos)'}
+        </Text>
+        <Text style={estilos.dato}>
+          {nota.tipo_nota === 'factura'
+            ? 'Sale con el logo de WoodTools en las dos copias.'
+            : 'Presupuesto: sale sin logo.'}
         </Text>
       </View>
     </View>

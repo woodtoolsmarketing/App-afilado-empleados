@@ -1,0 +1,73 @@
+# =============================================================================
+# Probador de escritorio, publicado como sitio estático.
+#
+# Sirve para probar los circuitos desde cualquier lado —un celular, la casa,
+# una PC de la oficina— sin pasarse el archivo por mail. Es el MISMO HTML que
+# genera `npm run probador`, contra el MISMO Supabase.
+#
+# Lo que cambia respecto de abrirlo con doble clic no es menor: sobre `http`
+# el navegador deja de tratar cada copia del archivo como un origen distinto,
+# así que la sesión persiste de verdad y la impresión no pelea con los
+# bloqueos de `file://`.
+#
+# NO reemplaza a la app: mapa, dictado e impresión directa por IPP siguen
+# necesitando el teléfono.
+#
+# ── Antes de desplegar ──────────────────────────────────────────────────────
+#
+# Cargar en el panel de Render (Environment) estas variables. Ninguna es
+# secreta: la clave anónima ya viaja dentro del APK y no da más permisos que
+# los que RLS le conceda al usuario que inicie sesión.
+#
+#   SUPABASE_URL              https://wafszjoebefmbuufmula.supabase.co
+#   SUPABASE_ANON_KEY         la anon / publishable, NUNCA la service_role
+#   DOMINIO_USUARIO           woodtools.com.ar
+#   PROBADOR_INSTALACION_ID   un UUID fijo, generado una sola vez
+#
+# El PROBADOR_INSTALACION_ID es el que hace que no haya que volver a autorizar
+# el dispositivo en cada despliegue. Se genera una vez con:
+#
+#   node -e "console.log(crypto.randomUUID())"
+#
+# ── Y una advertencia ───────────────────────────────────────────────────────
+#
+# Publicado, el probador queda detrás de una URL que cualquiera puede abrir.
+# Entrar sigue exigiendo usuario y contraseña, y RLS sigue mandando, así que
+# la postura de seguridad es la misma que la del APK. Pero el dispositivo es
+# UNO SOLO: al autorizarlo desde el panel, queda autorizado para todo el que
+# tenga la URL y credenciales. Si eso no se quiere, conviene desautorizarlo
+# cuando termine la prueba.
+# =============================================================================
+
+services:
+  - type: web
+    name: woodtools-probador
+    runtime: static
+    plan: free
+    branch: main
+    buildCommand: npm ci --ignore-scripts && node herramientas/probador/construir.mjs --salida publico/index.html
+    staticPublishPath: ./publico
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: DOMINIO_USUARIO
+        sync: false
+      - key: PROBADOR_INSTALACION_ID
+        sync: false
+    headers:
+      # Lo que importa acá es `connect-src`: el probador habla con Supabase y
+      # con nadie más, así que un script inyectado no tendría a dónde mandar
+      # los datos. El resto queda permisivo a propósito — el script y los
+      # estilos van embebidos, la impresión arma un iframe y el "ver documento"
+      # abre un blob:, y apretar eso rompería la impresión sin ganar nada.
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co; img-src 'self' data: blob:; frame-src 'self' blob:"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer

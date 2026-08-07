@@ -10,10 +10,16 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   agruparParaNotas,
+  agujeroDelRenglon,
   aNumero,
+  avisoDeNotasHermanas,
+  avisosDeAgujero,
+  CONDICIONES_CON_DETALLE,
   FAMILIA_CATALOGO,
   MEDIDA_PARA_CODIGO,
+  reconocerHerramienta,
   totalDelRenglon,
+  type CondicionVenta,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type GrupoNota,
@@ -454,6 +460,23 @@ export interface CodigoComputo {
   amplitud: number
 }
 
+/**
+ * Reconoce en la lista de precios la herramienta que trajo el cliente y
+ * devuelve su agujero de fábrica. Ver la versión de la app: misma lógica.
+ */
+export async function agujeroDeFabrica(item: FormularioItemNota): Promise<string | null> {
+  const diametro = item.diametro_exterior.trim()
+  if (!item.herramienta || !diametro) return null
+
+  const candidatos = await buscarArticulos(`D=${diametro.replace(',', '.')}`)
+  const coincidencia = reconocerHerramienta(candidatos, {
+    diametro_exterior: diametro,
+    ancho_corte: item.ancho_corte,
+    dientes: item.cantidad_dientes,
+  })
+  return coincidencia?.caracteristicas.diametro_interior ?? null
+}
+
 export async function resolverCodigoDeItem(
   item: FormularioItemNota,
   /** Se pisa para buscar el código de REPARACIÓN de los dientes rotos. */
@@ -528,6 +551,9 @@ export interface DatosNuevaNota {
   cotizacionFecha: string
   /** Renglones de observación, uno por línea de la columna "Observaciones". */
   observaciones?: string[]
+  condicionVenta: CondicionVenta
+  /** Los días del cheque, o el texto de "Otro". Vacío en el resto. */
+  condicionVentaDetalle?: string
 }
 
 export interface NotaCreada {
@@ -553,6 +579,14 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   if (grupos.length === 0) throw new Error('La nota necesita al menos un renglón')
   const observaciones = (datos.observaciones ?? []).filter((o) => o.trim())
 
+  // El agujero distinto del de fábrica va a la descripción general.
+  const descripcionGeneral = [
+    enc.descripcion_herramienta.trim(),
+    ...avisosDeAgujero(datos.items),
+  ]
+    .filter(Boolean)
+    .join('\n')
+
   const creadas: NotaCreada[] = []
 
   try {
@@ -568,8 +602,9 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
           zona: enc.zona || null,
           datos_cliente: enc.datos_cliente || null,
           datos_cliente_origen: enc.datos_cliente_origen,
-          descripcion_herramienta: enc.descripcion_herramienta || null,
+          descripcion_herramienta: descripcionGeneral || null,
           descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+          vendedor_numero: enc.vendedor_numero.trim() || null,
           servicios: g.servicios,
           tipo_nota: datos.tipoNota,
           estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
@@ -582,6 +617,11 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
             g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
           total: g.total || null,
           observaciones,
+          condicion_venta: datos.condicionVenta,
+          // La base sólo acepta detalle en las dos que lo piden.
+          condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
+            ? (datos.condicionVentaDetalle ?? '').trim()
+            : null,
         })
         .select('id, numero, estado')
         .single()
@@ -607,6 +647,9 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
         detalle: Object.fromEntries(
           Object.entries({
             diametro_exterior: i.diametro_exterior,
+            diametro_interior: agujeroDelRenglon(i).medida,
+            diametro_interior_catalogo: i.diametro_interior_catalogo,
+            ajuste_agujero: agujeroDelRenglon(i).ajuste,
             diametro: i.diametro,
             ancho_corte: i.ancho_corte,
             largo: i.largo,
@@ -640,6 +683,22 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
         grupo: g.grupo,
         total: g.total,
       })
+    }
+
+    // "Va con nota de pedido 000011, 000012". Recién acá se puede: el número
+    // lo asigna la base al insertar.
+    if (creadas.length > 1) {
+      const numeros = creadas.map((n) => n.numero)
+      await Promise.all(
+        creadas.map(async (n) => {
+          const av = avisoDeNotasHermanas(numeros, n.numero)
+          if (!av) return
+          await supabase
+            .from('notas_pedido')
+            .update({ observaciones: [...observaciones, av] })
+            .eq('id', n.id)
+        }),
+      )
     }
   } catch (e) {
     // Media venta cargada es peor que nada: se deshace la tanda entera.

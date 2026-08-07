@@ -1,9 +1,12 @@
 import {
+  agujeroDelRenglon,
   aNumero,
   CAMPOS_POR_HERRAMIENTA,
   colores,
   describirRango,
+  descripcionSugerida,
   dientesAAfilar,
+  esDescripcionSugerida,
   espaciado,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_TIPO_MECHA,
@@ -32,6 +35,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
+  agujeroDeFabrica,
   medidasDisponibles,
   resolverCodigoDeItem,
   type CodigoComputo,
@@ -52,6 +56,7 @@ import {
 const ETIQUETAS: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
+  diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
   diametro: 'DIÁMETRO',
   ancho_corte: 'ANCHO DE CORTE',
   largo: 'LARGO',
@@ -100,6 +105,16 @@ const CORTOS = new Set<CampoItem>([
   'cantidad', 'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
   'largo_util', 'espesor', 'paso', 'cantidad_dientes',
 ])
+
+/**
+ * Herramientas cuyo catálogo no tiene un solo código con rango de medida.
+ *
+ * Medido sobre las listas: mechas 0 de 181, cuchillas 0 de 143. El afilado de
+ * mechas se cotiza por tipo y cantidad de filos, y la lista de cuchillas es un
+ * catálogo de producto, no de servicio. Buscar por medida ahí no devuelve nada
+ * y nunca va a devolver nada.
+ */
+const SIN_RANGOS = new Set<Herramienta>(['mecha', 'cuchilla'])
 
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
@@ -163,6 +178,24 @@ export function PasoRenglon({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.servicio])
+
+  // ── La descripción se completa sola ──────────────────────────────────────
+  //
+  // "S.C." una sierra circular, "SSF" una sierra sin fin, y "nueva" cuando se
+  // vende. Es lo que la fábrica lee para saber qué le llegó y se escribe
+  // siempre igual; tipearlo a mano en cada renglón terminaba en "sierra",
+  // "Sierra" y "SC" para la misma cosa.
+  //
+  // Sólo se pisa lo que pusimos nosotros: si el vendedor escribió algo suyo,
+  // queda.
+  useEffect(() => {
+    if (!item.herramienta) return
+    const sugerida = descripcionSugerida(item.herramienta, item.servicio)
+    if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
+      alCambiar({ descripcion: sugerida })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.herramienta, item.servicio])
 
   // ── Búsqueda automática del código de cómputo ───────────────────────────
   const medidaClave = [item.ancho_corte, item.ancho, item.diametro].join('|')
@@ -285,6 +318,44 @@ export function PasoRenglon({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.reparar_dientes, item.dientes_rotos, medidaClave, item.herramienta])
 
+  // ── El agujero de fábrica ────────────────────────────────────────────────
+  //
+  // La herramienta que trajo el cliente está en la lista de precios: se la
+  // reconoce por el diámetro exterior y de ahí sale su agujero de fábrica. Es
+  // contra ése que se compara el que carga el vendedor para saber si fue
+  // agrandado o lleva buje reductor.
+  //
+  // Sólo se busca si el renglón pide diámetro interior, y nunca se pisa un
+  // valor ya encontrado con uno vacío: perder la referencia mientras se
+  // corrige una medida haría desaparecer el aviso.
+  const [buscandoAgujero, setBuscandoAgujero] = useState(false)
+
+  useEffect(() => {
+    if (!campos.includes('diametro_interior') || !item.diametro_exterior.trim()) return
+
+    let cancelado = false
+    const reloj = setTimeout(() => {
+      setBuscandoAgujero(true)
+      void agujeroDeFabrica(item)
+        .then((agujero) => {
+          if (cancelado || !agujero) return
+          if (agujero !== item.diametro_interior_catalogo) {
+            alCambiar({ diametro_interior_catalogo: agujero })
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelado) setBuscandoAgujero(false)
+        })
+    }, 400)
+
+    return () => {
+      cancelado = true
+      clearTimeout(reloj)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.diametro_exterior, item.ancho_corte, item.cantidad_dientes, item.herramienta])
+
   // ── "¿Qué medidas hay?" ──────────────────────────────────────────────────
   const [medidas, setMedidas] = useState<CodigoComputo[] | null>(null)
   const [verMedidas, setVerMedidas] = useState(false)
@@ -308,10 +379,24 @@ export function PasoRenglon({
    * tenga que deducir qué número tipear.
    */
   function aplicarMedidaSugerida(m: CodigoComputo): void {
-    if (!item.herramienta || m.rango_min === null) return
+    if (!item.herramienta) return
+    setVerMedidas(false)
+
+    // Sin rango no hay medida que cargar: el código SE ELIGE. Es el caso de
+    // mechas y cuchillas, donde el precio no depende de una medida. Antes esta
+    // función devolvía sin hacer nada y tocar la opción no producía ningún
+    // efecto visible.
+    if (m.rango_min === null) {
+      propuesto.current = m.codigo
+      alCambiar({
+        codigos_computo: [m.codigo],
+        ...(m.precio_pesos !== null ? { precio_por_diente: String(m.precio_pesos) } : {}),
+      })
+      return
+    }
+
     const campo = MEDIDA_PARA_CODIGO[item.herramienta]
     if (!campo) return
-    setVerMedidas(false)
     alCambiar({
       [campo]: String(m.rango_min).replace('.', ','),
       codigos_computo: [],
@@ -452,7 +537,50 @@ export function PasoRenglon({
               multiline
               numberOfLines={3}
               error={errores.descripcion}
+              ayuda="Se completa sola con la herramienta. Agregale lo que haga falta."
             />
+          )
+        }
+
+        if (campo === 'diametro_interior') {
+          // Opcional a propósito: la lista de precios ya trae el agujero de
+          // fábrica. Sólo se carga cuando la pieza que trae el cliente tiene
+          // otro, que es el dato que le cambia el trabajo al taller.
+          const agujero = agujeroDelRenglon(item)
+          const deFabrica = item.diametro_interior_catalogo.trim()
+
+          return (
+            <View key={campo}>
+              <Campo
+                etiqueta="DIÁMETRO INTERIOR (OPCIONAL)"
+                value={item.diametro_interior}
+                onChangeText={(t) => alCambiar({ diametro_interior: normalizarMedida(t) })}
+                keyboardType="decimal-pad"
+                contenedorStyle={estilos.mitad}
+                placeholder={deFabrica || 'El agujero de la herramienta'}
+                error={errores.diametro_interior}
+                ayuda={
+                  deFabrica
+                    ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
+                    : buscandoAgujero
+                      ? 'Buscando el agujero de fábrica en la lista de precios…'
+                      : 'Si lo dejás vacío, la nota sale sin agujero.'
+                }
+              />
+
+              {agujero.ajuste !== 'de_fabrica' ? (
+                <Aviso
+                  tono="atencion"
+                  titulo={
+                    agujero.ajuste === 'agrandado'
+                      ? 'Agujero agrandado'
+                      : 'Lleva buje reductor'
+                  }
+                >
+                  {`${formatearMedida(agujero.medida)} contra ${formatearMedida(deFabrica)} de fábrica. Va escrito en la descripción general de la nota.`}
+                </Aviso>
+              ) : null}
+            </View>
           )
         }
 
@@ -680,10 +808,21 @@ export function PasoRenglon({
               ) : null}
 
               {sinCodigo ? (
-                <Aviso tono="atencion">
-                  No hay ningún código que cubra esa medida. Mirá abajo qué medidas tiene cargadas
-                  el catálogo.
-                </Aviso>
+                // Mechas y cuchillas no tienen un solo código con rango: no se
+                // cotizan por medida. Decirle "probá otra medida" sería mandarlo
+                // a buscar algo que no existe.
+                SIN_RANGOS.has(item.herramienta as Herramienta) ? (
+                  <Aviso tono="atencion" titulo="Esta herramienta no se cotiza por medida">
+                    {item.herramienta === 'mecha'
+                      ? 'El afilado de mechas va por tipo y cantidad de filos, no por diámetro. Abrí la lista de abajo y elegí el código.'
+                      : 'La lista de cuchillas es de producto, no de servicio. Abrí la lista de abajo y elegí el código.'}
+                  </Aviso>
+                ) : (
+                  <Aviso tono="atencion">
+                    No hay ningún código que cubra esa medida. Mirá abajo qué medidas tiene cargadas
+                    el catálogo.
+                  </Aviso>
+                )
               ) : null}
 
               {/* La lista de medidas disponibles: la respuesta a "¿y entonces
@@ -695,7 +834,9 @@ export function PasoRenglon({
                 style={estilos.verMedidas}
               >
                 <Text style={estilos.verMedidasTexto}>
-                  {verMedidas ? '▲' : '▼'}  ¿Qué medidas hay para{' '}
+                  {verMedidas ? '▲' : '▼'}{' '}
+                  {SIN_RANGOS.has(item.herramienta as Herramienta) ? '¿Qué códigos' : '¿Qué medidas'}{' '}
+                  hay para{' '}
                   {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'esta herramienta'}?
                 </Text>
               </Pressable>
@@ -723,8 +864,15 @@ export function PasoRenglon({
                       >
                         <View style={estilos.opcionFila}>
                           <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
+                          {/* Sin rango no se muestra "sin rango": lo que sirve
+                              ahí es el precio, que es lo que distingue una
+                              opción de la otra. */}
                           <Text style={estilos.opcionRango}>
-                            {describirRango(m.rango_min, m.rango_max)}
+                            {m.rango_min === null
+                              ? (m.precio_pesos !== null
+                                  ? formatearPesos(Number(m.precio_pesos))
+                                  : '')
+                              : describirRango(m.rango_min, m.rango_max)}
                           </Text>
                         </View>
                         <Text style={estilos.opcionDesc} numberOfLines={1}>

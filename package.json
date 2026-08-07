@@ -25,6 +25,7 @@
     "verificar:probador": "tsc -p herramientas/probador/tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "supabase": "^2.111.0",
     "typescript": "^5.7.2"
   },

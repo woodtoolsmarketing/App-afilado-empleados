@@ -3,8 +3,10 @@ import {
   espaciado,
   etiquetaZona,
   ETIQUETA_TIPO_SERVICIO,
+  numeroDeVendedorImpreso,
   radios,
   tipografia,
+  VENDEDORES_CON_CERO,
   zonaParaUbicacion,
   ZONAS,
   type ClienteBuscado,
@@ -279,7 +281,25 @@ export function PasoEncabezado({
         </View>
       ) : null}
 
-      <Text style={estilos.vendedor}>VENDEDOR: {form.vendedor}</Text>
+      {/* El número sale del perfil pero se puede corregir: hay altas sin
+          código cargado y el comprobante lo necesita igual. Se imprime sin los
+          ceros de relleno del Gestión ("007" sale 7). */}
+      <View style={estilos.fila}>
+        <Text style={[estilos.vendedor, estilos.mitad]}>VENDEDOR: {form.vendedor}</Text>
+        <Campo
+          etiqueta="VENDEDOR Nº"
+          value={form.vendedor_numero}
+          onChangeText={(t) => alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })}
+          keyboardType="number-pad"
+          placeholder="7"
+          contenedorStyle={estilos.mitad}
+          ayuda={
+            form.vendedor_numero
+              ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
+              : undefined
+          }
+        />
+      </View>
 
       {resultados.length > 0 ? (
         <View style={estilos.sugerencias}>

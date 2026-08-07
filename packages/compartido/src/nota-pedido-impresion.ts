@@ -19,7 +19,14 @@
  */
 
 import { formatearMoneda, type Moneda } from './catalogo'
-import { lineasDeComputo, type DatosComputo } from './notas-pedido'
+import { LOGO_WOODTOOLS } from './logo'
+import {
+  describirCondicionVenta,
+  lineasDeComputo,
+  numeroDeVendedorImpreso,
+  VENDEDORES_CON_CERO,
+  type DatosComputo,
+} from './notas-pedido'
 import {
   ESTILOS_ROL_DE_VISITA,
   generarHtmlRolDeVisita,
@@ -27,14 +34,26 @@ import {
 } from './rol-de-visita-impresion'
 import type { TipoNotaPedido, TipoServicio } from './tipos'
 
+/**
+ * Qué se anota en una casilla de "Operación".
+ *
+ * Cuando el trabajo se cuenta por dientes va el NÚMERO de dientes, no un tilde:
+ * el mismo 187 que se computa del otro lado de la hoja. El taller mira la
+ * columna técnica para saber qué hacer con la pieza, y "afilar" sin cantidad
+ * obliga a cruzar con la tabla comercial para saber cuántos dientes son.
+ *
+ * `true` sigue significando "esta operación, sin cantidad" y sale como X.
+ */
+export type CasillaOperacion = boolean | number | string
+
 export interface RenglonTecnico {
   descripcion: string
   /** Columnas "Operación" del formulario. */
-  afilado: boolean
-  rectificado: boolean
-  reparacion: boolean
-  tensado: boolean
-  rellenado: boolean
+  afilado: CasillaOperacion
+  rectificado: CasillaOperacion
+  reparacion: CasillaOperacion
+  tensado: CasillaOperacion
+  rellenado: CasillaOperacion
   otro: string
   cantidad: number | string
   /** Columna "ØExt.-Largo". */
@@ -78,6 +97,8 @@ export interface NotaParaImprimir {
   comerciales: RenglonComercial[]
 
   tipo_cambio: string
+  /** Ya escrita: "Contado", "Cheque a 30 días", el texto libre de "Otro". */
+  condicion_venta?: string
   emision: string
   /**
    * La fecha que el vendedor acordó con el cliente. Va impresa en "Fca.
@@ -90,9 +111,18 @@ export interface NotaParaImprimir {
 
 export interface OpcionesImpresion {
   copia: 'original' | 'duplicado'
-  /** El logo va sólo en las notas tipo FACTURA. */
+  /**
+   * El logo va sólo en las notas tipo FACTURA, y va en las DOS copias: el
+   * original que se lleva el cliente y el duplicado que va al taller.
+   */
   conLogo: boolean
-  /** Data URI del logo. Se embebe para que la impresión no dependa de la red. */
+  /**
+   * Data URI del logo. Por defecto el de la marca, embebido en el paquete.
+   *
+   * Se puede pisar, pero no hace falta: antes era obligatorio pasarlo y no lo
+   * pasaba nadie, así que la casilla del logo salía vacía en todas las
+   * facturas desde que existe el template.
+   */
   logoDataUri?: string
 }
 
@@ -120,8 +150,14 @@ function escapar(v: unknown): string {
     .replace(/"/g, '&quot;')
 }
 
-function tilde(v: boolean): string {
-  return v ? 'X' : ''
+/**
+ * Lo que se imprime en una casilla de operación: la cantidad de dientes si la
+ * hay, una X si sólo se marcó la operación, y nada si no aplica.
+ */
+function tilde(v: CasillaOperacion): string {
+  if (v === true) return 'X'
+  if (v === false || v === null || v === undefined || v === '') return ''
+  return String(v)
 }
 
 /** Completa la lista con filas vacías hasta llegar al alto del formulario. */
@@ -195,10 +231,10 @@ export function generarHtmlNotaPedido(
     ? escapar(nota.numero)
     : '<span class="pendiente">— — —<small>(Pendiente)</small></span>'
 
-  const celdaLogo =
-    opciones.conLogo && opciones.logoDataUri
-      ? `<img src="${escapar(opciones.logoDataUri)}" alt="WoodTools S.R.L." class="logo">`
-      : ''
+  const logo = opciones.logoDataUri ?? LOGO_WOODTOOLS
+  const celdaLogo = opciones.conLogo
+    ? `<img src="${escapar(logo)}" alt="WoodTools S.R.L." class="logo">`
+    : ''
 
   const filasTecnicas = tecnicos
     .map(
@@ -229,11 +265,14 @@ export function generarHtmlNotaPedido(
         </tr>`
       }
       // "Tipo de Cambio" va en la columna Condición de Venta, cerca del pie,
-      // igual que en el talonario.
+      // igual que en el talonario. La condición de venta de la nota va arriba
+      // de todo, en la primera fila, que es donde se lee primero.
       const esFilaCambio = i === comerciales.length - 3
       const condicion = esFilaCambio
         ? `Tipo de Cambio:<br><span class="cambio">${escapar(nota.tipo_cambio)}</span>`
-        : escapar(c.condicion_venta)
+        : i === 0 && nota.condicion_venta
+          ? `<strong>${escapar(nota.condicion_venta)}</strong>`
+          : escapar(c.condicion_venta)
       return `<tr>
         <td>${escapar(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
@@ -430,7 +469,11 @@ export const ESTILOS_NOTA_PEDIDO = `
 .tabla td { height: 5.2mm; font-size: 8.5pt; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
-.w-desc { width: 16%; } .w-tick { width: 3.5%; } .w-otro { width: 9%; }
+/* Las casillas de operación pasaron de una X a llevar la cantidad de dientes,
+   así que 3.5% (6,6 mm) ya no alcanza: un "187" no entraba. El ancho sale de
+   la descripción, que es texto libre y se acomoda. */
+.w-desc { width: 14%; } .w-tick { width: 5%; } .w-otro { width: 8%; }
+.tabla .tick { font-size: 8pt; }
 /* El código de cómputo bajó de 20% a 14% para hacerle lugar a las dos
    columnas de precio. Entra igual: son códigos de cuatro dígitos, y en el peor
    caso —dos códigos separados por coma— sigue entrando. En el duplicado, que
@@ -550,29 +593,56 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],
-    vendedor_numero: nota.vendedor?.codigo_vendedor ?? '',
+    // Sin los ceros de relleno del Gestión: "007" se escribe 7 en el talonario.
+    vendedor_numero: numeroDeVendedorImpreso(
+      nota.vendedor_numero ?? nota.vendedor?.codigo_vendedor,
+      VENDEDORES_CON_CERO,
+    ),
     cliente_numero: nota.cliente_codigo,
     zona: nota.zona ?? '',
     datos_cliente: nota.datos_cliente ?? '',
     descripcion_herramientas: nota.descripcion_herramienta ?? '',
-    tecnicos: items.map((i) => ({
-      descripcion: i.descripcion ?? i.codigo_herramienta ?? '',
-      afilado: i.servicio === 'afilado',
-      rectificado: i.servicio === 'rectificado',
-      // También cuando se reparan los dientes rotos de una herramienta que
-      // vino a afilar: sobre esa pieza se hacen las dos operaciones.
-      reparacion: i.servicio === 'reparacion' || i.detalle?.reparar_dientes === true,
-      tensado: false,
-      rellenado: false,
-      otro: ['hermanado', 'rebaje', 'reclamo', 'venta'].includes(i.servicio) ? i.servicio : '',
-      cantidad: i.cantidad,
-      // "ØExt.-Largo" y "ØInt.-Ancho" son columnas de doble uso: una sierra
-      // trae diámetros y una cuchilla trae largo y ancho.
-      diametro_exterior: d(i, 'diametro_exterior') || d(i, 'diametro') || d(i, 'largo'),
-      diametro_interior: d(i, 'ancho') || d(i, 'largo_util'),
-      ancho_corte: d(i, 'ancho_corte') || d(i, 'espesor'),
-      z_paso: i.cantidad_dientes ? String(i.cantidad_dientes) : d(i, 'paso'),
-    })),
+    tecnicos: items.map((i) => {
+      // Las casillas de operación llevan la CANTIDAD de dientes, no un tilde:
+      // es el mismo número que se computa del otro lado de la hoja, y así el
+      // taller no tiene que cruzar las dos tablas para saber cuántos son.
+      const lineas = lineasDeComputo(computoDeFila(i))
+      const dientesDe = (concepto: 'afilado' | 'reparacion') =>
+        lineas.find((l) => l.concepto === concepto)?.cantidad ?? 0
+
+      const trabajo = (aplica: boolean, concepto: 'afilado' | 'reparacion'): CasillaOperacion => {
+        if (!aplica) return false
+        const n = dientesDe(concepto)
+        // Sin dientes —una mecha, una cuchilla— la casilla vuelve a ser un tilde.
+        return n > 0 && i.cantidad_dientes ? n : true
+      }
+
+      return {
+        descripcion: i.descripcion ?? i.codigo_herramienta ?? '',
+        afilado: trabajo(i.servicio === 'afilado', 'afilado'),
+        rectificado: trabajo(i.servicio === 'rectificado', 'afilado'),
+        // También cuando se reparan los dientes rotos de una herramienta que
+        // vino a afilar: sobre esa pieza se hacen las dos operaciones, y la
+        // casilla de reparación lleva sólo los dientes rotos.
+        reparacion: trabajo(
+          i.servicio === 'reparacion' || i.detalle?.reparar_dientes === true,
+          i.servicio === 'reparacion' ? 'afilado' : 'reparacion',
+        ),
+        tensado: false,
+        rellenado: false,
+        otro: ['hermanado', 'rebaje', 'reclamo', 'venta'].includes(i.servicio) ? i.servicio : '',
+        cantidad: i.cantidad,
+        // "ØExt.-Largo" y "ØInt.-Ancho" son columnas de doble uso: una sierra
+        // trae diámetros y una cuchilla trae largo y ancho.
+        diametro_exterior: d(i, 'diametro_exterior') || d(i, 'diametro') || d(i, 'largo'),
+        // El agujero manda sobre las otras dos lecturas de esta columna: si se
+        // cargó (o vino del catálogo), es el dato que la fábrica necesita.
+        diametro_interior:
+          d(i, 'diametro_interior') || d(i, 'ancho') || d(i, 'largo_util'),
+        ancho_corte: d(i, 'ancho_corte') || d(i, 'espesor'),
+        z_paso: i.cantidad_dientes ? String(i.cantidad_dientes) : d(i, 'paso'),
+      }
+    }),
     // Un renglón puede dar más de una línea: cuando hay dientes rotos que se
     // reparan, la reparación se computa aparte y con su propio código.
     //
@@ -587,6 +657,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           // otro en pesos es la forma más rápida de cobrar mal.
           precio_unitario: l.precioUnitario ? formatearMoneda(l.precioUnitario, l.moneda) : '',
           precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
+          // La condición de venta es de la nota entera y va una sola vez, en
+          // la primera fila. La reparación de dientes rotos se aclara en su
+          // propia fila, que es donde está su código.
           condicion_venta: l.concepto === 'reparacion' ? 'Reparación dientes' : '',
           anticipo: '',
           observaciones: '',
@@ -597,6 +670,10 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // Vacío en las notas de afilado: se cobra en pesos y una cotización ahí
     // sólo hace dudar de en qué moneda está el total.
     tipo_cambio: nota.tipo_cambio ? monto(Number(nota.tipo_cambio)) : '',
+    condicion_venta: describirCondicionVenta(
+      nota.condicion_venta ?? null,
+      nota.condicion_venta_detalle,
+    ),
     emision: new Date(nota.creado_en).toLocaleDateString('es-AR'),
     // `fecha_entrega` es un `date` de Postgres: al mediodía, para que el huso
     // no la corra un día para atrás al pasarla por Date.

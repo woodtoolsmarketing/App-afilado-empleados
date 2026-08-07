@@ -51,9 +51,15 @@ nota-pedido-prueba.html
 
 # Probador: se genera con `npm run probador` y lleva la config del .env dentro
 herramientas/probador/probador.html
+# Cargador de un solo uso: lleva la config del .env y 300 KB de catálogo
+herramientas/probador/cargar-catalogo.html
 
 # Bundles de SQL que se regeneran (no se versionan)
 supabase/PENDIENTES.sql
 
 # ID de dispositivo del probador: se genera una vez y no se versiona
 herramientas/probador/.instalacion-id
+__pycache__/
+
+# Salida del probador para publicar (se genera en cada despliegue)
+publico/

@@ -116,3 +116,54 @@ que se manda por mail.
 Para apuntar a otro proyecto, se cambia el `.env` y se vuelve a correr
 `npm run probador`. Por eso `probador.html` está en `.gitignore`: este repo no
 guarda claves.
+
+## Publicarlo en un servidor
+
+Sirve para probar desde el celular o desde afuera de la oficina sin pasarse el
+archivo por mail. Es el mismo HTML contra el mismo Supabase, pero servido por
+`http` en vez de abierto como archivo, y eso arregla dos cosas que molestaban:
+
+- **La sesión persiste.** El navegador trata cada archivo `file://` como un
+  origen distinto, así que la sesión se perdía al reabrirlo. Con un dominio
+  propio, no.
+- **La impresión deja de pelear.** Los bloqueos de ventanas y de red local que
+  el navegador aplica a los archivos locales no aplican a un sitio.
+
+Lo que **no** cambia: mapa, dictado e impresión directa por IPP siguen
+necesitando el teléfono.
+
+### En Render
+
+El repositorio trae [`render.yaml`](../../render.yaml). Desde el panel:
+**New → Blueprint**, se elige este repo, y quedan por cargar cuatro variables:
+
+| Variable | Valor |
+|---|---|
+| `SUPABASE_URL` | La del proyecto |
+| `SUPABASE_ANON_KEY` | La anon / publishable. **Nunca la service_role** |
+| `DOMINIO_USUARIO` | `woodtools.com.ar` |
+| `PROBADOR_INSTALACION_ID` | Un UUID fijo, generado una sola vez |
+
+Ese último hace falta porque en un servidor el archivo `.instalacion-id` no
+existe: cada despliegue arranca de cero desde el repositorio y, sin la
+variable, generaría un dispositivo nuevo que habría que volver a autorizar.
+Se genera una vez con:
+
+```bash
+node -e "console.log(crypto.randomUUID())"
+```
+
+El build es `node herramientas/probador/construir.mjs --salida publico/index.html`,
+que deja el HTML solo en una carpeta —sin el código fuente al lado— y con el
+nombre que espera un servidor estático.
+
+### Lo que hay que tener presente
+
+Publicado, el probador queda detrás de una URL que cualquiera puede abrir.
+Entrar sigue exigiendo usuario y contraseña y RLS sigue mandando, así que la
+postura de seguridad es la misma que la del APK.
+
+Pero el **dispositivo es uno solo**: al autorizarlo desde el panel queda
+autorizado para todo el que tenga la URL y credenciales, porque todas las
+visitas comparten el mismo `PROBADOR_INSTALACION_ID`. Mientras sea para probar
+está bien; conviene desautorizarlo cuando la prueba termine.

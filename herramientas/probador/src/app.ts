@@ -16,13 +16,20 @@
 
 import {
   agruparParaNotas,
+  agujeroDelRenglon,
   aNumero,
   CAMPOS_POR_HERRAMIENTA,
   caracteristicasDeArticulo,
   colores,
   DESCRIPCION_GRUPO_NOTA,
   describirRango,
+  descripcionSugerida,
+  esDescripcionSugerida,
+  numeroDeVendedorImpreso,
+  VENDEDORES_CON_CERO,
+  DIAS_CHEQUE_MAXIMO,
   etiquetaZona,
+  ETIQUETA_CONDICION_VENTA,
   formatearMedida,
   formatearMoneda,
   resumenCaracteristicas,
@@ -61,6 +68,7 @@ import {
   zonaParaUbicacion,
   ZONAS,
   type CampoItem,
+  type CondicionVenta,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type Herramienta,
@@ -771,8 +779,9 @@ async function construirDocumento(ids: string[], incluirRolDeVisita: boolean): P
     const imprimible = notaImprimibleDesdeFila(n)
     const conLogo = n.tipo_nota === 'factura'
     return [
+      // El logo va en las dos copias de una factura, como el talonario.
       { nota: imprimible, opciones: { copia: 'original' as const, conLogo } },
-      { nota: imprimible, opciones: { copia: 'duplicado' as const, conLogo: false } },
+      { nota: imprimible, opciones: { copia: 'duplicado' as const, conLogo } },
     ]
   })
 
@@ -1040,6 +1049,9 @@ interface BorradorNota {
   observaciones: string[]
   /** Lo que se está escribiendo antes de tocar "Agregar renglón". */
   observacionNueva: string
+  /** Cómo se cobra, más los días del cheque o el texto de "Otro". */
+  condicionVenta: CondicionVenta | null
+  condicionDetalle: string
 }
 
 let borrador: BorradorNota = nuevoBorrador()
@@ -1058,6 +1070,8 @@ function nuevoBorrador(): BorradorNota {
     cotizacion: null,
     observaciones: [],
     observacionNueva: '',
+    condicionVenta: null,
+    condicionDetalle: '',
   }
 }
 
@@ -1222,6 +1236,16 @@ function pasoEncabezado(): HTMLElement {
           ),
         )
       : null,
+    // Sale del perfil pero se puede corregir: hay altas sin código cargado y
+    // el comprobante lo necesita igual. Se imprime sin los ceros de relleno.
+    campo('VENDEDOR Nº', {
+      valor: enc.vendedor_numero,
+      marcador: '7',
+      ayuda: enc.vendedor_numero
+        ? `En la nota sale: ${numeroDeVendedorImpreso(enc.vendedor_numero, VENDEDORES_CON_CERO)}`
+        : 'Si lo dejás vacío, sale el del perfil.',
+      alCambiar: (v) => (enc.vendedor_numero = v.replace(/\D/g, '').slice(0, 4)),
+    }),
     campo('DATOS DEL CLIENTE', {
       valor: enc.datos_cliente,
       multilinea: true,
@@ -1260,6 +1284,42 @@ function pasoEncabezado(): HTMLElement {
       ],
       alCambiar: (v) => (borrador.tipoNota = v),
     }),
+    // Cómo se cobra: va a la columna del talonario que salía siempre vacía.
+    desplegable('CONDICIÓN DE VENTA', {
+      valor: borrador.condicionVenta,
+      items: (Object.keys(ETIQUETA_CONDICION_VENTA) as CondicionVenta[]).map((c) => ({
+        valor: c,
+        etiqueta: ETIQUETA_CONDICION_VENTA[c],
+      })),
+      alCambiar: (c) => {
+        borrador.condicionVenta = c
+        // El detalle era de la opción anterior: no se arrastra.
+        borrador.condicionDetalle = ''
+        refrescar()
+      },
+    }),
+    err.condicion_venta ? h('span.campo-error-texto', { texto: err.condicion_venta }) : null,
+
+    borrador.condicionVenta === 'cheque'
+      ? campo('¿A CUÁNTOS DÍAS?', {
+          valor: borrador.condicionDetalle,
+          marcador: '30',
+          ayuda: `De 0 a ${DIAS_CHEQUE_MAXIMO} días.`,
+          error: err.condicion_venta_detalle,
+          // Sólo números: es una cantidad de días, no un texto.
+          alCambiar: (v) => (borrador.condicionDetalle = v.replace(/\D/g, '').slice(0, 2)),
+        })
+      : null,
+
+    borrador.condicionVenta === 'otro'
+      ? campo('¿CUÁL ES LA CONDICIÓN?', {
+          valor: borrador.condicionDetalle,
+          marcador: 'Ej. Retira y paga en fábrica',
+          error: err.condicion_venta_detalle,
+          alCambiar: (v) => (borrador.condicionDetalle = v),
+        })
+      : null,
+
     campo('FECHA DE ENTREGA', {
       tipo: 'date',
       valor: borrador.fechaEntrega,
@@ -1272,6 +1332,8 @@ function pasoEncabezado(): HTMLElement {
         servicios: borrador.servicios,
         tipoNota: borrador.tipoNota,
         fechaEntrega: borrador.fechaEntrega || null,
+        condicionVenta: borrador.condicionVenta,
+        condicionVentaDetalle: borrador.condicionDetalle,
       })
       borrador.errores = errores as Record<string, string | undefined>
       if (!valido) return refrescar()
@@ -1292,6 +1354,7 @@ const MEDIDAS = new Set<CampoItem>([
 const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
+  diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
   diametro: 'DIÁMETRO',
   ancho_corte: 'ANCHO DE CORTE',
   largo: 'LARGO',
@@ -1383,6 +1446,10 @@ function pasoRenglones(): HTMLElement {
             item.servicio = s
             if (!HERRAMIENTAS_POR_SERVICIO[s].includes(item.herramienta as Herramienta)) item.herramienta = null
             item.codigos_computo = []
+            // Venta o servicio cambia la descripción: "S.C." vs "S.C. nueva".
+            if (esDescripcionSugerida(item.descripcion)) {
+              item.descripcion = descripcionSugerida(item.herramienta, s)
+            }
             refrescar()
           },
         })
@@ -1396,6 +1463,11 @@ function pasoRenglones(): HTMLElement {
             item.herramienta = v
             item.codigos_computo = []
             item.origen_fresa = null
+            // La descripción se completa sola; lo que escribió el vendedor no
+            // se pisa nunca.
+            if (esDescripcionSugerida(item.descripcion)) {
+              item.descripcion = descripcionSugerida(v, item.servicio)
+            }
             refrescar()
           },
         })
@@ -1752,6 +1824,32 @@ function pedirCodigos(item: FormularioItemNota, espera = 250): void {
   }, espera)
 }
 
+/**
+ * Busca el agujero de fábrica de la herramienta en la lista de precios.
+ *
+ * Se dispara con las medidas, así que va con espera; y sólo repinta si
+ * encontró algo distinto, para no matar el cursor del campo que se está
+ * tipeando.
+ */
+let relojAgujero: ReturnType<typeof setTimeout> | null = null
+
+function pedirAgujeroDeFabrica(item: FormularioItemNota): void {
+  const campos = item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
+  if (!campos.includes('diametro_interior') || !item.diametro_exterior.trim()) return
+
+  if (relojAgujero) clearTimeout(relojAgujero)
+  relojAgujero = setTimeout(() => {
+    void d
+      .agujeroDeFabrica(item)
+      .then((agujero) => {
+        if (!agujero || agujero === item.diametro_interior_catalogo) return
+        item.diametro_interior_catalogo = agujero
+        refrescar()
+      })
+      .catch(() => undefined)
+  }, 400)
+}
+
 /** El total de la nota, que vive fuera del renglón y también hay que refrescar. */
 let nodoTotal: HTMLElement | null = null
 
@@ -1929,6 +2027,9 @@ function buscadorDeArticulos(
                       // Las características van a los mismos campos que usa el
                       // afilado, así que salen impresas sin volver a tipearlas.
                       if (c.diametro_exterior) item.diametro_exterior = c.diametro_exterior
+                      // El agujero de fábrica va a su propio campo: el que se
+                      // carga a mano es el de la pieza del cliente.
+                      if (c.diametro_interior) item.diametro_interior_catalogo = c.diametro_interior
                       if (c.ancho_corte) item.ancho_corte = c.ancho_corte
                       if (c.dientes) item.cantidad_dientes = c.dientes
                       if (c.largo) item.largo = c.largo
@@ -2088,8 +2189,50 @@ function dibujarCampo(
       valor: item.descripcion,
       multilinea: true,
       error: err.descripcion,
+      ayuda: 'Se completa sola con la herramienta. Agregale lo que haga falta.',
       alCambiar: (v) => (item.descripcion = v),
     })
+  }
+
+  if (c === 'diametro_interior') {
+    // Opcional: la lista de precios ya trae el agujero de fábrica. Se carga
+    // sólo cuando la pieza del cliente tiene otro, que es lo que le cambia el
+    // trabajo al taller.
+    const deFabrica = item.diametro_interior_catalogo.trim()
+    const nodoAviso = h('div')
+
+    function pintarAviso(): void {
+      const a = agujeroDelRenglon(item)
+      vaciar(nodoAviso)
+      if (a.ajuste === 'de_fabrica') return
+      nodoAviso.appendChild(
+        aviso(
+          'atencion',
+          a.ajuste === 'agrandado' ? 'Agujero agrandado' : 'Lleva buje reductor',
+          `${formatearMedida(a.medida)} contra ${formatearMedida(deFabrica)} de fábrica. ` +
+            'Va escrito en la descripción general de la nota.',
+        ),
+      )
+    }
+    pintarAviso()
+
+    return h(
+      'div',
+      {},
+      campo('DIÁMETRO INTERIOR (OPCIONAL)', {
+        valor: item.diametro_interior,
+        marcador: deFabrica || 'El agujero de la herramienta',
+        error: err.diametro_interior,
+        ayuda: deFabrica
+          ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
+          : 'Si lo dejás vacío, la nota sale sin agujero.',
+        alCambiar: (v) => {
+          item.diametro_interior = normalizarMedida(v)
+          pintarAviso()
+        },
+      }),
+      nodoAviso,
+    )
   }
 
   const etiqueta =
@@ -2130,6 +2273,11 @@ function dibujarCampo(
       // recreaba el input y el cursor se iba al principio en cada tecla.
       recalcularYPintar(item)
       if (esMedida) pedirCodigos(item)
+      // El diámetro exterior identifica la herramienta en la lista de precios,
+      // y de ahí sale su agujero de fábrica.
+      if (c === 'diametro_exterior' || c === 'ancho_corte' || c === 'cantidad_dientes') {
+        pedirAgujeroDeFabrica(item)
+      }
     },
   })
 }
@@ -2154,6 +2302,8 @@ async function crear(): Promise<void> {
       tipoCambio: borrador.cotizacion.venta,
       cotizacionFecha: borrador.cotizacion.fecha,
       observaciones: borrador.observaciones,
+      condicionVenta: borrador.condicionVenta!,
+      condicionVentaDetalle: borrador.condicionDetalle,
     })
 
     // Puede haber salido más de una: el afilado y la venta no van en el mismo

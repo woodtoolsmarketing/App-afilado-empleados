@@ -5,12 +5,17 @@
  * para que sea un archivo suelto que se abre con doble clic y anda. Sin
  * servidor, sin `npm install` del otro lado, sin CDN.
  *
- * La configuración se lee del `.env` de la raíz y se inyecta en el bundle. Por
- * eso el HTML de salida está en .gitignore: la clave anónima es pública por
- * diseño (viaja dentro del APK), pero este repo no guarda claves y no vamos a
- * empezar ahora.
+ * La configuración sale de las variables de entorno y, si no están, del `.env`
+ * de la raíz. Por eso el HTML de salida está en .gitignore: la clave anónima es
+ * pública por diseño (viaja dentro del APK), pero este repo no guarda claves y
+ * no vamos a empezar ahora.
  *
  *   node herramientas/probador/construir.mjs
+ *   node herramientas/probador/construir.mjs --salida publico/index.html
+ *
+ * El `--salida` es para publicarlo en un servidor: ahí el archivo tiene que
+ * llamarse `index.html` y vivir en una carpeta sola, sin el código fuente al
+ * lado. Ver el README.
  */
 
 import crypto from 'node:crypto'
@@ -21,29 +26,54 @@ import { fileURLToPath } from 'node:url'
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
 const RAIZ = path.resolve(AQUI, '../..')
-const SALIDA = path.join(AQUI, 'probador.html')
+
+// `--salida ruta` para publicarlo en un servidor; si no, al lado del script.
+const indiceSalida = process.argv.indexOf('--salida')
+const SALIDA =
+  indiceSalida >= 0 && process.argv[indiceSalida + 1]
+    ? path.resolve(RAIZ, process.argv[indiceSalida + 1])
+    : path.join(AQUI, 'probador.html')
 
 // ── Configuración ───────────────────────────────────────────────────────────
 
+/**
+ * Del entorno primero, del `.env` después.
+ *
+ * El entorno gana porque es lo único que hay al construir en un servidor: allá
+ * no existe el `.env`, y las variables se cargan en el panel del proveedor.
+ * En la máquina de la oficina no hay variables cargadas y sigue mandando el
+ * archivo, así que `npm run probador` anda igual que siempre.
+ */
 function leerEnv() {
+  const vars = {}
+
   const archivo = path.join(RAIZ, '.env')
-  if (!fs.existsSync(archivo)) {
-    console.error(`\n  No encontré ${archivo}.\n  El probador necesita SUPABASE_URL y SUPABASE_ANON_KEY.\n`)
-    process.exit(1)
+  if (fs.existsSync(archivo)) {
+    for (const linea of fs.readFileSync(archivo, 'utf8').split(/\r?\n/)) {
+      const m = linea.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/)
+      if (m) vars[m[1]] = m[2].trim().replace(/^["']|["']$/g, '')
+    }
   }
 
-  const vars = {}
-  for (const linea of fs.readFileSync(archivo, 'utf8').split(/\r?\n/)) {
-    const m = linea.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/)
-    if (m) vars[m[1]] = m[2].trim().replace(/^["']|["']$/g, '')
+  for (const clave of [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'DOMINIO_USUARIO',
+    'PROBADOR_INSTALACION_ID',
+  ]) {
+    if (process.env[clave]) vars[clave] = process.env[clave].trim()
   }
+
   return vars
 }
 
 const env = leerEnv()
 const faltan = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'].filter((k) => !env[k])
 if (faltan.length) {
-  console.error(`\n  Faltan en .env: ${faltan.join(', ')}\n`)
+  console.error(
+    `\n  Faltan: ${faltan.join(', ')}\n` +
+      '  Poneelas en el .env de la raíz o como variables de entorno.\n',
+  )
   process.exit(1)
 }
 
@@ -78,8 +108,16 @@ if (faltan.length) {
  * Así que el ID lo fija el build y vive en un archivo al lado del script. Se
  * genera una vez, sobrevive a las reconstrucciones, y es el mismo en cualquier
  * copia del HTML: se autoriza una vez y listo.
+ *
+ * En un servidor ese archivo no existe —cada build arranca de cero desde el
+ * repositorio— así que ahí el ID va en `PROBADOR_INSTALACION_ID`. Sin eso, cada
+ * despliegue crearía un dispositivo nuevo y habría que volver a autorizarlo.
  */
 function instalacionId() {
+  if (process.env.PROBADOR_INSTALACION_ID) {
+    return process.env.PROBADOR_INSTALACION_ID.trim()
+  }
+
   const archivo = path.join(AQUI, '.instalacion-id')
   if (fs.existsSync(archivo)) {
     const guardado = fs.readFileSync(archivo, 'utf8').trim()
@@ -155,9 +193,15 @@ ${js}
 </html>
 `
 
+fs.mkdirSync(path.dirname(SALIDA), { recursive: true })
 fs.writeFileSync(SALIDA, html, 'utf8')
 
 const kb = (html.length / 1024).toFixed(0)
 console.log(`\n  Listo: ${path.relative(RAIZ, SALIDA)}  (${kb} KB)`)
 console.log(`  Proyecto: ${CONFIG.url}`)
-console.log(`\n  Abrilo con doble clic.\n`)
+console.log(`  Dispositivo: ${CONFIG.instalacionId}`)
+console.log(
+  indiceSalida >= 0
+    ? '\n  Publicá esa carpeta como sitio estático.\n'
+    : '\n  Abrilo con doble clic.\n',
+)

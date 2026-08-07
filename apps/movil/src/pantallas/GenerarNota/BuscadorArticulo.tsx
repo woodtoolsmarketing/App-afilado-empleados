@@ -88,6 +88,10 @@ export function BuscadorArticulo({
       precio: String(a.precio),
       moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
       ...(c.diametro_exterior ? { diametro_exterior: c.diametro_exterior } : {}),
+      // El agujero de fábrica va a su propio campo: el que se carga a mano es
+      // el de la pieza que trae el cliente, y la diferencia entre los dos es
+      // lo que decide si hubo agrandado o buje reductor.
+      ...(c.diametro_interior ? { diametro_interior_catalogo: c.diametro_interior } : {}),
       ...(c.ancho_corte ? { ancho_corte: c.ancho_corte } : {}),
       ...(c.dientes ? { cantidad_dientes: c.dientes } : {}),
       ...(c.largo ? { largo: c.largo } : {}),

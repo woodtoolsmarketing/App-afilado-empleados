@@ -1,9 +1,15 @@
 import {
   agruparParaNotas,
+  agujeroDelRenglon,
   aNumero,
+  avisoDeNotasHermanas,
+  avisosDeAgujero,
+  CONDICIONES_CON_DETALLE,
   FAMILIA_CATALOGO,
+  reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
   totalDelRenglon,
+  type CondicionVenta,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type GrupoNota,
@@ -108,16 +114,38 @@ export async function medidasDisponibles(
   herramienta: Herramienta,
   servicio?: TipoServicio,
 ): Promise<CodigoComputo[]> {
+  const conRango = await codigosDeLaHerramienta(herramienta, servicio, true)
+  if (conRango.length > 0) return conRango
+
+  // ── Las familias que NO se cotizan por medida ────────────────────────────
+  //
+  // Mechas (0 de 181) y cuchillas (0 de 143) no tienen un solo código con
+  // rango: la mecha se cotiza por tipo y cantidad de filos, y la lista de
+  // cuchillas es un catálogo de producto, no de servicio.
+  //
+  // Buscar por diámetro ahí no devuelve nada y nunca va a devolver nada. En vez
+  // de dejar al vendedor probando números, se listan los códigos que sí
+  // existen para esa herramienta y elige.
+  return codigosDeLaHerramienta(herramienta, servicio, false)
+}
+
+async function codigosDeLaHerramienta(
+  herramienta: Herramienta,
+  servicio: TipoServicio | undefined,
+  conRango: boolean,
+): Promise<CodigoComputo[]> {
   let consulta = supabase
     .from('vista_catalogo_vigente')
     .select(
       'codigo, descripcion, precio, moneda, rango_min, rango_max, rango_dimension, servicio_sugerido, herramienta_sugerida',
     )
     .eq('familia', FAMILIA_CATALOGO[herramienta])
-    .not('rango_min', 'is', null)
     .eq('precio_a_confirmar', false)
     .or(`herramienta_sugerida.is.null,herramienta_sugerida.eq.${herramienta}`)
-    .order('rango_min', { ascending: true })
+
+  consulta = conRango
+    ? consulta.not('rango_min', 'is', null).order('rango_min', { ascending: true })
+    : consulta.is('rango_min', null).order('codigo', { ascending: true }).limit(60)
 
   // Sin servicio no se filtra: se muestran todas las medidas de la herramienta.
   if (servicio) {
@@ -131,6 +159,34 @@ export async function medidasDisponibles(
     precio_pesos: null,
     amplitud: 0,
   })) as CodigoComputo[]
+}
+
+/**
+ * Reconoce en la lista de precios la herramienta que trajo el cliente.
+ *
+ * En un renglón de afilado no hay artículo elegido, pero la pieza está en la
+ * lista igual: 122 de las 130 sierras traen `D=` y `d=` en su descripción. Con
+ * el diámetro exterior alcanza para encontrarla, y de ahí sale el **agujero de
+ * fábrica**, que es contra lo que se compara el que carga el vendedor para
+ * saber si fue agrandado o lleva buje reductor.
+ *
+ * Devuelve null cuando no hay diámetro cargado o cuando la herramienta no está
+ * en ninguna lista con sus medidas: mechas, cuchillas y sierras sin fin no las
+ * traen, y ahí no hay nada que reconocer.
+ */
+export async function agujeroDeFabrica(item: FormularioItemNota): Promise<string | null> {
+  const diametro = item.diametro_exterior.trim()
+  if (!item.herramienta || !diametro) return null
+
+  // Se busca por el texto tal como está escrito en la lista y después se
+  // verifica la medida: "D=30" como texto también trae los "D=300".
+  const candidatos = await buscarArticulos(`D=${diametro.replace(',', '.')}`)
+  const coincidencia = reconocerHerramienta(candidatos, {
+    diametro_exterior: diametro,
+    ancho_corte: item.ancho_corte,
+    dientes: item.cantidad_dientes,
+  })
+  return coincidencia?.caracteristicas.diametro_interior ?? null
 }
 
 /**
@@ -180,6 +236,9 @@ export interface DatosNuevaNota {
   cotizacionFecha: string
   /** Renglones de observación, uno por línea de la columna "Observaciones". */
   observaciones?: string[]
+  condicionVenta: CondicionVenta
+  /** Los días del cheque, o el texto de "Otro". Vacío en el resto. */
+  condicionVentaDetalle?: string
 }
 
 export interface NotaCreada {
@@ -217,6 +276,11 @@ function filaDeItem(i: FormularioItemNota, notaId: string, orden: number) {
     detalle: Object.fromEntries(
       Object.entries({
         diametro_exterior: i.diametro_exterior,
+        // El agujero que lleva la pieza: el cargado, o el de fábrica si no lo
+        // cargaron. Va siempre, para que la fábrica no tenga que buscarlo.
+        diametro_interior: agujeroDelRenglon(i).medida,
+        diametro_interior_catalogo: i.diametro_interior_catalogo,
+        ajuste_agujero: agujeroDelRenglon(i).ajuste,
         diametro: i.diametro,
         ancho_corte: i.ancho_corte,
         largo: i.largo,
@@ -277,6 +341,13 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   // facturación que la app inventó por atrás.
   const observaciones = (datos.observaciones ?? []).filter((o) => o.trim())
 
+  // El agujero distinto del de fábrica va a la descripción general, que es lo
+  // que la fábrica lee antes de tocar la pieza.
+  const avisos = avisosDeAgujero(datos.items)
+  const descripcionGeneral = [enc.descripcion_herramienta.trim(), ...avisos]
+    .filter(Boolean)
+    .join('\n')
+
   const creadas: NotaCreada[] = []
 
   try {
@@ -292,8 +363,9 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
           zona: enc.zona || null,
           datos_cliente: enc.datos_cliente || null,
           datos_cliente_origen: enc.datos_cliente_origen,
-          descripcion_herramienta: enc.descripcion_herramienta || null,
+          descripcion_herramienta: descripcionGeneral || null,
           descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+          vendedor_numero: enc.vendedor_numero.trim() || null,
           // Cada nota declara sólo los servicios que realmente contiene.
           servicios: g.servicios,
           tipo_nota: datos.tipoNota,
@@ -306,6 +378,11 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
             g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
           total: g.total || null,
           observaciones,
+          condicion_venta: datos.condicionVenta,
+          // La base sólo acepta detalle en las dos que lo piden.
+          condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
+            ? (datos.condicionVentaDetalle ?? '').trim()
+            : null,
         })
         .select('id, numero, estado')
         .single()
@@ -322,6 +399,26 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       }
 
       creadas.push({ ...(nota as Omit<NotaCreada, 'grupo' | 'total'>), grupo: g.grupo, total: g.total })
+    }
+
+    // ── "Va con nota de pedido 000011, 000012" ────────────────────────────
+    //
+    // Recién acá se puede: el número lo asigna la base al insertar, así que
+    // hasta que no están todas creadas no hay qué escribir. Sin esto, las tres
+    // notas de un mismo cliente llegan a fábrica sin ninguna referencia entre
+    // sí y nadie sabe que van juntas.
+    if (creadas.length > 1) {
+      const numeros = creadas.map((n) => n.numero)
+      await Promise.all(
+        creadas.map(async (n) => {
+          const aviso = avisoDeNotasHermanas(numeros, n.numero)
+          if (!aviso) return
+          await supabase
+            .from('notas_pedido')
+            .update({ observaciones: [...observaciones, aviso] })
+            .eq('id', n.id)
+        }),
+      )
     }
   } catch (e) {
     // Un cliente con media venta cargada es peor que uno sin nada: si falla la

@@ -68,6 +68,28 @@ MONEDA_CONFIRMADA = {
     "MUELAS": "USD",
 }
 
+# Listas cuyo encabezado declara una moneda EQUIVOCADA. Pisa al encabezado, asi
+# que cada entrada necesita evidencia, no una impresion.
+#
+# CABEZALES INSERTOS dice "En Pesos" y esta en dolares. Comparte 172 codigos con
+# CABEZALES FREUD, que declara dolares, y la razon entre los precios de los dos
+# archivos va de 1,000 a 1,307 (mediana 1,27): es la misma lista con un aumento
+# del 27%. Si una estuviera en pesos la razon rondaria 1500. Tomarla como pesos
+# cotizaba un cabezal de USD 227 a $237.
+MONEDA_CORREGIDA = {
+    "CABEZALES INSERTOS": "USD",
+}
+
+# Listas sin fecha en el nombre y con fecha establecida por otro medio.
+#
+# CABEZALES INSERTOS: la fecha de modificacion del PDF es 2026-03-20, el mismo
+# dia que CUCHILLAS 200326, AFIL MECHAS 200326 y AFILADOS SC FRESAS INSERTOS
+# 200326. Es una tanda que el Gestion exporto junta y a esta le falto la fecha
+# en el nombre; no es un dato adivinado.
+FECHA_CONFIRMADA = {
+    "CABEZALES INSERTOS": "2026-03-20",
+}
+
 RUIDO = re.compile(
     r"Gestion Comercial|WOOD TOOLS|LISTA DE PRECIOS|Ordenada por|Precios sin|"
     r"Cod\.Selec|Producto:|Hoja:|Fecha:",
@@ -86,11 +108,11 @@ FAMILIAS_CON_RANGO = {"afilado_general", "sierra_sin_fin", "mecha", "cuchilla"}
 
 FRACCION = re.compile(r"\d\s*/\s*\d")
 R_ENTRE  = re.compile(r"#?(\d+(?:[.,]\d+)?)\s*(?:mm)?\s+[Aa]\s+#?(\d+(?:[.,]\d+)?)\s*(?:mm)?", re.I)
-R_HASTA  = re.compile(r"HASTA\s+#?(\d+(?:[.,]\d+)?)", re.I)
-R_MAYOR  = re.compile(r"MAYOR\s+A\s+d?=?\s*(\d+(?:[.,]\d+)?)", re.I)
+R_HASTA  = re.compile(r"\bHASTA\s+#?(\d+(?:[.,]\d+)?)", re.I)
+R_MAYOR  = re.compile(r"\bMAYOR\s+A\s+d?=?\s*(\d+(?:[.,]\d+)?)", re.I)
 # "d=150" habla de diametro, no de ancho de corte. Son dimensiones distintas y
 # confundirlas elegiria el codigo de otra herramienta.
-R_DIAM   = re.compile(r"d\s*=", re.I)
+R_DIAM   = re.compile(r"\bd\s*=", re.I)
 
 
 def _num(s):
@@ -255,6 +277,14 @@ def moneda_confirmada(nombre_lista):
     return None
 
 
+def moneda_corregida(nombre_lista):
+    """La que pisa al encabezado cuando el encabezado esta mal. Ver la tabla."""
+    for clave, moneda in MONEDA_CORREGIDA.items():
+        if clave in nombre_lista.upper():
+            return moneda
+    return None
+
+
 def procesar(pdf_path):
     articulos = []
     precios_en_pdf = 0
@@ -263,7 +293,9 @@ def procesar(pdf_path):
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         declarada = detectar_moneda(pdf)
-        moneda = declarada or moneda_confirmada(pdf_path.stem)
+        # La correccion gana: son los casos donde el encabezado miente y
+        # esta demostrado. Si no, manda el encabezado.
+        moneda = moneda_corregida(pdf_path.stem) or declarada or moneda_confirmada(pdf_path.stem)
         for pagina in pdf.pages:
             for w in pagina.extract_words():
                 if PRECIO.match(w["text"]):
@@ -340,7 +372,9 @@ def procesar(pdf_path):
                         "rango_max": rango[1] if rango else None,
                         "rango_dimension": rango[2] if rango else None,
                         "lista": pdf_path.stem,
-                        "lista_fecha": fecha_de_lista(pdf_path.stem),
+                        "lista_fecha": fecha_de_lista(pdf_path.stem, pdf_path),
+                        "fecha_estimada": not FECHA_ARCHIVO.search(pdf_path.stem)
+                        and not any(k in pdf_path.stem.upper() for k in FECHA_CONFIRMADA),
                     }
                 )
 
@@ -355,10 +389,26 @@ def procesar(pdf_path):
 FECHA_ARCHIVO = re.compile(r"(\d{1,2})[-\s]*(\d{1,2})[-\s]*-*(\d{2})(?!\d)|(\d{2})(\d{2})(\d{2})$")
 
 
-def fecha_de_lista(nombre):
-    """La fecha de la lista, en ISO, o None si el nombre no la trae."""
+def fecha_de_lista(nombre, ruta=None):
+    """
+    La fecha de la lista, en ISO.
+
+    Sale del nombre del archivo. Cuando el nombre no la trae —le pasa a
+    "LISTA PRECIO CABEZALES INSERTOS"— se usa la fecha de modificacion del PDF,
+    que es lo unico que queda. Es un dato que decide cual edicion de un codigo
+    gana, asi que el caso se avisa por pantalla para que alguien renombre el
+    archivo con su fecha.
+    """
+    for clave, fecha in FECHA_CONFIRMADA.items():
+        if clave in nombre.upper():
+            return fecha
+
     m = FECHA_ARCHIVO.search(nombre.strip())
     if not m:
+        if ruta is not None:
+            import datetime
+
+            return datetime.date.fromtimestamp(ruta.stat().st_mtime).isoformat()
         return None
     if m.group(4):
         dia, mes, anio = m.group(4), m.group(5), m.group(6)
@@ -411,6 +461,8 @@ def escribir_sql(articulos, destino):
         "-- de la misma lista: ningún código aparece repetido entre listas distintas,",
         "-- así que sumar la medida a la clave no arrastra ediciones viejas.",
         "alter table public.catalogo_articulos",
+        "  add column if not exists fecha_estimada boolean not null default false;",
+        "alter table public.catalogo_articulos",
         "  drop constraint if exists catalogo_articulos_codigo_lista_origen_key;",
         "drop index if exists public.catalogo_articulo_unico;",
         "create unique index catalogo_articulo_unico",
@@ -420,7 +472,7 @@ def escribir_sql(articulos, destino):
         "",
         "insert into public.catalogo_articulos "
         "(codigo,descripcion,medida,precio,moneda,lista_origen,lista_fecha,familia,"
-        "rango_min,rango_max,rango_dimension) values",
+        "rango_min,rango_max,rango_dimension,fecha_estimada) values",
     ]
 
     filas = []
@@ -440,6 +492,7 @@ def escribir_sql(articulos, destino):
                     "NULL" if a["rango_min"] is None else repr(float(a["rango_min"])),
                     "NULL" if a["rango_max"] is None else repr(float(a["rango_max"])),
                     escapar(a["rango_dimension"]),
+                    "true" if a["fecha_estimada"] else "false",
                 ]
             )
             + ")"
@@ -487,7 +540,10 @@ select distinct on (codigo, coalesce(medida, ''))
   familia, rango_min, rango_max, rango_dimension, lista_origen, lista_fecha,
   servicio_sugerido, herramienta_sugerida
 from public.catalogo_articulos
-order by codigo, coalesce(medida, ''), lista_fecha desc nulls last, creado_en desc;
+order by codigo, coalesce(medida, ''),
+         -- Primero las listas que traen su fecha en el nombre: una fecha
+         -- deducida del archivo no puede decidir que precio se cotiza.
+         fecha_estimada, lista_fecha desc nulls last, creado_en desc;
 """
     )
 
