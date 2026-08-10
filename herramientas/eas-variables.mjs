@@ -104,6 +104,40 @@ for (const nombre of RECOMENDADAS) {
   }
 }
 
+/**
+ * Que la sesión se revise ANTES de intentar subir nada.
+ *
+ * Sin esto, cada variable abre su propio pedido de usuario y contraseña en
+ * medio de la corrida. Un pedido de contraseña que aparece cuando uno no lo
+ * estaba esperando es un problema de verdad: lo que se tipee ahí —el comando
+ * siguiente, por ejemplo— entra igual, y el error que devuelve es "usuario o
+ * contraseña incorrectos", que manda a buscar el problema al lugar equivocado.
+ */
+const sesion = spawnSync('npx', ['eas', 'whoami'], {
+  cwd: PROYECTO_EXPO,
+  stdio: ['ignore', 'pipe', 'pipe'],
+  shell: process.platform === 'win32',
+  encoding: 'utf8',
+})
+
+if (sesion.status !== 0) {
+  console.error(
+    [
+      '',
+      '  No hay sesión de Expo abierta.',
+      '',
+      '  Entrá primero, en su propio comando y esperando cada pregunta:',
+      '    npm run eas:entrar',
+      '',
+      '  Y volvé a correr éste.',
+      '',
+    ].join('\n'),
+  )
+  process.exit(1)
+}
+
+console.log(`\n  Cuenta de Expo: ${String(sesion.stdout).trim().split('\n').pop()}`)
+
 const aSubir = [
   ...OBLIGATORIAS,
   ...RECOMENDADAS.filter((v) => env[v]),
