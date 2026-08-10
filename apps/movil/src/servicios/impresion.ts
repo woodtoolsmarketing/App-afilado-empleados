@@ -15,32 +15,42 @@ import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
 
 import { supabase } from '../nucleo/supabase'
+import {
+  buscarEnLaRed,
+  contestaIpp,
+  ESPERA_IMPRESION_MS,
+  estadoDeRed,
+  fetchConLimite,
+  peticionImprimir,
+  PUERTO_IPP,
+  recordarImpresora,
+  respuestaIppCorrecta,
+  ultimaImpresora,
+} from './ipp'
 import { obtenerJornadaDeHoy } from './jornada'
 import { obtenerNota } from './notasPedido'
 
 /**
  * Impresión inalámbrica.
  *
- * Dos caminos, y el orden importa:
+ * Tres caminos, y el orden importa:
  *
  *  1. **Directo por IPP a la impresora de la oficina.** Es lo que pidieron: el
- *     celular en la misma red manda el trabajo a una IP fija y sale por la
- *     impresora, sin diálogos ni pasos intermedios. Sirve para el caso real —
- *     el vendedor llega, toca "imprimir" y las notas ya lo están esperando.
+ *     celular en la misma red manda el trabajo y sale por la impresora, sin
+ *     diálogos ni pasos intermedios. Sirve para el caso real — el vendedor
+ *     llega, toca "imprimir" y las notas ya lo están esperando.
  *
- *  2. **Diálogo del sistema**, si lo anterior falla. Android descubre
+ *  2. **Buscarla en la red**, si la dirección conocida no contesta. El router
+ *     reparte las direcciones por DHCP y la de la impresora puede cambiar sola;
+ *     que eso obligue a llamar a la oficina sería absurdo.
+ *
+ *  3. **Diálogo del sistema**, si nada de lo anterior anduvo. Android descubre
  *     impresoras de red por su cuenta, así que sigue siendo inalámbrico; sólo
- *     pide un toque más. Vale como red de contención cuando cambió la IP o la
- *     impresora está apagada.
+ *     pide un toque más.
  *
- * El PDF se genera igual en los dos casos, así que lo que sale por la
+ * El PDF se genera igual en los tres casos, así que lo que sale por la
  * impresora es idéntico a lo que se exporta.
  */
-
-// Puerto estándar de IPP. El de RAW/JetDirect es el 9100, pero IPP da
-// confirmación del trabajo y JetDirect no: si el papel se acabó, con RAW nunca
-// nos enteramos.
-const PUERTO_IPP = 631
 
 export interface ConfiguracionImpresora {
   ip: string
@@ -70,69 +80,53 @@ export async function obtenerImpresora(): Promise<ConfiguracionImpresora | null>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Codificación IPP
-//
-// IPP es un protocolo binario sobre HTTP. El cuerpo lleva una cabecera de
-// versión y operación, después los atributos agrupados por tipo, y al final el
-// documento. Se implementa acá lo mínimo para "Print-Job" (0x0002), que es lo
-// único que necesitamos.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * A qué dirección mandarle el trabajo, ahora.
+ *
+ * Prueba, en orden: la que este teléfono usó la última vez con éxito, la que
+ * tiene cargada la oficina, y —si ninguna contesta— la busca en la red. La
+ * primera está primero porque si ayer la impresora estaba en .152, hoy sigue
+ * estando ahí, y probar eso cuesta medio segundo contra los ocho de un barrido.
+ *
+ * Devuelve null cuando no hay forma: sin wifi, o con la impresora apagada.
+ */
+async function ubicarImpresora(
+  configurada: ConfiguracionImpresora | null,
+  alAvisar?: (mensaje: string) => void,
+): Promise<{ impresora: ConfiguracionImpresora; descubierta: boolean } | null> {
+  const red = await estadoDeRed()
 
-const ETIQUETA_OPERACION = 0x01
-const ETIQUETA_TRABAJO = 0x02
-const FIN_ATRIBUTOS = 0x03
+  // Con datos móviles no hay red local que valga: una IP 192.168.x.x no lleva a
+  // ningún lado y el intento sólo agrega demora.
+  if (!red.enWifi) return null
 
-const TIPO_CHARSET = 0x47
-const TIPO_IDIOMA = 0x48
-const TIPO_URI = 0x45
-const TIPO_NOMBRE = 0x42
-const TIPO_MIME = 0x49
+  const puerto = configurada?.puerto ?? PUERTO_IPP
+  const ruta = configurada?.ruta ?? '/ipp/print'
 
-function texto(valor: string): number[] {
-  return Array.from(new TextEncoder().encode(valor))
-}
+  const candidatas = [await ultimaImpresora(), configurada?.ip].filter(
+    (ip, i, todas): ip is string => !!ip && todas.indexOf(ip) === i,
+  )
 
-function atributo(tipo: number, nombre: string, valor: string): number[] {
-  const n = texto(nombre)
-  const v = texto(valor)
-  return [
-    tipo,
-    (n.length >> 8) & 0xff, n.length & 0xff, ...n,
-    (v.length >> 8) & 0xff, v.length & 0xff, ...v,
-  ]
-}
+  for (const ip of candidatas) {
+    if (await contestaIpp(ip, puerto, ruta)) {
+      return { impresora: { ip, puerto, ruta }, descubierta: false }
+    }
+  }
 
-function armarPeticionIpp(uriImpresora: string, usuario: string, documento: Uint8Array): Uint8Array {
-  const cabecera = [
-    0x02, 0x00,             // IPP 2.0
-    0x00, 0x02,             // Print-Job
-    0x00, 0x00, 0x00, 0x01, // id de la petición
-  ]
+  if (!red.ip) return null
 
-  const atributos = [
-    ETIQUETA_OPERACION,
-    ...atributo(TIPO_CHARSET, 'attributes-charset', 'utf-8'),
-    ...atributo(TIPO_IDIOMA, 'attributes-natural-language', 'es-ar'),
-    ...atributo(TIPO_URI, 'printer-uri', uriImpresora),
-    ...atributo(TIPO_NOMBRE, 'requesting-user-name', usuario),
-    ...atributo(TIPO_NOMBRE, 'job-name', 'WoodTools - Notas de pedido'),
-    ...atributo(TIPO_MIME, 'document-format', 'application/pdf'),
-    FIN_ATRIBUTOS,
-  ]
+  alAvisar?.('Buscando la impresora en la red…')
+  const encontrada = await buscarEnLaRed({
+    ipDelTelefono: red.ip,
+    puerto,
+    ruta,
+    ipConocida: candidatas[0] ?? null,
+  })
 
-  const salida = new Uint8Array(cabecera.length + atributos.length + documento.length)
-  salida.set(cabecera, 0)
-  salida.set(atributos, cabecera.length)
-  salida.set(documento, cabecera.length + atributos.length)
-  return salida
-}
+  if (!encontrada) return null
 
-/** Lee el status-code de la respuesta IPP (bytes 2 y 3). 0x0000–0x00ff = OK. */
-function respuestaIppCorrecta(cuerpo: Uint8Array): boolean {
-  if (cuerpo.length < 4) return false
-  const estado = (cuerpo[2] << 8) | cuerpo[3]
-  return estado <= 0x00ff
+  await recordarImpresora(encontrada)
+  return { impresora: { ip: encontrada, puerto, ruta }, descubierta: true }
 }
 
 async function imprimirPorIpp(
@@ -146,18 +140,22 @@ async function imprimirPorIpp(
   const binario = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
 
   const uri = `ipp://${impresora.ip}:${impresora.puerto}${impresora.ruta}`
-  const peticion = armarPeticionIpp(uri, usuario, binario)
+  const cuerpoPeticion = peticionImprimir(uri, usuario, binario)
 
   // IPP viaja sobre HTTP: el esquema ipp:// es el mismo host y puerto.
   //
   // El fetch de React Native manda cuerpos binarios sin problema, pero sus
   // tipos sólo declaran string / FormData / Blob. El cast es por la definición
   // de tipos, no por el comportamiento.
-  const respuesta = await fetch(`http://${impresora.ip}:${impresora.puerto}${impresora.ruta}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/ipp' },
-    body: peticion as unknown as BodyInit,
-  })
+  const respuesta = await fetchConLimite(
+    `http://${impresora.ip}:${impresora.puerto}${impresora.ruta}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/ipp' },
+      body: cuerpoPeticion as unknown as BodyInit,
+    },
+    ESPERA_IMPRESION_MS,
+  )
 
   if (!respuesta.ok) {
     throw new Error(`La impresora respondió ${respuesta.status}`)
@@ -268,6 +266,8 @@ export async function imprimirNotas(params: {
   notaIds: string[]
   incluirRolDeVisita?: boolean
   comoPdf?: boolean
+  /** Para contar qué está pasando cuando hay que buscar la impresora. */
+  alAvisar?: (mensaje: string) => void
 }): Promise<ResultadoImpresion> {
   if (params.notaIds.length === 0) throw new Error('No hay notas para imprimir')
 
@@ -320,33 +320,47 @@ export async function imprimirNotas(params: {
 
   const cuantas = `${notas.length} nota${notas.length === 1 ? '' : 's'}`
   const conRol = rolDeVisita ? ' y el rol de visita' : ''
-  const impresora = await obtenerImpresora()
 
-  if (impresora) {
+  const configurada = await obtenerImpresora()
+  const ubicada = await ubicarImpresora(configurada, params.alAvisar)
+
+  if (ubicada) {
     try {
       await imprimirPorIpp(
-        impresora,
+        ubicada.impresora,
         uri,
         sesionActual.session?.user.email ?? 'woodtools',
       )
+      const donde = ubicada.descubierta
+        ? `la impresora, que hoy está en ${ubicada.impresora.ip}`
+        : `la impresora ${ubicada.impresora.ip}`
       return {
-        mensaje: `Se ${notas.length === 1 ? 'envió' : 'enviaron'} ${cuantas}${conRol} a la impresora ${impresora.ip}.`,
+        mensaje: `Se ${notas.length === 1 ? 'envió' : 'enviaron'} ${cuantas}${conRol} a ${donde}.`,
         uri,
         via: 'ipp',
-        advertencia,
+        advertencia: ubicada.descubierta
+          ? [advertencia, `La IP cargada en la oficina quedó vieja: ahora es ${ubicada.impresora.ip}.`]
+              .filter(Boolean)
+              .join(' ')
+          : advertencia,
       }
     } catch (e) {
       console.warn('[impresion] IPP directo falló, se abre el diálogo del sistema', e)
     }
   }
 
-  // Sin IP configurada o con la impresora inalcanzable: Android igual descubre
-  // impresoras de red, así que sigue siendo inalámbrico.
+  // Sin impresora alcanzable: Android igual descubre impresoras de red por su
+  // cuenta, así que sigue siendo inalámbrico; sólo pide un toque más.
+  const red = await estadoDeRed()
   await Print.printAsync({ uri })
   return {
-    mensaje: impresora
-      ? `No pudimos alcanzar la impresora ${impresora.ip}. Se abrió el diálogo del sistema.`
-      : 'Elegí la impresora en el diálogo. Para imprimir directo, cargá la IP en Configuración.',
+    mensaje: !red.conectado
+      ? 'No hay conexión. Se abrió el diálogo del sistema.'
+      : !red.enWifi
+        ? 'Estás con datos móviles: la impresora de la oficina sólo se alcanza por wifi. Se abrió el diálogo del sistema.'
+        : configurada
+          ? 'No encontramos la impresora en esta red. Fijate que esté encendida y en el mismo wifi.'
+          : 'Elegí la impresora en el diálogo. Para imprimir directo, cargá la IP en el panel.',
     uri,
     via: 'sistema',
     advertencia,

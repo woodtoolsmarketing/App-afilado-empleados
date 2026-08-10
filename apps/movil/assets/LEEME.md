@@ -1,26 +1,31 @@
 # Recursos gráficos
 
-⚠️ **Los cuatro PNG de esta carpeta están vacíos.** Son archivos válidos pero sin
-contenido, para que el proyecto compile mientras llegan los originales de la
-marca. Hay que reemplazarlos antes de compilar la versión que se reparte.
+Los cuatro PNG **se generan** a partir del logo de la empresa
+(`Imagenes/Logos/1.png`). No se editan a mano:
 
-Tres son **transparentes**: el fondo rojo lo pone la app (`app.config.ts`), así
-que hoy se ven simplemente como fondo. El cuarto, `icono.png`, es rojo sólido
-porque un ícono de launcher transparente Android lo pinta de negro.
-
-En pantalla, mientras tanto, el logo aparece como un recuadro blanco vacío en el
-encabezado y en el login. Ese recuadro **es parte del diseño** (así se ve en los
-mockups, porque el logo de WoodTools viene sobre fondo blanco): cuando pongas el
-PNG real, encaja solo.
+```bash
+python herramientas/generar-recursos-movil.py
+```
 
 | Archivo | Tamaño | Qué es |
 |---|---|---|
-| `logo-woodtools.png` | 1024×400, fondo transparente | Logo del encabezado y del login. Va sobre fondo blanco, así que conviene el logo a color con el escudo. |
-| `icono.png` | 1024×1024, sin transparencia | Ícono de la app. Sin margen: Android lo recorta solo. |
-| `icono-adaptativo.png` | 1024×1024 | Capa frontal del ícono adaptativo. Dejá un **25 % de margen** en cada lado: Android recorta hasta un círculo. El fondo lo pone `app.config.ts` (`#B30F0F`). |
-| `splash.png` | 1284×2778 | Pantalla de arranque. Se muestra centrada sobre fondo rojo, así que alcanza con el logo en el centro y transparencia alrededor. |
+| `logo-woodtools.png` | 1024×400, transparente | Logo del encabezado y del login. La app ya lo dibuja sobre un recuadro blanco. |
+| `icono.png` | 1024×1024, fondo blanco | Ícono de la app. Sin transparencia: Android la pinta de negro. |
+| `icono-adaptativo.png` | 1024×1024, transparente | Capa frontal del ícono adaptativo, con margen porque Android la recorta hasta un círculo. El fondo lo pone `app.config.ts`. |
+| `splash.png` | 1284×2778, transparente | Pantalla de arranque: el logo adentro de un panel blanco, para que se lea sobre el rojo. |
 
-Después de reemplazarlos:
+## Por qué el fondo es blanco y no rojo
+
+El logo tiene el texto en negro y la sierra en rojo y gris, y está hecho para
+fondo claro. Sobre el rojo de la marca (`#B30F0F`) el texto desaparece y la
+sierra se confunde con el fondo. Por eso el ícono va sobre blanco, el fondo del
+ícono adaptativo también, y en la pantalla de arranque el logo va adentro de un
+panel blanco redondeado — el mismo recurso visual que usa el login.
+
+## Si cambia el logo
+
+Se reemplaza `Imagenes/Logos/1.png`, se vuelve a correr el script y se
+recompila. Si ya existe la carpeta `android/`, hace falta además:
 
 ```bash
 cd apps/movil

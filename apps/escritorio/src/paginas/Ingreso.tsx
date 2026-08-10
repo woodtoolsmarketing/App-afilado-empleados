@@ -1,4 +1,4 @@
-import { validarLogin, type CampoLogin } from '@woodtools/compartido'
+import { LOGO_WOODTOOLS, validarLogin, type CampoLogin } from '@woodtools/compartido'
 import { useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
@@ -74,7 +74,10 @@ export function PaginaIngreso({
   return (
     <div className="ingreso">
       <form onSubmit={enviar} noValidate>
-        <h1>WOODTOOLS</h1>
+        {/* El logo de verdad, no el nombre escrito. Viene embebido en el
+            paquete compartido —el mismo que sale impreso en las notas— así que
+            no hay un archivo suelto que se pueda perder al empaquetar. */}
+        <img src={LOGO_WOODTOOLS} alt="WoodTools S.R.L." className="logo" />
         <p className="subtitulo">Panel de administración</p>
 
         {(errorGeneral || error) && (

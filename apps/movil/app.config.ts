@@ -153,7 +153,10 @@ const config: ExpoConfig = {
     versionCode: 1,
     adaptiveIcon: {
       foregroundImage: './assets/icono-adaptativo.png',
-      backgroundColor: '#B30F0F',
+      // Blanco, no el rojo de la marca: el logo lleva el texto en negro y la
+      // sierra en gris, y sobre rojo no se lee ninguno de los dos. El logo está
+      // hecho para fondo claro y el ícono lo respeta.
+      backgroundColor: '#FFFFFF',
     },
     // Sin esta clave el mapa se ve gris. Es distinta de la del servidor: ésta
     // va dentro del APK y está restringida por package name + huella SHA-1.
@@ -212,6 +215,27 @@ const config: ExpoConfig = {
           minSdkVersion: 26,
           compileSdkVersion: 35,
           targetSdkVersion: 35,
+          /**
+           * Sin esto la app NO puede imprimir, y el motivo no es evidente.
+           *
+           * Android bloquea el tráfico HTTP sin cifrar desde que las apps
+           * apuntan a la API 28, y esa política no distingue "internet" de "la
+           * red de tu oficina". La impresora habla IPP sobre HTTP plano —no
+           * tiene certificado ni forma de tenerlo— así que el pedido muere
+           * antes de salir del teléfono, con un error de política de red que
+           * en la pantalla se ve como "no se pudo imprimir".
+           *
+           * Se nota sólo en el APK que se reparte: en desarrollo Android deja
+           * pasar el texto plano, así que esto compila y anda hasta que se
+           * instala la versión de verdad.
+           *
+           * Lo ideal sería permitirlo únicamente contra la impresora, pero eso
+           * se declara por dirección exacta y la asigna el router por DHCP: la
+           * lista quedaría vieja el día que cambie. Lo que sí acota el riesgo
+           * es que la app no tiene otro tráfico sin cifrar — todo lo demás va
+           * por HTTPS a Supabase.
+           */
+          usesCleartextTraffic: true,
           // R8: minifica y ofusca la capa Java/Kotlin en release.
           // Ojo: NO ofusca el bundle de JavaScript (ver docs/DISTRIBUCION-PRIVADA.md).
           //

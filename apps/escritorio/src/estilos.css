@@ -380,6 +380,18 @@ label {
   margin-bottom: 4px;
 }
 
+/* El logo va sobre blanco: tiene el texto en negro y está hecho para fondo
+   claro. Si el panel algún día se oscurece, este recuadro lo sigue sosteniendo. */
+.ingreso .logo {
+  display: block;
+  width: min(260px, 70%);
+  height: auto;
+  margin: 0 auto 18px;
+  background: #fff;
+  border-radius: var(--radio);
+  padding: 10px 14px;
+}
+
 .ingreso .subtitulo {
   text-align: center;
   color: var(--tinta-suave);
