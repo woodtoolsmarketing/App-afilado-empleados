@@ -41,6 +41,24 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
  */
 const PROYECTO_EXPO = path.join(RAIZ, 'apps', 'movil')
 
+/**
+ * El CLI se invoca como script de Node, no por el shell.
+ *
+ * En Windows, `spawn('npx', [...], { shell: true })` no escapa los argumentos:
+ * los concatena. Una clave con un `&` o un `^` adentro rompería el comando —o
+ * ejecutaría lo que venga después— y acá los argumentos son justamente claves.
+ * Llamando al entrypoint con `node`, los argumentos viajan como argumentos.
+ */
+const EAS = path.join(RAIZ, 'node_modules', 'eas-cli', 'bin', 'run')
+
+function correrEas(argumentos) {
+  return spawnSync(process.execPath, [EAS, ...argumentos], {
+    cwd: PROYECTO_EXPO,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+  })
+}
+
 /** Sin éstas no hay login: el APK se instala y no sirve para nada. */
 const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
 
@@ -113,12 +131,7 @@ for (const nombre of RECOMENDADAS) {
  * siguiente, por ejemplo— entra igual, y el error que devuelve es "usuario o
  * contraseña incorrectos", que manda a buscar el problema al lugar equivocado.
  */
-const sesion = spawnSync('npx', ['eas', 'whoami'], {
-  cwd: PROYECTO_EXPO,
-  stdio: ['ignore', 'pipe', 'pipe'],
-  shell: process.platform === 'win32',
-  encoding: 'utf8',
-})
+const sesion = correrEas(['whoami'])
 
 if (sesion.status !== 0) {
   console.error(
@@ -165,12 +178,7 @@ for (const nombre of aSubir) {
 
   // `env:set` crea o actualiza, según haga falta. Sus antecesores
   // —`env:create` y `env:update`— quedaron deprecados en eas-cli 21.
-  const r = spawnSync('npx', ['eas', 'env:set', ...comunes], {
-    cwd: PROYECTO_EXPO,
-    stdio: ['inherit', 'pipe', 'pipe'],
-    shell: process.platform === 'win32',
-    encoding: 'utf8',
-  })
+  const r = correrEas(['env:set', ...comunes])
 
   if (r.status === 0) {
     console.log(`  ok    ${nombre}`)
@@ -180,17 +188,25 @@ for (const nombre of aSubir) {
     // La salida de eas puede traer el valor adentro (lo recibe como argumento),
     // así que se tacha antes de mostrarla. Un error que obliga a copiar y pegar
     // en un chat no puede llevarse la clave puesta.
-    const salida = String(r.stderr || '') + String(r.stdout || '')
+    // Primero lo que `eas` manda a stdout —ahí van las explicaciones— y después
+    // el error. Al revés, la explicación queda arriba y se pierde de vista.
+    const salida = String(r.stdout || '') + String(r.stderr || '')
     // `eas` abre con un consejo sobre la versión del CLI que no tiene nada que
     // ver con el error. Si se lo deja pasar, tapa las tres líneas que importan.
-    const RUIDO = /Found eas-cli in your|cli\.version|Learn more:/
+    // Sólo el aviso de la versión del CLI, que son tres líneas fijas. El
+    // "Learn more:" va anclado al principio de la línea a propósito: los
+    // mensajes de error de `eas` lo llevan adentro, al final, y un patrón
+    // suelto se comía justo la línea que explicaba el problema.
+    const RUIDO = /^Found eas-cli in your|^It's recommended to use the "cli\.version"|^Learn more:/
     const lineas = salida
       .replaceAll(env[nombre], '«el valor»')
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && !RUIDO.test(l))
 
-    for (const linea of lineas.slice(-3)) console.log(`        ${linea}`)
+    // Sin recortar: el motivo real suele venir en una línea larga y explicativa,
+    // y cortarla deja al que mira sólo con "el comando falló".
+    for (const linea of lineas) console.log(`        ${linea}`)
   }
 }
 

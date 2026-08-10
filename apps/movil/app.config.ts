@@ -122,6 +122,17 @@ const config: ExpoConfig = {
    * en vez de obligar a renombrarlo de un lado o del otro.
    */
   slug: process.env.EAS_SLUG || 'woodtools-rol-de-visita',
+
+  /**
+   * De quién es el proyecto en expo.dev.
+   *
+   * El proyecto vive en la cuenta de la organización, y quien compila entra con
+   * su cuenta personal. Sin este campo, `eas` compara las dos, no coinciden y
+   * corta —con un mensaje que además aparece como un error del comando, no como
+   * un problema de configuración—. Con `owner` puesto, cualquier miembro de la
+   * organización puede compilar con su propio usuario.
+   */
+  owner: process.env.EAS_OWNER || 'woodtoolssrls-team',
   scheme: 'woodtoolsvisitas',
   version: '1.0.0',
   orientation: 'portrait',
