@@ -115,9 +115,19 @@ Consola → https://console.cloud.google.com → crear proyecto **WoodTools Visi
 
 **Clave 1 — Android** (va dentro del APK):
 - Restricción de aplicación: *Apps para Android*
-- Nombre del paquete: `com.woodtools.roldevisita`
-- Huella SHA-1: se obtiene con `eas credentials` (ver paso 4)
+- Nombre del paquete: **dos entradas**, una por variante —
+  `com.woodtools.roldevisita.interno` y `com.woodtools.roldevisita`. Son dos
+  apps distintas para Android a propósito (se pueden tener las dos instaladas
+  en el mismo teléfono), y una restricción que sólo nombre a una deja a la otra
+  con el mapa gris.
+- Huella SHA-1: se obtiene con `eas credentials` (ver paso 4). Es la misma para
+  las dos entradas: EAS firma con un solo keystore por proyecto.
 - Restricción de API: sólo **Maps SDK for Android**
+
+> El keystore recién existe después de la primera compilación, así que la SHA-1
+> no se puede saber antes. El orden que funciona es: compilar una vez sin la
+> clave —el APK sale igual, con el mapa gris—, pedir la huella, crear la clave y
+> volver a compilar. Sólo el perfil `produccion` exige la clave de entrada.
 
 **Clave 2 — Servidor** (sólo Edge Functions):
 - Restricción de aplicación: ninguna, o por IP si tenés IP fija

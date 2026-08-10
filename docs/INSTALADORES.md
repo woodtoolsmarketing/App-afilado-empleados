@@ -172,18 +172,41 @@ Usuarios. Es el tercero de los tres candados, y funcionar así es lo que se busc
 
 ### La clave de Maps, cuando haga falta
 
-Se saca de [Google Cloud Console](https://console.cloud.google.com/) →
-*APIs y servicios* → *Credenciales* → *Crear credenciales* → *Clave de API*,
-con **Maps SDK for Android** habilitado y la clave restringida a:
+Va en el **mismo proyecto de Google Cloud** donde ya vive
+`GOOGLE_MAPS_SERVER_KEY`: no hay que crear nada nuevo, sólo una segunda clave.
 
-- Aplicaciones de Android
-- Nombre del paquete: `com.woodtools.roldevisita.interno` (y
-  `com.woodtools.roldevisita` para producción)
-- Huella SHA-1: la muestra `npx eas credentials`
+1. [Google Cloud Console](https://console.cloud.google.com/) → el proyecto que
+   ya existe → *APIs y servicios* → *Biblioteca* → habilitar **Maps SDK for
+   Android** si no lo está.
+2. *Credenciales* → *Crear credenciales* → *Clave de API*.
+3. Restringirla, que es lo que la hace segura de meter en un APK:
+   - **Restricción de aplicación:** *Apps para Android*, con dos entradas —
+     `com.woodtools.roldevisita.interno` y `com.woodtools.roldevisita`— las dos
+     con la misma huella SHA-1.
+   - **Restricción de API:** sólo *Maps SDK for Android*.
 
-Va al `.env` como `GOOGLE_MAPS_ANDROID_KEY` y después se vuelve a correr
-`npm run eas:variables`. Es distinta de `GOOGLE_MAPS_SERVER_KEY`: ésa vive en
-las Edge Functions y no entra en el teléfono.
+La **SHA-1** sale de:
+
+```bash
+npx eas credentials
+```
+
+Android → el perfil → *Keystore: Manage everything*. Pero el keystore recién
+existe después de la primera compilación, así que el orden que funciona es:
+compilar una vez sin la clave —el APK sale igual, con el mapa gris—, pedir la
+huella, crear la clave y volver a compilar.
+
+Después va al `.env` como `GOOGLE_MAPS_ANDROID_KEY` y se vuelve a correr
+`npm run eas:variables`.
+
+**Es otra clave, no la misma.** `GOOGLE_MAPS_SERVER_KEY` vive en las Edge
+Functions y calcula rutas y direcciones; nunca sale del servidor. La de Android
+va adentro del APK, de donde cualquiera puede sacarla —Hermes no ofusca los
+strings—, y por eso lo único que puede hacer es dibujar mapas.
+
+Mostrar el mapa en Android no tiene costo por uso, pero Google igual exige una
+cuenta de facturación en el proyecto. Como la clave de servidor ya funciona,
+esa parte ya está resuelta.
 
 ---
 
