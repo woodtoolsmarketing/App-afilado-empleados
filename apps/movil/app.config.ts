@@ -112,7 +112,16 @@ const easProjectId = process.env.EAS_PROJECT_ID
 
 const config: ExpoConfig = {
   name: esProduccion ? 'WoodTools Visitas' : 'WoodTools Visitas (interno)',
-  slug: 'woodtools-rol-de-visita',
+
+  /**
+   * El slug tiene que coincidir con el del proyecto en expo.dev.
+   *
+   * EAS identifica el proyecto por el ID, pero además verifica el slug, y si no
+   * coinciden corta el build. El proyecto en expo.dev puede haberse creado con
+   * otro nombre —el que uno tipeó en la web— así que se deja pisar por el .env
+   * en vez de obligar a renombrarlo de un lado o del otro.
+   */
+  slug: process.env.EAS_SLUG || 'woodtools-rol-de-visita',
   scheme: 'woodtoolsvisitas',
   version: '1.0.0',
   orientation: 'portrait',
