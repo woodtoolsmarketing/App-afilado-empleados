@@ -253,15 +253,29 @@ const config: ExpoConfig = {
            * por HTTPS a Supabase.
            */
           usesCleartextTraffic: true,
-          // R8: minifica y ofusca la capa Java/Kotlin en release.
-          // Ojo: NO ofusca el bundle de JavaScript (ver docs/DISTRIBUCION-PRIVADA.md).
-          //
-          // En expo-build-properties 0.13 (SDK 52) la propiedad se llama
-          // `enableProguardInReleaseBuilds`; en versiones más nuevas pasó a
-          // llamarse `enableMinifyInReleaseBuilds`. Si al actualizar el SDK el
-          // build se queja, es este par de líneas.
-          enableProguardInReleaseBuilds: true,
-          enableShrinkResourcesInReleaseBuilds: true,
+          /**
+           * R8 y el shrinking de recursos, APAGADOS.
+           *
+           * Estaban prendidos para ofuscar la capa Java/Kotlin. El problema es
+           * que R8 elimina y renombra clases mirando quién las referencia, y en
+           * React Native media plataforma se referencia por reflexión: los
+           * módulos nativos se registran por nombre, en tiempo de ejecución. Lo
+           * que R8 no ve referenciado, lo borra — y la app queda esperando algo
+           * que ya no existe.
+           *
+           * Eso explica exactamente el síntoma: en desarrollo anda, y el APK
+           * que se reparte se queda en la pantalla roja hasta que Android
+           * ofrece cerrarla. Es release-only por definición, así que no hay
+           * forma de verlo antes de compilar el APK entero.
+           *
+           * Expo los trae apagados por defecto justamente por esto. Volver a
+           * prenderlos exige escribir reglas `-keep` para cada módulo nativo y
+           * probar el APK una por una; la ofuscación que dan a cambio no
+           * protege el bundle de JavaScript, que es donde está la lógica
+           * (ver docs/DISTRIBUCION-PRIVADA.md).
+           */
+          enableProguardInReleaseBuilds: false,
+          enableShrinkResourcesInReleaseBuilds: false,
         },
       },
     ],
@@ -272,6 +286,16 @@ const config: ExpoConfig = {
     ...(easUpdateUrl ? ['expo-updates'] : []),
   ],
 
+  /**
+   * Actualizaciones por aire.
+   *
+   * Cuando no hay URL, `enabled: false` **explícito**. `expo-updates` está en
+   * las dependencias, así que el módulo nativo se enlaza igual y queda activo
+   * por defecto: la app arranca buscando un manifiesto contra una URL que no
+   * existe, y ese es tiempo que el vendedor mira una pantalla quieta.
+   *
+   * Antes acá no había nada, que no es lo mismo que apagarlo.
+   */
   ...(easUpdateUrl
     ? {
         updates: {
@@ -281,7 +305,7 @@ const config: ExpoConfig = {
         },
         runtimeVersion: { policy: 'appVersion' as const },
       }
-    : {}),
+    : { updates: { enabled: false } }),
 
   extra: {
     supabaseUrl: process.env.SUPABASE_URL,
