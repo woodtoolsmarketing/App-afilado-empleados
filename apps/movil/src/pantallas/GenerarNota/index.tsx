@@ -3,7 +3,9 @@ import {
   aNumero,
   colores,
   DESCRIPCION_GRUPO_NOTA,
+  descripcionSugerida,
   DIAS_CHEQUE_MAXIMO,
+  esDescripcionSugerida,
   ENCABEZADO_VACIO,
   espaciado,
   ETIQUETA_CONDICION_VENTA,
@@ -440,6 +442,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 }
                 errores={errores}
                 ubicacionInicial={ubicacionNueva}
+                codigoVendedorUsuario={perfil?.codigo_vendedor}
               />
 
               <Desplegable<TipoNotaPedido>
@@ -888,6 +891,17 @@ function FormularioVenta({
   const total = totalDelRenglon(item)
   const enPesos = totalDelRenglonEnPesos(item, tipoCambio)
 
+  // La descripción sale de la herramienta —"SC nueva", "Fresa nueva"— igual
+  // que en los renglones de servicio. Lo que el vendedor escriba encima no se
+  // pisa nunca: sólo se completa mientras siga siendo la nuestra.
+  useEffect(() => {
+    const sugerida = descripcionSugerida(item.herramienta, 'venta')
+    if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
+      alCambiar({ descripcion: sugerida })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.herramienta])
+
   return (
     <>
       {/*
@@ -946,8 +960,8 @@ function FormularioVenta({
         value={item.descripcion}
         onChangeText={(t) => alCambiar({ descripcion: t })}
         multiline
-        numberOfLines={3}
-        ayuda="Viene de la lista. Podés agregarle lo que haga falta."
+        numberOfLines={2}
+        ayuda="Es la que sale impresa. Corta, para que entre en el renglón del talonario."
       />
 
       <Campo

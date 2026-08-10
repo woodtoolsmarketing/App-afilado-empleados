@@ -85,6 +85,29 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
+  /**
+   * Qué zonas cubre cada vendedor.
+   *
+   * Con esto la nota de pedido puede completar sola el número de vendedor
+   * cuando quien la carga no tiene uno propio. Mientras la columna esté vacía
+   * no pasa nada malo: el campo de la nota simplemente queda para completar a
+   * mano, como hasta ahora.
+   */
+  const guardarZonas = useMutation({
+    mutationFn: async (params: { perfilId: string; zonas: string[] }) => {
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ zonas: params.zonas })
+        .eq('id', params.perfilId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Zonas actualizadas.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudieron guardar las zonas: ${e.message}`),
+  })
+
   const autorizarDispositivo = useMutation({
     mutationFn: async (params: { id: string; autorizado: boolean }) => {
       const { error } = await supabase
@@ -218,6 +241,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
             <tr>
               <th>Nombre</th>
               <th>Código</th>
+              <th>Zonas a cargo</th>
               <th>Rol</th>
               <th>Estado</th>
               <th>Último acceso</th>
@@ -230,9 +254,22 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                 <td>
                   {p.nombre_completo}
                   <br />
-                  <small style={{ color: 'var(--tinta-tenue)' }}>{p.email}</small>
+                  {/* El usuario es con lo que entra a la app; el correo, la
+                      otra forma de entrar. Los dos sirven, así que los dos se
+                      muestran. */}
+                  <small style={{ color: 'var(--tinta-tenue)' }}>
+                    {p.usuario ? `${p.usuario} · ` : ''}
+                    {p.email}
+                  </small>
                 </td>
                 <td>{p.codigo_vendedor ? `#${p.codigo_vendedor}` : '—'}</td>
+                <td>
+                  <ZonasACargo
+                    perfil={p}
+                    soloLectura={soloLectura}
+                    alGuardar={(zonas) => guardarZonas.mutate({ perfilId: p.id, zonas })}
+                  />
+                </td>
                 <td style={{ textTransform: 'capitalize' }}>{p.rol}</td>
                 <td>
                   <span className={`pastilla ${claseEstado(p.estado)}`}>
@@ -285,6 +322,55 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
         </table>
       </section>
     </>
+  )
+}
+
+/**
+ * Las zonas del vendedor, escritas como en la planilla: "107, 121, 146".
+ *
+ * Se guardan sólo al tocar "Guardar" y no mientras se escribe: un `onChange`
+ * que dispara un UPDATE por tecla convierte un error de tipeo en una zona
+ * asignada a medias.
+ *
+ * No se validan contra el catálogo de zonas a propósito: la planilla es de la
+ * empresa y puede sumar una zona antes que el código. Un código que no existe
+ * simplemente no le va a coincidir a ninguna nota.
+ */
+function ZonasACargo({
+  perfil,
+  soloLectura,
+  alGuardar,
+}: {
+  perfil: Perfil
+  soloLectura: boolean
+  alGuardar: (zonas: string[]) => void
+}) {
+  const guardadas = (perfil.zonas ?? []).join(', ')
+  const [texto, setTexto] = useState(guardadas)
+
+  const zonas = texto
+    .split(/[,\s]+/)
+    .map((z) => z.trim())
+    .filter(Boolean)
+
+  const cambio = zonas.join(', ') !== guardadas
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder="107, 121"
+        disabled={soloLectura}
+        style={{ width: 120 }}
+        aria-label={`Zonas a cargo de ${perfil.nombre_completo}`}
+      />
+      {cambio ? (
+        <button className="chico primario" disabled={soloLectura} onClick={() => alGuardar(zonas)}>
+          Guardar
+        </button>
+      ) : null}
+    </div>
   )
 }
 

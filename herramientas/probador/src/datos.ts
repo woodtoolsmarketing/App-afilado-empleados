@@ -48,6 +48,40 @@ export function normalizarUsuario(usuario: string): string {
   return limpio.includes('@') ? limpio : `${limpio}@${DOMINIO_USUARIO}`
 }
 
+/**
+ * Igual que en la app: se entra con el nombre de usuario o con el correo, y la
+ * traducción entre uno y otro la hace la base. Si no hay respuesta, queda la
+ * regla del dominio.
+ */
+export async function resolverEmailDeIngreso(identificador: string): Promise<string> {
+  const limpio = identificador.trim().toLowerCase()
+  if (!limpio) return limpio
+
+  try {
+    const { data } = await supabase.rpc('email_para_ingreso', { identificador: limpio })
+    if (typeof data === 'string' && data.includes('@')) return data.toLowerCase()
+  } catch {
+    // Sin red: sigue la regla del dominio.
+  }
+
+  return normalizarUsuario(limpio)
+}
+
+/**
+ * Qué vendedor tiene a cargo esa zona.
+ *
+ * Segundo intento para completar el número de vendedor de la nota: el primero
+ * es el del que está usando la app. Null si la zona no está asignada o si la
+ * cubre más de un vendedor.
+ */
+export async function vendedorDeZona(codigo: string): Promise<string | null> {
+  const limpio = codigo.trim()
+  if (!limpio) return null
+  const { data, error } = await supabase.rpc('vendedor_de_zona', { codigo: limpio })
+  if (error) return null
+  return typeof data === 'string' && data.trim() ? data.trim() : null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dispositivo
 //

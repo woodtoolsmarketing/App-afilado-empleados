@@ -44,6 +44,7 @@ App-afilado-empleados/
 |---|---|
 | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) | Stack, modelo de datos, seguridad, decisiones y por qué |
 | [`docs/PASO-1-ALCANCE.md`](docs/PASO-1-ALCANCE.md) | Qué entra y qué no entra en el Paso 1 |
+| [`docs/INSTALADORES.md`](docs/INSTALADORES.md) | Cómo se arma el `.exe` del panel y el `.apk` del celular, paso a paso |
 | [`docs/DISTRIBUCION-PRIVADA.md`](docs/DISTRIBUCION-PRIVADA.md) | Cómo se compila, se firma y se instala el APK sólo en los celulares habilitados |
 | [`docs/CONFIGURACION.md`](docs/CONFIGURACION.md) | Variables de entorno, claves de API y puesta en marcha paso a paso |
 

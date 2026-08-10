@@ -87,7 +87,7 @@ export const DESCRIPCION_SERVICIO: Record<Herramienta, string> = {
 
 /** Lo mismo, para cuando se vende: la herramienta sale nueva. */
 export const DESCRIPCION_VENTA: Record<Herramienta, string> = {
-  sierra: 'S.C. nueva',
+  sierra: 'SC nueva',
   fresa: 'Fresa nueva',
   cabezal: 'Cabezal nuevo',
   incisor: 'Incisor nuevo',
@@ -113,12 +113,22 @@ export function descripcionSugerida(
  * Sirve para saber si se puede reemplazar al cambiar de herramienta: lo que
  * escribió el vendedor no se pisa nunca.
  */
+/**
+ * Descripciones que pusimos solos en versiones anteriores.
+ *
+ * Sin esto, una nota a medio cargar cuando se actualiza la app se queda con la
+ * descripción vieja para siempre: `esDescripcionSugerida` no la reconocería
+ * como nuestra y la trataría como algo que escribió el vendedor.
+ */
+const DESCRIPCIONES_ANTERIORES = ['S.C. nueva', 'S.C.']
+
 export function esDescripcionSugerida(texto: string): boolean {
   const t = texto.trim()
   if (!t) return true
   return (
     Object.values(DESCRIPCION_SERVICIO).includes(t) ||
-    Object.values(DESCRIPCION_VENTA).includes(t)
+    Object.values(DESCRIPCION_VENTA).includes(t) ||
+    DESCRIPCIONES_ANTERIORES.includes(t)
   )
 }
 
@@ -502,7 +512,23 @@ export interface FormularioItemNota {
 
   // Comunes de servicio
   cantidad: string
+  /**
+   * Lo que sale impreso en la columna "Descripción" del talonario.
+   *
+   * Es corta a propósito —"SC nueva", "Fresa"— porque esa columna tiene el
+   * ancho que tiene: el renglón del papel entra en una línea. Lo que identifica
+   * al artículo con precisión es el código, que va en su propia columna, y las
+   * medidas, que van en la técnica.
+   */
   descripcion: string
+  /**
+   * El texto largo de la lista de precios, tal cual viene.
+   *
+   * No se imprime: sirve para mostrar en pantalla qué se eligió y para leerle
+   * las características (diámetro, ancho de corte, dientes). Antes se copiaba
+   * a `descripcion` y llenaba el renglón de la nota con una línea de catálogo.
+   */
+  descripcion_catalogo: string
   cantidad_dientes: string
   codigos_computo: string[]
   precio_por_diente: string
@@ -566,6 +592,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   moneda: 'ARS',
   cantidad: '',
   descripcion: '',
+  descripcion_catalogo: '',
   cantidad_dientes: '',
   codigos_computo: [],
   precio_por_diente: '',

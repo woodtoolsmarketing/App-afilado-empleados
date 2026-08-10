@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Panel de administración de escritorio de WoodTools",
+  "author": "WoodTools S.R.L.",
   "main": "dist-electron/principal.js",
   "scripts": {
     "dev": "vite",
@@ -36,12 +37,15 @@
   "build": {
     "appId": "com.woodtools.panel",
     "productName": "WoodTools Panel",
+    "electronVersion": "33.4.11",
+    "npmRebuild": false,
     "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*"],
+    "files": ["dist/**/*", "dist-electron/**/*", "recursos/**/*"],
     "win": {
       "target": ["nsis"],
       "icon": "recursos/icono.ico"
     },
+    "artifactName": "WoodTools-Panel-${version}-instalador.${ext}",
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

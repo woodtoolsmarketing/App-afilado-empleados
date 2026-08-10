@@ -267,7 +267,7 @@ function pantallaLogin(): HTMLElement {
     procesando = true
     vaciar(mensaje).appendChild(cargando('Entrando…'))
 
-    const email = d.normalizarUsuario(usuario)
+    const email = await d.resolverEmailDeIngreso(usuario)
     const { data, error } = await d.supabase.auth.signInWithPassword({ email, password: contrasena })
 
     if (error || !data.session) {
@@ -293,10 +293,10 @@ function pantallaLogin(): HTMLElement {
   return panel(
     barra(false),
     titulo('INICIAR SESIÓN'),
-    campo('USUARIO', {
+    campo('USUARIO O EMAIL', {
       valor: usuario,
       marcador: 'asosa',
-      ayuda: `Sin @ se completa con @${d.DOMINIO_USUARIO}, igual que en la app.`,
+      ayuda: `Con cualquiera de los dos entrás. Un nombre suelto lo traduce la base, y si no lo encuentra se completa con @${d.DOMINIO_USUARIO}.`,
       alCambiar: (v) => (usuario = v),
     }),
     campo('CONTRASEÑA', { tipo: 'password', alCambiar: (v) => (contrasena = v) }),
@@ -1095,6 +1095,28 @@ const SERVICIOS_BASE: TipoServicio[] = ['venta', 'afilado', 'reparacion', 'recti
 let zonaSugerida: ZonaSugerida | null = null
 let zonaCandidatas: ZonaSugerida[] = []
 
+/**
+ * El número de vendedor cuando no lo completan y el que carga no tiene uno.
+ *
+ * El primer intento —el número propio— ya lo hizo el borrador al abrirse. Éste
+ * es el segundo: el vendedor a cargo de la zona. Si la zona la cubre más de
+ * uno, la base devuelve null y el campo queda vacío a propósito.
+ */
+function completarVendedorPorZona(
+  enc: { zona: string; vendedor_numero: string },
+  refrescar: () => void,
+): void {
+  if (enc.vendedor_numero.trim() || !enc.zona.trim()) return
+  void d
+    .vendedorDeZona(enc.zona)
+    .then((codigo) => {
+      if (!codigo || enc.vendedor_numero.trim()) return
+      enc.vendedor_numero = codigo
+      refrescar()
+    })
+    .catch(() => undefined)
+}
+
 function pasoEncabezado(): HTMLElement {
   const enc = borrador.encabezado
   const err = borrador.errores
@@ -1148,6 +1170,7 @@ function pasoEncabezado(): HTMLElement {
     if (unica) {
       enc.zona = unica.zona.codigo
       enc.zona_id = unica.zona.id
+      completarVendedorPorZona(enc, refrescar)
     }
 
     refrescar()
@@ -1209,6 +1232,7 @@ function pasoEncabezado(): HTMLElement {
         enc.zona_id = zona.id
         zonaSugerida = null
         zonaCandidatas = []
+        completarVendedorPorZona(enc, refrescar)
         refrescar()
       },
     }),
@@ -1231,6 +1255,7 @@ function pasoEncabezado(): HTMLElement {
               enc.zona_id = c.zona.id
               zonaSugerida = null
               zonaCandidatas = []
+              completarVendedorPorZona(enc, refrescar)
               refrescar()
             }),
           ),
@@ -1243,7 +1268,7 @@ function pasoEncabezado(): HTMLElement {
       marcador: '7',
       ayuda: enc.vendedor_numero
         ? `En la nota sale: ${numeroDeVendedorImpreso(enc.vendedor_numero, VENDEDORES_CON_CERO)}`
-        : 'Si lo dejás vacío, sale el del perfil.',
+        : 'Si lo dejás vacío se completa solo: primero con tu número, y si no tenés, con el del vendedor a cargo de la zona.',
       alCambiar: (v) => (enc.vendedor_numero = v.replace(/\D/g, '').slice(0, 4)),
     }),
     campo('DATOS DEL CLIENTE', {
@@ -1446,7 +1471,7 @@ function pasoRenglones(): HTMLElement {
             item.servicio = s
             if (!HERRAMIENTAS_POR_SERVICIO[s].includes(item.herramienta as Herramienta)) item.herramienta = null
             item.codigos_computo = []
-            // Venta o servicio cambia la descripción: "S.C." vs "S.C. nueva".
+            // Venta o servicio cambia la descripción: "S.C." vs "SC nueva".
             if (esDescripcionSugerida(item.descripcion)) {
               item.descripcion = descripcionSugerida(item.herramienta, s)
             }
@@ -1970,7 +1995,9 @@ function buscadorDeArticulos(
   function pintarElegido(): void {
     vaciar(elegido)
     if (!item.codigo_herramienta) return
-    const c = caracteristicasDeArticulo(item.descripcion, null)
+    // Las características se leen del texto de la lista: "SC nueva" no tiene
+    // adentro ningún D=, ningún Z=.
+    const c = caracteristicasDeArticulo(item.descripcion_catalogo || item.descripcion, null)
     const resumen = resumenCaracteristicas(c)
     const cambio = borrador.cotizacion?.venta ?? 0
     elegido.appendChild(
@@ -1983,7 +2010,7 @@ function buscadorDeArticulos(
           pastilla(item.codigo_herramienta, colores.verdeOscuro),
           item.moneda === 'USD' ? pastilla('LISTA EN US$', colores.azul) : null,
         ),
-        h('div', { texto: item.descripcion }),
+        h('div', { texto: item.descripcion_catalogo || item.descripcion }),
         resumen ? h('div.tarjeta-dato', { texto: resumen }) : null,
         item.moneda === 'USD' && cambio > 0
           ? h('div.tarjeta-dato', {
@@ -2021,7 +2048,13 @@ function buscadorDeArticulos(
                   al: {
                     click: () => {
                       item.codigo_herramienta = a.codigo
-                      item.descripcion = a.descripcion
+                      // La descripción impresa NO se pisa con el texto de la
+                      // lista: es larga y desborda la columna del talonario.
+                      // El artículo queda identificado por el código.
+                      if (esDescripcionSugerida(item.descripcion)) {
+                        item.descripcion = descripcionSugerida(item.herramienta, item.servicio)
+                      }
+                      item.descripcion_catalogo = a.descripcion
                       item.precio = String(a.precio)
                       item.moneda = moneda
                       // Las características van a los mismos campos que usa el

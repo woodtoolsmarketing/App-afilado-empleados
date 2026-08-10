@@ -117,7 +117,14 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
   // Las filas en blanco del talonario no se muestran: en papel están para
   // escribir a mano, y acá sólo serían diez renglones vacíos de scroll.
   const tecnicos = nota.tecnicos.filter((t) => t.descripcion || t.cantidad)
-  const comerciales = nota.comerciales.filter((c) => c.codigo_computo || c.cantidad)
+  // Una observación puede venir sola, en una fila sin código ni cantidad: son
+  // las que se agregaron de más con "AGREGAR RENGLÓN". Si el filtro mira sólo
+  // el cómputo, esas filas desaparecen de la vista previa y el vendedor firma
+  // creyendo que la observación no quedó — cuando en el papel sí sale.
+  const comerciales = nota.comerciales.filter(
+    (c) => c.codigo_computo || c.cantidad || c.observaciones,
+  )
+  const observaciones = nota.comerciales.map((c) => c.observaciones).filter(Boolean)
 
   return (
     <View style={estilos.hoja}>
@@ -231,6 +238,23 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
           </View>
         ))
       )}
+
+      {/* ── Observaciones ────────────────────────────────────────────────────
+          En el papel van en la última columna de la tabla comercial, una por
+          renglón. Acá esa columna no entra —serían cinco columnas en el ancho
+          de un teléfono— así que van listadas aparte, en el mismo orden en el
+          que se van a imprimir. */}
+      {observaciones.length > 0 ? (
+        <>
+          <Text style={estilos.tituloTabla}>OBSERVACIONES</Text>
+          {observaciones.map((o, i) => (
+            <View key={i} style={estilos.filaTabla}>
+              <Text style={[estilos.celda, estilos.colNum]}>{i + 1}</Text>
+              <Text style={[estilos.celda, estilos.colObservacion]}>{o}</Text>
+            </View>
+          ))}
+        </>
+      ) : null}
 
       {/* El renglón de reparación de dientes rotos se distingue por su
           condición de venta: conviene que se lea también acá. */}
@@ -376,6 +400,7 @@ const estilos = StyleSheet.create({
   colCodigo: { flex: 2 },
   colNum: { flex: 1, textAlign: 'right' },
   colPrecio: { flex: 2, textAlign: 'right' },
+  colObservacion: { flex: 6 },
 
   notaPie: {
     fontFamily: tipografia.familia.liviana,

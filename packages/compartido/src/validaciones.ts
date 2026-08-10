@@ -60,7 +60,7 @@ export function validarLogin(usuario: string, contrasena: string): ResultadoVali
   const errores: Partial<Record<CampoLogin, string>> = {}
 
   if (!usuario.trim()) {
-    errores.usuario = 'Ingresá tu usuario'
+    errores.usuario = 'Ingresá tu usuario o tu email'
   } else if (usuario.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usuario.trim())) {
     errores.usuario = 'El correo no tiene un formato válido'
   }

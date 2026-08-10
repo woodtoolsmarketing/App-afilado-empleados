@@ -160,9 +160,17 @@ function tilde(v: CasillaOperacion): string {
   return String(v)
 }
 
-/** Completa la lista con filas vacías hasta llegar al alto del formulario. */
+/**
+ * Completa la lista con filas vacías hasta llegar al alto del formulario.
+ *
+ * **No corta.** Antes hacía `slice(0, hasta)` y una nota con doce renglones
+ * —o con tres de cómputo y diez observaciones— perdía los últimos sin avisar:
+ * la nota salía impresa, prolija, incompleta y sin nada que lo delatara. Si
+ * sobran, la tabla crece y a lo sumo se estira la hoja, que es un problema que
+ * se ve.
+ */
 function rellenar<T>(filas: T[], hasta: number, vacia: () => T): T[] {
-  const salida = filas.slice(0, hasta)
+  const salida = filas.slice()
   while (salida.length < hasta) salida.push(vacia())
   return salida
 }

@@ -78,7 +78,9 @@ export function PantallaIniciarSesion() {
   async function alRecuperar() {
     if (!usuario.trim()) {
       setIntentado(true)
-      setErrores({ usuario: 'Escribí tu usuario y volvé a tocar "Olvidé mi contraseña"' })
+      setErrores({
+        usuario: 'Escribí tu usuario o tu email y volvé a tocar "Olvidé mi contraseña"',
+      })
       return
     }
     try {
@@ -124,7 +126,8 @@ export function PantallaIniciarSesion() {
           ) : null}
 
           <Campo
-            etiqueta="Usuario"
+            etiqueta="Usuario o email"
+            ayuda="Con cualquiera de los dos entrás."
             sobreRojo
             obligatorio
             value={usuario}
@@ -134,6 +137,7 @@ export function PantallaIniciarSesion() {
             autoCorrect={false}
             autoComplete="username"
             textContentType="username"
+            keyboardType="email-address"
             returnKeyType="next"
             onSubmitEditing={() => refContrasena.current?.focus()}
             editable={!procesando}

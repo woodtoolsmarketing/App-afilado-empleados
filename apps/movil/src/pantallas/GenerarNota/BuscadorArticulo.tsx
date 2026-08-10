@@ -1,6 +1,8 @@
 import {
   caracteristicasDeArticulo,
   colores,
+  descripcionSugerida,
+  esDescripcionSugerida,
   espaciado,
   formatearMoneda,
   formatearPesos,
@@ -84,7 +86,19 @@ export function BuscadorArticulo({
     setResultados([])
     alElegir({
       codigo_herramienta: a.codigo,
-      descripcion: a.descripcion,
+      // La descripción del renglón NO se pisa con el texto de la lista.
+      //
+      // "SIERRA CIRCULAR WIDIA D=300 d=30 B=3.2 Z=72 DER." es lo que la lista
+      // dice, y no entra en la columna del talonario: la desborda y empuja
+      // todo lo demás. Lo que va impreso es la descripción corta —"SC nueva"—
+      // que ya puso `descripcionSugerida`; el artículo exacto queda
+      // identificado por el código, que va en su propia columna.
+      //
+      // Sólo se completa si el vendedor no escribió nada suyo.
+      ...(esDescripcionSugerida(item.descripcion)
+        ? { descripcion: descripcionSugerida(item.herramienta, item.servicio) }
+        : {}),
+      descripcion_catalogo: a.descripcion,
       precio: String(a.precio),
       moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
       ...(c.diametro_exterior ? { diametro_exterior: c.diametro_exterior } : {}),
@@ -100,8 +114,10 @@ export function BuscadorArticulo({
     })
   }
 
+  // Las características se leen del texto de la lista, no de la descripción
+  // corta: "SC nueva" no tiene adentro ningún D=, ningún Z=.
   const elegido = item.codigo_herramienta
-    ? caracteristicasDeArticulo(item.descripcion, null)
+    ? caracteristicasDeArticulo(item.descripcion_catalogo || item.descripcion, null)
     : null
 
   return (
@@ -140,7 +156,9 @@ export function BuscadorArticulo({
             <Pastilla texto={item.codigo_herramienta} color={colores.verdeOscuro} />
             {item.moneda === 'USD' ? <Pastilla texto="LISTA EN US$" color={colores.azul} /> : null}
           </View>
-          <Text style={estilos.elegidoDesc}>{item.descripcion}</Text>
+          <Text style={estilos.elegidoDesc}>
+            {item.descripcion_catalogo || item.descripcion}
+          </Text>
           {elegido && resumenCaracteristicas(elegido) ? (
             <Text style={estilos.elegidoCaract}>{resumenCaracteristicas(elegido)}</Text>
           ) : null}

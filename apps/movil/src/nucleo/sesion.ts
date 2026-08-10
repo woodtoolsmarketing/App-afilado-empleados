@@ -33,6 +33,32 @@ export function normalizarUsuario(usuario: string): string {
   return limpio.includes('@') ? limpio : `${limpio}@${DOMINIO_USUARIO}`
 }
 
+/**
+ * Con qué correo hay que autenticar lo que escribieron en "Usuario o email".
+ *
+ * Supabase Auth entra por correo y nada más, así que un nombre de usuario hay
+ * que traducirlo antes. La traducción la hace la base (`email_para_ingreso`),
+ * que es la única que sabe qué correo tiene cada cuenta.
+ *
+ * Si la consulta no encuentra nada —o si no hay señal— se cae a la regla vieja
+ * de pegarle el dominio. Esa regla resuelve bien el caso normal, y dejar que
+ * el login dependa de una consulta previa sería cambiar un problema por otro:
+ * sin red, la app tiene que poder intentar entrar igual.
+ */
+export async function resolverEmailDeIngreso(identificador: string): Promise<string> {
+  const limpio = identificador.trim().toLowerCase()
+  if (!limpio) return limpio
+
+  try {
+    const { data } = await supabase.rpc('email_para_ingreso', { identificador: limpio })
+    if (typeof data === 'string' && data.includes('@')) return data.toLowerCase()
+  } catch {
+    // Sin red o con la función todavía sin desplegar: sigue la regla del dominio.
+  }
+
+  return normalizarUsuario(limpio)
+}
+
 export type EstadoAcceso =
   | 'cargando'        // arrancando la app, todavía no sabemos
   | 'sin_sesion'      // hay que iniciar sesión
@@ -140,7 +166,7 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     set({ procesando: true, errorAcceso: null })
 
     try {
-      const email = normalizarUsuario(usuario)
+      const email = await resolverEmailDeIngreso(usuario)
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -211,7 +237,7 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   },
 
   async recuperarContrasena(usuario) {
-    const email = normalizarUsuario(usuario)
+    const email = await resolverEmailDeIngreso(usuario)
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: 'woodtoolsvisitas://recuperar',
     })

@@ -190,6 +190,26 @@ export async function agujeroDeFabrica(item: FormularioItemNota): Promise<string
 }
 
 /**
+ * Qué vendedor tiene a cargo esa zona.
+ *
+ * Es el segundo intento para completar el número de vendedor de la nota: el
+ * primero es el del que está usando la app. Sirve para cuando quien carga no
+ * tiene número propio —la oficina tomando un pedido por teléfono— y el
+ * comprobante lo necesita igual.
+ *
+ * Devuelve null si la zona no está asignada o si la cubre más de un vendedor.
+ * Un número inventado en un comprobante no se arregla solo.
+ */
+export async function vendedorDeZona(codigo: string): Promise<string | null> {
+  const limpio = codigo.trim()
+  if (!limpio) return null
+
+  const { data, error } = await supabase.rpc('vendedor_de_zona', { codigo: limpio })
+  if (error) return null
+  return typeof data === 'string' && data.trim() ? data.trim() : null
+}
+
+/**
  * Resuelve el código de cómputo a partir de la medida que corresponde a cada
  * herramienta (ancho de corte en sierras, ancho en cuchillas, diámetro en
  * mechas). Devuelve null cuando falta la medida, para no buscar en falso.

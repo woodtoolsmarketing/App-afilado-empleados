@@ -22,6 +22,7 @@ import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/For
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { buscarClientes } from '../../servicios/clientes'
+import { vendedorDeZona } from '../../servicios/notasPedido'
 
 /**
  * Encabezado de la nota de pedido.
@@ -53,6 +54,7 @@ export function PasoEncabezado({
   alCrearCliente,
   errores,
   ubicacionInicial,
+  codigoVendedorUsuario,
 }: {
   form: FormularioNotaEncabezado
   alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
@@ -63,6 +65,8 @@ export function PasoEncabezado({
   errores: Record<string, string | undefined>
   /** La del cliente que acaba de crearse, para asignarle la zona al volver. */
   ubicacionInicial?: UbicacionCliente | null
+  /** El del que está usando la app. Es el primero que se prueba. */
+  codigoVendedorUsuario?: string | null
 }) {
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
@@ -75,6 +79,8 @@ export function PasoEncabezado({
    */
   const [zonaAuto, setZonaAuto] = useState<ZonaSugerida | null>(null)
   const [zonaDudosa, setZonaDudosa] = useState<ZonaSugerida[]>([])
+  /** De dónde salió el número de vendedor cuando lo puso la app. */
+  const [origenVendedor, setOrigenVendedor] = useState<'usuario' | 'zona' | null>(null)
 
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
@@ -142,6 +148,47 @@ export function PasoEncabezado({
     asignarZona(ubicacionInicial)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ubicacionClave])
+
+  /**
+   * El número de vendedor, cuando no lo completan.
+   *
+   * Dos intentos, en este orden:
+   *
+   *  1. **El del que está usando la app.** Es el caso normal y el único que no
+   *     puede estar equivocado: la nota la carga quien la va a firmar.
+   *  2. **El que tiene a cargo la zona.** Para cuando quien carga no tiene
+   *     número propio —la oficina tomando un pedido por teléfono, un
+   *     administrativo— y el comprobante lo necesita igual.
+   *
+   * Si la zona la cubre más de un vendedor, la base devuelve null y el campo
+   * queda vacío a propósito. Es el mismo criterio que el de la zona: preguntar
+   * sale más barato que facturar con el número de otro.
+   */
+  useEffect(() => {
+    if (form.vendedor_numero.trim()) return
+
+    if (codigoVendedorUsuario?.trim()) {
+      setOrigenVendedor('usuario')
+      alCambiar({ vendedor_numero: codigoVendedorUsuario.trim() })
+      return
+    }
+
+    if (!form.zona.trim()) return
+
+    let vigente = true
+    vendedorDeZona(form.zona)
+      .then((codigo) => {
+        if (!vigente || !codigo) return
+        setOrigenVendedor('zona')
+        alCambiar({ vendedor_numero: codigo })
+      })
+      .catch(() => undefined)
+
+    return () => {
+      vigente = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.vendedor_numero, form.zona, codigoVendedorUsuario])
 
   function elegirCliente(c: ClienteBuscado) {
     setResultados([])
@@ -289,7 +336,10 @@ export function PasoEncabezado({
         <Campo
           etiqueta="VENDEDOR Nº"
           value={form.vendedor_numero}
-          onChangeText={(t) => alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })}
+          onChangeText={(t) => {
+            setOrigenVendedor(null)
+            alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })
+          }}
           keyboardType="number-pad"
           placeholder="7"
           contenedorStyle={estilos.mitad}
@@ -300,6 +350,14 @@ export function PasoEncabezado({
           }
         />
       </View>
+
+      {origenVendedor && form.vendedor_numero ? (
+        <Text style={estilos.zonaAuto}>
+          {origenVendedor === 'usuario'
+            ? 'Puesto solo con tu número de vendedor. Cambialo si la nota es de otro.'
+            : `Puesto solo: es el vendedor a cargo de la zona ${form.zona}.`}
+        </Text>
+      ) : null}
 
       {resultados.length > 0 ? (
         <View style={estilos.sugerencias}>

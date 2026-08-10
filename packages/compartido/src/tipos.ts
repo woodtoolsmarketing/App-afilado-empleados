@@ -141,6 +141,16 @@ export interface Perfil {
   nombre_completo: string
   codigo_vendedor: string | null
   email: string
+  /**
+   * Nombre corto de ingreso ("asosa"). Sirve para entrar igual que el correo:
+   * la base traduce uno en el otro antes de autenticar.
+   */
+  usuario: string | null
+  /**
+   * Códigos de zona de venta que cubre. Con esto la nota de pedido completa
+   * sola el número de vendedor cuando quien la carga no tiene uno propio.
+   */
+  zonas: string[]
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null

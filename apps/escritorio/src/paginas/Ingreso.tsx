@@ -3,6 +3,30 @@ import { useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
 
+/** Dominio que se le agrega al usuario cuando escriben sólo el nombre. */
+const DOMINIO_USUARIO = 'woodtools.com.ar'
+
+/**
+ * Con qué correo hay que autenticar lo que escribieron en "Usuario o email".
+ *
+ * Igual que en el celular: Auth entra por correo, así que un nombre de usuario
+ * lo traduce la base. Si no encuentra nada —o si no hay red— vuelve a la regla
+ * de pegarle el dominio, que resuelve bien el caso normal.
+ */
+async function resolverEmailDeIngreso(identificador: string): Promise<string> {
+  const limpio = identificador.trim().toLowerCase()
+  if (!limpio) return limpio
+
+  try {
+    const { data } = await supabase.rpc('email_para_ingreso', { identificador: limpio })
+    if (typeof data === 'string' && data.includes('@')) return data.toLowerCase()
+  } catch {
+    // Sin red: sigue la regla del dominio.
+  }
+
+  return limpio.includes('@') ? limpio : `${limpio}@${DOMINIO_USUARIO}`
+}
+
 /** Ingreso al panel. Mismas reglas de validación que la app del celular. */
 export function PaginaIngreso({
   error,
@@ -26,10 +50,10 @@ export function PaginaIngreso({
     if (!valido) return
 
     setEnviando(true)
-    const email = usuario.includes('@') ? usuario.trim() : `${usuario.trim()}@woodtools.com.ar`
+    const email = await resolverEmailDeIngreso(usuario)
 
     const { error: errIngreso } = await supabase.auth.signInWithPassword({
-      email: email.toLowerCase(),
+      email,
       password: contrasena,
     })
 
@@ -60,7 +84,7 @@ export function PaginaIngreso({
         )}
 
         <div className="campo">
-          <label htmlFor="usuario">Usuario</label>
+          <label htmlFor="usuario">Usuario o email</label>
           <input
             id="usuario"
             value={usuario}
