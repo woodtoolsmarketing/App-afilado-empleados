@@ -80,14 +80,31 @@ Se compila en Expo, y por eso hay tres pasos antes del primero.
 ### 1. Entrar a la cuenta de Expo
 
 ```bash
-npx eas-cli@latest login
+npm run eas:entrar
 ```
 
 Pide el usuario y la contraseña de la cuenta de Expo de la empresa. Es la única
 parte que no puede quedar automatizada, y está bien que así sea: esa cuenta es
 la dueña de la firma de la app.
 
-### 2. Subir las variables
+### 2. Enlazar el proyecto
+
+```bash
+npm run eas:iniciar
+```
+
+Crea el proyecto en Expo —o se engancha a uno que ya exista— e imprime un
+**Project ID**. Ese número va al `.env` de la raíz:
+
+```
+EAS_PROJECT_ID=el-que-imprimió
+```
+
+Normalmente `eas init` lo escribe solo en `app.json`, pero acá la configuración
+es un `app.config.ts` que lee del `.env`, así que hay que copiarlo a mano. Una
+sola vez.
+
+### 3. Subir las variables
 
 ```bash
 npm run eas:variables
@@ -95,22 +112,27 @@ npm run eas:variables
 
 El `.env` está en `.gitignore` y **no viaja a EAS**: allá se compila desde el
 repositorio, sin él. Este comando lee el `.env` de la raíz y carga en el
-proyecto de Expo las tres variables que el APK necesita:
+proyecto de Expo lo que el APK necesita:
 
-| Variable | Para qué |
-|---|---|
-| `SUPABASE_URL` | Sin ella no hay login |
-| `SUPABASE_ANON_KEY` | Ídem |
-| `GOOGLE_MAPS_ANDROID_KEY` | Sin ella el mapa se ve gris |
+| Variable | Para qué | ¿Obligatoria? |
+|---|---|---|
+| `SUPABASE_URL` | Sin ella no hay login | Sí |
+| `SUPABASE_ANON_KEY` | Ídem | Sí |
+| `GOOGLE_MAPS_ANDROID_KEY` | Sin ella el mapa se ve gris | Sólo en producción |
+
+Si falta la de Maps avisa y sigue: el mapa y el recorrido quedan grises, pero
+notas de pedido, rol de visita, clientes e impresión andan igual. Para el
+`--profile produccion` sí es obligatoria y el build se corta sin ella.
 
 No sube `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` ni
 `GOOGLE_MAPS_SERVER_KEY`, y no las va a subir aunque estén en el `.env`: ésas
 viven en las Edge Functions (`npm run secretos`) y no tienen nada que hacer en un
-teléfono. Los valores tampoco se imprimen en pantalla.
+teléfono. Los valores tampoco se imprimen en pantalla — ni siquiera cuando el
+comando falla y muestra el error.
 
 Se corre una sola vez, y de nuevo sólo si cambia alguna clave.
 
-### 3. Compilar
+### 4. Compilar
 
 ```bash
 npm run instalador:apk
@@ -137,7 +159,7 @@ Son dos apps distintas para Android (`...roldevisita.interno` y
 teléfono sin pisarse. Eso es a propósito: permite probar una versión nueva sin
 sacarle la que funciona al vendedor.
 
-### 4. Instalarlo en el teléfono
+### 5. Instalarlo en el teléfono
 
 El APK se baja desde el enlace y se abre. Android va a pedir permiso para
 instalar aplicaciones de esa fuente; se lo da una vez y queda.
@@ -145,6 +167,23 @@ instalar aplicaciones de esa fuente; se lo da una vez y queda.
 Después de instalar, **el teléfono todavía no entra**: queda registrado como un
 dispositivo más y espera que un administrador lo habilite desde el panel →
 Usuarios. Es el tercero de los tres candados, y funcionar así es lo que se buscó.
+
+---
+
+### La clave de Maps, cuando haga falta
+
+Se saca de [Google Cloud Console](https://console.cloud.google.com/) →
+*APIs y servicios* → *Credenciales* → *Crear credenciales* → *Clave de API*,
+con **Maps SDK for Android** habilitado y la clave restringida a:
+
+- Aplicaciones de Android
+- Nombre del paquete: `com.woodtools.roldevisita.interno` (y
+  `com.woodtools.roldevisita` para producción)
+- Huella SHA-1: la muestra `npx eas credentials`
+
+Va al `.env` como `GOOGLE_MAPS_ANDROID_KEY` y después se vuelve a correr
+`npm run eas:variables`. Es distinta de `GOOGLE_MAPS_SERVER_KEY`: ésa vive en
+las Edge Functions y no entra en el teléfono.
 
 ---
 

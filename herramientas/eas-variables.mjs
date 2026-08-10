@@ -31,8 +31,16 @@ import { fileURLToPath } from 'node:url'
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** Las que sin ellas el APK no sirve, y las que son opcionales. */
-const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_MAPS_ANDROID_KEY']
+/** Sin éstas no hay login: el APK se instala y no sirve para nada. */
+const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
+
+/**
+ * Sin ésta el mapa se ve gris, pero el resto de la app anda. Se avisa y se
+ * sigue: quedarse sin poder compilar por el mapa, cuando lo que se quiere
+ * probar son las notas de pedido, es un precio que no vale la pena.
+ */
+const RECOMENDADAS = ['GOOGLE_MAPS_ANDROID_KEY']
+
 const OPCIONALES = ['DOMINIO_USUARIO', 'EAS_UPDATE_URL', 'EAS_PROJECT_ID']
 
 /** Las que nunca pueden salir de la máquina, por más que estén en el .env. */
@@ -80,9 +88,17 @@ if (esClaveDeServicio(env.SUPABASE_ANON_KEY)) {
   process.exit(1)
 }
 
-const aSubir = [...OBLIGATORIAS, ...OPCIONALES.filter((v) => env[v])].filter(
-  (v) => !PROHIBIDAS.includes(v),
-)
+for (const nombre of RECOMENDADAS) {
+  if (!env[nombre]) {
+    console.warn(`  ⚠  Falta ${nombre} en el .env: el mapa se va a ver gris. Lo demás anda.`)
+  }
+}
+
+const aSubir = [
+  ...OBLIGATORIAS,
+  ...RECOMENDADAS.filter((v) => env[v]),
+  ...OPCIONALES.filter((v) => env[v]),
+].filter((v) => !PROHIBIDAS.includes(v))
 
 console.log(`\n  Subiendo ${aSubir.length} variables al proyecto de EAS.\n`)
 
@@ -103,32 +119,34 @@ for (const nombre of aSubir) {
     '--non-interactive',
   ]
 
-  // Primero crear; si ya existe, actualizar. `eas` no tiene un "upsert".
-  let r = spawnSync('npx', ['eas-cli@latest', 'env:create', ...comunes], {
+  // `env:set` crea o actualiza, según haga falta. Sus antecesores
+  // —`env:create` y `env:update`— quedaron deprecados en eas-cli 21.
+  const r = spawnSync('npx', ['eas', 'env:set', ...comunes], {
     cwd: RAIZ,
     stdio: ['inherit', 'pipe', 'pipe'],
     shell: process.platform === 'win32',
     encoding: 'utf8',
   })
 
-  if (r.status !== 0) {
-    r = spawnSync('npx', ['eas-cli@latest', 'env:update', ...comunes], {
-      cwd: RAIZ,
-      stdio: ['inherit', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-      encoding: 'utf8',
-    })
-  }
-
   if (r.status === 0) {
     console.log(`  ok    ${nombre}`)
   } else {
     fallidas.push(nombre)
     console.log(`  FALLÓ ${nombre}`)
-    // La salida de eas puede traer el valor: se muestra sólo la primera línea
-    // del error, que es la que explica qué pasó.
-    const detalle = String(r.stderr || r.stdout || '').split('\n').find((l) => l.trim())
-    if (detalle) console.log(`        ${detalle.trim()}`)
+    // La salida de eas puede traer el valor adentro (lo recibe como argumento),
+    // así que se tacha antes de mostrarla. Un error que obliga a copiar y pegar
+    // en un chat no puede llevarse la clave puesta.
+    const salida = String(r.stderr || '') + String(r.stdout || '')
+    // `eas` abre con un consejo sobre la versión del CLI que no tiene nada que
+    // ver con el error. Si se lo deja pasar, tapa las tres líneas que importan.
+    const RUIDO = /eas-cli in your project dependencies|cli\.version|Learn more:/
+    const lineas = salida
+      .replaceAll(env[nombre], '«el valor»')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !RUIDO.test(l))
+
+    for (const linea of lineas.slice(-3)) console.log(`        ${linea}`)
   }
 }
 
@@ -139,7 +157,7 @@ if (fallidas.length) {
       `  Quedaron sin subir: ${fallidas.join(', ')}`,
       '',
       '  Si dice que no estás autenticado, corré primero:',
-      '    npx eas-cli@latest login',
+      '    npm run eas:entrar',
       '',
     ].join('\n'),
   )

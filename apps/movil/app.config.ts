@@ -39,15 +39,39 @@ for (const archivo of [path.join(__dirname, '.env'), path.join(RAIZ_MONOREPO, '.
   if (fs.existsSync(archivo)) cargarDotenv({ path: archivo })
 }
 
+const esProduccion = process.env.APP_VARIANTE === 'produccion'
+
 /**
  * Variables sin las cuales la app se instala pero no sirve.
  *
  * En EAS Build el `.env` no viaja (está en .gitignore, y así tiene que ser),
  * así que allá tienen que estar cargadas como variables del proyecto de EAS.
+ *
+ * `GOOGLE_MAPS_ANDROID_KEY` está sólo en producción, y la diferencia importa:
+ * sin ella el mapa se ve gris, pero TODO lo demás anda —notas de pedido, rol de
+ * visita, clientes, impresión—. Exigirla siempre significaba no poder probar
+ * nada hasta tener una clave de Google con facturación habilitada; no exigirla
+ * nunca significaba mandar a la calle una app con el mapa roto. Obligatoria en
+ * la variante que se reparte, un aviso ruidoso en la interna.
  */
-const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_MAPS_ANDROID_KEY'] as const
+const OBLIGATORIAS = [
+  'SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
+  ...(esProduccion ? (['GOOGLE_MAPS_ANDROID_KEY'] as const) : []),
+] as const
 
 const faltantes = OBLIGATORIAS.filter((v) => !process.env[v])
+
+if (!esProduccion && !process.env.GOOGLE_MAPS_ANDROID_KEY) {
+  console.warn(
+    [
+      '',
+      '  ⚠  Sin GOOGLE_MAPS_ANDROID_KEY: el mapa y el recorrido se van a ver grises.',
+      '     El resto de la app anda igual. Para producción la clave es obligatoria.',
+      '',
+    ].join('\n'),
+  )
+}
 
 if (faltantes.length > 0) {
   const enEas = !!process.env.EAS_BUILD
@@ -83,7 +107,6 @@ if (faltantes.length > 0) {
   )
 }
 
-const esProduccion = process.env.APP_VARIANTE === 'produccion'
 const easUpdateUrl = process.env.EAS_UPDATE_URL
 const easProjectId = process.env.EAS_PROJECT_ID
 
@@ -114,9 +137,12 @@ const config: ExpoConfig = {
     },
     // Sin esta clave el mapa se ve gris. Es distinta de la del servidor: ésta
     // va dentro del APK y está restringida por package name + huella SHA-1.
-    config: {
-      googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_KEY },
-    },
+    //
+    // El bloque entero se omite cuando no está: `apiKey: undefined` deja en el
+    // manifiesto una entrada vacía, que es peor que no tener ninguna.
+    ...(process.env.GOOGLE_MAPS_ANDROID_KEY
+      ? { config: { googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_KEY } } }
+      : {}),
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
