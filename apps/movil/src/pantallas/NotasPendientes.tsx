@@ -17,7 +17,7 @@ import { Casilla } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { marcarImpresas, notasPendientes, type NotaResumen } from '../servicios/notasPedido'
-import { imprimirNotas } from '../servicios/impresion'
+import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -52,27 +52,46 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
     })
   }
 
-  const imprimir = useMutation({
-    mutationFn: async (comoPdf: boolean) => {
+  // Los genéricos van explícitos porque `onError` vuelve a llamar a
+  // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
+  // referencia a sí mismo mientras lo está construyendo.
+  const imprimir = useMutation<
+    ResultadoImpresion,
+    Error,
+    { comoPdf: boolean; conDialogo?: boolean }
+  >({
+    mutationFn: async (opciones: { comoPdf: boolean; conDialogo?: boolean }) => {
       const resultado = await imprimirNotas({
         notaIds: objetivo.map((n) => n.id),
         incluirRolDeVisita: conRolDeVisita,
-        comoPdf,
+        comoPdf: opciones.comoPdf,
+        usarDialogoDelSistema: opciones.conDialogo,
       })
-      if (!comoPdf) await marcarImpresas(objetivo.map((n) => n.id))
+      if (!opciones.comoPdf) await marcarImpresas(objetivo.map((n) => n.id))
       return resultado
     },
-    onSuccess: (r, comoPdf) => {
+    onSuccess: (r, opciones) => {
       void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
-      const base = comoPdf ? 'Podés compartirlo o guardarlo.' : r.mensaje
+      const base = opciones.comoPdf ? 'Podés compartirlo o guardarlo.' : r.mensaje
       Alert.alert(
-        comoPdf ? 'PDF generado' : 'Enviado a la impresora',
+        opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora',
         // Que el rol no saliera no invalida la impresión: se cuenta abajo, sin
         // convertirlo en un error.
         r.advertencia ? `${base}\n\n${r.advertencia}` : base,
       )
     },
-    onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
+    // Es la pantalla del "llego a la oficina e imprimo todo lo del día": el
+    // reintento tiene que estar a un toque, sin volver a armar la selección.
+    onError: (e: Error) => {
+      Alert.alert('No pudimos imprimir', e.message, [
+        { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
+        {
+          text: 'Elegir otra impresora',
+          onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ])
+    },
   })
 
   return (
@@ -136,14 +155,14 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                   ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita, a la impresora de la oficina`
                   : `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} a la impresora de la oficina`
               }
-              alTocar={() => imprimir.mutate(false)}
+              alTocar={() => imprimir.mutate({ comoPdf: false })}
               cargando={imprimir.isPending}
             />
 
             {/* La exportación a PDF sólo existe acá, como pidieron. */}
             <BotonSecundario
               titulo="Guardar como PDF"
-              alTocar={() => imprimir.mutate(true)}
+              alTocar={() => imprimir.mutate({ comoPdf: true })}
               cargando={imprimir.isPending}
             />
           </>

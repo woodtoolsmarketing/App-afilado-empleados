@@ -103,7 +103,11 @@ async function ubicarImpresora(
   const puerto = configurada?.puerto ?? PUERTO_IPP
   const ruta = configurada?.ruta ?? '/ipp/print'
 
-  const candidatas = [await ultimaImpresora(), configurada?.ip].filter(
+  // La de la oficina va PRIMERO. La que este teléfono recordó de un barrido
+  // anterior queda de respaldo: si alguna vez la impresora estuvo en otra
+  // dirección y volvió a la de siempre, empezar por la recordada sería probar
+  // la vieja antes que la buena.
+  const candidatas = [configurada?.ip, await ultimaImpresora()].filter(
     (ip, i, todas): ip is string => !!ip && todas.indexOf(ip) === i,
   )
 
@@ -268,6 +272,15 @@ export async function imprimirNotas(params: {
   comoPdf?: boolean
   /** Para contar qué está pasando cuando hay que buscar la impresora. */
   alAvisar?: (mensaje: string) => void
+  /**
+   * Abre el diálogo de impresión de Android en vez de fallar.
+   *
+   * Es la salida de emergencia y va apagada: la impresión la hace la app
+   * contra la impresora de la oficina, sin mandar al vendedor a otra pantalla.
+   * Sólo se prende cuando lo pide él, desde el botón que aparece si el intento
+   * directo no salió.
+   */
+  usarDialogoDelSistema?: boolean
 }): Promise<ResultadoImpresion> {
   if (params.notaIds.length === 0) throw new Error('No hay notas para imprimir')
 
@@ -345,22 +358,48 @@ export async function imprimirNotas(params: {
           : advertencia,
       }
     } catch (e) {
-      console.warn('[impresion] IPP directo falló, se abre el diálogo del sistema', e)
+      // La impresora contestó pero rechazó el trabajo: sin papel, en pausa,
+      // con la bandeja abierta. Ese mensaje es más útil que cualquier cosa que
+      // podamos deducir después, así que sube tal cual.
+      console.warn('[impresion] la impresora rechazó el trabajo', e)
+      if (!params.usarDialogoDelSistema) {
+        throw new Error(
+          e instanceof Error && e.message
+            ? `${e.message} (${ubicada.impresora.ip})`
+            : `No pudimos imprimir en ${ubicada.impresora.ip}.`,
+        )
+      }
     }
   }
 
-  // Sin impresora alcanzable: Android igual descubre impresoras de red por su
-  // cuenta, así que sigue siendo inalámbrico; sólo pide un toque más.
+  // ── No se pudo imprimir directo ─────────────────────────────────────────
+  //
+  // Acá terminaba abriendo el diálogo de impresión de Android. Eso sacaba al
+  // vendedor de la app —otra pantalla, otra lista de impresoras, otro toque— y
+  // hacía difícil distinguir "no llegué a la impresora" de "elegiste mal en el
+  // diálogo". La impresión es de la app: si no salió, lo dice y se puede
+  // reintentar sin irse a ningún lado.
+  //
+  // El diálogo del sistema queda como salida explícita, no automática: la
+  // pantalla lo ofrece como un botón aparte.
   const red = await estadoDeRed()
+
+  if (!params.usarDialogoDelSistema) {
+    const donde = configurada ? ` en ${configurada.ip}` : ''
+    throw new Error(
+      !red.conectado
+        ? 'El teléfono no tiene conexión. Conectate al wifi de la oficina y volvé a intentar.'
+        : !red.enWifi
+          ? 'Estás con datos móviles. La impresora de la oficina está en la red local: conectate a ese wifi y volvé a intentar.'
+          : configurada
+            ? `No pudimos alcanzar la impresora${donde}, y tampoco la encontramos en esta red. Fijate que esté encendida y en el mismo wifi.`
+            : 'No hay ninguna impresora cargada. Pedile a la oficina que cargue la IP en el panel.',
+    )
+  }
+
   await Print.printAsync({ uri })
   return {
-    mensaje: !red.conectado
-      ? 'No hay conexión. Se abrió el diálogo del sistema.'
-      : !red.enWifi
-        ? 'Estás con datos móviles: la impresora de la oficina sólo se alcanza por wifi. Se abrió el diálogo del sistema.'
-        : configurada
-          ? 'No encontramos la impresora en esta red. Fijate que esté encendida y en el mismo wifi.'
-          : 'Elegí la impresora en el diálogo. Para imprimir directo, cargá la IP en el panel.',
+    mensaje: 'Se abrió el diálogo de impresión de Android.',
     uri,
     via: 'sistema',
     advertencia,

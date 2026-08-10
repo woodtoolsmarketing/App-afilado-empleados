@@ -10,13 +10,14 @@ import {
   type NotaParaImprimir,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { imprimirNotas } from '../servicios/impresion'
+import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import { marcarImpresas, obtenerNota } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -44,21 +45,56 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
     },
   })
 
-  const imprimir = useMutation({
-    mutationFn: async (comoPdf: boolean) => {
-      const r = await imprimirNotas({ notaIds, incluirRolDeVisita, comoPdf })
-      if (!comoPdf) await marcarImpresas(notaIds)
+  /** Lo que se está haciendo mientras tanto: buscar la impresora tarda. */
+  const [avance, setAvance] = useState<string | null>(null)
+
+  // Los genéricos van explícitos porque `onError` vuelve a llamar a
+  // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
+  // referencia a sí mismo mientras lo está construyendo.
+  const imprimir = useMutation<
+    ResultadoImpresion,
+    Error,
+    { comoPdf: boolean; conDialogo?: boolean }
+  >({
+    mutationFn: async (opciones: { comoPdf: boolean; conDialogo?: boolean }) => {
+      setAvance(null)
+      const r = await imprimirNotas({
+        notaIds,
+        incluirRolDeVisita,
+        comoPdf: opciones.comoPdf,
+        usarDialogoDelSistema: opciones.conDialogo,
+        alAvisar: setAvance,
+      })
+      if (!opciones.comoPdf) await marcarImpresas(notaIds)
       return r
     },
-    onSuccess: async (r, comoPdf) => {
+    onSuccess: async (r, opciones) => {
+      setAvance(null)
       await cliente.invalidateQueries()
       Alert.alert(
-        comoPdf ? 'PDF generado' : 'Enviado a la impresora',
+        opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora',
         [r.mensaje, r.advertencia].filter(Boolean).join('\n\n'),
         [{ text: 'Listo', onPress: () => navigation.goBack() }],
       )
     },
-    onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
+    /**
+     * El error se muestra acá y se puede reintentar sin salir de la pantalla.
+     *
+     * El diálogo de Android queda como tercera opción, y sólo si el vendedor
+     * la elige: antes se abría solo, lo sacaba de la app y hacía imposible
+     * distinguir "no llegué a la impresora" de "elegí mal en el diálogo".
+     */
+    onError: (e: Error) => {
+      setAvance(null)
+      Alert.alert('No pudimos imprimir', e.message, [
+        { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
+        {
+          text: 'Elegir otra impresora',
+          onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ])
+    },
   })
 
   return (
@@ -94,15 +130,19 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
               </Aviso>
             ) : null}
 
+            {/* Buscar la impresora en la red puede llevar unos segundos. Sin
+                decir qué está pasando, parecen segundos de nada. */}
+            {avance ? <Aviso tono="info">{avance}</Aviso> : null}
+
             <BotonMenu
               titulo={'IMPRIMIR'}
               subtitulo={`${notaIds.length} nota${notaIds.length === 1 ? '' : 's'} · original y duplicado`}
-              alTocar={() => imprimir.mutate(false)}
+              alTocar={() => imprimir.mutate({ comoPdf: false })}
               cargando={imprimir.isPending}
             />
             <BotonSecundario
               titulo="Guardar como PDF"
-              alTocar={() => imprimir.mutate(true)}
+              alTocar={() => imprimir.mutate({ comoPdf: true })}
               cargando={imprimir.isPending}
             />
             <BotonSecundario titulo="Volver y corregir" alTocar={() => navigation.goBack()} />
