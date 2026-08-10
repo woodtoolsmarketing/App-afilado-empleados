@@ -71,6 +71,9 @@ const RECOMENDADAS = ['GOOGLE_MAPS_ANDROID_KEY']
 
 const OPCIONALES = ['DOMINIO_USUARIO', 'EAS_UPDATE_URL', 'EAS_PROJECT_ID']
 
+/** Los que usan los tres perfiles de eas.json: desarrollo, interno, produccion. */
+const ENTORNOS = ['production', 'preview', 'development']
+
 /** Las que nunca pueden salir de la máquina, por más que estén en el .env. */
 const PROHIBIDAS = ['SUPABASE_SERVICE_ROLE_KEY', 'GEMINI_API_KEY', 'GOOGLE_MAPS_SERVER_KEY']
 
@@ -169,8 +172,15 @@ for (const nombre of aSubir) {
     nombre,
     '--value',
     env[nombre],
-    '--environment',
-    'production',
+    // A los TRES entornos, y no sólo a producción.
+    //
+    // Cada perfil de eas.json compila contra el suyo: `produccion` usa
+    // production, `interno` usa preview y `desarrollo` usa development. Con las
+    // variables en uno solo, los otros dos compilan sin credenciales —el build
+    // sale igual, y el APK se instala igual, y recién ahí se descubre que no
+    // puede iniciar sesión—. Son las mismas credenciales en los tres casos
+    // porque hay un solo Supabase.
+    ...ENTORNOS.flatMap((e) => ['--environment', e]),
     '--visibility',
     'plaintext',
     '--non-interactive',
