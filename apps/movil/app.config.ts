@@ -216,6 +216,23 @@ const config: ExpoConfig = {
           compileSdkVersion: 35,
           targetSdkVersion: 35,
           /**
+           * Sin esto el build muere compilando `expo-modules-core`.
+           *
+           * React Native 0.76.6 fija Kotlin 1.9.24, pero el
+           * `expo-modules-core` que viene con el SDK 52.0.49 trae el compilador
+           * de Compose 1.5.15, que exige 1.9.25. El error que se ve es:
+           *
+           *   e: This version (1.5.15) of the Compose Compiler requires Kotlin
+           *      version 1.9.25 but you appear to be using 1.9.24
+           *   ksp-1.9.25-1.0.20 is too new for kotlin-1.9.24
+           *
+           * Es una discrepancia entre dos dependencias, no del código de la
+           * app, y no se nota hasta que se compila el APK entero: en
+           * desarrollo el bundle de JavaScript no pasa por el compilador de
+           * Kotlin.
+           */
+          kotlinVersion: '1.9.25',
+          /**
            * Sin esto la app NO puede imprimir, y el motivo no es evidente.
            *
            * Android bloquea el tráfico HTTP sin cifrar desde que las apps
