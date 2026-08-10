@@ -31,6 +31,16 @@ import { fileURLToPath } from 'node:url'
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+/**
+ * Los comandos de `eas` se corren desde acá, no desde la raíz.
+ *
+ * El proyecto de Expo es `apps/movil`: ahí está el `app.config.ts`. Corrido
+ * desde la raíz, `eas` no encuentra ninguna configuración y se pone a crear un
+ * `app.json` vacío para tener algo — un archivo que después confunde a las
+ * herramientas y no es de nadie.
+ */
+const PROYECTO_EXPO = path.join(RAIZ, 'apps', 'movil')
+
 /** Sin éstas no hay login: el APK se instala y no sirve para nada. */
 const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
 
@@ -122,7 +132,7 @@ for (const nombre of aSubir) {
   // `env:set` crea o actualiza, según haga falta. Sus antecesores
   // —`env:create` y `env:update`— quedaron deprecados en eas-cli 21.
   const r = spawnSync('npx', ['eas', 'env:set', ...comunes], {
-    cwd: RAIZ,
+    cwd: PROYECTO_EXPO,
     stdio: ['inherit', 'pipe', 'pipe'],
     shell: process.platform === 'win32',
     encoding: 'utf8',
@@ -139,7 +149,7 @@ for (const nombre of aSubir) {
     const salida = String(r.stderr || '') + String(r.stdout || '')
     // `eas` abre con un consejo sobre la versión del CLI que no tiene nada que
     // ver con el error. Si se lo deja pasar, tapa las tres líneas que importan.
-    const RUIDO = /eas-cli in your project dependencies|cli\.version|Learn more:/
+    const RUIDO = /Found eas-cli in your|cli\.version|Learn more:/
     const lineas = salida
       .replaceAll(env[nombre], '«el valor»')
       .split('\n')
