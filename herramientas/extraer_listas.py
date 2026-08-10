@@ -115,6 +115,22 @@ R_MAYOR  = re.compile(r"\bMAYOR\s+A\s+d?=?\s*(\d+(?:[.,]\d+)?)", re.I)
 R_DIAM   = re.compile(r"\bd\s*=", re.I)
 
 
+def normalizar(texto: str) -> str:
+    """Arregla los caracteres que el Gestión escribe con otro juego.
+
+    La "Ý" es la Ø —el diámetro— en la codificación con la que exporta el
+    Gestión Comercial. Esto ya se hacía, pero **sólo sobre el campo `medida`**,
+    y la descripción salía sin corregir: 40 artículos entraron al catálogo con
+    "S.C. Ý=250" en vez de "S.C. Ø=250".
+
+    No era cosmético. El diámetro exterior se lee del texto de la descripción,
+    así que esos artículos quedaban sin diámetro: sin características que
+    mostrar en el buscador y sin forma de reconocer la herramienta que trae el
+    cliente.
+    """
+    return texto.replace("Ý", "Ø").strip()
+
+
 def _num(s):
     return float(s.replace(",", "."))
 
@@ -324,8 +340,7 @@ def procesar(pdf_path):
                     # cargada, que son justo las que el vendedor necesita para
                     # reconocer la herramienta.
                     if articulos and not articulos[-1]["medida"] and es_medida(linea):
-                        # La "Ý" es la Ø en el juego de caracteres del Gestion.
-                        articulos[-1]["medida"] = linea.replace("Ý", "Ø").strip()
+                        articulos[-1]["medida"] = normalizar(linea)
                     continue
                 i_precio = indices[-1]
 
@@ -339,7 +354,7 @@ def procesar(pdf_path):
                 # rangos partidos en dos ("REP.PARCIAL DTE. S.C. #3 A" + "4mm"
                 # = "de #3 a 4mm"); separar la medida a ciegas partia el rango
                 # al medio y perdia el limite inferior.
-                texto = " ".join(resto).strip()
+                texto = normalizar(" ".join(resto))
                 if not texto:
                     continue
 

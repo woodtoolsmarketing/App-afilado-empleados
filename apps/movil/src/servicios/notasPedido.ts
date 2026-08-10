@@ -19,7 +19,7 @@ import {
 } from '@woodtools/compartido'
 
 import { supabase } from '../nucleo/supabase'
-import { CLIENTE_A_MANO } from '../nucleo/variante'
+import { CLIENTE_A_MANO, VARIANTE } from '../nucleo/variante'
 
 /**
  * Notas de pedido.
@@ -395,6 +395,10 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
           descripcion_herramienta: descripcionGeneral || null,
           descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
           vendedor_numero: enc.vendedor_numero.trim() || null,
+          // De qué talonario sale. La beta numera aparte para no gastar
+          // números del real: sin esto, sus notas de prueba se llevarían
+          // comprobantes que después faltan en la secuencia.
+          variante: VARIANTE,
           // Cada nota declara sólo los servicios que realmente contiene.
           servicios: g.servicios,
           tipo_nota: datos.tipoNota,

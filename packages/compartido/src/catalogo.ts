@@ -31,7 +31,19 @@
 /** Un número de la lista: `3.2`, `3,2`, `300`. Se devuelve con coma. */
 const NUMERO = '([0-9]+(?:[.,][0-9]+)?)'
 
-const DIAMETRO_EXTERIOR = new RegExp(`\\bD\\s*=?\\s*${NUMERO}`)
+/**
+ * `D=300`, y también `Ø=300`.
+ *
+ * Las listas escriben el diámetro exterior de las dos formas. El símbolo va por
+ * código (`Ø`) y no como carácter: escrito literal, cualquier herramienta
+ * que toque el archivo con la codificación equivocada lo convierte en otra cosa
+ * —de hecho eso ya pasó: en el catálogo entró como `Ý`— y el patrón deja de
+ * coincidir sin que nada avise.
+ *
+ * Sin este reconocimiento, 40 artículos quedaban sin diámetro exterior: no se
+ * mostraba en las características y `agujeroDeFabrica` no podía encontrarlos.
+ */
+const DIAMETRO_EXTERIOR = new RegExp(`(?:\\bD|\\u00D8)\\s*=?\\s*${NUMERO}`)
 /** `d=30`, `d 30`, `d20`. Sin \\b delante: viene pegado a un punto en "S.C.d=30". */
 const DIAMETRO_INTERIOR = new RegExp(`(?:^|[^A-Za-z])d\\s*=?\\s*${NUMERO}`)
 const ANCHO_CORTE_B = new RegExp(`\\bB\\s*=?\\s*${NUMERO}`)
