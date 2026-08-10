@@ -136,11 +136,21 @@ export function Casilla({
   valor,
   alCambiar,
   deshabilitada,
+  compacta = false,
 }: {
   etiqueta: string
   valor: boolean
   alCambiar: (valor: boolean) => void
   deshabilitada?: boolean
+  /**
+   * Para las casillas que van de a dos por fila.
+   *
+   * En media pantalla, descontando la caja de 36 px, a la etiqueta le quedan
+   * unos 125 px: "RECTIFICADO" en el tamaño normal no entra y se monta sobre
+   * el tilde. Con esto la letra baja un escalón y, si aún así no entra, se
+   * achica sola en vez de desbordar.
+   */
+  compacta?: boolean
 }) {
   return (
     <Pressable
@@ -156,7 +166,14 @@ export function Casilla({
       ]}
       hitSlop={8}
     >
-      <Text style={estilos.casillaEtiqueta}>{etiqueta}</Text>
+      <Text
+        style={[estilos.casillaEtiqueta, compacta && estilos.casillaEtiquetaCompacta]}
+        numberOfLines={1}
+        adjustsFontSizeToFit={compacta}
+        minimumFontScale={0.75}
+      >
+        {etiqueta}
+      </Text>
       <View style={[estilos.casillaCaja, valor && estilos.casillaMarcada]}>
         {valor ? <Text style={estilos.casillaTilde}>✓</Text> : null}
       </View>
@@ -426,6 +443,13 @@ const estilos = StyleSheet.create({
     fontSize: tipografia.tamano.lg,
     color: colores.tinta,
     letterSpacing: 0.3,
+    // Que ceda el espacio a la caja del tilde en vez de empujarla afuera.
+    flexShrink: 1,
+    marginRight: espaciado.xs,
+  },
+  casillaEtiquetaCompacta: {
+    fontSize: tipografia.tamano.base,
+    letterSpacing: 0,
   },
   casillaCaja: {
     width: 36,

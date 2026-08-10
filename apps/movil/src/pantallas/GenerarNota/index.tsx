@@ -164,11 +164,30 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     staleTime: 60 * 60 * 1000,
   })
 
+  /**
+   * Aplica los cambios SOBRE EL ESTADO ANTERIOR, no sobre la copia del render.
+   *
+   * Antes armaba `{ ...encabezado, ...cambios }` con el `encabezado` que había
+   * cuando se dibujó la pantalla. Con un solo cambio por vez funcionaba; con
+   * dos en el mismo evento, el segundo pisaba al primero — los dos partían de
+   * la misma copia vieja.
+   *
+   * Y eso pasaba en cada tecla del campo con micrófono, que avisa dos cosas
+   * juntas: el texto nuevo y que el origen es "texto". El segundo aviso
+   * devolvía el campo a como estaba, así que escribir no hacía nada y lo
+   * dictado desaparecía apenas se transcribía.
+   */
   function cambiarEncabezado(cambios: Partial<FormularioNotaEncabezado>) {
-    const nuevo = { ...encabezado, ...cambios }
-    setEncabezado(nuevo)
-    if (intentado) revalidarEncabezado(nuevo, servicios)
+    setEncabezado((previo) => ({ ...previo, ...cambios }))
   }
+
+  // La revalidación mira el estado ya aplicado. Hacerla adentro del cambio
+  // obligaba a adivinar cómo iba a quedar, que es de dónde salía el problema.
+  useEffect(() => {
+    if (!intentado) return
+    revalidarEncabezado(encabezado, servicios)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [encabezado, servicios, intentado, tipoNota, fechaEntrega, condicionVenta, condicionDetalle])
 
   function cambiarServicios(nuevos: TipoServicio[]) {
     setServicios(nuevos)
@@ -201,13 +220,21 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setErrores(e as Record<string, string | undefined>)
   }
 
+  /**
+   * Mismo criterio que el encabezado: sobre el renglón que hay, no sobre la
+   * copia del render. Acá también llegan cambios encadenados —la descripción
+   * se completa sola al elegir la herramienta, el agujero de fábrica llega
+   * después de consultar el catálogo— y con la copia vieja uno borraba al otro.
+   */
   function cambiarItem(cambios: Partial<FormularioItemNota>) {
-    const nuevo = { ...renglon, ...cambios }
-    setItems((rs) => rs.map((r, i) => (i === activo ? nuevo : r)))
-    if (intentado && paso === 2) {
-      setErrores(validarItemNota(nuevo).errores as Record<string, string | undefined>)
-    }
+    setItems((rs) => rs.map((r, i) => (i === activo ? { ...r, ...cambios } : r)))
   }
+
+  useEffect(() => {
+    if (!intentado || paso !== 2 || !renglon) return
+    setErrores(validarItemNota(renglon).errores as Record<string, string | undefined>)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renglon, intentado, paso])
 
   /** El servicio se elige por renglón cuando arriba tildaron más de uno. */
   function cambiarServicioDelRenglon(servicio: TipoServicio) {

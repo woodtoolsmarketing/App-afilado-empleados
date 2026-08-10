@@ -442,6 +442,9 @@ export function PasoEncabezado({
               etiqueta={ETIQUETA_TIPO_SERVICIO[s]}
               valor={servicios.includes(s)}
               alCambiar={() => alternarServicio(s)}
+              // Van de a dos por fila: "RECTIFICADO" no entra en el tamaño
+              // normal y se montaba sobre el tilde.
+              compacta
             />
           </View>
         ))}
