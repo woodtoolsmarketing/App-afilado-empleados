@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { supabase } from './nucleo/supabase'
 import { usarSesion } from './nucleo/sesion'
+import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaClientes } from './paginas/Clientes'
 import { PaginaIngreso } from './paginas/Ingreso'
@@ -46,6 +47,10 @@ export function App() {
           />
           <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
           <Route path="/mapa" element={<PaginaMapaEnVivo />} />
+          <Route
+            path="/actualizaciones"
+            element={<PaginaActualizaciones soloLectura={!sesion.esAdmin} />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -112,6 +117,7 @@ function BarraLateral({
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
+    { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones' },
   ]
 
   return (

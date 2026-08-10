@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
+import { AltaUsuario } from './AltaUsuario'
 
 /**
  * Altas, bajas y aprobaciones.
@@ -14,6 +15,7 @@ import { supabase } from '../nucleo/supabase'
 export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
   const [mensaje, setMensaje] = useState<string | null>(null)
+  const [mostrarAlta, setMostrarAlta] = useState(false)
 
   const { data: perfiles, isLoading } = useQuery({
     queryKey: ['perfiles'],
@@ -134,9 +136,23 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       <header className="encabezado-pagina">
         <div>
           <h1>Usuarios</h1>
-          <p>Aprobá altas, asigná el código de vendedor y habilitá los teléfonos.</p>
+          <p>Dá de alta empleados, asigná el código de vendedor y habilitá los teléfonos.</p>
         </div>
+        {!soloLectura && !mostrarAlta && (
+          <button className="primario" onClick={() => setMostrarAlta(true)}>
+            + Nuevo usuario
+          </button>
+        )}
       </header>
+
+      {mostrarAlta && (
+        <AltaUsuario
+          alTerminar={() => {
+            setMostrarAlta(false)
+            void cliente.invalidateQueries()
+          }}
+        />
+      )}
 
       {mensaje && (
         <div className="aviso exito" role="status">

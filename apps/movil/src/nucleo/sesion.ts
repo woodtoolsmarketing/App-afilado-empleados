@@ -1,4 +1,5 @@
-import { ETIQUETA_ROL, type Perfil } from '@woodtools/compartido'
+import { compararVersiones, ETIQUETA_ROL, type Perfil } from '@woodtools/compartido'
+import * as Application from 'expo-application'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import { create } from 'zustand'
@@ -26,6 +27,17 @@ const DIAS_RECORDAR = 30
 /** Dominio que se le agrega al usuario cuando escriben sólo el nombre. */
 const DOMINIO_USUARIO: string =
   Constants.expoConfig?.extra?.dominioUsuario ?? 'woodtools.com.ar'
+
+/**
+ * La versión de esta app, para comparar contra la mínima que exige la oficina.
+ *
+ * Sale de la app instalada y no de `expoConfig`, que es lo que parecería más
+ * directo: después de una actualización por aire, `expoConfig` ya trae la
+ * versión del paquete nuevo mientras la app instalada sigue siendo la vieja.
+ * La que el panel ve es ésta —la misma que se registra en `dispositivos`— y las
+ * dos puntas tienen que estar mirando el mismo número.
+ */
+export const VERSION_APP: string = Application.nativeApplicationVersion ?? '0.0.0'
 
 /** "asosa" → "asosa@woodtools.com.ar"; un correo completo se deja como está. */
 export function normalizarUsuario(usuario: string): string {
@@ -66,6 +78,8 @@ export type EstadoAcceso =
   | 'rechazado'
   | 'suspendido'
   | 'dispositivo_no_autorizado'
+  | 'version_vieja'          // hay que actualizar antes de seguir
+  | 'debe_cambiar_contrasena'
   | 'habilitado'
 
 interface EstadoSesion {
@@ -80,6 +94,7 @@ interface EstadoSesion {
   cerrarSesion: () => Promise<void>
   refrescarPerfil: () => Promise<void>
   recuperarContrasena: (usuario: string) => Promise<void>
+  cambiarContrasena: (nueva: string) => Promise<void>
 }
 
 async function leerRecordarHasta(): Promise<Date | null> {
@@ -120,7 +135,44 @@ async function evaluarAcceso(
     return { estado: 'dispositivo_no_autorizado', error: null }
   }
 
+  // Antes que nada de lo que viene: una versión demasiado vieja puede estar
+  // guardando notas de una forma que la base ya no entiende. Es preferible un
+  // cartel que pide actualizar a datos mal grabados que después hay que buscar.
+  if (await versionDemasiadoVieja()) {
+    return { estado: 'version_vieja', error: null }
+  }
+
+  // La contraseña provisoria la vio un administrador. Mientras siga siendo la
+  // misma, lo que la app registre no identifica a nadie en particular.
+  if (perfil.debe_cambiar_contrasena) {
+    return { estado: 'debe_cambiar_contrasena', error: null }
+  }
+
   return { estado: 'habilitado', error: null }
+}
+
+/**
+ * ¿Esta app quedó por debajo de la versión que la oficina exige?
+ *
+ * Ante la duda, no. Si la consulta falla —sin señal, por ejemplo— dejar al
+ * vendedor afuera sería peor que dejarlo entrar: el mínimo existe para
+ * ordenar una migración, no para trancar a alguien parado en un cliente.
+ */
+async function versionDemasiadoVieja(): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'version_minima_app')
+      .maybeSingle()
+
+    const minima = (data?.valor as { android?: string } | null)?.android
+    if (!minima) return false
+
+    return compararVersiones(VERSION_APP, minima) < 0
+  } catch {
+    return false
+  }
 }
 
 export const usarSesion = create<EstadoSesion>((set, get) => ({
@@ -234,6 +286,29 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     await supabase.auth.signOut().catch(() => undefined)
     await SecureStore.deleteItemAsync(CLAVE_RECORDAR_HASTA).catch(() => undefined)
     set({ estado: 'sin_sesion', perfil: null, errorAcceso: null })
+  },
+
+  /**
+   * La cambia el dueño de la cuenta, desde su teléfono y con su sesión abierta.
+   *
+   * La marca `debe_cambiar_contrasena` se baja recién después de que Auth
+   * aceptó la nueva. Al revés —bajarla primero y después cambiarla— alcanzaría
+   * con que fallara el segundo paso para que la cuenta quedara habilitada con
+   * la contraseña que un administrador todavía conoce.
+   */
+  async cambiarContrasena(nueva) {
+    const { error } = await supabase.auth.updateUser({ password: nueva })
+    if (error) throw error
+
+    const { perfil } = get()
+    if (perfil) {
+      await supabase
+        .from('perfiles')
+        .update({ debe_cambiar_contrasena: false })
+        .eq('id', perfil.id)
+    }
+
+    await get().refrescarPerfil()
   },
 
   async recuperarContrasena(usuario) {

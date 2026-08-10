@@ -151,6 +151,12 @@ export interface Perfil {
    * sola el número de vendedor cuando quien la carga no tiene uno propio.
    */
   zonas: string[]
+  /**
+   * La cuenta se creó con una contraseña provisoria que vio un administrador.
+   * La app obliga a cambiarla antes de dejar entrar: una contraseña que
+   * conocen dos personas no identifica a ninguna.
+   */
+  debe_cambiar_contrasena: boolean
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null

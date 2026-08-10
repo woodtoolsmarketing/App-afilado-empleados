@@ -12,6 +12,7 @@ import { PantallaDetalleNota } from '../pantallas/DetalleNota'
 import { PantallaDetalleVisita } from '../pantallas/DetalleVisita'
 import { PantallaEnPreparacion } from '../pantallas/EnPreparacion'
 import { PantallaVisitas } from '../pantallas/Visitas'
+import { PantallaCambiarContrasena } from '../pantallas/CambiarContrasena'
 import { PantallaEstadoCuenta } from '../pantallas/EstadoCuenta'
 import { PantallaHistorial } from '../pantallas/HistorialVisitas'
 import { PantallaGenerarNota } from '../pantallas/GenerarNota'
@@ -68,6 +69,9 @@ export function Navegacion() {
       <Pila.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         {estado === 'sin_sesion' ? (
           <Pila.Screen name="Menu" component={PantallaIniciarSesion} />
+        ) : estado === 'debe_cambiar_contrasena' ? (
+          // Pantalla propia y no un cartel: de acá no se sale sin cambiarla.
+          <Pila.Screen name="Menu" component={PantallaCambiarContrasena} />
         ) : estado !== 'habilitado' ? (
           <Pila.Screen name="Menu" component={PantallaEstadoCuenta} />
         ) : (

@@ -11,9 +11,12 @@ interface ImportMeta {
 
 /** Puente expuesto por `electron/precarga.ts`. */
 interface Window {
-  woodtools: {
+  woodtools?: {
     imprimir: () => Promise<{ impreso: boolean; motivo?: string }>
     abrirExterno: (url: string) => Promise<boolean>
     version: () => Promise<string>
+    /** Sólo con el panel abierto desde la carpeta del proyecto. */
+    proyectoDisponible?: () => Promise<boolean>
+    publicarActualizacion?: () => Promise<{ ok: boolean; salida: string }>
   }
 }

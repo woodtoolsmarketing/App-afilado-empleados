@@ -170,6 +170,23 @@ Usuarios. Es el tercero de los tres candados, y funcionar así es lo que se busc
 
 ---
 
+### Actualizaciones por aire
+
+Para que el botón "Publicar actualización" del panel sirva —y para que los
+celulares se pongan al día solos— hay que habilitarlas una vez:
+
+```bash
+npm run eas:actualizaciones
+```
+
+Eso deja un `EAS_UPDATE_URL` que va al `.env` de la raíz. Sin esa variable la
+app compila y anda igual, pero cada cambio exige reinstalar el APK.
+
+Lo que **no** viaja por aire: permisos nuevos, librerías nativas, cambios de la
+versión de Android. Eso necesita un APK nuevo sí o sí. Para esos casos está la
+**versión mínima** del panel: se sube el número y el celular atrasado ve un
+cartel que le pide actualizar en vez de fallar de maneras raras.
+
 ### La clave de Maps, cuando haga falta
 
 Va en el **mismo proyecto de Google Cloud** donde ya vive

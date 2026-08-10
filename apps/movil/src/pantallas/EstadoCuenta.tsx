@@ -1,12 +1,13 @@
 import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
 import { Image } from 'expo-image'
+import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Pantalla } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
-import { usarSesion, type EstadoAcceso } from '../nucleo/sesion'
+import { usarSesion, VERSION_APP, type EstadoAcceso } from '../nucleo/sesion'
 
 /**
  * Pantalla de espera.
@@ -20,6 +21,44 @@ export function PantallaEstadoCuenta() {
   const { estado, perfil, cerrarSesion, refrescarPerfil } = usarSesion()
   const [instalacion, setInstalacion] = useState('')
   const [verificando, setVerificando] = useState(false)
+  const [avisoActualizacion, setAvisoActualizacion] = useState<string | null>(null)
+
+  /**
+   * Baja la actualización por aire, si hay.
+   *
+   * Cubre el caso normal —un cambio de código, que viaja por OTA— y no el otro:
+   * si lo que cambió es nativo (un permiso, una librería) no hay nada que
+   * bajar y hace falta el instalador nuevo. Se dice cuál de los dos es en vez
+   * de dejar al vendedor tocando un botón que no hace nada.
+   */
+  async function buscarActualizacion() {
+    setVerificando(true)
+    setAvisoActualizacion(null)
+    try {
+      if (!Updates.isEnabled) {
+        setAvisoActualizacion(
+          'Esta versión no recibe actualizaciones por aire. Pedile a la oficina el instalador nuevo.',
+        )
+        return
+      }
+
+      const resultado = await Updates.checkForUpdateAsync()
+      if (!resultado.isAvailable) {
+        setAvisoActualizacion(
+          'No hay ninguna actualización por aire. Lo que cambió necesita el instalador nuevo: pedíselo a la oficina.',
+        )
+        return
+      }
+
+      setAvisoActualizacion('Bajando la actualización…')
+      await Updates.fetchUpdateAsync()
+      await Updates.reloadAsync()
+    } catch {
+      setAvisoActualizacion('No pudimos buscarla. Revisá tu conexión y probá de nuevo.')
+    } finally {
+      setVerificando(false)
+    }
+  }
 
   useEffect(() => {
     void obtenerInstalacionId().then((id) => setInstalacion(id.slice(0, 8).toUpperCase()))
@@ -84,6 +123,20 @@ export function PantallaEstadoCuenta() {
           />
         ) : null}
 
+        {estado === 'version_vieja' ? (
+          <>
+            <BotonPrincipal
+              titulo="BUSCAR ACTUALIZACIÓN"
+              alTocar={buscarActualizacion}
+              cargando={verificando}
+            />
+            {avisoActualizacion ? (
+              <Text style={estilos.texto}>{avisoActualizacion}</Text>
+            ) : null}
+            <Text style={estilos.fichaLinea}>Versión instalada: {VERSION_APP}</Text>
+          </>
+        ) : null}
+
         <BotonSecundario titulo="Cerrar sesión" alTocar={() => void cerrarSesion()} style={estilos.salir} />
       </View>
     </Pantalla>
@@ -124,6 +177,12 @@ const CONTENIDOS: Partial<Record<EstadoAcceso, Contenido>> = {
     icono: '⛔',
     titulo: 'CUENTA SUSPENDIDA',
     texto: 'Tu cuenta está suspendida o dada de baja. Hablá con la oficina para reactivarla.',
+  },
+  version_vieja: {
+    icono: '⭮',
+    titulo: 'HAY QUE\nACTUALIZAR',
+    texto:
+      'Esta versión de la app quedó vieja para lo que la oficina está usando ahora. Tocá "Buscar actualización": si hay una por aire, se baja sola en unos segundos. Si no, pedí el instalador nuevo.',
   },
 }
 

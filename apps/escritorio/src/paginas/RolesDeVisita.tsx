@@ -173,7 +173,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
           >
             {optimizar.isPending ? 'Ordenando…' : 'Ordenar por cercanía'}
           </button>
-          <button className="rojo" onClick={() => void window.woodtools.imprimir()} disabled={!jornada}>
+          <button className="rojo" onClick={() => void window.woodtools?.imprimir()} disabled={!jornada}>
             Imprimir
           </button>
         </div>

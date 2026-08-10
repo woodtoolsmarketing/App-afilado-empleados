@@ -13,4 +13,10 @@ contextBridge.exposeInMainWorld('woodtools', {
   imprimir: (): Promise<{ impreso: boolean; motivo?: string }> => ipcRenderer.invoke('imprimir'),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),
+  // Sólo existe cuando el panel está abierto desde la carpeta del proyecto:
+  // publicar necesita el código y una sesión de Expo, que en una máquina donde
+  // sólo se instaló el panel no están.
+  proyectoDisponible: (): Promise<boolean> => ipcRenderer.invoke('proyecto-disponible'),
+  publicarActualizacion: (): Promise<{ ok: boolean; salida: string }> =>
+    ipcRenderer.invoke('publicar-actualizacion'),
 })
