@@ -5,6 +5,7 @@ node_modules/
 
 # Builds
 dist/
+dist-electron/
 build/
 out/
 release/
