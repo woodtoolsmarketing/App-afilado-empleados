@@ -29,6 +29,55 @@ const EAS = path.join(RAIZ, 'node_modules', 'eas-cli', 'bin', 'run')
 
 const perfil = process.argv[2] ?? 'interno'
 
+/**
+ * Tira lo que haya quedado escrito en el teclado antes de arrancar.
+ *
+ * Lo que se tipea mientras ningún programa está leyendo no se pierde: la
+ * terminal lo guarda y se lo entrega entero al primero que lea. Así, los
+ * comandos que uno escribió mientras esperaba terminan contestando la primera
+ * pregunta de `eas`.
+ *
+ * Y el resultado no es un error cualquiera. A "Generate a new Android
+ * Keystore?" le alcanza la primera letra: la "n" de "npm" contesta que NO, y
+ * lo siguiente que aparece es un pedido de archivo de firma que no existe. El
+ * mensaje no tiene nada que ver con lo que pasó, así que uno lo busca donde no
+ * está.
+ */
+async function vaciarTeclado() {
+  if (!process.stdin.isTTY) return
+
+  return new Promise((listo) => {
+    let descartado = 0
+    const tirar = (datos) => {
+      descartado += datos.length
+    }
+
+    try {
+      process.stdin.setRawMode(true)
+    } catch {
+      // Sin modo crudo no se puede vaciar; el aviso de más abajo alcanza.
+    }
+    process.stdin.resume()
+    process.stdin.on('data', tirar)
+
+    setTimeout(() => {
+      process.stdin.off('data', tirar)
+      process.stdin.pause()
+      try {
+        process.stdin.setRawMode(false)
+      } catch {
+        /* ya estaba */
+      }
+      if (descartado > 0) {
+        console.log(
+          `\n  (Descarté ${descartado} caracteres que habían quedado escritos en la terminal.)`,
+        )
+      }
+      listo()
+    }, 300)
+  })
+}
+
 function correrEas(argumentos, { interactivo = false } = {}) {
   return spawnSync(process.execPath, [EAS, ...argumentos], {
     cwd: PROYECTO_EXPO,
@@ -99,11 +148,13 @@ console.log(
     '  única salida es desinstalar y reinstalar en cada teléfono.',
     '',
     '  Mientras haya una pregunta abierta, NO escribas otro comando: lo',
-    '  que tipees entra como respuesta.',
+    '  que tipees entra como respuesta, aunque no lo veas en pantalla.',
     '  ────────────────────────────────────────────────────────────────',
     '',
   ].join('\n'),
 )
+
+await vaciarTeclado()
 
 const build = correrEas(['build', '--platform', 'android', '--profile', perfil], {
   interactivo: true,
