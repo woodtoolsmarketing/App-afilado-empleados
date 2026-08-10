@@ -19,6 +19,7 @@ import {
 } from '@woodtools/compartido'
 
 import { supabase } from '../nucleo/supabase'
+import { CLIENTE_A_MANO } from '../nucleo/variante'
 
 /**
  * Notas de pedido.
@@ -349,7 +350,15 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   const enc = datos.encabezado
   // Sin cliente, o con uno provisorio: la nota no puede recibir numero. Un
   // codigo automatico "P-000123" no es un codigo de cliente.
-  const esPendienteCliente = !enc.cliente_id || enc.cliente_provisorio
+  //
+  // En la versión de prueba el cliente no sale de la base, así que `cliente_id`
+  // siempre viene vacío. Si se aplicara la regla tal cual, TODA nota de la beta
+  // quedaría sin número —y sin número no hay comprobante que imprimir, que es
+  // justamente lo que se está probando—. Ahí lo que vale es el código que el
+  // vendedor escribió: si lo puso, la nota se numera.
+  const esPendienteCliente = CLIENTE_A_MANO
+    ? !enc.cliente_codigo.trim()
+    : !enc.cliente_id || enc.cliente_provisorio
 
   // El tipo de cambio entra en el agrupado para poder expresar el total de
   // cada nota en pesos aunque sus renglones estén cotizados en dólares.

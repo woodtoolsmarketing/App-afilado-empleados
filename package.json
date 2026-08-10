@@ -13,6 +13,7 @@
     "escritorio": "npm run dev --workspace=@woodtools/escritorio",
     "instalador:pc": "npm run empaquetar --workspace=@woodtools/escritorio",
     "instalador:apk": "node herramientas/compilar-apk.mjs interno",
+    "instalador:apk:beta": "node herramientas/compilar-apk.mjs beta",
     "instalador:apk:produccion": "node herramientas/compilar-apk.mjs produccion",
     "eas:entrar": "npm run eas:entrar --workspace=@woodtools/movil",
     "eas:iniciar": "npm run eas:iniciar --workspace=@woodtools/movil",

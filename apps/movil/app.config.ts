@@ -39,7 +39,35 @@ for (const archivo of [path.join(__dirname, '.env'), path.join(RAIZ_MONOREPO, '.
   if (fs.existsSync(archivo)) cargarDotenv({ path: archivo })
 }
 
-const esProduccion = process.env.APP_VARIANTE === 'produccion'
+/**
+ * Tres variantes, tres apps distintas para Android.
+ *
+ * Cada una tiene su `package`, así que Android las trata como programas
+ * separados: se pueden instalar las tres en el mismo teléfono y ninguna ve los
+ * datos de la otra. Eso es justamente lo que permite probar una versión sin
+ * arriesgar lo que el vendedor ya tiene cargado en la que usa todos los días.
+ */
+type Variante = 'produccion' | 'interno' | 'beta'
+
+const VARIANTE: Variante = (['produccion', 'interno', 'beta'] as const).includes(
+  process.env.APP_VARIANTE as Variante,
+)
+  ? (process.env.APP_VARIANTE as Variante)
+  : 'interno'
+
+const esProduccion = VARIANTE === 'produccion'
+
+const NOMBRE: Record<Variante, string> = {
+  produccion: 'WoodTools Visitas',
+  interno: 'WoodTools Visitas (interno)',
+  beta: 'WoodTools Visitas (beta)',
+}
+
+const PAQUETE: Record<Variante, string> = {
+  produccion: 'com.woodtools.roldevisita',
+  interno: 'com.woodtools.roldevisita.interno',
+  beta: 'com.woodtools.roldevisita.beta',
+}
 
 /**
  * Variables sin las cuales la app se instala pero no sirve.
@@ -111,7 +139,7 @@ const easUpdateUrl = process.env.EAS_UPDATE_URL
 const easProjectId = process.env.EAS_PROJECT_ID
 
 const config: ExpoConfig = {
-  name: esProduccion ? 'WoodTools Visitas' : 'WoodTools Visitas (interno)',
+  name: NOMBRE[VARIANTE],
 
   /**
    * El slug tiene que coincidir con el del proyecto en expo.dev.
@@ -149,7 +177,7 @@ const config: ExpoConfig = {
   assetBundlePatterns: ['**/*'],
 
   android: {
-    package: esProduccion ? 'com.woodtools.roldevisita' : 'com.woodtools.roldevisita.interno',
+    package: PAQUETE[VARIANTE],
     versionCode: 1,
     adaptiveIcon: {
       foregroundImage: './assets/icono-adaptativo.png',
@@ -312,7 +340,7 @@ const config: ExpoConfig = {
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
     googleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_KEY,
     dominioUsuario: process.env.DOMINIO_USUARIO ?? 'woodtools.com.ar',
-    variante: esProduccion ? 'produccion' : 'interno',
+    variante: VARIANTE,
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
 }

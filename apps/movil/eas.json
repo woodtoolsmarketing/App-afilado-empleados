@@ -27,6 +27,18 @@
       }
     },
 
+    "beta": {
+      "extends": "base",
+      "distribution": "internal",
+      "channel": "beta",
+      "env": {
+        "APP_VARIANTE": "beta"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+
     "produccion": {
       "extends": "base",
       "distribution": "internal",

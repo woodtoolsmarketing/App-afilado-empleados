@@ -21,6 +21,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import { buscarClientes } from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
 
@@ -84,7 +85,8 @@ export function PasoEncabezado({
 
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
-    if (form.cliente_nuevo || consulta.trim().length < 2) {
+    // En la beta no se busca nada: el cliente se escribe entero.
+    if (CLIENTE_A_MANO || form.cliente_nuevo || consulta.trim().length < 2) {
       setResultados([])
       return
     }
@@ -241,6 +243,14 @@ export function PasoEncabezado({
   return (
     <>
       {/* ── Identificación del cliente ────────────────────────────────────── */}
+      {CLIENTE_A_MANO ? (
+        <Aviso tono="atencion" titulo="Versión de prueba">
+          Los datos del cliente se cargan a mano: esta versión no los busca en la base. Completá
+          código, nombre y CUIT como los tengas, y elegí la zona del desplegable — acá no se asigna
+          sola.
+        </Aviso>
+      ) : null}
+
       <View style={estilos.fila}>
         <Campo
           etiqueta="COD. CLIENTE"
@@ -263,14 +273,19 @@ export function PasoEncabezado({
         />
       </View>
 
-      <Pressable
-        onPress={alCrearCliente}
-        hitSlop={10}
-        accessibilityRole="button"
-        style={estilos.enlaceNuevo}
-      >
-        <Text style={estilos.enlaceNuevoTexto}>¿Es nuevo cliente?</Text>
-      </Pressable>
+      {/* En la beta no se dan de alta clientes: escribirlos en la nota es
+          justamente lo que se está probando, y crear fichas sueltas mientras
+          tanto ensuciaría el padrón que después hay que cargar en serio. */}
+      {CLIENTE_A_MANO ? null : (
+        <Pressable
+          onPress={alCrearCliente}
+          hitSlop={10}
+          accessibilityRole="button"
+          style={estilos.enlaceNuevo}
+        >
+          <Text style={estilos.enlaceNuevoTexto}>¿Es nuevo cliente?</Text>
+        </Pressable>
+      )}
 
       {/* El VENDEDOR va abajo como dato fijo en vez de un campo deshabilitado:
           no se edita nunca y ocupaba media pantalla. */}

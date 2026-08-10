@@ -899,6 +899,11 @@ export function validarEncabezadoNota(
     fechaEntrega: string | null
     condicionVenta?: CondicionVenta | null
     condicionVentaDetalle?: string
+    /**
+     * La versión de prueba carga el cliente a mano, sin buscarlo en la base.
+     * Ahí no se puede exigir un `cliente_id` que no va a existir nunca.
+     */
+    clienteAMano?: boolean
   },
 ): ResultadoValidacion<CampoEncabezado> {
   const errores: Partial<Record<CampoEncabezado, string>> = {}
@@ -919,13 +924,23 @@ export function validarEncabezadoNota(
     errores.condicion_venta_detalle = 'Contá cuál es la condición'
   }
 
-  // Un cliente nuevo todavía no tiene código: la nota se guarda igual y queda
-  // esperando que Administración se lo asigne.
-  if (!enc.cliente_nuevo && !enc.cliente_id) {
-    errores.cliente = 'Buscá el cliente por código, nombre o CUIT'
-  }
-  if (enc.cliente_nuevo && !enc.cliente_nombre.trim()) {
-    errores.cliente_nombre = 'Ingresá el nombre o la razón social'
+  if (extra.clienteAMano) {
+    // Versión de prueba: no hay padrón contra el cual buscar, así que lo único
+    // exigible es que el cliente quede identificado. El código no se pide —hay
+    // clientes que todavía no lo tienen— pero sin él la nota queda sin número,
+    // y eso se avisa en la pantalla, no acá.
+    if (!enc.cliente_nombre.trim()) {
+      errores.cliente_nombre = 'Ingresá el nombre o la razón social'
+    }
+  } else {
+    // Un cliente nuevo todavía no tiene código: la nota se guarda igual y queda
+    // esperando que Administración se lo asigne.
+    if (!enc.cliente_nuevo && !enc.cliente_id) {
+      errores.cliente = 'Buscá el cliente por código, nombre o CUIT'
+    }
+    if (enc.cliente_nuevo && !enc.cliente_nombre.trim()) {
+      errores.cliente_nombre = 'Ingresá el nombre o la razón social'
+    }
   }
   if (!enc.zona.trim()) errores.zona = 'Falta la zona'
   if (!enc.datos_cliente.trim()) errores.datos_cliente = 'Completá los datos del cliente'

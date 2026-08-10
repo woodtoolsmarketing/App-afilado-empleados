@@ -58,6 +58,7 @@ import { Aviso, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
 import { usarSesion, etiquetaVendedor } from '../../nucleo/sesion'
+import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import { crearNotaPedido, obtenerCotizacion } from '../../servicios/notasPedido'
 import { BuscadorArticulo } from './BuscadorArticulo'
 import { PasoEncabezado } from './Encabezado'
@@ -195,6 +196,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
+      clienteAMano: CLIENTE_A_MANO,
     })
     setErrores(e as Record<string, string | undefined>)
   }
@@ -325,6 +327,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
+      clienteAMano: CLIENTE_A_MANO,
     })
     setErrores(e as Record<string, string | undefined>)
     if (!valido) return
