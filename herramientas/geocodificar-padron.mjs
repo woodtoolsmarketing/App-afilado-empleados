@@ -1,9 +1,12 @@
 /**
  * Pone en el mapa a los clientes del padrón que sólo tienen domicilio escrito.
  *
- *   node herramientas/geocodificar-padron.mjs                 (ensayo, no escribe)
- *   node herramientas/geocodificar-padron.mjs --limite 50      (ensaya sólo 50)
- *   node herramientas/geocodificar-padron.mjs --aplicar        (escribe de verdad)
+ *   node herramientas/geocodificar-padron.mjs                 (ensayo de 50)
+ *   node herramientas/geocodificar-padron.mjs --limite 200    (ensayo más grande)
+ *   node herramientas/geocodificar-padron.mjs --aplicar       (escribe de verdad)
+ *
+ * Medido sobre una muestra de 40 repartida por todo el padrón: 58% resuelve
+ * con calle y altura, 40% sólo hasta la localidad y 2% no resuelve.
  *
  * ─── Por qué hace falta ─────────────────────────────────────────────────────
  *
@@ -80,8 +83,20 @@ if (!CLAVE_GOOGLE) {
 }
 
 const APLICAR = process.argv.includes('--aplicar')
+const GUARDAR_DUDOSAS = process.argv.includes('--incluir-aproximadas')
+
+/**
+ * El ensayo también le cuesta plata a la empresa.
+ *
+ * `--aplicar` decide si se ESCRIBE en la base, no si se LLAMA a Google: la
+ * consulta se hace igual en los dos modos. Un ensayo sin tope son 12.000
+ * llamadas facturables, o sea casi el costo del trabajo completo, para no
+ * guardar nada. Por eso el ensayo viene acotado por omisión y hay que pedir el
+ * total a propósito.
+ */
 const iLimite = process.argv.indexOf('--limite')
-const LIMITE = iLimite > -1 ? Number(process.argv[iLimite + 1]) : Infinity
+const LIMITE =
+  iLimite > -1 ? Number(process.argv[iLimite + 1]) : APLICAR ? Infinity : 50
 
 const cabeceras = {
   apikey: LLAVE,
@@ -201,11 +216,22 @@ for (const [i, c] of aProcesar.entries()) {
       cuenta.sinResultado++
       console.log(`  ${c.codigo.padEnd(8)} sin resultado   ${texto.slice(0, 52)}`)
     } else {
+      // Las dudosas NO se guardan salvo que se pidan expresamente, y la razón
+      // no es prolijidad: en cuanto un cliente tiene una dirección, la app deja
+      // de ofrecer ubicarlo desde el teléfono —`ubicar_cliente` devuelve la que
+      // hay en vez de crear otra—. Guardar un pin en el centro del pueblo le
+      // saca al vendedor la posibilidad de corregir justamente el caso que
+      // salió mal, y él es el único que sabe dónde queda el cliente en serio.
+      const guardarla = APLICAR && (!d.aproximada || GUARDAR_DUDOSAS)
+
       if (d.aproximada) cuenta.aproximadas++
       else cuenta.ok++
-      if (APLICAR) await guardar(c, d)
-      const marca = d.aproximada ? '~' : '✓'
-      console.log(`  ${c.codigo.padEnd(8)} ${marca} ${d.precision.padEnd(20)} ${d.direccion_formateada.slice(0, 46)}`)
+      if (guardarla) await guardar(c, d)
+
+      const marca = d.aproximada ? (GUARDAR_DUDOSAS ? '~' : '·') : '✓'
+      console.log(
+        `  ${c.codigo.padEnd(8)} ${marca} ${d.precision.padEnd(20)} ${d.direccion_formateada.slice(0, 46)}`,
+      )
     }
   } catch (e) {
     cuenta.error++
@@ -221,11 +247,20 @@ for (const [i, c] of aProcesar.entries()) {
   if (i % 10 === 9) await new Promise((r) => setTimeout(r, 200))
 }
 
+const destinoDudosas = GUARDAR_DUDOSAS
+  ? 'se guardan como no verificadas, para revisar'
+  : 'NO se guardan: las resuelve el vendedor desde el teléfono'
+
 console.log(`
   ─────────────────────────────────────────
-  exactas       ${cuenta.ok}
-  aproximadas   ${cuenta.aproximadas}   (quedan como no verificadas, para revisar)
+  exactas       ${cuenta.ok}   ${APLICAR ? 'guardadas' : ''}
+  aproximadas   ${cuenta.aproximadas}   (${destinoDudosas})
   sin resultado ${cuenta.sinResultado}
   errores       ${cuenta.error}
   ─────────────────────────────────────────
-${APLICAR ? '' : '\n  Fue un ENSAYO: no se escribió nada. Repetí con --aplicar.\n'}`)
+${
+  APLICAR
+    ? ''
+    : `\n  Fue un ENSAYO: no se escribió nada, pero las ${aProcesar.length} consultas a Google` +
+      '\n  se hicieron igual y se facturan. Repetí con --aplicar para guardar.\n'
+}`)
