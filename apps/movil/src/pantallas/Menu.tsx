@@ -83,11 +83,16 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           style={estilos.futuro}
         />
 
+        {/*
+          El mapa existe desde hace rato: vive adentro de VISITAS → VER
+          RECORRIDO. Este botón, en cambio, llevaba a la pantalla "En
+          preparación", así que el que buscaba el mapa por su nombre concluía
+          que todavía no estaba hecho.
+        */}
         <BotonMenu
           titulo="MAPA DE VISITAS"
-          subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Mapa de visitas' })}
-          style={estilos.futuro}
+          subtitulo="El recorrido de hoy sobre el mapa"
+          alTocar={() => navigation.navigate('Recorrido')}
         />
 
         <BotonMenu

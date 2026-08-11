@@ -41,6 +41,7 @@ import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
   buscarClientes,
+  ubicarCliente,
 } from '../servicios/clientes'
 import { detallarDireccion, sugerirDirecciones, type SugerenciaDireccion } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -255,7 +256,17 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                   <View style={estilos.sugerenciaFila}>
                     <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
                     {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
-                    {!c.direccion_id ? <Pastilla texto="SIN DIRECCIÓN" color={colores.rojoAccion} /> : null}
+                    {/*
+                      Antes decía "SIN DIRECCIÓN" y quedaba justo arriba de la
+                      dirección del cliente, que sí estaba escrita. Lo que falta
+                      no es el domicilio: son las coordenadas.
+                    */}
+                    {c.lat === null ? (
+                      <Pastilla
+                        texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
+                        color={colores.rojoAccion}
+                      />
+                    ) : null}
                   </View>
                   <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
                     {c.razon_social}
@@ -293,6 +304,29 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             </View>
           ) : null}
 
+          {/*
+            El padrón del Gestión trae el domicilio en texto y sin coordenadas.
+            Antes eso era el final del camino: el cliente aparecía en el
+            buscador y no se podía agregar. Ahora se resuelve acá mismo.
+          */}
+          {form.cliente && form.cliente.lat === null ? (
+            <UbicarCliente
+              cliente={form.cliente}
+              alUbicar={(ubicada) =>
+                actualizar({
+                  cliente: {
+                    ...form.cliente!,
+                    direccion_id: ubicada.direccion_id,
+                    direccion: ubicada.direccion_formateada,
+                    lat: ubicada.lat,
+                    lng: ubicada.lng,
+                    localidad: ubicada.localidad ?? form.cliente!.localidad,
+                  },
+                })
+              }
+            />
+          ) : null}
+
           <Desplegable<PrioridadParada>
             etiqueta="PRIORIDAD"
             obligatorio
@@ -311,6 +345,179 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         </Panel>
       </KeyboardAvoidingView>
     </Pantalla>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ubicar en el mapa a un cliente del padrón
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ClienteUbicado {
+  direccion_id: string
+  direccion_formateada: string
+  lat: number
+  lng: number
+  localidad: string | null
+}
+
+/**
+ * El cliente existe y tiene domicilio escrito, pero nadie lo geolocalizó nunca.
+ *
+ * Es el caso de los 12.181 que vinieron del Gestión: calle, localidad y CP en
+ * texto, cero coordenadas. Como el recorrido se arma sobre `direcciones` —y esa
+ * tabla exige lat/lng porque alimenta el mapa y el optimizador—, sin este paso
+ * ninguno de ellos podía ser un destino.
+ *
+ * El buscador arranca precargado con el domicilio que ya está en la ficha, así
+ * que en el caso normal el vendedor toca la sugerencia y listo: no retipea una
+ * dirección que la empresa ya tiene escrita. Y la corrección queda guardada
+ * para todos, no sólo para la visita de hoy.
+ */
+function UbicarCliente({
+  cliente,
+  alUbicar,
+}: {
+  cliente: ClienteBuscado
+  alUbicar: (ubicada: ClienteUbicado) => void
+}) {
+  const sugerido = [cliente.direccion, cliente.localidad].filter(Boolean).join(', ')
+
+  const [texto, setTexto] = useState(sugerido)
+  const [sugerencias, setSugerencias] = useState<SugerenciaDireccion[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [confirmada, setConfirmada] = useState<string | null>(null)
+  const [fallo, setFallo] = useState<string | null>(null)
+
+  const sesion = useRef(Crypto.randomUUID())
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Con el texto precargado no se dispara sola la búsqueda: sería una llamada
+  // a Google por cada cliente que el vendedor mira de paso. Espera a que toque
+  // "BUSCAR" o a que edite el texto.
+  const [activa, setActiva] = useState(false)
+
+  useEffect(() => {
+    if (!activa || confirmada) return
+    if (temporizador.current) clearTimeout(temporizador.current)
+
+    if (texto.trim().length < 4) {
+      setSugerencias([])
+      return
+    }
+
+    temporizador.current = setTimeout(async () => {
+      setBuscando(true)
+      setFallo(null)
+      try {
+        const encontradas = await sugerirDirecciones(texto, sesion.current)
+        setSugerencias(encontradas)
+        if (encontradas.length === 0) {
+          setFallo('Google no encontró esa dirección. Probá escribirla de otra forma.')
+        }
+      } catch (e) {
+        setSugerencias([])
+        setFallo((e as Error).message)
+      } finally {
+        setBuscando(false)
+      }
+    }, 350)
+
+    return () => {
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+  }, [texto, activa, confirmada])
+
+  const guardar = useMutation<ClienteUbicado, Error, SugerenciaDireccion>({
+    mutationFn: async (s) => {
+      const d = await detallarDireccion(s.place_id, sesion.current)
+      sesion.current = Crypto.randomUUID()
+      const fila = await ubicarCliente({ clienteId: cliente.cliente_id, direccion: d })
+      return {
+        direccion_id: fila.direccion_id,
+        direccion_formateada: d.direccion_formateada,
+        lat: fila.lat,
+        lng: fila.lng,
+        localidad: fila.localidad,
+      }
+    },
+    onSuccess: (ubicada) => {
+      setSugerencias([])
+      setConfirmada(ubicada.direccion_formateada)
+      alUbicar(ubicada)
+    },
+    onError: (e) => Alert.alert('No pudimos ubicar al cliente', e.message),
+  })
+
+  if (confirmada) {
+    return (
+      <Aviso tono="exito" titulo="Cliente ubicado en el mapa">
+        {confirmada}
+        {'\n\n'}Queda guardado en su ficha: la próxima vez ya va a estar.
+      </Aviso>
+    )
+  }
+
+  return (
+    <View style={estilos.ubicar}>
+      <Text style={estilos.fichaTitulo}>FALTA UBICARLO EN EL MAPA</Text>
+      <Text style={estilos.ubicarAyuda}>
+        Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa, y sin eso no
+        entra al recorrido. Confirmá la dirección contra Google y queda resuelto.
+      </Text>
+
+      <Campo
+        etiqueta="DIRECCIÓN"
+        value={texto}
+        onChangeText={(t) => {
+          setTexto(t)
+          setActiva(true)
+          setFallo(null)
+        }}
+        placeholder="Calle, número, localidad"
+        autoCapitalize="words"
+        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+      />
+
+      {!activa ? (
+        <BotonMenu titulo="BUSCAR EN GOOGLE" alTocar={() => setActiva(true)} />
+      ) : null}
+
+      {sugerencias.length > 0 ? (
+        <View style={estilos.sugerencias}>
+          {sugerencias.map((s) => (
+            <Pressable
+              key={s.place_id}
+              onPress={() => guardar.mutate(s)}
+              disabled={guardar.isPending}
+              accessibilityRole="button"
+              accessibilityLabel={s.texto}
+              style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
+            >
+              <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
+                {s.principal || s.texto}
+              </Text>
+              {s.secundario ? (
+                <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
+                  {s.secundario}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {guardar.isPending ? (
+        <Aviso tono="info" titulo="Guardando la ubicación">
+          Un segundo.
+        </Aviso>
+      ) : null}
+
+      {fallo && !buscando ? (
+        <Aviso tono="atencion" titulo="No pudimos buscar la dirección">
+          {fallo}
+        </Aviso>
+      ) : null}
+    </View>
   )
 }
 
@@ -617,6 +824,20 @@ const estilos = StyleSheet.create({
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: 3,
+  },
+
+  ubicar: {
+    backgroundColor: colores.panelClaro,
+    borderWidth: 2,
+    borderColor: colores.rojoAccion,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: espaciado.sm,
+  },
+  ubicarAyuda: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
   },
   fichaTitulo: {
     fontFamily: tipografia.familia.subtitulo,

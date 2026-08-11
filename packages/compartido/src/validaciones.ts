@@ -133,9 +133,11 @@ export function validarDestinoExistente(
     errores.cliente = 'Buscá el cliente por código o razón social y elegilo de la lista'
   } else if (form.cliente.lat === null || form.cliente.lng === null) {
     // El cliente existe pero su ficha no tiene coordenadas: sin eso no entra
-    // en el recorrido. Lo tiene que corregir la oficina.
+    // en el recorrido. Ya no es un callejón sin salida —la pantalla ofrece
+    // ubicarlo ahí mismo contra Google—, así que el mensaje señala la acción
+    // en vez de mandar al vendedor a llamar a la oficina.
     errores.cliente =
-      'Ese cliente no tiene la ubicación cargada. Avisá a la oficina para que le completen la dirección.'
+      'Ubicá el cliente en el mapa: confirmá su dirección en el buscador de acá abajo.'
   }
 
   if (!form.prioridad) {

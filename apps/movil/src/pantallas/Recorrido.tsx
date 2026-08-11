@@ -161,6 +161,18 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 
             {avisoRuta ? <Aviso tono="atencion">{avisoRuta}</Aviso> : null}
 
+            {/*
+              Sin paradas no se monta el mapa. Antes se montaba igual y caía al
+              centro de Buenos Aires, sin un pin y sin un cartel: para el
+              vendedor era indistinguible de un mapa roto.
+            */}
+            {paradas.length === 0 ? (
+              <Vacio
+                titulo="Todavía no hay destinos ubicados"
+                detalle="Agregá un destino y, si el cliente viene del listado de la oficina, confirmá su dirección para que aparezca en el mapa."
+                icono="📍"
+              />
+            ) : (
             <View style={estilos.marcoMapa}>
               <MapView
                 ref={mapa}
@@ -170,8 +182,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 showsMyLocationButton
                 toolbarEnabled={false}
                 initialRegion={{
-                  latitude: paradas[0]?.direccion.lat ?? -34.6037,
-                  longitude: paradas[0]?.direccion.lng ?? -58.3816,
+                  latitude: paradas[0].direccion.lat,
+                  longitude: paradas[0].direccion.lng,
                   latitudeDelta: 0.25,
                   longitudeDelta: 0.25,
                 }}
@@ -191,6 +203,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 ))}
               </MapView>
             </View>
+            )}
 
             {jornada.distancia_total_m ? (
               <Text style={estilos.resumenRuta}>
@@ -233,7 +246,9 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               </View>
             ) : null}
 
-            <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
+            {paradas.length > 0 ? (
+              <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
+            ) : null}
 
             {paradas.map((p) => (
               <FilaParada

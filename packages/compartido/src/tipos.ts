@@ -204,6 +204,19 @@ export interface Cliente {
    */
   provisorio: boolean
   notas: string | null
+
+  /**
+   * El domicilio tal como vino del listado del Gestión: texto, sin geocodificar.
+   *
+   * No es lo mismo que `Direccion`. Esta tabla exige lat/lng porque alimenta el
+   * mapa y el optimizador de ruta; el listado no trae coordenadas, así que su
+   * domicilio se guarda acá, en la ficha del cliente. Cuando alguien lo ubica
+   * en el mapa se crea la fila en `direcciones` y esa pasa a mandar.
+   */
+  direccion: string | null
+  localidad: string | null
+  codigo_postal: string | null
+
   creado_en: string
   actualizado_en: string
 }

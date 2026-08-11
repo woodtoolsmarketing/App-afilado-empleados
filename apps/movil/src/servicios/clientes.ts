@@ -8,6 +8,7 @@ import type {
 } from '@woodtools/compartido'
 
 import { supabase } from '../nucleo/supabase'
+import type { DireccionResuelta } from './mapas'
 
 /**
  * Búsqueda y alta de clientes desde la calle.
@@ -28,6 +29,41 @@ export async function buscarClientes(texto: string, limite = 15): Promise<Client
   return (data ?? []) as ClienteBuscado[]
 }
 
+/**
+ * Geolocaliza un cliente del padrón que sólo tiene el domicilio en texto.
+ *
+ * Los 12.181 clientes importados del Gestión traen calle, localidad y CP, pero
+ * ninguna coordenada, y sin coordenadas no entran a un recorrido. Esto lo
+ * resuelve desde la calle: el vendedor confirma la dirección contra las
+ * sugerencias de Google y el cliente queda ubicado para siempre, no sólo para
+ * la visita de hoy.
+ */
+export async function ubicarCliente(params: {
+  clienteId: string
+  direccion: DireccionResuelta
+}): Promise<{ direccion_id: string; lat: number; lng: number; localidad: string | null }> {
+  const { direccion } = params
+
+  const { data, error } = await supabase.rpc('ubicar_cliente', {
+    p_cliente_id: params.clienteId,
+    p_direccion_formateada: direccion.direccion_formateada,
+    p_lat: direccion.lat,
+    p_lng: direccion.lng,
+    p_codigo_postal: direccion.codigo_postal,
+    p_google_place_id: direccion.google_place_id,
+    p_localidad: direccion.localidad,
+    p_provincia: direccion.provincia,
+  })
+
+  if (error) {
+    if (error.code === '23514') throw new Error(error.message)
+    throw error
+  }
+
+  const fila = data as { id: string; lat: number; lng: number; localidad: string | null }
+  return { direccion_id: fila.id, lat: fila.lat, lng: fila.lng, localidad: fila.localidad }
+}
+
 /** Agrega al recorrido un cliente que ya está en el padrón. */
 export async function agregarDestinoExistente(params: {
   rolVisitaId: string
@@ -36,7 +72,7 @@ export async function agregarDestinoExistente(params: {
 }): Promise<ParadaCompleta> {
   if (!params.cliente.direccion_id) {
     throw new Error(
-      'Ese cliente no tiene dirección cargada. Avisá a la oficina para que le completen la ficha.',
+      'Ese cliente todavía no está ubicado en el mapa. Confirmá su dirección con el buscador de Google antes de agregarlo.',
     )
   }
 

@@ -1,10 +1,13 @@
 import type { Cliente, Direccion, Perfil } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
 
 type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
+
+/** Cuántas filas se traen por consulta. El resto se alcanza buscando. */
+const VENTANA = 200
 
 /** Alta, baja y modificación de la cartera de clientes. */
 export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
@@ -13,13 +16,73 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
   const [editando, setEditando] = useState<ClienteConDirecciones | 'nuevo' | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
+  // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
+  const [termino, setTermino] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setTermino(busqueda.trim()), 300)
+    return () => clearTimeout(t)
+  }, [busqueda])
+
+  const { data: total } = useQuery({
+    queryKey: ['clientes-total'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('clientes')
+        .select('id', { count: 'exact', head: true })
+      if (error) throw error
+      return count ?? 0
+    },
+  })
+
+  /**
+   * La cartera son 12.181 clientes desde que se importó el padrón del Gestión.
+   *
+   * Antes esto bajaba la tabla entera y filtraba en el navegador. PostgREST
+   * corta en 1.000 filas, así que el panel mostraba 1.000 de 12.181 y el
+   * buscador sólo encontraba lo que estuviera en ese primer millar por orden
+   * alfabético: todo lo que empieza con una letra avanzada era invisible, sin
+   * ningún cartel que lo dijera.
+   */
   const { data: clientes, isLoading } = useQuery({
-    queryKey: ['clientes'],
+    queryKey: ['clientes', termino],
+    queryFn: async () => {
+      let consulta = supabase
+        .from('clientes')
+        .select('*, direcciones ( * )')
+        .order('razon_social')
+        .limit(VENTANA)
+
+      if (termino) {
+        // `or` de PostgREST separa por comas, así que una coma en el término
+        // partiría el filtro en dos condiciones inválidas.
+        const limpio = termino.replace(/[,()]/g, ' ')
+        consulta = consulta.or(
+          [
+            `codigo.ilike.%${limpio}%`,
+            `razon_social.ilike.%${limpio}%`,
+            `nombre_fantasia.ilike.%${limpio}%`,
+            `cuit.ilike.%${limpio}%`,
+            `localidad.ilike.%${limpio}%`,
+          ].join(','),
+        )
+      }
+
+      const { data, error } = await consulta
+      if (error) throw error
+      return data as ClienteConDirecciones[]
+    },
+  })
+
+  const { data: provisorios } = useQuery({
+    queryKey: ['clientes-provisorios'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('clientes')
         .select('*, direcciones ( * )')
+        .eq('provisorio', true)
+        .eq('activo', true)
         .order('razon_social')
+        .limit(50)
       if (error) throw error
       return data as ClienteConDirecciones[]
     },
@@ -39,20 +102,7 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
-  const provisorios = useMemo(
-    () => (clientes ?? []).filter((c) => c.provisorio && c.activo),
-    [clientes],
-  )
-
-  const filtrados = useMemo(() => {
-    const t = busqueda.trim().toLowerCase()
-    if (!t) return clientes ?? []
-    return (clientes ?? []).filter((c) =>
-      `${c.codigo} ${c.razon_social} ${c.nombre_fantasia ?? ''} ${c.cuit ?? ''}`
-        .toLowerCase()
-        .includes(t),
-    )
-  }, [clientes, busqueda])
+  const filtrados = clientes ?? []
 
   const alternarActivo = useMutation({
     mutationFn: async (c: Cliente) => {
@@ -70,7 +120,10 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
       <header className="encabezado-pagina">
         <div>
           <h1>Clientes</h1>
-          <p>{clientes?.length ?? 0} clientes en la cartera.</p>
+          <p>
+            {total ?? '…'} clientes en la cartera
+            {termino ? ` · ${filtrados.length} coinciden con "${termino}"` : ''}.
+          </p>
         </div>
         <button className="primario" disabled={soloLectura} onClick={() => setEditando('nuevo')}>
           + Nuevo cliente
@@ -82,7 +135,7 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
       {/* Los clientes que los vendedores cargan desde la calle nacen sin código
           real ni datos fiscales. Si no se muestran acá, quedan enterrados en el
           padrón y nadie los completa nunca. */}
-      {provisorios.length > 0 && (
+      {provisorios && provisorios.length > 0 && (
         <div className="aviso atencion">
           <strong>
             {provisorios.length} cliente{provisorios.length === 1 ? '' : 's'} cargado
@@ -161,11 +214,26 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
                   <td>
                     {vendedores?.find((v) => v.id === c.vendedor_id)?.nombre_completo ?? 'Sin asignar'}
                   </td>
+                  {/*
+                    Son dos estados distintos y antes se veían igual. El padrón
+                    importado tiene el domicilio escrito pero no geolocalizado:
+                    decirle "Sin dirección" a un cliente cuya calle está ahí
+                    abajo es falso, y esconde que lo que falta son coordenadas.
+                  */}
                   <td>
-                    {c.direcciones.length === 0 ? (
-                      <span className="pastilla roja">Sin dirección</span>
+                    {c.direcciones.length > 0 ? (
+                      <small>
+                        {c.direcciones.find((d) => d.principal)?.direccion_formateada ??
+                          c.direcciones[0].direccion_formateada}
+                      </small>
+                    ) : c.direccion ? (
+                      <>
+                        <small>{[c.direccion, c.localidad].filter(Boolean).join(', ')}</small>
+                        <br />
+                        <span className="pastilla ambar">Sin ubicar en el mapa</span>
+                      </>
                     ) : (
-                      <small>{c.direcciones.find((d) => d.principal)?.direccion_formateada ?? c.direcciones[0].direccion_formateada}</small>
+                      <span className="pastilla roja">Sin dirección</span>
                     )}
                   </td>
                   <td>

@@ -31,6 +31,37 @@ import { supabase } from '../nucleo/supabase'
  * con la polilínea que devuelve Routes API — ahí no hay límite de puntos.
  */
 
+/**
+ * Invoca una Edge Function y deja pasar el motivo real del error.
+ *
+ * `functions.invoke` devuelve un `FunctionsHttpError` cuyo mensaje es siempre
+ * el mismo: "Edge Function returned a non-2xx status code". El motivo viaja en
+ * el cuerpo de la respuesta —`{ error: "..." }`, que es lo que arma
+ * `manejarError`— y supabase-js lo deja ahí adentro, en `error.context`.
+ *
+ * Sin esto, una función mal configurada en el servidor se le aparece al
+ * vendedor como "no pudimos buscar la dirección" y nadie se entera nunca de
+ * que lo que falta es cargar una clave. Pasó exactamente eso con
+ * `GOOGLE_MAPS_SERVER_KEY`.
+ */
+async function invocar<T>(nombre: string, cuerpo: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(nombre, { body: cuerpo })
+  if (!error) return data as T
+
+  let motivo: string | null = null
+  const respuesta = (error as { context?: Response }).context
+  if (respuesta && typeof respuesta.json === 'function') {
+    try {
+      const cuerpoError = await respuesta.json()
+      if (typeof cuerpoError?.error === 'string') motivo = cuerpoError.error
+    } catch {
+      // No era JSON. Nos quedamos con el error original.
+    }
+  }
+
+  throw motivo ? new Error(motivo) : error
+}
+
 export interface SugerenciaDireccion {
   place_id: string
   texto: string
@@ -43,10 +74,11 @@ export async function sugerirDirecciones(
   texto: string,
   sesion: string,
 ): Promise<SugerenciaDireccion[]> {
-  const { data, error } = await supabase.functions.invoke('geocodificar', {
-    body: { operacion: 'sugerir', texto, sesion },
+  const data = await invocar<{ sugerencias?: SugerenciaDireccion[] }>('geocodificar', {
+    operacion: 'sugerir',
+    texto,
+    sesion,
   })
-  if (error) throw error
   return data?.sugerencias ?? []
 }
 
@@ -57,10 +89,11 @@ export async function detallarDireccion(
   placeId: string,
   sesion: string,
 ): Promise<DireccionResuelta> {
-  const { data, error } = await supabase.functions.invoke('geocodificar', {
-    body: { operacion: 'detallar', place_id: placeId, sesion },
+  const data = await invocar<{ direccion?: DireccionResuelta }>('geocodificar', {
+    operacion: 'detallar',
+    place_id: placeId,
+    sesion,
   })
-  if (error) throw error
   if (!data?.direccion?.lat) {
     throw new Error('Google no devolvió las coordenadas de esa dirección. Probá con otra.')
   }
@@ -85,11 +118,10 @@ export async function optimizarRecorrido(
   rolVisitaId: string,
   origen?: { lat: number; lng: number },
 ): Promise<ResultadoOptimizacion> {
-  const { data, error } = await supabase.functions.invoke('optimizar-ruta', {
-    body: { rol_visita_id: rolVisitaId, origen },
+  return invocar<ResultadoOptimizacion>('optimizar-ruta', {
+    rol_visita_id: rolVisitaId,
+    origen,
   })
-  if (error) throw error
-  return data as ResultadoOptimizacion
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
