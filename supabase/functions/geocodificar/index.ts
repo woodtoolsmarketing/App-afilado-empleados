@@ -11,12 +11,14 @@ import {
 } from '../_compartido/comun.ts'
 
 /**
- * Búsqueda de direcciones para "AGREGAR NUEVO DESTINO".
+ * Búsqueda de direcciones para "AGREGAR NUEVO DESTINO" y para ubicar clientes.
  *
- * Dos operaciones:
+ * Tres operaciones:
  *  · `sugerir`  → autocompletado mientras el vendedor escribe.
  *  · `detallar` → al elegir una sugerencia, devuelve coordenadas y código
  *                 postal, que es lo que completa el campo CP automáticamente.
+ *  · `reversa`  → de las coordenadas del GPS a una dirección escrita, para
+ *                 "USAR MI UBICACIÓN ACTUAL".
  *
  * La clave de servidor de Google no sale de acá. La del APK (Maps SDK for
  * Android) es distinta y está restringida por package name + huella SHA-1:
@@ -25,6 +27,7 @@ import {
 
 const AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete'
 const DETALLE_URL = 'https://places.googleapis.com/v1/places'
+const REVERSA_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
 
 /** Sesga la búsqueda al AMBA, que es donde recorren los vendedores. */
 const SESGO_ARGENTINA = {
@@ -49,7 +52,74 @@ Deno.serve(async (req) => {
     const clave = Deno.env.get('GOOGLE_MAPS_SERVER_KEY')
     if (!clave) throw new RespuestaError('Falta configurar GOOGLE_MAPS_SERVER_KEY', 500)
 
-    const { operacion, texto, place_id, sesion } = await req.json()
+    const { operacion, texto, place_id, sesion, lat, lng } = await req.json()
+
+    /**
+     * "USAR MI UBICACIÓN ACTUAL": del GPS a una dirección escrita.
+     *
+     * El teléfono da coordenadas; la ficha del cliente necesita una calle y una
+     * altura que alguien pueda leer y verificar. Va por la Geocoding API y no
+     * por el geocodificador del sistema operativo a propósito: así el texto
+     * queda con el mismo formato que las direcciones que entran por el
+     * buscador, y las dos se ven igual en el panel y en la planilla.
+     *
+     * Se devuelve también la precisión, porque acá importa de otra manera que
+     * en el buscador: si el vendedor está adentro de un galpón, el GPS puede
+     * errarle 50 metros y caer en el vecino.
+     */
+    if (operacion === 'reversa') {
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        throw new RespuestaError('Faltan las coordenadas', 400)
+      }
+
+      const url = new URL(REVERSA_URL)
+      url.searchParams.set('latlng', `${lat},${lng}`)
+      url.searchParams.set('language', 'es-419')
+      url.searchParams.set('key', clave)
+
+      const respuesta = await fetch(url)
+      if (!respuesta.ok) {
+        console.error('[geocodificar] reversa', respuesta.status, await respuesta.text())
+        throw new RespuestaError('No pudimos resolver tu ubicación', 502)
+      }
+
+      const datos = await respuesta.json()
+      if (datos.status === 'ZERO_RESULTS' || !datos.results?.length) {
+        throw new RespuestaError(
+          'No encontramos una dirección para donde estás parado. Buscala a mano.',
+          404,
+        )
+      }
+      if (datos.status !== 'OK') {
+        console.error('[geocodificar] reversa', datos.status, datos.error_message)
+        throw new RespuestaError('No pudimos resolver tu ubicación', 502)
+      }
+
+      const lugar = datos.results[0]
+      const trozo = (tipo: string) =>
+        (lugar.address_components ?? []).find((c: { types: string[] }) => c.types.includes(tipo))
+          ?.long_name ?? null
+
+      return responder({
+        direccion: {
+          google_place_id: lugar.place_id ?? null,
+          direccion_formateada: lugar.formatted_address ?? '',
+          calle: trozo('route'),
+          numero: trozo('street_number'),
+          localidad:
+            trozo('locality') ?? trozo('administrative_area_level_2') ?? trozo('sublocality'),
+          provincia: trozo('administrative_area_level_1'),
+          pais: trozo('country') ?? 'Argentina',
+          codigo_postal: trozo('postal_code') ?? trozo('postal_code_prefix'),
+          // Las coordenadas que se guardan son las del GPS, no las que Google
+          // devuelve del portal más cercano: el vendedor está donde está.
+          lat,
+          lng,
+          verificada: true,
+        },
+        precision_google: lugar.geometry?.location_type ?? null,
+      })
+    }
 
     if (operacion === 'sugerir') {
       if (!texto || texto.trim().length < 3) return responder({ sugerencias: [] })
@@ -138,7 +208,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    throw new RespuestaError('Operación desconocida. Usá "sugerir" o "detallar".', 400)
+    throw new RespuestaError('Operación desconocida. Usá "sugerir", "detallar" o "reversa".', 400)
   } catch (e) {
     return manejarError(e)
   }

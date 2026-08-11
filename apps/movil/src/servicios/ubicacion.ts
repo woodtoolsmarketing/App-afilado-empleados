@@ -72,6 +72,23 @@ export async function pedirPermisosUbicacion(): Promise<ResultadoPermiso> {
   return { concedido: true, segundoPlano: segundoPlano.granted }
 }
 
+/**
+ * Sólo el permiso de "mientras usás la app".
+ *
+ * Para leer dónde está parado el vendedor ahora mismo alcanza con éste. Pedirle
+ * además el de segundo plano —que es el que Android muestra con la advertencia
+ * de que la app puede seguirlo con la pantalla apagada— para completar un campo
+ * de dirección sería pedir mucho más de lo que hace falta, y es la clase de
+ * cartel que hace que alguien apriete "Rechazar" y no vuelva a intentarlo.
+ *
+ * El de segundo plano se sigue pidiendo aparte, cuando arranca el recorrido,
+ * que es cuando de verdad se necesita.
+ */
+export async function permisoDeUbicacionPuntual(): Promise<boolean> {
+  const { granted } = await Location.requestForegroundPermissionsAsync()
+  return granted
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Arranque y parada
 // ─────────────────────────────────────────────────────────────────────────────

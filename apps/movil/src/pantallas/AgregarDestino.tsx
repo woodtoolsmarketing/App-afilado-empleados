@@ -43,7 +43,14 @@ import {
   buscarClientes,
   ubicarCliente,
 } from '../servicios/clientes'
-import { detallarDireccion, sugerirDirecciones, type SugerenciaDireccion } from '../servicios/mapas'
+import {
+  detallarDireccion,
+  sugerirDirecciones,
+  ubicacionComoDireccion,
+  type DireccionResuelta,
+  type SugerenciaDireccion,
+} from '../servicios/mapas'
+import { permisoDeUbicacionPuntual, ubicacionActual } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -305,11 +312,12 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           ) : null}
 
           {/*
-            El padrón del Gestión trae el domicilio en texto y sin coordenadas.
-            Antes eso era el final del camino: el cliente aparecía en el
-            buscador y no se podía agregar. Ahora se resuelve acá mismo.
+            Dos situaciones, un mismo componente. O el cliente nunca se ubicó
+            —el padrón del Gestión trae el domicilio en texto y sin
+            coordenadas— o la ficha dice una cosa y el local está en otra. El
+            que sabe cuál de las dos es, es el que está parado en la puerta.
           */}
-          {form.cliente && form.cliente.lat === null ? (
+          {form.cliente ? (
             <UbicarCliente
               cliente={form.cliente}
               alUbicar={(ubicada) =>
@@ -318,6 +326,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                     ...form.cliente!,
                     direccion_id: ubicada.direccion_id,
                     direccion: ubicada.direccion_formateada,
+                    codigo_postal: ubicada.codigo_postal ?? form.cliente!.codigo_postal,
                     lat: ubicada.lat,
                     lng: ubicada.lng,
                     localidad: ubicada.localidad ?? form.cliente!.localidad,
@@ -355,23 +364,33 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
 interface ClienteUbicado {
   direccion_id: string
   direccion_formateada: string
+  codigo_postal: string | null
   lat: number
   lng: number
   localidad: string | null
 }
 
 /**
- * El cliente existe y tiene domicilio escrito, pero nadie lo geolocalizó nunca.
+ * Poner al cliente en el mapa, o corregir dónde está.
  *
- * Es el caso de los 12.181 que vinieron del Gestión: calle, localidad y CP en
- * texto, cero coordenadas. Como el recorrido se arma sobre `direcciones` —y esa
- * tabla exige lat/lng porque alimenta el mapa y el optimizador—, sin este paso
- * ninguno de ellos podía ser un destino.
+ * Cubre dos situaciones que para el vendedor son la misma pregunta —"¿dónde
+ * queda este cliente?"— y que para la app eran mundos distintos:
  *
- * El buscador arranca precargado con el domicilio que ya está en la ficha, así
- * que en el caso normal el vendedor toca la sugerencia y listo: no retipea una
- * dirección que la empresa ya tiene escrita. Y la corrección queda guardada
- * para todos, no sólo para la visita de hoy.
+ *  · **Nunca se ubicó.** Es el caso de los que vinieron del Gestión: calle,
+ *    localidad y CP en texto, cero coordenadas. Como el recorrido se arma sobre
+ *    `direcciones`, y esa tabla exige lat/lng porque alimenta el mapa y el
+ *    optimizador, sin este paso no podían ser un destino. El bloque arranca
+ *    abierto y en rojo, porque hasta que no se resuelva no se puede seguir.
+ *
+ *  · **Está ubicado pero mal.** La ficha dice una cosa y el local está en otra.
+ *    Acá el bloque arranca cerrado: es una corrección, no un trámite, y no tiene
+ *    por qué estorbar al que sólo quiere agregar el destino y seguir.
+ *
+ * Dos formas de resolverlo, porque las dos hacen falta en la calle. El buscador
+ * de Google sirve cuando el vendedor sabe la dirección; el GPS sirve cuando está
+ * parado en la puerta de un lugar que no figura en ningún mapa —un aserradero
+ * sobre una ruta, un galpón en un camino de tierra—, que es justo donde el
+ * buscador no lo va a ayudar.
  */
 function UbicarCliente({
   cliente,
@@ -380,8 +399,13 @@ function UbicarCliente({
   cliente: ClienteBuscado
   alUbicar: (ubicada: ClienteUbicado) => void
 }) {
-  const sugerido = [cliente.direccion, cliente.localidad].filter(Boolean).join(', ')
+  const faltaUbicar = cliente.lat === null
 
+  // Si falta, no hay nada que decidir: se abre solo. Si ya está ubicado, el
+  // vendedor tiene que pedir corregirlo.
+  const [abierto, setAbierto] = useState(faltaUbicar)
+
+  const sugerido = [cliente.direccion, cliente.localidad].filter(Boolean).join(', ')
   const [texto, setTexto] = useState(sugerido)
   const [sugerencias, setSugerencias] = useState<SugerenciaDireccion[]>([])
   const [buscando, setBuscando] = useState(false)
@@ -391,8 +415,8 @@ function UbicarCliente({
   const sesion = useRef(Crypto.randomUUID())
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Con el texto precargado no se dispara sola la búsqueda: sería una llamada
-  // a Google por cada cliente que el vendedor mira de paso. Espera a que toque
+  // Con el texto precargado no se dispara sola la búsqueda: sería una llamada a
+  // Google por cada cliente que el vendedor mira de paso. Espera a que toque
   // "BUSCAR" o a que edite el texto.
   const [activa, setActiva] = useState(false)
 
@@ -427,42 +451,87 @@ function UbicarCliente({
     }
   }, [texto, activa, confirmada])
 
-  const guardar = useMutation<ClienteUbicado, Error, SugerenciaDireccion>({
+  /** Guarda la dirección resuelta, venga del buscador o del GPS. */
+  async function guardarUbicacion(d: DireccionResuelta): Promise<ClienteUbicado> {
+    const fila = await ubicarCliente({ clienteId: cliente.cliente_id, direccion: d })
+    return {
+      direccion_id: fila.direccion_id,
+      direccion_formateada: d.direccion_formateada,
+      codigo_postal: d.codigo_postal,
+      lat: fila.lat,
+      lng: fila.lng,
+      localidad: fila.localidad,
+    }
+  }
+
+  function alGuardar(ubicada: ClienteUbicado) {
+    setSugerencias([])
+    setConfirmada(ubicada.direccion_formateada)
+    alUbicar(ubicada)
+  }
+
+  const desdeBuscador = useMutation<ClienteUbicado, Error, SugerenciaDireccion>({
     mutationFn: async (s) => {
       const d = await detallarDireccion(s.place_id, sesion.current)
       sesion.current = Crypto.randomUUID()
-      const fila = await ubicarCliente({ clienteId: cliente.cliente_id, direccion: d })
-      return {
-        direccion_id: fila.direccion_id,
-        direccion_formateada: d.direccion_formateada,
-        lat: fila.lat,
-        lng: fila.lng,
-        localidad: fila.localidad,
-      }
+      return guardarUbicacion(d)
     },
-    onSuccess: (ubicada) => {
-      setSugerencias([])
-      setConfirmada(ubicada.direccion_formateada)
-      alUbicar(ubicada)
-    },
+    onSuccess: alGuardar,
     onError: (e) => Alert.alert('No pudimos ubicar al cliente', e.message),
   })
 
+  const desdeGps = useMutation<ClienteUbicado, Error, void>({
+    mutationFn: async () => {
+      if (!(await permisoDeUbicacionPuntual())) {
+        throw new Error(
+          'Necesitamos permiso de ubicación para usar dónde estás. Podés activarlo en los ajustes del teléfono.',
+        )
+      }
+      const coords = await ubicacionActual()
+      const d = await ubicacionComoDireccion({ lat: coords.lat, lng: coords.lng })
+      return guardarUbicacion(d)
+    },
+    onSuccess: alGuardar,
+    onError: (e) => Alert.alert('No pudimos usar tu ubicación', e.message),
+  })
+
+  const trabajando = desdeBuscador.isPending || desdeGps.isPending
+
   if (confirmada) {
     return (
-      <Aviso tono="exito" titulo="Cliente ubicado en el mapa">
+      <Aviso tono="exito" titulo="Ubicación guardada">
         {confirmada}
-        {'\n\n'}Queda guardado en su ficha: la próxima vez ya va a estar.
+        {'\n\n'}Queda en la ficha del cliente: la próxima vez ya va a estar.
       </Aviso>
     )
   }
 
+  // Ya ubicado y sin pedido de corregir: sólo el acceso, sin ocupar pantalla.
+  if (!abierto) {
+    return (
+      <Pressable
+        onPress={() => {
+          setAbierto(true)
+          setActiva(false)
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Corregir la ubicación de este cliente"
+        style={({ pressed }) => [estilos.corregir, pressed && estilos.sugerenciaTocada]}
+      >
+        <Text style={estilos.corregirTexto}>¿La dirección está mal? CORREGIR UBICACIÓN</Text>
+      </Pressable>
+    )
+  }
+
   return (
-    <View style={estilos.ubicar}>
-      <Text style={estilos.fichaTitulo}>FALTA UBICARLO EN EL MAPA</Text>
+    <View style={[estilos.ubicar, !faltaUbicar && estilos.ubicarCorreccion]}>
+      <Text style={estilos.fichaTitulo}>
+        {faltaUbicar ? 'FALTA UBICARLO EN EL MAPA' : 'CORREGIR LA UBICACIÓN'}
+      </Text>
       <Text style={estilos.ubicarAyuda}>
-        Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa, y sin eso no
-        entra al recorrido. Confirmá la dirección contra Google y queda resuelto.
+        {faltaUbicar
+          ? 'Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa, y sin eso no entra al recorrido.'
+          : 'Lo que cargues acá reemplaza la dirección que tiene hoy, para todos.'}
       </Text>
 
       <Campo
@@ -478,17 +547,15 @@ function UbicarCliente({
         accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
       />
 
-      {!activa ? (
-        <BotonMenu titulo="BUSCAR EN GOOGLE" alTocar={() => setActiva(true)} />
-      ) : null}
+      {!activa ? <BotonMenu titulo="BUSCAR EN GOOGLE" alTocar={() => setActiva(true)} /> : null}
 
       {sugerencias.length > 0 ? (
         <View style={estilos.sugerencias}>
           {sugerencias.map((s) => (
             <Pressable
               key={s.place_id}
-              onPress={() => guardar.mutate(s)}
-              disabled={guardar.isPending}
+              onPress={() => desdeBuscador.mutate(s)}
+              disabled={trabajando}
               accessibilityRole="button"
               accessibilityLabel={s.texto}
               style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
@@ -506,7 +573,22 @@ function UbicarCliente({
         </View>
       ) : null}
 
-      {guardar.isPending ? (
+      <Text style={estilos.separadorO}>— o —</Text>
+
+      {/*
+        Para los clientes que no figuran en ningún mapa: un aserradero sobre una
+        ruta, un galpón en un camino de tierra. Ahí el buscador no ayuda y estar
+        parado en la puerta es el único dato bueno que hay.
+      */}
+      <BotonMenu
+        titulo="UTILIZAR MI UBICACIÓN ACTUAL"
+        subtitulo="Guarda el punto donde estás parado ahora"
+        alTocar={() => desdeGps.mutate()}
+        cargando={desdeGps.isPending}
+        deshabilitado={trabajando}
+      />
+
+      {desdeBuscador.isPending ? (
         <Aviso tono="info" titulo="Guardando la ubicación">
           Un segundo.
         </Aviso>
@@ -516,6 +598,12 @@ function UbicarCliente({
         <Aviso tono="atencion" titulo="No pudimos buscar la dirección">
           {fallo}
         </Aviso>
+      ) : null}
+
+      {!faltaUbicar ? (
+        <Pressable onPress={() => setAbierto(false)} accessibilityRole="button">
+          <Text style={estilos.cancelar}>Dejarla como está</Text>
+        </Pressable>
       ) : null}
     </View>
   )
@@ -834,10 +922,35 @@ const estilos = StyleSheet.create({
     padding: espaciado.md,
     gap: espaciado.sm,
   },
+  // La corrección de algo que ya está bien no tiene por qué gritar como la
+  // falta de algo imprescindible: mismo bloque, borde neutro.
+  ubicarCorreccion: { borderColor: colores.negro },
   ubicarAyuda: {
     fontFamily: tipografia.familia.cuerpo,
     fontSize: tipografia.tamano.xs,
     color: colores.tintaSuave,
+  },
+
+  corregir: {
+    paddingVertical: espaciado.sm,
+    paddingHorizontal: espaciado.md,
+    borderWidth: 1,
+    borderColor: colores.panelOscuro,
+    borderRadius: radios.sm,
+    alignItems: 'center',
+  },
+  corregirTexto: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  cancelar: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+    textAlign: 'center',
+    textDecorationLine: 'underline',
+    paddingVertical: espaciado.xs,
   },
   fichaTitulo: {
     fontFamily: tipografia.familia.subtitulo,

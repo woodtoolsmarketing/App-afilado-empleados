@@ -100,6 +100,29 @@ export async function detallarDireccion(
   return data.direccion
 }
 
+/**
+ * "USAR MI UBICACIÓN ACTUAL": dónde estoy parado, escrito como dirección.
+ *
+ * Las coordenadas que quedan guardadas son las del GPS, no las del portal que
+ * Google elige como más cercano. Si el vendedor está en la puerta del galpón,
+ * ahí es donde tiene que caer el pin, aunque Google le ponga el número de la
+ * esquina.
+ */
+export async function ubicacionComoDireccion(coords: {
+  lat: number
+  lng: number
+}): Promise<DireccionResuelta> {
+  const data = await invocar<{ direccion?: DireccionResuelta }>('geocodificar', {
+    operacion: 'reversa',
+    lat: coords.lat,
+    lng: coords.lng,
+  })
+  if (!data?.direccion?.lat) {
+    throw new Error('No pudimos resolver una dirección para donde estás parado.')
+  }
+  return data.direccion
+}
+
 export interface ResultadoOptimizacion {
   orden: string[]
   optimizado: boolean
