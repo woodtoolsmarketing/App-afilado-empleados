@@ -39,7 +39,12 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
  * Si mañana una función nueva necesita otra, va acá. El chequeo de abajo avisa
  * si alguna quedó sin valor en el `.env`.
  */
-const DEL_SERVIDOR = ['GOOGLE_MAPS_SERVER_KEY', 'GEMINI_API_KEY', 'GEMINI_MODELO']
+const DEL_SERVIDOR = [
+  'GOOGLE_MAPS_SERVER_KEY',
+  'GEMINI_API_KEY',
+  'GEMINI_MODELO',
+  'PLANILLA_SECRETO',
+]
 
 // ── Leer el .env ────────────────────────────────────────────────────────────
 
