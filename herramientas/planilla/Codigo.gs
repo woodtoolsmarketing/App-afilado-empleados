@@ -160,8 +160,25 @@ function sincronizar() {
   var subidos = subirEdiciones(hoja)
   var bajados = bajarPadron(hoja)
 
-  var mensaje = 'Bajados: ' + bajados + ' clientes.'
-  if (subidos.aplicados > 0) mensaje += '\nSubidos: ' + subidos.aplicados + ' cambios.'
+  // El resumen dice SIEMPRE cuántas ediciones se detectaron y cuántas se
+  // aplicaron, incluso cuando son cero. Si sólo se informara el caso con
+  // cambios, "no subí nada" se vería igual que "todo bien", y una edición que
+  // no llegó a la base es justo lo que hay que enterarse enseguida.
+  var mensaje =
+    'Ediciones detectadas en la planilla: ' +
+    subidos.detectadas +
+    '\nSubidas a la base: ' +
+    subidos.aplicados +
+    '\nClientes bajados: ' +
+    bajados
+
+  if (subidos.detectadas === 0) {
+    mensaje +=
+      '\n\nNo se detectó ninguna edición. Se pueden editar Dirección, ' +
+      'Localidad, CP, Latitud y Longitud. Si cambiaste algo y no aparece acá, ' +
+      'avisá: puede ser un problema del sincronizador.'
+  }
+
   if (subidos.problemas.length > 0) {
     mensaje += '\n\nNo se pudieron aplicar ' + subidos.problemas.length + ':\n'
     mensaje += subidos.problemas
@@ -212,7 +229,7 @@ function prepararHoja() {
 /** Manda a la base lo que alguien haya editado a mano en la planilla. */
 function subirEdiciones(hoja) {
   var ultima = hoja.getLastRow()
-  if (ultima < 2) return { aplicados: 0, problemas: [] }
+  if (ultima < 2) return { detectadas: 0, aplicados: 0, problemas: [] }
 
   var datos = hoja.getRange(2, 1, ultima - 1, TOTAL_COLUMNAS).getValues()
   var cambios = []
@@ -222,10 +239,18 @@ function subirEdiciones(hoja) {
     var codigo = texto(f[COL.codigo])
     if (!codigo) continue
 
+    // Si la fila nunca se sincronizó no hay respaldo contra el cual comparar, y
+    // tomarla como editada haría que la primera corrida subiera el padrón
+    // entero. Se saltea: la próxima bajada le deja el respaldo puesto.
+    if (texto(f[COL.syncDir]) === '' && texto(f[COL.syncLat]) === '') continue
+
     var editada =
       texto(f[COL.direccion]) !== texto(f[COL.syncDir]) ||
-      texto(f[COL.lat]) !== texto(f[COL.syncLat]) ||
-      texto(f[COL.lng]) !== texto(f[COL.syncLng])
+      // Las coordenadas se comparan como número: la planilla puede devolver
+      // -34.6512 o "-34,6512" según el formato de la celda, y comparar el texto
+      // crudo daría por editada una fila que nadie tocó.
+      !mismoNumero(f[COL.lat], f[COL.syncLat]) ||
+      !mismoNumero(f[COL.lng], f[COL.syncLng])
 
     if (!editada) continue
 
@@ -239,7 +264,8 @@ function subirEdiciones(hoja) {
     })
   }
 
-  if (cambios.length === 0) return { aplicados: 0, problemas: [] }
+  Logger.log('Ediciones detectadas: ' + cambios.length)
+  if (cambios.length === 0) return { detectadas: 0, aplicados: 0, problemas: [] }
 
   // De a 500, que es lo que acepta la función del servidor.
   var aplicados = 0
@@ -250,7 +276,25 @@ function subirEdiciones(hoja) {
     if (r.problemas) problemas = problemas.concat(r.problemas)
   }
 
-  return { aplicados: aplicados, problemas: problemas }
+  return { detectadas: cambios.length, aplicados: aplicados, problemas: problemas }
+}
+
+/** Dos celdas representan el mismo número (o las dos están vacías). */
+function mismoNumero(a, b) {
+  var na = numero(a)
+  var nb = numero(b)
+  if (na === null && nb === null) return true
+  if (na === null || nb === null) return false
+  // Siete decimales es la precisión con la que se guardan; más abajo de eso
+  // es ruido de formato, no una corrección de nadie.
+  return Math.abs(na - nb) < 0.0000001
+}
+
+function numero(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'number') return v
+  var n = parseFloat(String(v).trim().replace(',', '.'))
+  return isNaN(n) ? null : n
 }
 
 /** Trae el padrón completo y reescribe la planilla. */
@@ -284,6 +328,14 @@ function bajarPadron(hoja) {
       c.lng,
     ]
   })
+
+  // Una planilla nueva trae 1.000 filas y el padrón tiene 12.181. Pedir un
+  // rango más grande que la hoja no la agranda: tira "Those rows are out of
+  // bounds" y corta la sincronización a la mitad. Se agranda a mano primero.
+  var necesarias = matriz.length + 1
+  if (hoja.getMaxRows() < necesarias) {
+    hoja.insertRowsAfter(hoja.getMaxRows(), necesarias - hoja.getMaxRows())
+  }
 
   var ultima = hoja.getLastRow()
   if (ultima > filas.length + 1) {
