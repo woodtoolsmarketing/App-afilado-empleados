@@ -11,7 +11,7 @@ import {
   type ParadaCompleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
@@ -127,18 +127,27 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     },
   })
 
-  // Encuadra el mapa sobre todas las paradas.
-  useEffect(() => {
+  /**
+   * Encuadra el mapa sobre todas las paradas.
+   *
+   * Se llama desde dos lados a propósito. El efecto cubre el caso de que
+   * cambien las paradas con el mapa ya montado; `onMapReady` cubre el de que
+   * las paradas ya estuvieran cuando el mapa recién aparece. Sin lo segundo,
+   * `fitToCoordinates` se le pedía al lado nativo antes de que estuviera listo,
+   * la llamada se perdía sin avisar y la cámara se quedaba en `initialRegion`:
+   * centrada en el primer destino con 0,25° de lado. Con una jornada que cruza
+   * el conurbano, eso deja a la mitad de los pines fuera de pantalla y parece
+   * que el mapa no los dibujó.
+   */
+  const encuadrar = useCallback(() => {
     if (paradas.length === 0 || !mapa.current) return
-    const coords = paradas.map((p) => ({
-      latitude: p.direccion.lat,
-      longitude: p.direccion.lng,
-    }))
-    mapa.current.fitToCoordinates(coords, {
-      edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
-      animated: true,
-    })
+    mapa.current.fitToCoordinates(
+      paradas.map((p) => ({ latitude: p.direccion.lat, longitude: p.direccion.lng })),
+      { edgePadding: { top: 60, right: 60, bottom: 60, left: 60 }, animated: true },
+    )
   }, [paradas])
+
+  useEffect(encuadrar, [encuadrar])
 
   return (
     <Pantalla>
@@ -181,6 +190,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 showsUserLocation
                 showsMyLocationButton
                 toolbarEnabled={false}
+                onMapReady={encuadrar}
                 initialRegion={{
                   latitude: paradas[0].direccion.lat,
                   longitude: paradas[0].direccion.lng,

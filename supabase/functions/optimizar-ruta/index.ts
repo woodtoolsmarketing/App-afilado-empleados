@@ -117,17 +117,32 @@ Deno.serve(async (req) => {
     }
 
     // Las ya resueltas conservan su numeración; lo nuevo arranca después.
-    const { count: resueltas } = await admin
+    //
+    // Es el ÚLTIMO NÚMERO usado por una resuelta, no cuántas resueltas hay. Con
+    // un count sólo coincide si ocupan exactamente 1..N, y no está garantizado:
+    // la app deja cerrar cualquier destino de la lista, no sólo el próximo. Con
+    // tres destinos y el del medio cerrado, el count da 1 y las pendientes se
+    // renumeran pisando el orden que ya tiene la cerrada.
+    const { data: ultimaResuelta, error: errorPiso } = await admin
       .from('paradas')
-      .select('id', { count: 'exact', head: true })
+      .select('orden')
       .eq('rol_visita_id', rol_visita_id)
       .not('estado', 'in', '(pendiente,en_camino)')
+      .order('orden', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    const piso = resueltas ?? 0
+    if (errorPiso) throw new RespuestaError('No pudimos leer el orden del recorrido', 500)
+
+    const piso = ultimaResuelta?.orden ?? 0
 
     // Con una sola parada no hay nada que optimizar.
     if (pendientes.length === 1) {
-      await admin.from('paradas').update({ orden: piso + 1 }).eq('id', pendientes[0].id)
+      const { error } = await admin
+        .from('paradas')
+        .update({ orden: piso + 1 })
+        .eq('id', pendientes[0].id)
+      if (error) throw new RespuestaError('No pudimos guardar el orden del recorrido', 500)
       return responder({ orden: [pendientes[0].id], optimizado: false })
     }
 
@@ -213,14 +228,29 @@ Deno.serve(async (req) => {
     // cualquier orden real y respeta el CHECK de orden > 0.
     const ORDEN_TEMPORAL = 1_000_000
 
+    // Los errores de estos UPDATE se miran de verdad. Sin esto, un choque con
+    // el índice único fallaba en silencio y la parada se quedaba con el orden
+    // temporal: el vendedor veía un destino numerado "1000001." sobre el mapa
+    // y no había forma de enterarse de que la optimización no se había guardado.
     for (let i = 0; i < ordenFinal.length; i += 1) {
-      await admin
+      const { error } = await admin
         .from('paradas')
         .update({ orden: ORDEN_TEMPORAL + i + 1 })
         .eq('id', ordenFinal[i].id)
+      if (error) {
+        console.error('[optimizar-ruta] numeración temporal', error)
+        throw new RespuestaError('No pudimos reordenar el recorrido', 500)
+      }
     }
     for (let i = 0; i < ordenFinal.length; i += 1) {
-      await admin.from('paradas').update({ orden: piso + i + 1 }).eq('id', ordenFinal[i].id)
+      const { error } = await admin
+        .from('paradas')
+        .update({ orden: piso + i + 1 })
+        .eq('id', ordenFinal[i].id)
+      if (error) {
+        console.error('[optimizar-ruta] numeración final', error)
+        throw new RespuestaError('No pudimos guardar el orden del recorrido', 500)
+      }
     }
 
     await admin
