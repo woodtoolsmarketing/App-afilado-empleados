@@ -111,16 +111,30 @@ const cabeceras = {
  *
  * El `direcciones!left(id)` con el filtro `direcciones.id=is.null` es el
  * anti-join de PostgREST: trae sólo los que no tienen ninguna.
+ *
+ * Va paginado porque PostgREST corta en 1.000 filas y no avisa: devuelve un
+ * 206 y sigue de largo. Sin esto la herramienta veía 1.000 de 12.051 y daba la
+ * impresión de haber terminado el padrón entero.
  */
+const PAGINA = 1000
+
 async function pendientes() {
   const url =
     `${URL_BASE}/rest/v1/clientes` +
     `?select=id,codigo,razon_social,direccion,localidad,codigo_postal,direcciones!left(id)` +
     `&activo=is.true&direccion=not.is.null&direcciones=is.null&order=codigo`
 
-  const r = await fetch(url, { headers: { ...cabeceras, Prefer: 'count=exact' } })
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`)
-  return r.json()
+  const todos = []
+  for (let desde = 0; ; desde += PAGINA) {
+    const r = await fetch(url, {
+      headers: { ...cabeceras, Range: `${desde}-${desde + PAGINA - 1}` },
+    })
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`)
+
+    const tanda = await r.json()
+    todos.push(...tanda)
+    if (tanda.length < PAGINA) return todos
+  }
 }
 
 // ── Google ──────────────────────────────────────────────────────────────────
