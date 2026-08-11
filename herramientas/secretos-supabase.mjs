@@ -88,17 +88,26 @@ fs.writeFileSync(temporal, presentes.map((v) => `${v}=${env[v]}`).join('\n') + '
 })
 
 try {
+  // `shell: true` no es un adorno: en Windows, `npx` es `npx.cmd`, y desde el
+  // parche de CVE-2024-27980 Node se niega a ejecutar un `.cmd` sin shell —
+  // falla con EINVAL antes de correr nada. Con el nombre pelado da ENOENT.
+  //
+  // Va como una sola cadena y no como arreglo de argumentos: con `shell: true`,
+  // pasar el arreglo hace que Node avise (DEP0190) de que no escapa nada, sólo
+  // concatena. Acá se escapa a mano lo único que puede traer espacios.
   const r = spawnSync(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['supabase', 'secrets', 'set', '--env-file', temporal, '--project-ref', proyecto],
-    { stdio: 'inherit' },
+    `npx supabase secrets set --env-file "${temporal}" --project-ref ${proyecto}`,
+    { stdio: 'inherit', shell: true },
   )
 
-  if (r.status !== 0) {
+  if (r.error || r.status !== 0) {
     console.error(
       [
         '',
         '  No se pudieron cargar los secretos.',
+        // Sin esto, un fallo al lanzar el proceso se veía igual que un rechazo
+        // del servidor, y no había forma de distinguirlos desde la terminal.
+        ...(r.error ? [`  No pude ejecutar npx: ${r.error.code ?? r.error.message}`] : []),
         '',
         '  Si dice que falta el token de acceso, entrá primero con:',
         '    npx supabase login',
