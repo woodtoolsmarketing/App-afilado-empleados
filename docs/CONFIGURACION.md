@@ -155,11 +155,18 @@ Sin CLI instalado, la vía es el panel:
 | `GEMINI_API_KEY` | la clave de Gemini (ver `.env`) |
 | `GEMINI_MODELO` | `gemini-3.5-flash-lite` |
 
-Con el CLI sería:
+Con el CLI:
 
 ```bash
-supabase secrets set GOOGLE_MAPS_SERVER_KEY=... GEMINI_API_KEY=... GEMINI_MODELO=gemini-3.5-flash-lite
+npm run secretos
 ```
+
+Lee esas tres del `.env` y las manda. No las pasa por la línea de comandos, así
+que no quedan en el historial de la terminal.
+
+> No sirve `supabase secrets set --env-file .env`: el `.env` tiene variables
+> `SUPABASE_*`, Supabase las rechaza por el prefijo y el comando aborta sin subir
+> ninguna.
 
 Los secretos se leen en cada invocación: **no hace falta redesplegar** después
 de cargarlos.

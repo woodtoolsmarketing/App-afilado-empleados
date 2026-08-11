@@ -23,7 +23,7 @@
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
     "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial cotizacion-dolar crear-usuario",
-    "secretos": "supabase secrets set --env-file .env",
+    "secretos": "node herramientas/secretos-supabase.mjs",
     "probador": "node herramientas/probador/construir.mjs",
     "cargar:catalogo": "node herramientas/cargar-catalogo.cjs",
     "geocodificar:padron": "node herramientas/geocodificar-padron.mjs",

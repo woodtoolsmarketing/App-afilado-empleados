@@ -24,11 +24,23 @@ npx supabase link --project-ref wafszjoebefmbuufmula
 ```
 
 ```bash
-npx supabase secrets set --env-file .env
+npm run secretos
 ```
 
-> `secrets set --env-file .env` sube todo lo que tenga valor en el archivo.
-> Las variables `SUPABASE_*` las ignora porque ya son propias de la plataforma.
+> **No uses `supabase secrets set --env-file .env` a mano.** Falla entero.
+>
+> Supabase **rechaza** cualquier secreto cuyo nombre empiece con `SUPABASE_`,
+> porque ese prefijo se lo reserva para las que inyecta sola en cada función. El
+> `.env` tiene cuatro (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_PROJECT_ID`
+> y `SUPABASE_SERVICE_ROLE_KEY`), y con una sola prohibida el comando aborta sin
+> subir ninguna — tampoco las que sí eran válidas.
+>
+> Eso ya pasó una vez y costó caro: `GOOGLE_MAPS_SERVER_KEY` nunca llegó al
+> servidor, `geocodificar` devolvió 500 en cada llamada durante días y el
+> autocompletado de direcciones no anduvo nunca.
+>
+> `npm run secretos` lee el mismo `.env` y manda sólo las tres que las funciones
+> leen de verdad.
 
 ### Opción B — por el panel
 
