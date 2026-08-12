@@ -79,7 +79,10 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   const imprimir = useMutation({
     mutationFn: async (comoPdf: boolean) => {
       const r = await imprimirNotas({ notaIds: [notaId], comoPdf })
-      if (!comoPdf) await marcarImpresas([notaId])
+      // Sólo se marca cuando la impresora confirmó el trabajo. El diálogo del
+      // sistema vuelve apenas se abre, así que por ahí no sabemos si salió el
+      // papel o si el vendedor canceló.
+      if (r.confirmado) await marcarImpresas([notaId])
       return r
     },
     onSuccess: (r, comoPdf) => {

@@ -253,6 +253,16 @@ export interface ResultadoImpresion {
   via: 'ipp' | 'sistema' | 'pdf'
   /** Lo que se pidió y no se pudo incluir. Se avisa, no se falla. */
   advertencia?: string
+  /**
+   * ¿Sabemos que el papel salió?
+   *
+   * Sólo por IPP, que responde con el estado del trabajo. El diálogo del
+   * sistema de Android vuelve apenas se abre —no cuando el usuario imprime o
+   * cancela—, así que por esa vía no hay forma de saberlo, y marcar las notas
+   * como impresas ahí las sacaba de la cola aunque el vendedor hubiera
+   * cancelado. Con `false`, la pantalla pregunta en vez de asumir.
+   */
+  confirmado: boolean
 }
 
 /**
@@ -328,7 +338,8 @@ export async function imprimirNotas(params: {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' })
     }
-    return { mensaje: 'PDF generado', uri, via: 'pdf', advertencia }
+    // Un PDF guardado no es una nota impresa: no se marca nada.
+    return { mensaje: 'PDF generado', uri, via: 'pdf', advertencia, confirmado: false }
   }
 
   const cuantas = `${notas.length} nota${notas.length === 1 ? '' : 's'}`
@@ -351,6 +362,7 @@ export async function imprimirNotas(params: {
         mensaje: `Se ${notas.length === 1 ? 'envió' : 'enviaron'} ${cuantas}${conRol} a ${donde}.`,
         uri,
         via: 'ipp',
+        confirmado: true,
         advertencia: ubicada.descubierta
           ? [advertencia, `La IP cargada en la oficina quedó vieja: ahora es ${ubicada.impresora.ip}.`]
               .filter(Boolean)
@@ -399,10 +411,12 @@ export async function imprimirNotas(params: {
 
   await Print.printAsync({ uri })
   return {
-    mensaje: 'Se abrió el diálogo de impresión de Android.',
+    mensaje:
+      'Se abrió el diálogo de impresión de Android. Cuando termine, confirmá si salió el papel.',
     uri,
     via: 'sistema',
     advertencia,
+    confirmado: false,
   }
 }
 

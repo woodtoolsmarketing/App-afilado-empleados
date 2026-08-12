@@ -155,11 +155,30 @@ async function codigosDeLaHerramienta(
 
   const { data, error } = await consulta
   if (error) throw error
-  return (data ?? []).map((c) => ({
-    ...(c as Record<string, any>),
-    precio_pesos: null,
-    amplitud: 0,
-  })) as CodigoComputo[]
+
+  /**
+   * El precio se calcula, no se descarta.
+   *
+   * Estaba fijo en `null`, aunque la consulta de arriba trae `precio` y
+   * `moneda`. Para las mechas y las cuchillas —que no tienen rango, así que
+   * `rango_min` es siempre null— la pantalla dibuja el precio sólo cuando
+   * `precio_pesos` no es nulo: nunca lo era, y la lista de códigos salía toda
+   * sin precio. El vendedor elegía a ciegas y después tenía que tipear el
+   * importe a mano.
+   *
+   * Los precios en dólares quedan en null a propósito: convertirlos necesita la
+   * cotización, que esta función no recibe. Ahí sigue mostrando el código sin
+   * importe, que es lo honesto.
+   */
+  return (data ?? []).map((c) => {
+    const fila = c as Record<string, any>
+    const enPesos = fila.moneda !== 'USD' && fila.precio !== null && fila.precio !== undefined
+    return {
+      ...fila,
+      precio_pesos: enPesos ? Number(fila.precio) : null,
+      amplitud: 0,
+    }
+  }) as CodigoComputo[]
 }
 
 /**
@@ -537,11 +556,34 @@ export async function obtenerNota(id: string) {
   return data
 }
 
+/**
+ * Deja registrado que la nota salió por la impresora.
+ *
+ * El `.eq('estado', 'pendiente')` no es una precaución de más: las notas de un
+ * cliente que todavía no tiene código quedan en `pendiente_cliente`, esperando
+ * que Administración le asigne el número. Sin ese filtro, imprimir una de ésas
+ * la pasaba a `impresa` y la sacaba de la cola de Administración **para
+ * siempre**, con el trabajo hecho y sin numerar. Nadie se enteraba: la nota
+ * simplemente dejaba de aparecer.
+ *
+ * Para esas notas se guarda igual la fecha de impresión —es cierto que se
+ * imprimió— pero el estado no se toca.
+ */
 export async function marcarImpresas(ids: string[]): Promise<void> {
   if (ids.length === 0) return
+  const ahora = new Date().toISOString()
+
   const { error } = await supabase
     .from('notas_pedido')
-    .update({ estado: 'impresa', impresa_en: new Date().toISOString() })
+    .update({ estado: 'impresa', impresa_en: ahora })
     .in('id', ids)
+    .eq('estado', 'pendiente')
   if (error) throw error
+
+  const { error: errorSinNumero } = await supabase
+    .from('notas_pedido')
+    .update({ impresa_en: ahora })
+    .in('id', ids)
+    .eq('estado', 'pendiente_cliente')
+  if (errorSinNumero) throw errorSinNumero
 }

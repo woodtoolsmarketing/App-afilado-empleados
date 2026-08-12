@@ -67,7 +67,10 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
         comoPdf: opciones.comoPdf,
         usarDialogoDelSistema: opciones.conDialogo,
       })
-      if (!opciones.comoPdf) await marcarImpresas(objetivo.map((n) => n.id))
+      // Idem: sin confirmación de la impresora, las notas siguen pendientes.
+      // Marcarlas igual las sacaba de esta lista para siempre aunque el
+      // vendedor hubiera cancelado el diálogo de Android.
+      if (resultado.confirmado) await marcarImpresas(objetivo.map((n) => n.id))
       return resultado
     },
     onSuccess: (r, opciones) => {

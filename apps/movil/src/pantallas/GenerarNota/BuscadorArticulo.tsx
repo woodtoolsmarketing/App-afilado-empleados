@@ -47,6 +47,7 @@ export function BuscadorArticulo({
   const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
   const [buscando, setBuscando] = useState(false)
   const [sinResultados, setSinResultados] = useState(false)
+  const [fallo, setFallo] = useState<string | null>(null)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -54,16 +55,26 @@ export function BuscadorArticulo({
     if (consulta.trim().length < 2) {
       setResultados([])
       setSinResultados(false)
+      setFallo(null)
       return
     }
     temporizador.current = setTimeout(async () => {
       setBuscando(true)
+      // Se limpian ANTES de preguntar. Si no, un error dejaba en pantalla el
+      // "sin resultados" de la búsqueda anterior, que dice justo lo que no es.
+      setSinResultados(false)
+      setFallo(null)
       try {
         const encontrados = await buscarArticulos(consulta.trim())
         setResultados(encontrados)
         setSinResultados(encontrados.length === 0)
-      } catch {
+      } catch (e) {
+        // "Ese código no existe" y "no pude consultar la lista" son cosas
+        // distintas. Sin señal el buscador se quedaba mudo y el renglón no se
+        // podía completar de ninguna forma: el código sólo se carga eligiendo
+        // de esta lista.
         setResultados([])
+        setFallo((e as Error).message)
       } finally {
         setBuscando(false)
       }
@@ -140,6 +151,15 @@ export function BuscadorArticulo({
             <FilaArticulo key={a.codigo} articulo={a} alTocar={() => elegir(a)} />
           ))}
         </View>
+      ) : null}
+
+      {fallo && !buscando ? (
+        <Aviso tono="atencion" titulo="No pudimos consultar la lista de precios">
+          {fallo}
+          {'\n\n'}Revisá la señal y escribí de nuevo. Sin la lista no se puede cargar el código del
+          artículo: si estás sin señal, anotá el pedido en la observación y cargá la nota cuando
+          vuelvas a tener.
+        </Aviso>
       ) : null}
 
       {sinResultados ? (

@@ -155,7 +155,16 @@ export const HERRAMIENTAS_POR_SERVICIO: Record<TipoServicio, Herramienta[]> = {
   hermanado: ['incisor'],
   // Rebaje sólo aplica a cuchillas.
   rebaje: ['cuchilla'],
-  reclamo: [],
+  /**
+   * El reclamo es sobre un trabajo anterior, así que puede recaer sobre
+   * cualquier herramienta que se afile o se venda.
+   *
+   * Estaba en `[]`, y con la lista vacía el renglón quedaba sin desplegable de
+   * herramienta —no se dibujaba ninguno— pero el validador la seguía exigiendo:
+   * "Elegí la herramienta", sobre un campo que no existía en la pantalla. Con
+   * RECLAMO tildado la nota no se podía crear de ninguna manera.
+   */
+  reclamo: ['sierra', 'fresa', 'cabezal', 'sierra_sin_fin', 'mecha', 'cuchilla'],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
