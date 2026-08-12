@@ -29,12 +29,54 @@ const AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete'
 const DETALLE_URL = 'https://places.googleapis.com/v1/places'
 const REVERSA_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
 
-/** Sesga la búsqueda al AMBA, que es donde recorren los vendedores. */
+/**
+ * Sesga la búsqueda al AMBA, que es donde recorren los vendedores.
+ *
+ * 50 km es el máximo que acepta Places API para el círculo de sesgo. Estaba en
+ * 90 km, y con eso Google rechazaba la llamada ENTERA con un 400
+ * ("Radius must be between 0 and 50,000 meters"), no la degradaba: el
+ * autocompletado de direcciones no funcionó nunca, desde el día que se escribió.
+ *
+ * Es un sesgo, no un filtro: los resultados de más lejos siguen apareciendo,
+ * sólo que más abajo. Con centro en el Obelisco, 50 km llegan hasta La Plata,
+ * Escobar y Cañuelas, que es el radio donde está la mayor parte del padrón.
+ */
 const SESGO_ARGENTINA = {
   circle: {
     center: { latitude: -34.6037, longitude: -58.3816 },
-    radius: 90_000.0,
+    radius: 50_000.0,
   },
+}
+
+/**
+ * El motivo que da Google, dicho tal cual.
+ *
+ * Antes esto devolvía "No pudimos buscar la dirección" y mandaba el detalle a
+ * un log que nadie mira. Con eso, un radio de sesgo inválido —90 km donde
+ * Google acepta 50— tuvo el autocompletado roto desde el día cero, y desde la
+ * pantalla del vendedor era indistinguible de un problema de conexión.
+ *
+ * El mensaje de Google es técnico y en inglés, pero es lo único que permite
+ * arreglarlo. Va después del texto en castellano, no en lugar de él.
+ */
+async function errorDeGoogle(operacion: string, respuesta: Response): Promise<RespuestaError> {
+  const crudo = await respuesta.text()
+  console.error(`[geocodificar] ${operacion}`, respuesta.status, crudo)
+
+  let motivo = ''
+  try {
+    const cuerpo = JSON.parse(crudo)
+    motivo = cuerpo?.error?.message ?? cuerpo?.error_message ?? ''
+  } catch {
+    // Google no devolvió JSON. Nos quedamos con el estado HTTP.
+  }
+
+  return new RespuestaError(
+    motivo
+      ? `Google rechazó la búsqueda: ${motivo.trim()}`
+      : `Google rechazó la búsqueda (HTTP ${respuesta.status})`,
+    502,
+  )
 }
 
 Deno.serve(async (req) => {
@@ -79,8 +121,7 @@ Deno.serve(async (req) => {
 
       const respuesta = await fetch(url)
       if (!respuesta.ok) {
-        console.error('[geocodificar] reversa', respuesta.status, await respuesta.text())
-        throw new RespuestaError('No pudimos resolver tu ubicación', 502)
+        throw await errorDeGoogle('reversa', respuesta)
       }
 
       const datos = await respuesta.json()
@@ -92,7 +133,10 @@ Deno.serve(async (req) => {
       }
       if (datos.status !== 'OK') {
         console.error('[geocodificar] reversa', datos.status, datos.error_message)
-        throw new RespuestaError('No pudimos resolver tu ubicación', 502)
+        throw new RespuestaError(
+          `Google rechazó la ubicación: ${datos.status}${datos.error_message ? ' — ' + datos.error_message : ''}`,
+          502,
+        )
       }
 
       const lugar = datos.results[0]
@@ -140,8 +184,7 @@ Deno.serve(async (req) => {
       })
 
       if (!respuesta.ok) {
-        console.error('[geocodificar] autocomplete', respuesta.status, await respuesta.text())
-        throw new RespuestaError('No pudimos buscar la dirección', 502)
+        throw await errorDeGoogle('autocomplete', respuesta)
       }
 
       const datos = await respuesta.json()
@@ -177,8 +220,7 @@ Deno.serve(async (req) => {
       })
 
       if (!respuesta.ok) {
-        console.error('[geocodificar] detalle', respuesta.status, await respuesta.text())
-        throw new RespuestaError('No pudimos leer los datos de esa dirección', 502)
+        throw await errorDeGoogle('detalle', respuesta)
       }
 
       const lugar = await respuesta.json()
