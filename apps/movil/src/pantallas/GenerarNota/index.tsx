@@ -16,6 +16,7 @@ import {
   ETIQUETA_TIPO_SERVICIO,
   formatearFechaCorta,
   formatearMoneda,
+  fechaLocalISO,
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
@@ -129,6 +130,15 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * observación no sale impresa. El botón sigue estando para cargar varias.
    */
   const observacionPendiente = observacionNueva.trim()
+
+  /**
+   * Los ids de las notas que ya salieron de esta pantalla.
+   *
+   * Mientras esté cargado, el botón de crear deja de crear. La pantalla no se
+   * desmonta al ir a la vista previa, así que sin esto el formulario queda
+   * entero y vivo, listo para generar la misma nota otra vez.
+   */
+  const [creadas, setCreadas] = useState<string[]>([])
 
   const renglon = items[activo] ?? items[0]
 
@@ -406,7 +416,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         encabezado,
         servicios,
         tipoNota: tipoNota!,
-        fechaEntrega: fechaEntrega!.toISOString().slice(0, 10),
+        // Fecha local, no UTC: `toISOString` adelanta el día a partir de las
+        // 21:00 en Argentina, así que una nota cargada de noche se guardaba con
+        // la entrega un día después de la que el vendedor había elegido —y la
+        // pantalla le seguía mostrando la correcta.
+        fechaEntrega: fechaLocalISO(fechaEntrega!),
         items,
         tipoCambio: cotizacion?.venta ?? 0,
         cotizacionFecha: cotizacion?.fecha ?? null,
@@ -419,6 +433,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       })
     },
     onSuccess: async (notas) => {
+      setCreadas(notas.map((n) => n.id))
       await cliente.invalidateQueries()
 
       // Puede haber salido más de una: afilado y venta no van en el mismo
@@ -452,6 +467,30 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   })
 
   function alCrear() {
+    /**
+     * La nota ya salió: no se vuelve a crear.
+     *
+     * Desde la vista previa se puede volver con "Volver y corregir" o con
+     * "Listo", y las dos vuelven a esta pantalla, que sigue montada y con el
+     * formulario entero cargado. Tocar CREAR de nuevo generaba una segunda nota
+     * idéntica, con otro número, que Administración recibía como si fueran dos
+     * pedidos distintos.
+     */
+    if (creadas.length > 0) {
+      Alert.alert(
+        'Esta nota ya se creó',
+        'Si querés verla o imprimirla, tocá "VER LA NOTA". Para cargar otro pedido, volvé y empezá una nueva.',
+        [
+          {
+            text: 'Ver la nota',
+            onPress: () => navigation.navigate('VistaPrevia', { notaIds: creadas }),
+          },
+          { text: 'Cerrar', style: 'cancel' },
+        ],
+      )
+      return
+    }
+
     setIntentado(true)
     // Se validan todos, no sólo el que está abierto: el vendedor puede haber
     // dejado a medias uno de más arriba. Si falla, la pantalla salta a ése.

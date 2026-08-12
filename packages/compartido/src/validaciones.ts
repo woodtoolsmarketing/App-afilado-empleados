@@ -242,3 +242,19 @@ export function distanciaMetros(
     Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(h))
 }
+
+/**
+ * La fecha en formato ISO corto, según el calendario del teléfono.
+ *
+ * `toISOString()` convierte a UTC, y en Argentina eso adelanta el día a partir
+ * de las 21:00. Una nota cargada a las 21:30 con entrega "mañana" se guardaba
+ * con la fecha de pasado mañana, y ni el vendedor ni la oficina tenían cómo
+ * notarlo: la pantalla mostraba bien el día que el vendedor había elegido.
+ *
+ * El mismo criterio que ya usaba `hoyISO` para la jornada, ahora en un solo
+ * lugar para que no se vuelva a escribir mal.
+ */
+export function fechaLocalISO(fecha: Date): string {
+  const desfase = fecha.getTimezoneOffset() * 60_000
+  return new Date(fecha.getTime() - desfase).toISOString().slice(0, 10)
+}
