@@ -636,11 +636,15 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
       vendedor_numero: enc.vendedor_numero.trim() || null,
       /**
-       * El probador numera por el talonario de PRUEBAS.
+       * Deja marcado que la nota salió del probador.
        *
-       * No lo declaraba, así que caía en el default —`produccion`— y cada
-       * ensayo se llevaba un número del talonario real. Trece de los primeros
-       * dieciocho números se gastaron así.
+       * El talonario es uno solo, así que esto no cambia la numeración: un
+       * ensayo gasta un número igual que una nota de verdad. Lo que sí permite
+       * es encontrar después las notas de prueba para borrarlas antes de
+       * largar la versión definitiva, que es cuando el contador vuelve a cero.
+       *
+       * Antes ni siquiera se declaraba y caía en `produccion`, indistinguible
+       * de una nota real.
        */
       variante: 'beta',
       servicios: g.servicios,

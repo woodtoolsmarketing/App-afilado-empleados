@@ -430,9 +430,14 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       descripcion_herramienta: descripcionGeneral || null,
       descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
       vendedor_numero: enc.vendedor_numero.trim() || null,
-      // De qué talonario sale. La beta numera aparte para no gastar números
-      // del real: sin esto, sus notas de prueba se llevarían comprobantes que
-      // después faltan en la numeración.
+      /**
+       * Qué app creó la nota.
+       *
+       * Ya NO elige talonario: el talonario es uno solo y todas las notas, de
+       * todas las apps y todos los vendedores, salen de la misma serie. Queda
+       * como registro, y es lo que permite separar las notas de prueba de las
+       * de verdad antes de largar la versión definitiva.
+       */
       variante: VARIANTE,
       // Cada nota declara sólo los servicios que realmente contiene.
       servicios: g.servicios,
