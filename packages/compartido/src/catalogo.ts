@@ -284,3 +284,67 @@ export function aPesos(valor: number, moneda: Moneda, tipoCambio: number): numbe
   if (!Number.isFinite(tipoCambio) || tipoCambio <= 0) return valor
   return Math.round(valor * tipoCambio * 100) / 100
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Los trabajos "sin cargo"
+//
+// El catálogo tiene renglones que no se le cobran al cliente: la reposición de
+// un diente que se rompió acá, el afilado que se rehace porque salió mal. En la
+// lista de precios figuran igual, con su código de cómputo, porque el trabajo
+// se hizo y la fábrica lo tiene que ver.
+//
+// No pueden ir en cero. Un renglón sin importe se lee como "falta cargar el
+// precio" —que es lo que la app dice de los 108 artículos que efectivamente no
+// lo tienen— y además hay que poder distinguir en la facturación lo que se
+// regaló de lo que quedó pendiente de cotizar. Por eso llevan un importe
+// simbólico.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** El importe simbólico de lo que no se cobra. */
+export const PRECIO_SIN_CARGO = 0.1
+
+/**
+ * ¿Este renglón del catálogo es de los que no se cobran?
+ *
+ * Se mira la descripción de la lista de precios, que es donde está escrito:
+ * "REP. DTE. DE SIERRA SIN CARGO", "AFILADO S.C. SIN CARGO", "AFIL.SIN CARGO
+ * DTE FRESA". El punto pegado en "AFIL.SIN" no molesta: `\b` corta ahí igual.
+ */
+export function esSinCargo(descripcion: string | null | undefined): boolean {
+  return /\bsin\s+cargos?\b/i.test(String(descripcion ?? ''))
+}
+
+/** La forma mínima que tiene que tener una fila del catálogo para aplicarle la regla. */
+export interface FilaDeCatalogo {
+  descripcion: string
+  precio: number
+  moneda?: 'ARS' | 'USD' | null
+  precio_pesos?: number | null
+  sin_precio?: boolean
+}
+
+/**
+ * Le aplica la regla de los "sin cargo" a lo que devuelve el catálogo.
+ *
+ * Va acá y no en cada pantalla porque el precio entra al formulario por tres
+ * caminos distintos —el código de cómputo por medida, la lista de códigos de la
+ * herramienta y la búsqueda de artículos para la venta— más los mismos tres en
+ * el probador. Seis lugares donde escribir la misma regla es un lugar donde
+ * escribirla mal.
+ *
+ * Además del precio se corrigen dos cosas que se siguen de él: la moneda —no
+ * tiene sentido cotizar en dólares un importe simbólico— y la marca de "sin
+ * precio", porque estos renglones sí tienen el que les corresponde.
+ */
+export function aplicarSinCargo<T extends FilaDeCatalogo>(filas: T[]): T[] {
+  return filas.map((fila) => {
+    if (!esSinCargo(fila.descripcion)) return fila
+    return {
+      ...fila,
+      precio: PRECIO_SIN_CARGO,
+      moneda: 'ARS' as const,
+      precio_pesos: PRECIO_SIN_CARGO,
+      ...('sin_precio' in fila ? { sin_precio: false } : {}),
+    }
+  })
+}

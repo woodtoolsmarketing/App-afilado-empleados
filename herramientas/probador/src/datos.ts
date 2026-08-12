@@ -9,6 +9,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
+  aplicarSinCargo,
   agruparParaNotas,
   agujeroDelRenglon,
   aNumero,
@@ -473,7 +474,7 @@ export interface ArticuloCatalogo {
 export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
   const { data, error } = await supabase.rpc('buscar_articulos', { p_texto: texto })
   if (error) throw error
-  return (data ?? []) as ArticuloCatalogo[]
+  return aplicarSinCargo((data ?? []) as ArticuloCatalogo[])
 }
 
 export async function buscarClientes(texto: string) {
@@ -532,7 +533,9 @@ export async function resolverCodigoDeItem(
     p_herramienta: item.herramienta,
   })
   if (error) throw error
-  return (data ?? []) as CodigoComputo[]
+  // Por acá pasan también los códigos de reparación de dientes rotos, que es
+  // donde vive "REP. DTE. DE SIERRA SIN CARGO".
+  return aplicarSinCargo((data ?? []) as CodigoComputo[])
 }
 
 export async function notasPendientes() {

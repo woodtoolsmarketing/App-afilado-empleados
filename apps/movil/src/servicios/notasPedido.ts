@@ -4,6 +4,7 @@ import {
   aNumero,
   avisosDeAgujero,
   CONDICIONES_CON_DETALLE,
+  aplicarSinCargo,
   FAMILIA_CATALOGO,
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
@@ -77,7 +78,7 @@ export interface CodigoComputo {
 export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
   const { data, error } = await supabase.rpc('buscar_articulos', { p_texto: texto })
   if (error) throw error
-  return (data ?? []) as ArticuloCatalogo[]
+  return aplicarSinCargo((data ?? []) as ArticuloCatalogo[])
 }
 
 /**
@@ -100,7 +101,9 @@ export async function buscarCodigoComputo(params: {
     p_herramienta: params.herramienta,
   })
   if (error) throw error
-  return (data ?? []) as CodigoComputo[]
+  // Por acá pasan también los códigos de reparación de dientes rotos, que es
+  // donde vive "REP. DTE. DE SIERRA SIN CARGO".
+  return aplicarSinCargo((data ?? []) as CodigoComputo[])
 }
 
 /**
@@ -169,15 +172,17 @@ async function codigosDeLaHerramienta(
    * cotización, que esta función no recibe. Ahí sigue mostrando el código sin
    * importe, que es lo honesto.
    */
-  return (data ?? []).map((c) => {
-    const fila = c as Record<string, any>
-    const enPesos = fila.moneda !== 'USD' && fila.precio !== null && fila.precio !== undefined
-    return {
-      ...fila,
-      precio_pesos: enPesos ? Number(fila.precio) : null,
-      amplitud: 0,
-    }
-  }) as CodigoComputo[]
+  return aplicarSinCargo(
+    (data ?? []).map((c) => {
+      const fila = c as Record<string, any>
+      const enPesos = fila.moneda !== 'USD' && fila.precio !== null && fila.precio !== undefined
+      return {
+        ...fila,
+        precio_pesos: enPesos ? Number(fila.precio) : null,
+        amplitud: 0,
+      }
+    }) as CodigoComputo[],
+  )
 }
 
 /**
