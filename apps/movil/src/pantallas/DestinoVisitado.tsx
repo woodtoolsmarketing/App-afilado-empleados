@@ -77,11 +77,21 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const esUltima = restantes.length === 0
   const siguiente = restantes[0]
 
+  /**
+   * Sobre el estado anterior, no sobre la copia del render.
+   *
+   * Importa para el dictado: entre que se toca ⏹ y que vuelve la transcripción
+   * pasan varios segundos, y el vendedor sigue escribiendo. Con `{ ...form }`
+   * la respuesta se armaba con el formulario de antes de tocar el botón, así
+   * que al llegar el texto dictado se borraba todo lo tipeado en el medio.
+   */
   function actualizar(cambios: Partial<FormularioVisita>) {
-    const nuevo = { ...form, ...cambios }
-    setForm(nuevo)
-    // Una vez que intentó guardar, los errores se recalculan en vivo.
-    if (intentado) setErrores(validarFormularioVisita(nuevo).errores)
+    setForm((previo) => {
+      const nuevo = { ...previo, ...cambios }
+      // Una vez que intentó guardar, los errores se recalculan en vivo.
+      if (intentado) setErrores(validarFormularioVisita(nuevo).errores)
+      return nuevo
+    })
   }
 
   const guardar = useMutation({
@@ -145,13 +155,21 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   }
 
   async function alDictar() {
-    if (dictado.grabando) {
+    // Grabando, o con audio esperando que lo pasen a texto: en los dos casos
+    // el micrófono transcribe. Arrancar una grabación nueva encima tiraría lo
+    // que el vendedor ya dijo.
+    if (dictado.grabando || dictado.audioPendiente) {
       const texto = await dictado.detenerYTranscribir()
       if (texto) {
-        const separador = form.observacion.trim() ? ' ' : ''
-        actualizar({
-          observacion: `${form.observacion.trim()}${separador}${texto}`,
-          observacion_origen: 'voz',
+        // Se pega al final de lo que HAY cuando vuelve la transcripción, no de
+        // lo que había cuando se tocó el botón.
+        setForm((previo) => {
+          const separador = previo.observacion.trim() ? ' ' : ''
+          return {
+            ...previo,
+            observacion: `${previo.observacion.trim()}${separador}${texto}`,
+            observacion_origen: 'voz',
+          }
         })
       }
       return

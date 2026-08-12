@@ -27,7 +27,10 @@ export function CampoDictado({
   const dictado = usarDictado()
 
   async function alTocarMicrofono() {
-    if (dictado.grabando) {
+    // Grabando, o con audio esperando que lo pasen a texto: en los dos casos
+    // el micrófono transcribe. Arrancar una grabación nueva encima tiraría lo
+    // que el vendedor ya dijo.
+    if (dictado.grabando || dictado.audioPendiente) {
       const texto = await dictado.detenerYTranscribir()
       if (texto) {
         const separador = valor.trim() ? ' ' : ''

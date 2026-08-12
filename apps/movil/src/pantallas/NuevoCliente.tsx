@@ -85,10 +85,22 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
     }
   }, [texto, elegida])
 
+  /**
+   * Aplica los cambios SOBRE EL ESTADO ANTERIOR, no sobre la copia del render.
+   *
+   * Es el mismo error que tenía la nota de pedido. Acá pegaba en el peor
+   * momento: entre que el vendedor toca una sugerencia de dirección y que
+   * Google contesta pasan segundos, y en esos segundos sigue tipeando el
+   * teléfono y el contacto. Cuando llegaba la respuesta, `{ ...form }` era el
+   * formulario de ANTES de tocar la sugerencia, así que todo lo escrito en el
+   * medio se borraba solo.
+   */
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
-    const nuevo = { ...form, ...cambios }
-    setForm(nuevo)
-    if (intentado) setErrores(validarClienteNuevo(nuevo).errores)
+    setForm((previo) => {
+      const nuevo = { ...previo, ...cambios }
+      if (intentado) setErrores(validarClienteNuevo(nuevo).errores)
+      return nuevo
+    })
   }
 
   async function elegirSugerencia(s: SugerenciaDireccion) {

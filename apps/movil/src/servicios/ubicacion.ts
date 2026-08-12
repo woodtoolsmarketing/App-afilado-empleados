@@ -225,20 +225,35 @@ async function encolar(punto: PuntoEncolado): Promise<void> {
   await cacheLocal.setItem(CLAVE_COLA, JSON.stringify(cola.slice(-MAX_EN_COLA)))
 }
 
-async function drenarCola(): Promise<void> {
+/** Devuelve si la cola llegó al servidor. Sólo borra cuando llegó. */
+async function drenarCola(): Promise<boolean> {
   const crudo = await cacheLocal.getItem(CLAVE_COLA)
-  if (!crudo) return
+  if (!crudo) return true
 
   const cola: PuntoEncolado[] = JSON.parse(crudo)
-  if (cola.length === 0) return
+  if (cola.length === 0) return true
 
   const { error } = await supabase.from('posiciones').insert(cola)
-  if (!error) await cacheLocal.removeItem(CLAVE_COLA)
+  if (error) return false
+
+  await cacheLocal.removeItem(CLAVE_COLA)
+  return true
 }
 
+/**
+ * Cierra el seguimiento intentando subir lo que quedó pendiente.
+ *
+ * Antes borraba la cola SIEMPRE, incluso cuando el envío acababa de fallar.
+ * `drenarCola` era cuidadoso a propósito —sólo limpiaba si Postgres había
+ * aceptado— y esta función tiraba abajo ese cuidado dos líneas después: el
+ * recorrido de una tarde entera sin señal se perdía justo al terminar el día,
+ * que es cuando el vendedor toca "finalizar".
+ *
+ * Ahora lo que no se pudo subir se queda en el teléfono. Se drena solo en el
+ * próximo punto que se publique, o al arrancar el recorrido siguiente.
+ */
 async function vaciarCola(): Promise<void> {
   await drenarCola()
-  await cacheLocal.removeItem(CLAVE_COLA)
 }
 
 async function parametros(): Promise<{ intervaloSeg: number; distanciaMin: number }> {

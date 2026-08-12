@@ -52,6 +52,12 @@ export interface EstadoDictado {
   duracionMs: number
   error: string | null
   permisoDenegado: boolean
+  /**
+   * Hay audio grabado esperando que lo pasen a texto: o se cortó por llegar
+   * al máximo, o la transcripción falló y se conservó para reintentar. La
+   * pantalla lo usa para que el micrófono reintente en vez de grabar encima.
+   */
+  audioPendiente: boolean
   comenzar: () => Promise<void>
   detenerYTranscribir: () => Promise<string | null>
   cancelar: () => Promise<void>
@@ -64,16 +70,32 @@ export function usarDictado(): EstadoDictado {
   const [transcribiendo, setTranscribiendo] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [permisoDenegado, setPermisoDenegado] = useState(false)
+  const [audioPendiente, setAudioPendiente] = useState(false)
 
-  // Corta sola si el vendedor se olvida el micrófono abierto.
+  /**
+   * Corta sola si el vendedor se olvida el micrófono abierto.
+   *
+   * Antes hacía `grabador.stop()` a secas y ahí terminaba: el audio de los 90
+   * segundos quedaba en el teléfono sin subir, el botón volvía a 🎤 y no
+   * aparecía ningún cartel. El vendedor había hablado un minuto y medio para
+   * nada y no tenía forma de saberlo.
+   *
+   * Ahora avisa. La transcripción de lo grabado la dispara la pantalla, que es
+   * la que sabe dónde va el texto; acá sólo se deja la marca de que se cortó.
+   */
   useEffect(() => {
     if (!estadoGrabador.isRecording) return
     if (estadoGrabador.durationMillis < DURACION_MAXIMA_MS) return
     void grabador.stop()
+    setAudioPendiente(true)
+    setError(
+      `La grabación llegó al máximo de ${DURACION_MAXIMA_MS / 1000} segundos y se cortó. Tocá el micrófono para pasar a texto lo que alcanzaste a decir.`,
+    )
   }, [estadoGrabador.isRecording, estadoGrabador.durationMillis, grabador])
 
   const comenzar = useCallback(async () => {
     setError(null)
+    setAudioPendiente(false)
     try {
       const permiso = await AudioModule.requestRecordingPermissionsAsync()
       if (!permiso.granted) {
@@ -99,11 +121,15 @@ export function usarDictado(): EstadoDictado {
       // Nada que hacer: el usuario canceló.
     }
     setError(null)
+    setAudioPendiente(false)
   }, [grabador])
 
   const detenerYTranscribir = useCallback(async (): Promise<string | null> => {
     try {
-      await grabador.stop()
+      // Puede venir ya frenada por el corte de los 90 segundos, o por un
+      // reintento después de que falló la transcripción. Parar dos veces tira
+      // error en expo-audio y ese error terminaba tapando el motivo real.
+      if (estadoGrabador.isRecording) await grabador.stop()
       const uri = grabador.uri
       if (!uri) {
         setError('La grabación quedó vacía. Probá de nuevo.')
@@ -121,11 +147,13 @@ export function usarDictado(): EstadoDictado {
         body: { audioBase64, mimeType: MIME },
       })
 
-      // El archivo temporal ya no hace falta.
-      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
-
       if (errFuncion) {
-        setError('No pudimos transcribir el audio. Escribí la observación a mano.')
+        // El audio NO se borra: es lo único que el vendedor ya dijo y no puede
+        // volver a decir igual. Queda para reintentar cuando haya señal.
+        setAudioPendiente(true)
+        setError(
+          'No pudimos pasar el audio a texto. Lo guardamos: tocá el micrófono para reintentar, o escribí la observación a mano.',
+        )
         return null
       }
 
@@ -133,6 +161,10 @@ export function usarDictado(): EstadoDictado {
         setError(data.aviso)
         return null
       }
+
+      // Recién ahora el archivo temporal no hace falta.
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
+      setAudioPendiente(false)
 
       return (data?.transcripcion as string) ?? null
     } catch (e) {
@@ -142,7 +174,7 @@ export function usarDictado(): EstadoDictado {
     } finally {
       setTranscribiendo(false)
     }
-  }, [grabador])
+  }, [grabador, estadoGrabador.isRecording])
 
   return {
     grabando: estadoGrabador.isRecording,
@@ -150,6 +182,7 @@ export function usarDictado(): EstadoDictado {
     duracionMs: estadoGrabador.durationMillis ?? 0,
     error,
     permisoDenegado,
+    audioPendiente,
     comenzar,
     detenerYTranscribir,
     cancelar,
