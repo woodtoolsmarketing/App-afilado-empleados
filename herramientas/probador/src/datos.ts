@@ -12,7 +12,6 @@ import {
   agruparParaNotas,
   agujeroDelRenglon,
   aNumero,
-  avisoDeNotasHermanas,
   avisosDeAgujero,
   CONDICIONES_CON_DETALLE,
   FAMILIA_CATALOGO,
@@ -621,50 +620,47 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
     .filter(Boolean)
     .join('\n')
 
-  const creadas: NotaCreada[] = []
-
-  try {
-    for (const g of grupos) {
-      const { data: nota, error } = await supabase
-        .from('notas_pedido')
-        .insert({
-          vendedor_id: vendedorId,
-          cliente_id: enc.cliente_id,
-          cliente_codigo: enc.cliente_codigo || null,
-          cliente_nombre: enc.cliente_nombre,
-          cliente_cuit: enc.cliente_cuit || null,
-          zona: enc.zona || null,
-          datos_cliente: enc.datos_cliente || null,
-          datos_cliente_origen: enc.datos_cliente_origen,
-          descripcion_herramienta: descripcionGeneral || null,
-          descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
-          vendedor_numero: enc.vendedor_numero.trim() || null,
-          servicios: g.servicios,
-          tipo_nota: datos.tipoNota,
-          estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
-          fecha_entrega: datos.fechaEntrega,
-          // El afilado se cobra en pesos: su nota sale sin tipo de cambio.
-          // Con renglones en dólares va igual, que es lo único que permite
-          // convertir el total.
-          tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
-          cotizacion_fecha:
-            g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
-          total: g.total || null,
-          observaciones,
-          condicion_venta: datos.condicionVenta,
-          // La base sólo acepta detalle en las dos que lo piden.
-          condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
-            ? (datos.condicionVentaDetalle ?? '').trim()
-            : null,
-        })
-        .select('id, numero, estado')
-        .single()
-
-      if (error) throw error
-      const notaId = (nota as Record<string, any>).id as string
-
-      const items = g.items.map((i, orden) => ({
-        nota_id: notaId,
+  // Toda la carga en un solo pedido, igual que la app: el servidor reserva los
+  // números seguidos, marca el instante exacto de cada nota y deshace todo si
+  // algo falla.
+  const carga = grupos.map((g) => ({
+    nota: {
+      cliente_id: enc.cliente_id,
+      cliente_codigo: enc.cliente_codigo || null,
+      cliente_nombre: enc.cliente_nombre,
+      cliente_cuit: enc.cliente_cuit || null,
+      zona: enc.zona || null,
+      datos_cliente: enc.datos_cliente || null,
+      datos_cliente_origen: enc.datos_cliente_origen,
+      descripcion_herramienta: descripcionGeneral || null,
+      descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+      vendedor_numero: enc.vendedor_numero.trim() || null,
+      /**
+       * El probador numera por el talonario de PRUEBAS.
+       *
+       * No lo declaraba, así que caía en el default —`produccion`— y cada
+       * ensayo se llevaba un número del talonario real. Trece de los primeros
+       * dieciocho números se gastaron así.
+       */
+      variante: 'beta',
+      servicios: g.servicios,
+      tipo_nota: datos.tipoNota,
+      estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
+      fecha_entrega: datos.fechaEntrega,
+      // El afilado se cobra en pesos: su nota sale sin tipo de cambio. Con
+      // renglones en dólares va igual, que es lo único que permite convertir
+      // el total.
+      tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
+      cotizacion_fecha: g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
+      total: g.total || null,
+      observaciones,
+      condicion_venta: datos.condicionVenta,
+      // La base sólo acepta detalle en las dos que lo piden.
+      condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
+        ? (datos.condicionVentaDetalle ?? '').trim()
+        : null,
+    },
+    items: g.items.map((i, orden) => ({
         orden: orden + 1,
         servicio: i.servicio,
         herramienta: i.herramienta,
@@ -704,45 +700,32 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
             precio_reparacion_unitario: aNumero(i.precio_reparacion_por_diente) || null,
           }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
         ),
-      }))
+    })),
+  }))
 
-      const { error: errItems } = await supabase.from('notas_pedido_items').insert(items)
-      if (errItems) {
-        await supabase.from('notas_pedido').delete().eq('id', notaId)
-        throw errItems
-      }
+  const { data, error } = await supabase.rpc('crear_notas_pedido', { p_notas: carga })
+  if (error) throw error
 
-      creadas.push({
-        ...(nota as { id: string; numero: number | null; estado: string }),
-        grupo: g.grupo,
-        total: g.total,
-      })
-    }
+  const filas = ((data ?? []) as Array<{
+    orden_nota: number
+    nota_id: string
+    nota_numero: number | null
+    nota_estado: string
+  }>)
+    .slice()
+    .sort((a, b) => a.orden_nota - b.orden_nota)
 
-    // "Va con nota de pedido 000011, 000012". Recién acá se puede: el número
-    // lo asigna la base al insertar.
-    if (creadas.length > 1) {
-      const numeros = creadas.map((n) => n.numero)
-      await Promise.all(
-        creadas.map(async (n) => {
-          const av = avisoDeNotasHermanas(numeros, n.numero)
-          if (!av) return
-          await supabase
-            .from('notas_pedido')
-            .update({ observaciones: [...observaciones, av] })
-            .eq('id', n.id)
-        }),
-      )
-    }
-  } catch (e) {
-    // Media venta cargada es peor que nada: se deshace la tanda entera.
-    if (creadas.length > 0) {
-      await supabase.from('notas_pedido').delete().in('id', creadas.map((n) => n.id))
-    }
-    throw e
+  if (filas.length !== grupos.length) {
+    throw new Error(`El servidor guardó ${filas.length} de ${grupos.length} notas.`)
   }
 
-  return creadas
+  return filas.map((f, i) => ({
+    id: f.nota_id,
+    numero: f.nota_numero,
+    estado: f.nota_estado,
+    grupo: grupos[i].grupo,
+    total: grupos[i].total,
+  }))
 }
 
 export async function crearClienteProvisorio(params: {

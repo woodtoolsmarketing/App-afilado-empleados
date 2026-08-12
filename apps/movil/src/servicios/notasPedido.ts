@@ -2,7 +2,6 @@ import {
   agruparParaNotas,
   agujeroDelRenglon,
   aNumero,
-  avisoDeNotasHermanas,
   avisosDeAgujero,
   CONDICIONES_CON_DETALLE,
   FAMILIA_CATALOGO,
@@ -295,10 +294,14 @@ export interface NotaCreada {
   total: number
 }
 
-/** La fila de `notas_pedido_items` que corresponde a un renglón del formulario. */
-function filaDeItem(i: FormularioItemNota, notaId: string, orden: number) {
+/**
+ * La fila de `notas_pedido_items` que corresponde a un renglón del formulario.
+ *
+ * Sin `nota_id`: la nota todavía no existe cuando esto se arma. Lo completa el
+ * servidor, que es el único que sabe con qué id quedó cada nota.
+ */
+function filaDeItem(i: FormularioItemNota, orden: number) {
   return {
-    nota_id: notaId,
     orden,
     servicio: i.servicio,
     herramienta: i.herramienta,
@@ -365,6 +368,12 @@ function filaDeItem(i: FormularioItemNota, notaId: string, orden: number) {
  * sin número, hasta que Administración le asigne el código de cliente. El
  * trabajo queda registrado igual — que el alta del cliente esté demorada no
  * puede costarle la venta al vendedor.
+ *
+ * **La numeración la lleva el servidor, no la app.** Va toda la carga en un
+ * solo pedido y el talonario entrega los números de un saque: salen seguidos,
+ * en el orden exacto en que se crearon las notas, y ningún otro vendedor puede
+ * meterse en el medio. Si algo falla, no queda nada a medias ni se pierde un
+ * número — el contador vuelve atrás con la transacción.
  */
 export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada[]> {
   const { data: sesion } = await supabase.auth.getSession()
@@ -401,95 +410,81 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
     .filter(Boolean)
     .join('\n')
 
-  const creadas: NotaCreada[] = []
+  // Toda la carga en un solo pedido. El servidor la mete en una transacción:
+  // reserva de una vez los números que hacen falta —seguidos, sin que se meta
+  // otro vendedor en el medio—, marca cada nota con su instante exacto de
+  // creación y escribe la referencia cruzada entre las hermanas.
+  //
+  // Antes eran N inserciones sueltas desde el teléfono, y el deshacer también:
+  // si fallaba la segunda nota había que borrar la primera con otra llamada,
+  // que es justo la que no sale si en ese momento se corta la señal.
+  const carga = grupos.map((g) => ({
+    nota: {
+      cliente_id: enc.cliente_id,
+      cliente_codigo: enc.cliente_codigo || null,
+      cliente_nombre: enc.cliente_nombre,
+      cliente_cuit: enc.cliente_cuit || null,
+      zona: enc.zona || null,
+      datos_cliente: enc.datos_cliente || null,
+      datos_cliente_origen: enc.datos_cliente_origen,
+      descripcion_herramienta: descripcionGeneral || null,
+      descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+      vendedor_numero: enc.vendedor_numero.trim() || null,
+      // De qué talonario sale. La beta numera aparte para no gastar números
+      // del real: sin esto, sus notas de prueba se llevarían comprobantes que
+      // después faltan en la numeración.
+      variante: VARIANTE,
+      // Cada nota declara sólo los servicios que realmente contiene.
+      servicios: g.servicios,
+      tipo_nota: datos.tipoNota,
+      estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
+      fecha_entrega: datos.fechaEntrega,
+      // Con renglones en dólares el tipo de cambio va sí o sí, aunque el grupo
+      // no lo pidiera: es lo único que permite convertir el total.
+      tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
+      cotizacion_fecha: g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
+      total: g.total || null,
+      observaciones,
+      condicion_venta: datos.condicionVenta,
+      // La base sólo acepta detalle en las dos que lo piden.
+      condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
+        ? (datos.condicionVentaDetalle ?? '').trim()
+        : null,
+    },
+    items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
+  }))
 
-  try {
-    for (const g of grupos) {
-      const { data: nota, error } = await supabase
-        .from('notas_pedido')
-        .insert({
-          vendedor_id: vendedorId,
-          cliente_id: enc.cliente_id,
-          cliente_codigo: enc.cliente_codigo || null,
-          cliente_nombre: enc.cliente_nombre,
-          cliente_cuit: enc.cliente_cuit || null,
-          zona: enc.zona || null,
-          datos_cliente: enc.datos_cliente || null,
-          datos_cliente_origen: enc.datos_cliente_origen,
-          descripcion_herramienta: descripcionGeneral || null,
-          descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
-          vendedor_numero: enc.vendedor_numero.trim() || null,
-          // De qué talonario sale. La beta numera aparte para no gastar
-          // números del real: sin esto, sus notas de prueba se llevarían
-          // comprobantes que después faltan en la secuencia.
-          variante: VARIANTE,
-          // Cada nota declara sólo los servicios que realmente contiene.
-          servicios: g.servicios,
-          tipo_nota: datos.tipoNota,
-          estado: esPendienteCliente ? 'pendiente_cliente' : 'pendiente',
-          fecha_entrega: datos.fechaEntrega,
-          // Con renglones en dólares el tipo de cambio va sí o sí, aunque el
-          // grupo no lo pidiera: es lo único que permite convertir el total.
-          tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
-          cotizacion_fecha:
-            g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
-          total: g.total || null,
-          observaciones,
-          condicion_venta: datos.condicionVenta,
-          // La base sólo acepta detalle en las dos que lo piden.
-          condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
-            ? (datos.condicionVentaDetalle ?? '').trim()
-            : null,
-        })
-        .select('id, numero, estado')
-        .single()
+  const { data, error } = await supabase.rpc('crear_notas_pedido', { p_notas: carga })
+  if (error) throw error
 
-      if (error) throw error
+  const filas = ((data ?? []) as FilaNotaCreada[])
+    .slice()
+    .sort((a, b) => a.orden_nota - b.orden_nota)
 
-      const items = g.items.map((i, orden) => filaDeItem(i, nota.id, orden + 1))
-      const { error: errItems } = await supabase.from('notas_pedido_items').insert(items)
-      if (errItems) {
-        // La nota sin renglones no sirve para nada y confundiría en la lista
-        // de pendientes: se borra para no dejar basura a medio guardar.
-        await supabase.from('notas_pedido').delete().eq('id', nota.id)
-        throw errItems
-      }
-
-      creadas.push({ ...(nota as Omit<NotaCreada, 'grupo' | 'total'>), grupo: g.grupo, total: g.total })
-    }
-
-    // ── "Va con nota de pedido 000011, 000012" ────────────────────────────
-    //
-    // Recién acá se puede: el número lo asigna la base al insertar, así que
-    // hasta que no están todas creadas no hay qué escribir. Sin esto, las tres
-    // notas de un mismo cliente llegan a fábrica sin ninguna referencia entre
-    // sí y nadie sabe que van juntas.
-    if (creadas.length > 1) {
-      const numeros = creadas.map((n) => n.numero)
-      await Promise.all(
-        creadas.map(async (n) => {
-          const aviso = avisoDeNotasHermanas(numeros, n.numero)
-          if (!aviso) return
-          await supabase
-            .from('notas_pedido')
-            .update({ observaciones: [...observaciones, aviso] })
-            .eq('id', n.id)
-        }),
-      )
-    }
-  } catch (e) {
-    // Un cliente con media venta cargada es peor que uno sin nada: si falla la
-    // segunda nota, se deshacen las que ya se habían creado en esta tanda.
-    if (creadas.length > 0) {
-      await supabase
-        .from('notas_pedido')
-        .delete()
-        .in('id', creadas.map((n) => n.id))
-    }
-    throw e
+  if (filas.length !== grupos.length) {
+    throw new Error(
+      `El servidor guardó ${filas.length} de ${grupos.length} notas. Revisá la lista de pendientes antes de volver a cargarla.`,
+    )
   }
 
-  return creadas
+  // `orden_nota` es la posición en la que se mandó cada nota, así que vuelve a
+  // aparearse con su grupo. El grupo y el total los sabe la app: son los que
+  // usó para armar la carga.
+  return filas.map((f, i) => ({
+    id: f.nota_id,
+    numero: f.nota_numero,
+    estado: f.nota_estado,
+    grupo: grupos[i].grupo,
+    total: grupos[i].total,
+  }))
+}
+
+/** Lo que devuelve `crear_notas_pedido`, una fila por nota. */
+interface FilaNotaCreada {
+  orden_nota: number
+  nota_id: string
+  nota_numero: number | null
+  nota_estado: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

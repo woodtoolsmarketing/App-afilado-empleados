@@ -1515,19 +1515,16 @@ export function numeroDeVendedorImpreso(
   return sinCeros || t
 }
 
-/**
- * Cuando una carga produce varias notas, cada una avisa con cuáles va.
- * "Va con nota de pedido 000011, 000012".
+/*
+ * "Va con nota de pedido 000011, 000012" —el aviso que lleva cada nota cuando
+ * la carga produjo varias— ya no se arma acá.
+ *
+ * Lo escribe `crear_notas_pedido` en la misma transacción que las crea, que es
+ * el único momento en que los números existen y no puede fallar por separado.
+ * Se saca la copia de TypeScript para que el formato tenga un solo dueño: dos
+ * versiones de la misma frase terminan divergiendo y nadie se entera hasta que
+ * sale distinta en dos comprobantes del mismo cliente.
  */
-export function avisoDeNotasHermanas(
-  numeros: Array<number | null>,
-  propio: number | null,
-): string | null {
-  const otras = numeros.filter((n): n is number => n !== null && n !== propio)
-  if (otras.length === 0) return null
-  const lista = otras.map((n) => String(n).padStart(6, '0')).join(', ')
-  return `Va con nota de pedido ${lista}`
-}
 
 /** "$ 1.234,56" — formato argentino, que es como se lee la nota. */
 export function formatearPesos(valor: number | null | undefined): string {
