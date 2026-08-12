@@ -75,26 +75,28 @@ export function PantallaIniciarSesion() {
     await iniciarSesion(usuario, contrasena, recordar)
   }
 
-  async function alRecuperar() {
-    if (!usuario.trim()) {
-      setIntentado(true)
-      setErrores({
-        usuario: 'Escribí tu usuario o tu email y volvé a tocar "Olvidé mi contraseña"',
-      })
-      return
-    }
-    try {
-      await recuperarContrasena(usuario)
-      Alert.alert(
-        'Listo',
-        'Si el usuario existe, te llega un correo con el enlace para cambiar la contraseña.',
-      )
-    } catch {
-      Alert.alert(
-        'No pudimos enviar el correo',
-        'Revisá tu conexión o pedile a la oficina que te restablezca la contraseña.',
-      )
-    }
+  /**
+   * La contraseña la restablece la oficina.
+   *
+   * Antes esto mandaba un correo de recuperación de Supabase con un enlace a
+   * `woodtoolsvisitas://recuperar`. El esquema abre la app, pero no hay ninguna
+   * pantalla ni ninguna ruta que atienda ese enlace, y el cliente está creado
+   * con `detectSessionInUrl: false`, así que el token no se consume nunca. El
+   * vendedor hacía todo bien, la app le confirmaba éxito dos veces, tocaba el
+   * enlace del correo y volvía a la misma pantalla de login.
+   *
+   * Terminaba llamando a la oficina igual, que es justo lo que el botón
+   * prometía evitar. Mejor decirlo de entrada que hacerle perder el viaje.
+   *
+   * Cuando exista la pantalla que atienda el enlace, esto vuelve a ser un envío
+   * de correo de verdad.
+   */
+  function alRecuperar() {
+    Alert.alert(
+      '¿Olvidaste la contraseña?',
+      'Pedile a la oficina que te la restablezca desde el panel. Te van a dar una contraseña provisoria y la app te va a pedir que elijas una nueva al entrar.',
+      [{ text: 'Entendido' }],
+    )
   }
 
   return (

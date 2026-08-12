@@ -296,7 +296,6 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             <BotonMenu
               titulo={'AGREGAR\nNUEVO DESTINO'}
               alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
-              deshabilitado={finalizada}
             />
 
             {!enCurso && !finalizada ? (

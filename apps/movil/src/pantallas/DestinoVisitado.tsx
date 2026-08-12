@@ -112,17 +112,31 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
         precision_m: posicion?.precision ?? null,
       })
 
-      if (esUltima) {
-        await finalizarRecorrido(data!.jornada.id)
-        await detenerSeguimiento(perfil?.id)
-      }
+      // El cierre de la jornada YA NO va acá. Cerrarla sola al registrar el
+      // último parte dejaba al vendedor sin nada que hacer el resto del día: con
+      // la jornada finalizada no se puede agregar un destino ni reabrirla, así
+      // que un cliente que llama a las 16:00 no se podía registrar de ninguna
+      // forma. Ahora se pregunta.
     },
     onSuccess: async () => {
       await cliente.invalidateQueries()
 
       if (esUltima) {
-        Alert.alert('Recorrido finalizado', 'Cerraste todos los destinos del día. Buen trabajo.')
-        navigation.navigate('Visitas')
+        Alert.alert(
+          'Visita registrada',
+          'Era tu último destino del día. ¿Cerramos la jornada?\n\nUna vez cerrada no se le pueden agregar más destinos.',
+          [
+            {
+              text: 'Seguir abierta',
+              style: 'cancel',
+              onPress: () => navigation.navigate('Visitas'),
+            },
+            {
+              text: 'Cerrar la jornada',
+              onPress: () => cerrarJornada.mutate(),
+            },
+          ],
+        )
         return
       }
 
@@ -144,6 +158,32 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       ])
     },
     onError: (e: Error) => Alert.alert('No pudimos guardar la visita', e.message),
+  })
+
+  /**
+   * Cierra la jornada, con el mismo cuidado que el botón de la pantalla de
+   * recorrido: el seguimiento se apaga aunque la escritura falle.
+   */
+  const cerrarJornada = useMutation({
+    mutationFn: async () => {
+      try {
+        await finalizarRecorrido(data!.jornada.id)
+      } finally {
+        await detenerSeguimiento(perfil?.id).catch(() => undefined)
+      }
+    },
+    onSuccess: async () => {
+      await cliente.invalidateQueries()
+      Alert.alert('Recorrido finalizado', 'Cerraste la jornada de hoy. Buen trabajo.')
+      navigation.navigate('Visitas')
+    },
+    onError: (e: Error) => {
+      Alert.alert(
+        'No pudimos cerrar la jornada',
+        `${e.message}\n\nEl seguimiento ya se apagó. La visita quedó registrada; cerrá la jornada desde VER RECORRIDO cuando tengas señal.`,
+      )
+      navigation.navigate('Visitas')
+    },
   })
 
   function alGuardar() {

@@ -85,10 +85,15 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
               deshabilitado={!resumen || resumen.total_paradas === 0}
             />
 
+            {/*
+              Sin `deshabilitado`: agregar un destino reabre la jornada. Con la
+              jornada cerrada, éste y el de Recorrido son los dos únicos accesos
+              al alta, así que deshabilitarlos dejaba al vendedor sin forma de
+              registrar una visita el resto del día.
+            */}
             <BotonMenu
               titulo={'AGREGAR\nNUEVO DESTINO'}
               alTocar={() => navigation.navigate('AgregarDestino', {})}
-              deshabilitado={finalizada}
             />
 
             <BotonMenu
