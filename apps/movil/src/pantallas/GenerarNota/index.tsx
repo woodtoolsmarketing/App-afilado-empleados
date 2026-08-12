@@ -190,6 +190,28 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   })
 
   /**
+   * El tipo de cambio que el vendedor decidió usar, si pisó el oficial.
+   *
+   * Vacío significa "el que trajo la app". Se guarda como texto porque es un
+   * campo que se tipea: pasarlo por número mientras se escribe se come el
+   * separador decimal en cuanto se borra un dígito.
+   */
+  const [cambioPropio, setCambioPropio] = useState('')
+  const [editandoCambio, setEditandoCambio] = useState(false)
+
+  /**
+   * El que manda para la cuenta.
+   *
+   * El oficial es el valor por defecto y el que se muestra siempre, pero el
+   * vendedor puede acordar otro con el cliente —y de hecho lo hace—. Antes el
+   * casillero no existía: la nota se armaba con el oficial y la diferencia se
+   * arreglaba después por teléfono, o salía mal cobrada.
+   */
+  const cambioElegido = aNumero(cambioPropio)
+  const cambioEnUso = cambioElegido > 0 ? cambioElegido : (cotizacion?.venta ?? 0)
+  const cambioPisado = cambioElegido > 0 && cambioElegido !== cotizacion?.venta
+
+  /**
    * ¿Hay algo cotizado en dólares en esta nota?
    *
    * De eso depende que la cotización sea imprescindible. El afilado va siempre
@@ -439,7 +461,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
        * no había cotización, mientras el cartel de arriba decía justo lo
        * contrario: "los precios en dólares no se van a convertir".
        */
-      if (hayDolares && !cotizacion) {
+      if (hayDolares && cambioEnUso <= 0) {
         throw new Error(
           'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
         )
@@ -455,8 +477,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         // pantalla le seguía mostrando la correcta.
         fechaEntrega: fechaLocalISO(fechaEntrega!),
         items,
-        tipoCambio: cotizacion?.venta ?? 0,
-        cotizacionFecha: cotizacion?.fecha ?? null,
+        tipoCambio: cambioEnUso,
+        // La fecha es la del dólar oficial. Si el vendedor puso otro
+        // cambio, esa fecha ya no describe de dónde salió el número: se deja
+        // en null en vez de atribuirle al oficial un valor que no es suyo.
+        cotizacionFecha: cambioPisado ? null : (cotizacion?.fecha ?? null),
         // Lo que quedó escrito en el campo y no se agregó con el botón cuenta
         // igual. Antes se descartaba en silencio: el vendedor escribía la
         // observación, creaba la nota, y salía impresa sin ella.
@@ -536,7 +561,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     guardar.mutate()
   }
 
-  const tipoCambio = cotizacion?.venta ?? 0
+  const tipoCambio = cambioEnUso
   const totalNota = totalDeRenglones(items, tipoCambio)
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
@@ -749,7 +774,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   item={renglon}
                   alCambiar={cambiarItem}
                   errores={errores}
-                  tipoCambio={cotizacion?.venta ?? 0}
+                  tipoCambio={cambioEnUso}
                 />
               ) : (
                 <PasoRenglon
@@ -791,11 +816,50 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   <Text style={estilos.cambioValor}>Buscando…</Text>
                 ) : cotizacion ? (
                   <>
-                    <Text style={estilos.cambioValor}>{formatearPesos(cotizacion.venta)}</Text>
+                    <Text style={estilos.cambioValor}>{formatearPesos(cambioEnUso)}</Text>
                     <Text style={estilos.cambioNota}>
-                      Dólar oficial del {formatearFechaCorta(cotizacion.fecha)}
-                      {cotizacion.aproximada ? ' (última disponible)' : ''}
+                      {cambioPisado
+                        ? `Lo pusiste vos. El oficial del ${formatearFechaCorta(cotizacion.fecha)} es ${formatearPesos(cotizacion.venta)}.`
+                        : `Dólar oficial del ${formatearFechaCorta(cotizacion.fecha)}${cotizacion.aproximada ? ' (última disponible)' : ''}`}
                     </Text>
+
+                    {/*
+                      El vendedor puede acordar otro cambio con el cliente, y de
+                      hecho lo hace. Antes no había dónde ponerlo: la nota se
+                      armaba con el oficial y la diferencia se arreglaba después
+                      por teléfono, o salía mal cobrada.
+
+                      El oficial se sigue mostrando al lado: es contra lo que se
+                      compara para saber si el acordado es razonable.
+                    */}
+                    {editandoCambio ? (
+                      <View style={estilos.cambioEdicion}>
+                        <Campo
+                          etiqueta="TIPO DE CAMBIO A USAR"
+                          value={cambioPropio}
+                          onChangeText={(t) => setCambioPropio(soloNumeros(t))}
+                          keyboardType="decimal-pad"
+                          placeholder={String(cotizacion.venta)}
+                          ayuda={
+                            cambioElegido > 0
+                              ? `Se va a usar ${formatearPesos(cambioElegido)} en toda la nota.`
+                              : 'Dejalo vacío para usar el oficial.'
+                          }
+                        />
+                        <BotonSecundario
+                          titulo="Volver al oficial"
+                          alTocar={() => {
+                            setCambioPropio('')
+                            setEditandoCambio(false)
+                          }}
+                        />
+                      </View>
+                    ) : (
+                      <BotonSecundario
+                        titulo="✎  Usar otro tipo de cambio"
+                        alTocar={() => setEditandoCambio(true)}
+                      />
+                    )}
                   </>
                 ) : (
                   <>
@@ -805,9 +869,24 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                         completo la creación de la nota. */}
                     <Text style={estilos.cambioError}>
                       {hayDolares
-                        ? 'No pudimos traer la cotización, y esta nota tiene renglones en dólares. Hace falta para poder crearla.'
+                        ? 'No pudimos traer la cotización, y esta nota tiene renglones en dólares. Reintentá, o poné el tipo de cambio a mano para poder crearla.'
                         : 'No pudimos traer la cotización. Esta nota va toda en pesos, así que se puede crear igual.'}
                     </Text>
+                    {/* Sin señal, tipearlo es la única salida: sin esto la nota
+                        con dólares quedaba trabada hasta volver a tener red. */}
+                    {hayDolares ? (
+                      <Campo
+                        etiqueta="TIPO DE CAMBIO A USAR"
+                        value={cambioPropio}
+                        onChangeText={(t) => setCambioPropio(soloNumeros(t))}
+                        keyboardType="decimal-pad"
+                        ayuda={
+                          cambioElegido > 0
+                            ? `Se va a usar ${formatearPesos(cambioElegido)} en toda la nota.`
+                            : 'Poné el valor que acordaste con el cliente.'
+                        }
+                      />
+                    ) : null}
                     <BotonSecundario
                       titulo={buscandoCotizacion ? 'Buscando…' : '↻  Reintentar'}
                       alTocar={() => void reintentarCotizacion()}
@@ -1351,6 +1430,7 @@ const estilos = StyleSheet.create({
     color: colores.rojoAccion,
   },
 
+  cambioEdicion: { gap: espaciado.xs, marginTop: espaciado.sm },
   cambio: {
     backgroundColor: colores.panelClaro,
     borderWidth: 2,
