@@ -71,7 +71,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   const { notaId } = route.params
   const cliente = useQueryClient()
 
-  const { data: nota, isLoading } = useQuery({
+  const { data: nota, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['nota', notaId],
     queryFn: () => obtenerNota(notaId),
   })
@@ -98,6 +98,32 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
         <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
         <Panel>
           <Cargando />
+        </Panel>
+      </Pantalla>
+    )
+  }
+
+  /*
+    "No pude preguntar" no es "no existe".
+    Sin señal la pantalla decía "No encontramos esa nota", que es una respuesta
+    sobre la nota y no sobre la conexión: el vendedor podía creer que la nota
+    que acababa de cargar se había perdido.
+  */
+  if (error) {
+    return (
+      <Pantalla>
+        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Panel contentStyle={estilos.contenido}>
+          <BarraPanel alVolver={() => navigation.goBack()} />
+          <Aviso tono="error" titulo="No pudimos abrir la nota">
+            Revisá la conexión. La nota sigue guardada: esto es un problema para leerla, no algo
+            que le haya pasado.
+          </Aviso>
+          <BotonSecundario
+            titulo="Reintentar"
+            alTocar={() => void refetch()}
+            cargando={isRefetching}
+          />
         </Panel>
       </Pantalla>
     )

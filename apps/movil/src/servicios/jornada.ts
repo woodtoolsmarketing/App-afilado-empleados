@@ -1,3 +1,4 @@
+import { fechaLocalISO } from '@woodtools/compartido'
 import type {
   FormularioVisita,
   ParadaCompleta,
@@ -18,12 +19,16 @@ import { supabase } from '../nucleo/supabase'
  * corta la señal en el medio.
  */
 
+/**
+ * Fecha local, no UTC: si el vendedor arranca a las 21:00 en Buenos Aires, la
+ * jornada sigue siendo la de hoy y no la de mañana.
+ *
+ * La cuenta vive en el paquete compartido. Estaba escrita a mano acá y no en
+ * `rangoDelPeriodo`, que quedó abajo con `toISOString()` pelado: la misma app
+ * resolvía bien el día de la jornada y mal el del historial.
+ */
 function hoyISO(): string {
-  const ahora = new Date()
-  // Fecha local, no UTC: si el vendedor arranca a las 21:00 en Buenos Aires,
-  // la jornada sigue siendo la de hoy y no la de mañana.
-  const desfase = ahora.getTimezoneOffset() * 60_000
-  return new Date(ahora.getTime() - desfase).toISOString().slice(0, 10)
+  return fechaLocalISO(new Date())
 }
 
 export async function obtenerResumenDeHoy(vendedorId: string): Promise<ResumenJornada | null> {
@@ -258,15 +263,27 @@ export function rangoDelPeriodo(
     case 'personalizado':
       if (personalizado) {
         return {
-          desde: personalizado.desde.toISOString().slice(0, 10),
-          hasta: personalizado.hasta.toISOString().slice(0, 10),
+          desde: fechaLocalISO(personalizado.desde),
+          hasta: fechaLocalISO(personalizado.hasta),
         }
       }
       desde.setDate(hasta.getDate() - 7)
       break
   }
 
-  return { desde: desde.toISOString().slice(0, 10), hasta: hasta.toISOString().slice(0, 10) }
+  /**
+   * En local, no en UTC.
+   *
+   * `toISOString()` pasa la fecha a UTC, y en Buenos Aires eso son tres horas
+   * adelante: de las 21:00 en adelante devolvía **el día siguiente**. Los dos
+   * extremos se corrían juntos, así que la ventana seguía midiendo siete días
+   * pero se comía el más viejo y agregaba uno futuro que está vacío: el
+   * vendedor perdía un día de historial cada noche.
+   *
+   * En el rango personalizado era peor de ver: elegía el 1 de agosto en el
+   * calendario y la consulta pedía el 2.
+   */
+  return { desde: fechaLocalISO(desde), hasta: fechaLocalISO(hasta) }
 }
 
 export async function obtenerHistorial(

@@ -32,7 +32,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
   const [conRolDeVisita, setConRolDeVisita] = useState(false)
 
-  const { data: notas, isLoading } = useQuery({
+  const { data: notas, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['notas-pendientes'],
     queryFn: notasPendientes,
   })
@@ -104,10 +104,35 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
 
-        <TituloPanel destacado={String(todas.length)}>NOTAS DE PEDIDO PENDIENTES:</TituloPanel>
+        {/*
+          El contador sólo se muestra cuando efectivamente se contaron. Si la
+          consulta falló, un "0" grande al lado del título es una afirmación
+          falsa sobre el trabajo del vendedor.
+        */}
+        <TituloPanel destacado={error ? undefined : String(todas.length)}>
+          NOTAS DE PEDIDO PENDIENTES:
+        </TituloPanel>
 
         {isLoading ? (
           <Cargando texto="Buscando tus notas…" />
+        ) : error ? (
+          /*
+            "No pude preguntar" no es "no hay".
+            Sin señal, la pantalla decía "No tenés notas pendientes" y mostraba
+            un 0: el vendedor podía tener cinco notas sin imprimir y creer que
+            ya estaba. Ahora dice lo que pasó y deja reintentar.
+          */
+          <>
+            <Aviso tono="error" titulo="No pudimos consultar tus notas">
+              Revisá la conexión. Puede que tengas notas pendientes sin imprimir: esta pantalla no
+              llegó a preguntarlo.
+            </Aviso>
+            <BotonSecundario
+              titulo="Reintentar"
+              alTocar={() => void refetch()}
+              cargando={isRefetching}
+            />
+          </>
         ) : todas.length === 0 ? (
           <Vacio titulo="No tenés notas pendientes" icono="📄" />
         ) : (

@@ -111,6 +111,11 @@ async function ubicarImpresora(
     (ip, i, todas): ip is string => !!ip && todas.indexOf(ip) === i,
   )
 
+  // Hasta acá no se decía nada, y probar dos candidatas cuesta casi dos
+  // segundos con la impresora apagada: el vendedor tocaba IMPRIMIR y la
+  // pantalla se quedaba quieta sin explicación.
+  if (candidatas.length > 0) alAvisar?.('Probando la impresora de siempre…')
+
   for (const ip of candidatas) {
     if (await contestaIpp(ip, puerto, ruta)) {
       return { impresora: { ip, puerto, ruta }, descubierta: false }
@@ -119,12 +124,30 @@ async function ubicarImpresora(
 
   if (!red.ip) return null
 
-  alAvisar?.('Buscando la impresora en la red…')
+  /**
+   * El barrido con su avance.
+   *
+   * Son 253 direcciones de a 24 por tanda, casi un segundo cada una: unos diez
+   * segundos mirando un cartel fijo que decía "Buscando la impresora en la
+   * red…" sin moverse nunca. Diez segundos sin señales de vida es tiempo de
+   * sobra para creer que la app se colgó y matarla —justo antes de que
+   * encuentre la impresora—.
+   *
+   * `buscarEnLaRed` ya avisaba el avance por `alAvanzar`; lo que faltaba era
+   * escucharlo.
+   */
+  alAvisar?.(
+    candidatas.length > 0
+      ? 'No contestó. Buscando la impresora en la red…'
+      : 'Buscando la impresora en la red…',
+  )
   const encontrada = await buscarEnLaRed({
     ipDelTelefono: red.ip,
     puerto,
     ruta,
     ipConocida: candidatas[0] ?? null,
+    alAvanzar: (revisadas, total) =>
+      alAvisar?.(`Buscando la impresora en la red… ${revisadas} de ${total} direcciones`),
   })
 
   if (!encontrada) return null

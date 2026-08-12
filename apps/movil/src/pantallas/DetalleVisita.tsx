@@ -20,13 +20,13 @@ import { obtenerDetalleParada } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
- * Detalle de un visita del historial: qué se hizo en la visita y qué quedó
- * escrito en las observaciones.
+ * Detalle de una visita del historial: qué se hizo y qué quedó escrito en las
+ * observaciones.
  */
 export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'DetalleVisita'>) {
   const { paradaId, fecha } = route.params
 
-  const { data: parada, isLoading } = useQuery({
+  const { data: parada, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['detalle-parada', paradaId],
     queryFn: () => obtenerDetalleParada(paradaId),
   })
@@ -42,8 +42,23 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
 
         {isLoading ? (
           <Cargando />
+        ) : error ? (
+          /*
+            Sin señal decía "No encontramos esa visita", que suena a que la
+            visita no existe. Lo que no existe es la respuesta del servidor.
+          */
+          <>
+            <Aviso tono="error" titulo="No pudimos abrir la visita">
+              Revisá la conexión. Lo que cargaste sigue guardado: esto es un problema para leerlo.
+            </Aviso>
+            <BotonSecundario
+              titulo="Reintentar"
+              alTocar={() => void refetch()}
+              cargando={isRefetching}
+            />
+          </>
         ) : !parada ? (
-          <Vacio titulo="No encontramos ese visita" icono="🔍" />
+          <Vacio titulo="No encontramos esa visita" icono="🔍" />
         ) : (
           <>
             <TituloPanel>DETALLE DE LA VISITA</TituloPanel>

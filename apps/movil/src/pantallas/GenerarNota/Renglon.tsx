@@ -408,12 +408,33 @@ export function PasoRenglon({
     const esPrecio = campo === 'precio_por_diente' || campo === 'precio_total'
     const esMedida = MEDIDAS.has(campo)
 
+    /**
+     * El PRECIO TOTAL de un afilado no se tipea: sale de la cuenta.
+     *
+     * En las herramientas que se cobran por diente, el efecto de más arriba
+     * recalcula el total en cuanto cambia cualquier cosa. El campo igual se
+     * dibujaba como uno más, editable: el vendedor podía borrarlo, escribir el
+     * importe que había arreglado con el cliente, ver cómo se le corregía solo
+     * al toque siguiente y no entender por qué. Lo que escribía se descartaba.
+     *
+     * Ahora se muestra como resultado. Para mover el precio está PRECIO POR
+     * DIENTE, que es el que la cuenta respeta.
+     *
+     * En mechas, cuchillas y sierras sin fin no se cobra por diente: ahí el
+     * total SÍ es lo que el vendedor tipea, y el campo sigue abierto.
+     */
+    const esTotalCalculado =
+      campo === 'precio_total' &&
+      campos.includes('precio_por_diente') &&
+      campos.includes('cantidad_dientes')
+
     return (
       <Campo
         key={campo}
         etiqueta={etiqueta}
         obligatorio
         value={valor}
+        editable={!esTotalCalculado}
         onChangeText={(t) =>
           alCambiar({
             // Las medidas van con coma: el punto se toma como coma, porque el
@@ -426,11 +447,13 @@ export function PasoRenglon({
         error={errores[campo]}
         contenedorStyle={ancho === 'tercio' ? estilos.tercio : ancho === 'mitad' ? estilos.mitad : undefined}
         ayuda={
-          esPrecio && aNumero(valor) > 0
-            ? formatearPesos(aNumero(valor))
-            : esMedida && aNumero(valor) > 0
-              ? formatearMedida(valor)
-              : undefined
+          esTotalCalculado
+            ? `${formatearPesos(aNumero(valor))} · sale de la cuenta. Para cambiarlo, tocá PRECIO POR DIENTE.`
+            : esPrecio && aNumero(valor) > 0
+              ? formatearPesos(aNumero(valor))
+              : esMedida && aNumero(valor) > 0
+                ? formatearMedida(valor)
+                : undefined
         }
       />
     )

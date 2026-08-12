@@ -98,10 +98,18 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
         </Etiqueta>
       ) : null}
 
+      {/*
+        Un campo que no se puede escribir tiene que verse distinto.
+        `editable={false}` lo bloquea pero lo deja idéntico a los demás, así
+        que quedaba un casillero que invitaba a tocarlo y no respondía. Los
+        calculados —el PRECIO TOTAL de un afilado— se muestran apagados: son un
+        resultado, no un lugar donde escribir.
+      */}
       <View
         style={[
           estilos.campoCaja,
           props.multiline && estilos.campoCajaMultilinea,
+          props.editable === false && estilos.campoCalculado,
           enfocado && estilos.campoEnfocado,
           !!error && estilos.campoConError,
         ]}
@@ -370,6 +378,11 @@ const estilos = StyleSheet.create({
   campoConError: {
     borderColor: colores.rojoAccion,
     borderWidth: 2.5,
+  },
+  /** Resultado de una cuenta: se lee, no se escribe. */
+  campoCalculado: {
+    backgroundColor: colores.panelOscuro,
+    borderStyle: 'dashed',
   },
   campoTexto: {
     flex: 1,
