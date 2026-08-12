@@ -14,6 +14,7 @@ import {
   type FormularioNotaEncabezado,
   type GrupoNota,
   type Herramienta,
+  type TipoMecha,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -73,6 +74,39 @@ export interface CodigoComputo {
   rango_min: number
   rango_max: number | null
   amplitud: number
+  /** La lista trae el código pero todavía no el importe: lo pone el vendedor. */
+  a_cotizar?: boolean
+}
+
+/**
+ * Un modelo de mecha del catálogo.
+ *
+ * Las mechas no se cotizan por medida como una sierra: la familia entera tiene
+ * un solo código con rango, así que buscar por diámetro no devolvía nunca nada.
+ * Se eligen por tipo y modelo, que es como están en la lista de precios y como
+ * las nombra el cliente.
+ */
+export interface ModeloMecha {
+  codigo: string
+  descripcion: string
+  medida: string
+  precio: number
+  moneda: 'ARS' | 'USD' | null
+  precio_pesos: number | null
+  a_cotizar: boolean
+}
+
+/**
+ * Los modelos de mecha de un tipo, con su precio.
+ *
+ * El tipo sale del desplegable del renglón y el prefijo del código lo
+ * confirma: MB bisagra, MC ciega, MP pasante, MID integral, MIDN compresión.
+ * El reparto lo hace la base, que es la que tiene el catálogo entero.
+ */
+export async function mechasDelTipo(tipo: TipoMecha): Promise<ModeloMecha[]> {
+  const { data, error } = await supabase.rpc('mechas_del_tipo', { p_tipo: tipo })
+  if (error) throw error
+  return aplicarSinCargo((data ?? []) as ModeloMecha[])
 }
 
 export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
@@ -140,10 +174,12 @@ async function codigosDeLaHerramienta(
   let consulta = supabase
     .from('vista_catalogo_vigente')
     .select(
-      'codigo, descripcion, precio, moneda, rango_min, rango_max, rango_dimension, servicio_sugerido, herramienta_sugerida',
+      'codigo, descripcion, precio, moneda, precio_a_confirmar, rango_min, rango_max, rango_dimension, servicio_sugerido, herramienta_sugerida',
     )
     .eq('familia', FAMILIA_CATALOGO[herramienta])
-    .eq('precio_a_confirmar', false)
+    // Los que están a cotizar YA NO se esconden. Escondidos, la medida "no
+    // daba ningún código" y el vendedor no tenía forma de saber que el código
+    // existía y lo único que faltaba era el importe.
     .or(`herramienta_sugerida.is.null,herramienta_sugerida.eq.${herramienta}`)
 
   consulta = conRango
@@ -180,6 +216,7 @@ async function codigosDeLaHerramienta(
         ...fila,
         precio_pesos: enPesos ? Number(fila.precio) : null,
         amplitud: 0,
+        a_cotizar: fila.precio_a_confirmar === true,
       }
     }) as CodigoComputo[],
   )
@@ -352,6 +389,10 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         reparar_dientes: i.dientes_rotos ? i.reparar_dientes : null,
         codigo_reparacion: i.codigo_reparacion,
         precio_reparacion_unitario: aNumero(i.precio_reparacion_por_diente) || null,
+        // Sólo se guardan cuando son ciertas: `null` lo descarta el filtro de
+        // abajo, y así el detalle no se llena de "sin_cargo: false".
+        sin_cargo: i.sin_cargo ? true : null,
+        reparacion_sin_cargo: i.reparacion_sin_cargo ? true : null,
       }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
     ),
   }

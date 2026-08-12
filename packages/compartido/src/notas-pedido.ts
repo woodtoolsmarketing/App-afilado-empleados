@@ -11,7 +11,7 @@
  * que la pantalla muestre un campo que el validador ignora, ni al revés.
  */
 
-import { aPesos, type Moneda } from './catalogo'
+import { aPesos, PRECIO_SIN_CARGO, type Moneda } from './catalogo'
 import type { ResultadoValidacion, TipoNotaPedido, TipoServicio } from './tipos'
 import { CODIGO_POSTAL } from './validaciones'
 
@@ -587,6 +587,16 @@ export interface FormularioItemNota {
   /** Código de cómputo de la reparación. Se busca solo por el ancho de corte. */
   codigo_reparacion: string
   precio_reparacion_por_diente: string
+
+  // ── Trabajos que no se cobran ─────────────────────────────────────────────
+  //
+  // Se marcan al elegir el código: la lista de precios lo dice en la
+  // descripción ("AFILADO S.C. SIN CARGO"). Es una marca y no un precio porque
+  // el importe no se multiplica: son $ 0,10 la nota entera, no por diente.
+  /** El trabajo principal del renglón va sin cargo. */
+  sin_cargo: boolean
+  /** La reparación de los dientes rotos va sin cargo. Se decide aparte. */
+  reparacion_sin_cargo: boolean
 }
 
 export const ITEM_VACIO: FormularioItemNota = {
@@ -624,6 +634,8 @@ export const ITEM_VACIO: FormularioItemNota = {
   reparar_dientes: null,
   codigo_reparacion: '',
   precio_reparacion_por_diente: '',
+  sin_cargo: false,
+  reparacion_sin_cargo: false,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -860,6 +872,18 @@ export function totalDeRenglones(items: FormularioItemNota[], tipoCambio = 0): n
   return redondear(items.reduce((suma, i) => suma + totalDelRenglonEnPesos(i, tipoCambio), 0))
 }
 
+/**
+ * Cuántos renglones de producto entran en una nota.
+ *
+ * Es el alto del talonario en papel: la tabla técnica tiene doce filas y cada
+ * renglón cargado ocupa una. Pasarse no lo resuelve la impresión —la tabla
+ * crece y se estira la hoja— pero deja de ser el comprobante que la fábrica
+ * sabe leer, así que el tope se pone donde se carga y no donde se imprime.
+ *
+ * Si el cliente trae más, van en otra nota.
+ */
+export const MAXIMO_RENGLONES = 12
+
 export interface ValidacionRenglones {
   valido: boolean
   /** Índice del primer renglón con problemas, para llevar al vendedor ahí. */
@@ -878,6 +902,16 @@ export function validarRenglones(items: FormularioItemNota[]): ValidacionRenglon
       valido: false,
       indice: 0,
       errores: { herramienta: 'La nota necesita al menos un renglón' },
+    }
+  }
+
+  if (items.length > MAXIMO_RENGLONES) {
+    return {
+      valido: false,
+      indice: MAXIMO_RENGLONES,
+      errores: {
+        herramienta: `La nota entra hasta ${MAXIMO_RENGLONES} renglones y tiene ${items.length}. Sacá ${items.length - MAXIMO_RENGLONES} y armá otra nota con el resto.`,
+      },
     }
   }
 
@@ -1065,6 +1099,13 @@ export interface LineaComputo {
   total: number
   /** La moneda de esta línea. El afilado siempre en pesos. */
   moneda: Moneda
+  /**
+   * El trabajo no se cobra y el importe es simbólico.
+   *
+   * La cantidad se sigue informando —la fábrica tiene que saber cuántos
+   * dientes se afilaron— pero no multiplica: el total es $ 0,10 y punto.
+   */
+  sinCargo: boolean
 }
 
 /**
@@ -1090,24 +1131,46 @@ export interface DatosComputo {
   precioTotalDirecto: number
   /** La moneda del renglón. El afilado siempre es en pesos. */
   moneda: Moneda
+  /** El trabajo principal no se cobra. */
+  sinCargo?: boolean
+  /** La reparación de los rotos no se cobra. Se decide aparte del principal. */
+  reparacionSinCargo?: boolean
+}
+
+/**
+ * Lo que se cobra por un trabajo sin cargo: **el total, no el unitario**.
+ *
+ * En realidad es cero. El importe simbólico existe para que el renglón no se
+ * confunda con uno al que le falta cargar el precio, y por eso no se
+ * multiplica: afilar una sierra de 96 dientes sin cargo son $ 0,10, y afilar
+ * cuatro sierras de 96 también.
+ */
+function totalSinCargo(): number {
+  return PRECIO_SIN_CARGO
 }
 
 export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
   const unidades = Math.max(1, d.cantidad || 1)
   const codigo = d.codigos.filter(Boolean).join(', ')
+  const sinCargo = d.sinCargo === true
 
   // Sin dientes no hay nada que descontar: la línea es una sola y el unitario
   // sale de dividir, que es la única lectura posible de un total tipeado.
   if (!d.dientesPorHerramienta) {
-    const total = redondear(d.precioTotalDirecto || d.precioUnitario * unidades)
+    const total = sinCargo
+      ? totalSinCargo()
+      : redondear(d.precioTotalDirecto || d.precioUnitario * unidades)
     return [
       {
         concepto: d.concepto,
         codigo,
         cantidad: unidades,
-        precioUnitario: redondear(total / unidades),
+        // Sin cargo no hay precio unitario que mostrar: el importe no sale de
+        // multiplicar nada, y un "$ 0,03 c/u" sería una cuenta inventada.
+        precioUnitario: sinCargo ? 0 : redondear(total / unidades),
         total,
-        moneda: d.moneda,
+        moneda: sinCargo ? 'ARS' : d.moneda,
+        sinCargo,
       },
     ]
   }
@@ -1121,21 +1184,27 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
       concepto: d.concepto,
       codigo,
       cantidad: aAfilar,
-      precioUnitario: d.precioUnitario,
-      total: redondear(aAfilar * d.precioUnitario),
-      moneda: d.moneda,
+      precioUnitario: sinCargo ? 0 : d.precioUnitario,
+      total: sinCargo ? totalSinCargo() : redondear(aAfilar * d.precioUnitario),
+      moneda: sinCargo ? 'ARS' : d.moneda,
+      sinCargo,
     },
   ]
 
   if (rotos > 0 && d.repararDientes) {
+    // La reparación puede ir sin cargo aunque el afilado se cobre: es
+    // justamente el caso de "REP. DTE. DE SIERRA SIN CARGO", el diente que se
+    // rompió en nuestro taller.
+    const repSinCargo = d.reparacionSinCargo === true
     lineas.push({
       concepto: 'reparacion',
       codigo: d.codigoReparacion,
       cantidad: rotos,
-      precioUnitario: d.precioReparacionPorDiente,
-      total: redondear(rotos * d.precioReparacionPorDiente),
+      precioUnitario: repSinCargo ? 0 : d.precioReparacionPorDiente,
+      total: repSinCargo ? totalSinCargo() : redondear(rotos * d.precioReparacionPorDiente),
       // El afilado y su reparación se cobran los dos en pesos.
       moneda: 'ARS',
+      sinCargo: repSinCargo,
     })
   }
 
@@ -1168,7 +1237,7 @@ export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[
   for (const linea of lineas) {
     // Sin código no hay contra qué agrupar: pasa tal cual.
     const clave = linea.codigo
-      ? `${linea.concepto}|${linea.codigo}|${linea.moneda}|${linea.precioUnitario}`
+      ? `${linea.concepto}|${linea.codigo}|${linea.moneda}|${linea.precioUnitario}|${linea.sinCargo}`
       : ''
 
     const previa = clave ? porClave.get(clave) : undefined
@@ -1180,7 +1249,10 @@ export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[
     }
 
     previa.cantidad += linea.cantidad
-    previa.total = redondear(previa.total + linea.total)
+    // Dos renglones sin cargo que caen en el mismo código siguen siendo $ 0,10:
+    // sumarlos daría $ 0,20, que es exactamente la multiplicación que la regla
+    // dice que no hay que hacer.
+    previa.total = previa.sinCargo ? totalSinCargo() : redondear(previa.total + linea.total)
   }
 
   return salida
@@ -1208,6 +1280,8 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
     precioTotalDirecto: esVenta ? 0 : aNumero(item.precio_total),
     // El afilado se cobra en pesos siempre; sólo la venta puede ir en dólares.
     moneda: esVenta ? item.moneda : 'ARS',
+    sinCargo: item.sin_cargo === true,
+    reparacionSinCargo: item.reparacion_sin_cargo === true,
   }
 }
 

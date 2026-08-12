@@ -21,6 +21,7 @@ import {
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
   radios,
+  MAXIMO_RENGLONES,
   renglonNuevo,
   resumenRenglon,
   soloNumeros,
@@ -285,7 +286,27 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * medio cargar termina en una nota que no se puede crear y en un vendedor
    * buscando cuál de los seis le falta.
    */
+  /**
+   * ¿Entra otro renglón?
+   *
+   * La nota tiene doce, que es el alto del talonario en papel. El tope se
+   * avisa acá y no al guardar: descubrir a los trece renglones que hay que
+   * sacar uno es tirar el trabajo de cargarlo.
+   */
+  const lugarLibre = MAXIMO_RENGLONES - items.length
+
+  function avisarSinLugar() {
+    Alert.alert(
+      `La nota entra hasta ${MAXIMO_RENGLONES} renglones`,
+      'Ya están los doce. Si el cliente trajo más, terminá ésta y cargá el resto en otra nota: van a salir con números seguidos y cada una va a decir con cuál va.',
+    )
+  }
+
   function sumarRenglon(herramienta: Herramienta | null, servicio = renglon.servicio) {
+    if (lugarLibre <= 0) {
+      avisarSinLugar()
+      return
+    }
     setIntentado(true)
     const { valido, errores: e } = validarItemNota(renglon)
     setErrores(e as Record<string, string | undefined>)
@@ -343,6 +364,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   /** Agrega un renglón por cada herramienta marcada en la lista múltiple. */
   function agregarHerramientasElegidas() {
     if (herramientasElegidas.length === 0) return
+    // Marcar cinco herramientas cuando quedan dos lugares no puede entrar de
+    // prepo: se avisa y no se agrega ninguna, que es más claro que meter las
+    // dos primeras y descartar las otras tres sin decirlo.
+    if (herramientasElegidas.length > lugarLibre) {
+      Alert.alert(
+        `No entran ${herramientasElegidas.length} renglones más`,
+        lugarLibre <= 0
+          ? `La nota ya tiene los ${MAXIMO_RENGLONES} renglones. Cargá el resto en otra nota.`
+          : `Queda lugar para ${lugarLibre}. Sacá ${herramientasElegidas.length - lugarLibre} de la selección, o cargá el resto en otra nota.`,
+      )
+      return
+    }
     const nuevos = [
       ...items,
       ...herramientasElegidas.map((hta) => renglonNuevo(renglon.servicio, hta)),
@@ -679,7 +712,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               {items.length > 1 ? (
                 <View style={estilos.renglones}>
                   <Text style={estilos.renglonesTitulo}>
-                    RENGLONES DE LA NOTA · {items.length}
+                    RENGLONES DE LA NOTA · {items.length} de {MAXIMO_RENGLONES}
                   </Text>
                   {items.map((r, i) => (
                     <TarjetaRenglon

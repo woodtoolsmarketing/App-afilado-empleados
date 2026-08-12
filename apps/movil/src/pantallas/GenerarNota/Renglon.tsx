@@ -1,6 +1,8 @@
 import {
   agujeroDelRenglon,
   aNumero,
+  caracteristicasDeArticulo,
+  esSinCargo,
   CAMPOS_POR_HERRAMIENTA,
   colores,
   describirRango,
@@ -36,9 +38,11 @@ import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/For
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   agujeroDeFabrica,
+  mechasDelTipo,
   medidasDisponibles,
   resolverCodigoDeItem,
   type CodigoComputo,
+  type ModeloMecha,
 } from '../../servicios/notasPedido'
 
 /**
@@ -231,9 +235,14 @@ export function PasoRenglon({
         propuesto.current = mejor.codigo
         alCambiar({
           codigos_computo: [mejor.codigo],
-          ...(mejor.precio_pesos !== null
-            ? { precio_por_diente: String(mejor.precio_pesos) }
-            : {}),
+          // Un código a cotizar no trae importe: el campo queda para que lo
+          // ponga el vendedor, en vez de heredar el precio de otro código.
+          ...(mejor.a_cotizar
+            ? { precio_por_diente: '' }
+            : mejor.precio_pesos !== null
+              ? { precio_por_diente: String(mejor.precio_pesos) }
+              : {}),
+          sin_cargo: esSinCargo(mejor.descripcion),
         })
       } catch {
         setCodigos([])
@@ -390,7 +399,12 @@ export function PasoRenglon({
       propuesto.current = m.codigo
       alCambiar({
         codigos_computo: [m.codigo],
-        ...(m.precio_pesos !== null ? { precio_por_diente: String(m.precio_pesos) } : {}),
+        ...(m.a_cotizar
+          ? { precio_por_diente: '' }
+          : m.precio_pesos !== null
+            ? { precio_por_diente: String(m.precio_pesos) }
+            : {}),
+        sin_cargo: esSinCargo(m.descripcion),
       })
       return
     }
@@ -493,9 +507,37 @@ export function PasoRenglon({
             valor: t,
             etiqueta: ETIQUETA_TIPO_MECHA[t],
           }))}
-          alCambiar={(t) => alCambiar({ tipo_mecha: t, mano: null })}
+          alCambiar={(t) =>
+            // Cambiar de tipo deja sin sentido el modelo elegido y todo lo que
+            // vino con él: se limpia en vez de arrastrar las medidas de una
+            // mecha que ya no es la que se está cargando.
+            alCambiar({
+              tipo_mecha: t,
+              mano: null,
+              codigos_computo: [],
+              codigo_herramienta: '',
+              descripcion_catalogo: '',
+              precio: '',
+              precio_total: '',
+              diametro: '',
+              largo_util: '',
+              sin_cargo: false,
+            })
+          }
           error={errores.tipo_mecha}
         />
+      ) : null}
+
+      {/*
+        El modelo de mecha.
+        No se cotiza por medida como una sierra: la familia entera del catálogo
+        tiene un solo código con rango, así que buscar por diámetro no devolvía
+        nunca nada y el vendedor terminaba tipeando el código de memoria. Se
+        elige de la lista del tipo, y de ahí salen solos el código, el precio y
+        las medidas. Lo único que queda por poner son las unidades.
+      */}
+      {item.herramienta === 'mecha' && item.tipo_mecha ? (
+        <SelectorModeloMecha item={item} alCambiar={alCambiar} />
       ) : null}
 
       {/* Campos propios de la herramienta.
@@ -785,9 +827,12 @@ export function PasoRenglon({
                             codigos_computo: elegido
                               ? item.codigos_computo.filter((x) => x !== c.codigo)
                               : [...item.codigos_computo, c.codigo],
-                            ...(!elegido && c.precio_pesos !== null
-                              ? { precio_por_diente: String(c.precio_pesos) }
-                              : {}),
+                            ...(!elegido && c.a_cotizar
+                              ? { precio_por_diente: '' }
+                              : !elegido && c.precio_pesos !== null
+                                ? { precio_por_diente: String(c.precio_pesos) }
+                                : {}),
+                            ...(elegido ? {} : { sin_cargo: esSinCargo(c.descripcion) }),
                           })
                         }
                         accessibilityRole="checkbox"
@@ -806,7 +851,11 @@ export function PasoRenglon({
                             {describirRango(c.rango_min, c.rango_max)}
                           </Text>
                           <Text style={estilos.opcionPrecio}>
-                            {c.precio_pesos !== null ? formatearPesos(Number(c.precio_pesos)) : '—'}
+                            {c.a_cotizar
+                              ? 'A cotizar'
+                              : c.precio_pesos !== null
+                                ? formatearPesos(Number(c.precio_pesos))
+                                : '—'}
                           </Text>
                         </View>
                         <Text style={estilos.opcionDesc} numberOfLines={1}>
@@ -936,6 +985,176 @@ function rotuloServicio(s: TipoServicio): string {
   }
 }
 
+/**
+ * De qué mano es el modelo.
+ *
+ * Sale de la descripción y no del código: `MCDL0870` dice "MECHA DERECHA
+ * LASER" y `MCIL0570` "MECHA IZQUIERDA LASER", pero la letra de mano cae en
+ * distinta posición según la sub-familia. El texto lo dice siempre.
+ */
+function manoDelModelo(m: ModeloMecha): ManoMecha | null {
+  const texto = m.descripcion.toUpperCase()
+  if (/\bIZQ/.test(texto)) return 'izquierda'
+  if (/\bDER/.test(texto)) return 'derecha'
+  return null
+}
+
+/**
+ * Elegir la mecha de la lista del tipo.
+ *
+ * Es el reemplazo de tipear el código de memoria: se elige el modelo y de ahí
+ * salen solos el código de cómputo, el precio y las medidas que la lista trae.
+ * Lo único que queda por poner son las unidades.
+ */
+function SelectorModeloMecha({
+  item,
+  alCambiar,
+}: {
+  item: FormularioItemNota
+  alCambiar: (cambios: Partial<FormularioItemNota>) => void
+}) {
+  const [modelos, setModelos] = useState<ModeloMecha[]>([])
+  const [cargando, setCargando] = useState(false)
+  const [fallo, setFallo] = useState(false)
+
+  useEffect(() => {
+    if (!item.tipo_mecha) return
+    let cancelado = false
+    setCargando(true)
+    setFallo(false)
+    mechasDelTipo(item.tipo_mecha)
+      .then((m) => {
+        if (!cancelado) setModelos(m)
+      })
+      .catch(() => {
+        if (!cancelado) {
+          setModelos([])
+          setFallo(true)
+        }
+      })
+      .finally(() => {
+        if (!cancelado) setCargando(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [item.tipo_mecha])
+
+  const esVenta = item.servicio === 'venta'
+  const elegido = esVenta ? item.codigo_herramienta : (item.codigos_computo[0] ?? '')
+
+  /**
+   * El total sale del precio del modelo por las unidades.
+   *
+   * En las mechas no se cobra por diente, así que el PRECIO TOTAL era un campo
+   * que el vendedor tenía que tipear. Con el modelo elegido el importe ya se
+   * sabe: se recalcula solo cuando cambian las unidades.
+   */
+  useEffect(() => {
+    if (esVenta || !elegido) return
+    const unitario = aNumero(item.precio)
+    if (unitario <= 0) return
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const total = Math.round(unitario * unidades * 100) / 100
+    if (Math.abs(total - aNumero(item.precio_total)) > 0.005) {
+      alCambiar({ precio_total: String(total) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.precio, item.cantidad, elegido, esVenta])
+
+  function elegir(m: ModeloMecha) {
+    const c = caracteristicasDeArticulo(m.descripcion, m.medida)
+    const mano = manoDelModelo(m)
+    // Los precios en dólares no se pasan a pesos acá: eso necesita la
+    // cotización, que esta pantalla no tiene. Se guarda el de la lista y la
+    // nota lo convierte con el tipo de cambio que ya lleva impreso.
+    const unitario = m.precio_pesos !== null ? String(m.precio_pesos) : String(m.precio || '')
+
+    alCambiar({
+      ...(esVenta ? { codigo_herramienta: m.codigo } : { codigos_computo: [m.codigo] }),
+      descripcion_catalogo: `${m.codigo} · ${m.descripcion}${m.medida ? ` · ${m.medida}` : ''}`,
+      precio: m.a_cotizar ? '' : unitario,
+      moneda: m.moneda === 'USD' ? 'USD' : 'ARS',
+      ...(c.diametro_exterior ? { diametro: c.diametro_exterior } : {}),
+      ...(c.largo ? { largo_util: c.largo } : {}),
+      ...(mano ? { mano } : {}),
+      sin_cargo: esSinCargo(m.descripcion),
+      // A cotizar: el importe lo pone el vendedor, así que se limpia lo que
+      // hubiera quedado de un modelo anterior en vez de dejar un precio ajeno.
+      ...(m.a_cotizar ? { precio_total: '' } : {}),
+    })
+  }
+
+  if (cargando) {
+    return (
+      <View style={estilos.bloqueCodigos}>
+        <ActivityIndicator size="small" color={colores.rojo} />
+      </View>
+    )
+  }
+
+  if (fallo) {
+    return (
+      <Aviso tono="atencion" titulo="No pudimos traer los modelos">
+        Revisá la señal y volvé a elegir el tipo. Si no aparece, cargá el código y el precio a
+        mano.
+      </Aviso>
+    )
+  }
+
+  if (modelos.length === 0) {
+    return (
+      <Aviso tono="atencion" titulo="Sin modelos cargados">
+        La lista de precios no tiene modelos para ese tipo. Cargá el código y el precio a mano.
+      </Aviso>
+    )
+  }
+
+  return (
+    <View style={estilos.bloqueCodigos}>
+      <Text style={estilos.rotulo}>
+        MODELO ({modelos.length} en la lista)
+      </Text>
+      {modelos.map((m) => {
+        const marcado = m.codigo === elegido
+        const c = caracteristicasDeArticulo(m.descripcion, m.medida)
+        return (
+          <Pressable
+            key={m.codigo}
+            onPress={() => elegir(m)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: marcado }}
+            style={({ pressed }) => [
+              estilos.opcion,
+              marcado && estilos.opcionElegida,
+              pressed && estilos.tocado,
+            ]}
+          >
+            <View style={estilos.opcionTexto}>
+              <Text style={estilos.opcionCodigo}>
+                {marcado ? '● ' : '○ '}
+                {m.codigo}
+              </Text>
+              <Text style={estilos.opcionDesc} numberOfLines={2}>
+                {m.descripcion}
+                {m.medida ? ` · ${m.medida}` : ''}
+                {c.diametro_exterior ? ` · Ø ${c.diametro_exterior} mm` : ''}
+              </Text>
+            </View>
+            <Text style={[estilos.opcionPrecio, m.a_cotizar && estilos.aCotizar]}>
+              {m.a_cotizar
+                ? 'A cotizar'
+                : m.precio_pesos !== null
+                  ? formatearPesos(Number(m.precio_pesos))
+                  : `U$S ${m.precio}`}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
 const estilos = StyleSheet.create({
   // Los campos cortos van de a dos por fila: una medida ocupa cinco caracteres
   // y antes se comía el ancho entero, obligando a scrollear por nada.
@@ -1023,6 +1242,10 @@ const estilos = StyleSheet.create({
     gap: 2,
   },
   opcionElegida: { backgroundColor: 'rgba(0,200,83,0.12)' },
+  /** El texto del modelo, que comparte fila con el precio de la derecha. */
+  opcionTexto: { flex: 1, gap: 2 },
+  /** El que todavía no tiene importe: se ve distinto del que sí lo tiene. */
+  aCotizar: { color: colores.rojo },
   tocado: { opacity: 0.7 },
   opcionFila: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   opcionCodigo: {

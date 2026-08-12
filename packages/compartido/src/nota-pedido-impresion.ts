@@ -24,6 +24,7 @@ import {
   consolidarLineasDeComputo,
   describirCondicionVenta,
   lineasDeComputo,
+  MAXIMO_RENGLONES,
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   type DatosComputo,
@@ -97,6 +98,22 @@ export interface NotaParaImprimir {
   tecnicos: RenglonTecnico[]
   comerciales: RenglonComercial[]
 
+  /**
+   * Cuántos renglones de producto lleva la nota.
+   *
+   * Va impreso: es lo que permite verificar de un vistazo que no falta ninguno
+   * —ni se coló uno de más— sin contar filas a mano en una tabla que además
+   * trae renglones en blanco para escribir.
+   */
+  renglones: number
+  /**
+   * Los totales ya escritos, uno por moneda: `$ 65.696,40 · U$S 120,00`.
+   *
+   * Salen de las mismas líneas que se imprimen arriba, así que la suma no
+   * puede diferir de los renglones que la componen.
+   */
+  totales: string
+
   tipo_cambio: string
   /** Ya escrita: "Contado", "Cheque a 30 días", el texto libre de "Otro". */
   condicion_venta?: string
@@ -128,8 +145,8 @@ export interface OpcionesImpresion {
 }
 
 /** Filas en blanco que trae el talonario y que la fábrica completa a mano. */
-const FILAS_TECNICAS = 11
-const FILAS_COMERCIALES = 11
+const FILAS_TECNICAS = MAXIMO_RENGLONES
+const FILAS_COMERCIALES = MAXIMO_RENGLONES
 
 /**
  * El duplicado tiene el chrome apretado —encabezado, rótulos y cajas chicas—
@@ -140,8 +157,8 @@ const FILAS_COMERCIALES = 11
  * La tabla comercial se estira sola hasta el borde inferior (ver `.duplicado`
  * en los estilos), así que estos números son el piso, no el total.
  */
-const FILAS_TECNICAS_DUPLICADO = 9
-const FILAS_COMERCIALES_DUPLICADO = 10
+const FILAS_TECNICAS_DUPLICADO = MAXIMO_RENGLONES
+const FILAS_COMERCIALES_DUPLICADO = MAXIMO_RENGLONES
 
 function escapar(v: unknown): string {
   return String(v ?? '')
@@ -277,11 +294,15 @@ export function generarHtmlNotaPedido(
       // igual que en el talonario. La condición de venta de la nota va arriba
       // de todo, en la primera fila, que es donde se lee primero.
       const esFilaCambio = i === comerciales.length - 3
+      // Lo propio de la fila —"SIN CARGO", "Reparación dientes"— no se pierde
+      // aunque le toque compartir casilla con la condición de la nota: antes
+      // la primera fila lo perdía sin aviso.
+      const propia = escapar(c.condicion_venta)
       const condicion = esFilaCambio
         ? `Tipo de Cambio:<br><span class="cambio">${escapar(nota.tipo_cambio)}</span>`
         : i === 0 && nota.condicion_venta
-          ? `<strong>${escapar(nota.condicion_venta)}</strong>`
-          : escapar(c.condicion_venta)
+          ? `<strong>${escapar(nota.condicion_venta)}</strong>${propia ? `<br>${propia}` : ''}`
+          : propia
       return `<tr>
         <td>${escapar(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
@@ -309,34 +330,70 @@ export function generarHtmlNotaPedido(
         <th>Observaciones</th>
       </tr>`
 
-  // El duplicado reemplaza el bloque de firmas por los recuadros de depósito.
-  const pie = esDuplicado
-    ? `<div class="deposito">
-        <table class="caja">
+  const cajaDeposito = `<table class="caja">
           <tr><td>Deposito Nº</td></tr>
           <tr><td>Nº Movimiento</td></tr>
           <tr><td>Fecha</td></tr>
           <tr><td>Hora</td></tr>
-        </table>
-        <table class="caja firma-caja">
-          <tr><td class="alto">Fecha:</td></tr>
-          <tr><td class="pie-firma">Firma Retira el Vendedor</td></tr>
-        </table>
-      </div>
-      <div class="talon">
+        </table>`
+
+  // El duplicado reemplaza el bloque de firmas por el talón desprendible. Los
+  // recuadros de depósito ya no van acá: subieron al costado de la tabla
+  // comercial, que es donde están en el talonario de papel.
+  const pie = esDuplicado
+    ? `<div class="talon">
         <div class="talon-num">NOTA DE<br>PEDIDO N<br><strong>${nota.numero ? escapar(nota.numero) : '— — —'}</strong></div>
         <div class="talon-medio"></div>
-        <table class="caja">
-          <tr><td>Deposito Nº</td></tr>
-          <tr><td>Nº Movimiento</td></tr>
-          <tr><td>Fecha</td></tr>
-          <tr><td>Hora</td></tr>
-        </table>
+        ${cajaDeposito}
       </div>`
     : `<div class="firmas">
         <div><div class="linea"></div>Conforme del Vendedor</div>
         <div><div class="linea"></div>Retira el Vendedor</div>
       </div>`
+
+  /**
+   * El bloque comercial.
+   *
+   * En el ORIGINAL la tabla ocupa el ancho entero: son siete columnas y todas
+   * llevan datos.
+   *
+   * En el DUPLICADO son dos —código y cantidad— y estirarlas a lo ancho de la
+   * hoja dejaba dos columnas larguísimas con un número adentro y una pared de
+   * líneas vacías al costado. Va como en el talonario impreso: la tabla angosta
+   * a la izquierda, los recuadros de depósito y la firma a la derecha, y **el
+   * medio libre** para que en fábrica agreguen renglones a mano.
+   */
+  const bloqueComercial = esDuplicado
+    ? `<div class="comercial-duplicado">
+        <table class="tabla comercial">
+          <thead>${comercialesCabecera}</thead>
+          <tbody>${filasComerciales}</tbody>
+        </table>
+        <div class="espacio-libre"></div>
+        <div class="cajas-duplicado">
+          ${cajaDeposito}
+          <table class="caja firma-caja">
+            <tr><td class="alto">Fecha:</td></tr>
+            <tr><td class="pie-firma">Firma Retira el Vendedor</td></tr>
+          </table>
+        </div>
+      </div>`
+    : `<table class="tabla comercial">
+        <thead>${comercialesCabecera}</thead>
+        <tbody>${filasComerciales}</tbody>
+      </table>`
+
+  /**
+   * Cuántos renglones lleva la nota y cuánto suma.
+   *
+   * Es lo que permite verificar de un vistazo que no falta ninguno sin contar
+   * filas a mano en una tabla que además trae renglones en blanco. El duplicado
+   * lleva el conteo pero no los importes: es la copia del taller.
+   */
+  const resumen = `<div class="resumen">
+    <span>Renglones cargados: <strong>${nota.renglones}</strong> de ${MAXIMO_RENGLONES}</span>
+    ${esDuplicado || !nota.totales ? '' : `<span>TOTAL: <strong>${escapar(nota.totales)}</strong></span>`}
+  </div>`
 
   return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}">
   <table class="encabezado">
@@ -348,7 +405,7 @@ export function generarHtmlNotaPedido(
         <div class="control-linea"><span>Emision Plano:</span><span class="fecha-vacia">___/___/___</span></div>
         <div class="control-linea"><span>Recibido Fca.:</span><span class="fecha-vacia">___/___/___</span></div>
         <div class="control-linea"><span>Finalizado Fca.:</span><span class="fecha-vacia">___/___/___</span></div>
-        <div class="control-linea"><span>Fca. Entrega:</span><span class="fecha-vacia">${
+        <div class="control-linea"><span>Fecha de entrega:</span><span class="fecha-vacia">${
           nota.fecha_entrega ? escapar(nota.fecha_entrega) : '___/___/___'
         }</span></div>
       </td>
@@ -402,10 +459,8 @@ export function generarHtmlNotaPedido(
   </table>
 
   <div class="bloque-titulo">CARACTERISTICAS COMERCIALES</div>
-  <table class="tabla comercial">
-    <thead>${comercialesCabecera}</thead>
-    <tbody>${filasComerciales}</tbody>
-  </table>
+  ${bloqueComercial}
+  ${resumen}
 
   ${pie}
 
@@ -488,9 +543,32 @@ export const ESTILOS_NOTA_PEDIDO = `
    caso —dos códigos separados por coma— sigue entrando. En el duplicado, que
    sólo tiene dos columnas, se lo deja ancho. */
 .w-codigo { width: 14%; } .w-cant { width: 8%; } .w-precio { width: 11%; }
-.duplicado .w-codigo { width: 20%; }
 .comercial th { line-height: 1.1; }
 .cambio { letter-spacing: 1px; }
+
+/* ── El bloque comercial del duplicado ───────────────────────────────────────
+   Tabla angosta a la izquierda, cajas a la derecha, y el medio libre para
+   escribir a mano. Estirar dos columnas a lo ancho de la hoja dejaba una pared
+   de líneas vacías al lado de un número de cuatro dígitos. */
+.comercial-duplicado { display: flex; align-items: flex-start; gap: 4mm; }
+.comercial-duplicado .comercial { width: 62mm; flex: 0 0 62mm; }
+.duplicado .comercial-duplicado .w-codigo { width: 62%; }
+.duplicado .comercial-duplicado .w-cant { width: 38%; }
+/* El hueco del medio. Crece con la hoja: es el espacio para agregar renglones. */
+.espacio-libre { flex: 1 1 auto; }
+.cajas-duplicado { display: flex; flex-direction: column; gap: 3mm; flex: 0 0 52mm; }
+
+/* Cuántos renglones lleva la nota y cuánto suma. */
+.resumen {
+  display: flex;
+  justify-content: space-between;
+  gap: 8mm;
+  border: 1px solid #000;
+  border-top: 0;
+  padding: 2px 6px;
+  font-size: 9pt;
+}
+.resumen strong { font-size: 10pt; }
 
 .firmas { display: flex; justify-content: space-around; margin-top: 14mm; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -503,6 +581,7 @@ export const ESTILOS_NOTA_PEDIDO = `
 
 .talon { display: flex; align-items: stretch; gap: 0; margin-top: 4mm; border-top: 1px dashed #000; padding-top: 3mm; }
 .talon-num { border: 1px solid #000; padding: 3px 6px; font-size: 8.5pt; line-height: 1.2; }
+.talon .caja { flex: 0 0 52mm; }
 .talon-num strong { font-size: 13pt; }
 .talon-medio { flex: 1; border: 1px solid #000; border-left: 0; border-right: 0; }
 
@@ -517,11 +596,16 @@ export const ESTILOS_NOTA_PEDIDO = `
    siendo renglones para escribir y no aire entre bloques. */
 .duplicado {
   font-size: 8.5pt;
-  min-height: 281mm;
+  /* A4 menos los márgenes son 281 mm, pero pedir exactamente eso desbordaba:
+     el área imprimible real de Chrome es un pelo menor y la palabra
+     "DUPLICADO" del pie se iba sola a una tercera hoja en blanco. Con holgura
+     la página se llena igual —el hueco del medio crece hasta el borde— y no se
+     gasta papel. */
+  min-height: 270mm;
   display: flex;
   flex-direction: column;
 }
-.duplicado .comercial { flex: 1 0 auto; }
+.duplicado .comercial-duplicado { flex: 1 0 auto; }
 .duplicado .control-titulo, .duplicado .numero-titulo { font-size: 10pt; padding: 1px; }
 .duplicado .control-linea { line-height: 1.25; }
 .duplicado .numero { font-size: 13pt; padding: 2px 0 3px; }
@@ -531,7 +615,11 @@ export const ESTILOS_NOTA_PEDIDO = `
 .duplicado .texto-libre.alto-2 { min-height: 7mm; }
 .duplicado .bloque-titulo { padding: 1px; font-size: 9pt; }
 .duplicado .tabla th { font-size: 7.5pt; }
-.duplicado .tabla td { height: 6mm; font-size: 8pt; }
+/* 5 mm y no 6: con doce filas técnicas y doce comerciales —el tope de
+   renglones de la nota— a 6 mm la hoja se desbordaba a una tercera página. A
+   5 mm sigue habiendo lugar de sobra para escribir a mano, y está el hueco
+   libre del medio para los renglones que se agreguen. */
+.duplicado .tabla td { height: 5mm; font-size: 8pt; }
 .duplicado .deposito { margin-top: 1.5mm; }
 .duplicado .caja td { height: 4.2mm; font-size: 7.5pt; }
 .duplicado .caja .alto { height: 10mm; }
@@ -596,9 +684,47 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // En venta el unitario ya está guardado, así que no hay total directo que
     // usar: si lo hubiera, tres unidades se imprimirían como una.
     precioTotalDirecto: i.servicio === 'venta' ? 0 : Number(i.precio_total) || 0,
+    // Lo que no se cobra. Va en el detalle porque es una marca del renglón, no
+    // un precio: el importe simbólico no se multiplica por nada.
+    sinCargo: i.detalle?.sin_cargo === true,
+    reparacionSinCargo: i.detalle?.reparacion_sin_cargo === true,
   })
 
+  /**
+   * Las líneas de cómputo, calculadas UNA vez.
+   *
+   * De acá salen las tres cosas que tienen que coincidir sí o sí: las filas de
+   * la tabla comercial, el total impreso y la cantidad de renglones. Calculadas
+   * por separado, tarde o temprano una queda atrás y la nota no cierra.
+   */
+  const lineas = consolidarLineasDeComputo(
+    items.flatMap((i) => lineasDeComputo(computoDeFila(i))),
+  )
+
+  /**
+   * El total, separado por moneda.
+   *
+   * No se convierte a una sola: media lista de precios está en dólares y el
+   * tipo de cambio ya va impreso en su casilla. Sumar las dos monedas daría un
+   * número que no es plata de ninguna.
+   */
+  const porMoneda = new Map<Moneda, number>()
+  for (const l of lineas) {
+    porMoneda.set(l.moneda, (porMoneda.get(l.moneda) ?? 0) + l.total)
+  }
+  const totales = Array.from(porMoneda.entries())
+    .filter(([, valor]) => valor > 0)
+    // Los pesos primero: es la moneda en la que se cobra.
+    .sort(([a], [b]) => (a === b ? 0 : a === 'ARS' ? -1 : 1))
+    .map(([moneda, valor]) => formatearMoneda(Math.round(valor * 100) / 100, moneda))
+    .join('  ·  ')
+
   return {
+    // Los renglones que cargó el vendedor, no las filas de la tabla comercial:
+    // un renglón con dientes rotos a reparar da dos filas y sigue siendo una
+    // sola herramienta sobre el mostrador.
+    renglones: items.length,
+    totales,
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],
@@ -663,19 +789,30 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // distintas que caen en el mismo código se suman en una fila. Las medidas
     // que las diferencian están arriba, en la tabla técnica.
     comerciales: conObservaciones(
-      consolidarLineasDeComputo(
-        items.flatMap((i) => lineasDeComputo(computoDeFila(i))),
-      ).map((l) => ({
+      lineas.map((l) => ({
         codigo_computo: l.codigo,
         cantidad: l.cantidad,
         // Los dólares van con su símbolo. Un número sin moneda al lado de
         // otro en pesos es la forma más rápida de cobrar mal.
-        precio_unitario: l.precioUnitario ? formatearMoneda(l.precioUnitario, l.moneda) : '',
+        //
+        // En un renglón sin cargo la casilla del unitario va vacía: el importe
+        // no sale de multiplicar, y poner "$ 0,00" al lado de 192 dientes
+        // invita a rehacer una cuenta que no existe.
+        precio_unitario: l.sinCargo
+          ? ''
+          : l.precioUnitario
+            ? formatearMoneda(l.precioUnitario, l.moneda)
+            : '',
         precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
         // La condición de venta es de la nota entera y va una sola vez, en
         // la primera fila. La reparación de dientes rotos se aclara en su
-        // propia fila, que es donde está su código.
-        condicion_venta: l.concepto === 'reparacion' ? 'Reparación dientes' : '',
+        // propia fila, que es donde está su código, y lo que no se cobra se
+        // dice con todas las letras.
+        condicion_venta: l.sinCargo
+          ? 'SIN CARGO'
+          : l.concepto === 'reparacion'
+            ? 'Reparación dientes'
+            : '',
         anticipo: '',
         observaciones: '',
       })),
