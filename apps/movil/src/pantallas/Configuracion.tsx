@@ -10,7 +10,12 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
-import { detenerSeguimiento, seguimientoActivo } from '../servicios/ubicacion'
+import { obtenerJornadaDeHoy } from '../servicios/jornada'
+import {
+  detenerSeguimiento,
+  iniciarSeguimiento,
+  seguimientoActivo,
+} from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /** Configuración: datos de la cuenta, estado del seguimiento y actualizaciones. */
@@ -19,11 +24,24 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
   const [instalacion, setInstalacion] = useState('')
   const [siguiendo, setSiguiendo] = useState(false)
   const [buscandoUpdate, setBuscandoUpdate] = useState(false)
+  const [cambiandoSeguimiento, setCambiandoSeguimiento] = useState(false)
+  /** Id de la jornada de hoy si está abierta. Es lo que permite reanudar. */
+  const [jornadaAbierta, setJornadaAbierta] = useState<string | null>(null)
 
   useEffect(() => {
     void obtenerInstalacionId().then((id) => setInstalacion(id.slice(0, 8).toUpperCase()))
     void seguimientoActivo().then(setSiguiendo)
-  }, [])
+    if (perfil) {
+      void obtenerJornadaDeHoy(perfil.id)
+        .then((d) =>
+          setJornadaAbierta(
+            d?.jornada && d.jornada.estado !== 'finalizado' ? d.jornada.id : null,
+          ),
+        )
+        .catch(() => setJornadaAbierta(null))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfil?.id])
 
   async function buscarActualizacion() {
     setBuscandoUpdate(true)
@@ -80,25 +98,52 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
           </Aviso>
         ) : null}
 
-        {siguiendo ? (
+        {/*
+          El botón alterna. Antes sólo aparecía con el seguimiento activo, y su
+          propia acción lo desmontaba: era una puerta de un solo sentido. El
+          cartel prometía "el recorrido sigue abierto", pero no había forma de
+          volver a prenderlo sin cerrar la jornada y empezar otra.
+        */}
+        {jornadaAbierta ? (
           <BotonSecundario
-            titulo="Detener el seguimiento"
+            titulo={siguiendo ? 'Detener el seguimiento' : 'Reanudar el seguimiento'}
+            cargando={cambiandoSeguimiento}
             alTocar={() =>
-              Alert.alert(
-                'Detener el seguimiento',
-                'La oficina va a dejar de ver tu ubicación. El recorrido sigue abierto.',
-                [
-                  { text: 'Volver', style: 'cancel' },
-                  {
-                    text: 'Detener',
-                    style: 'destructive',
-                    onPress: async () => {
-                      await detenerSeguimiento(perfil?.id)
-                      setSiguiendo(false)
-                    },
-                  },
-                ],
-              )
+              siguiendo
+                ? Alert.alert(
+                    'Detener el seguimiento',
+                    'La oficina va a dejar de ver tu ubicación. El recorrido sigue abierto y lo podés reanudar desde acá mismo.',
+                    [
+                      { text: 'Volver', style: 'cancel' },
+                      {
+                        text: 'Detener',
+                        style: 'destructive',
+                        onPress: async () => {
+                          setCambiandoSeguimiento(true)
+                          try {
+                            await detenerSeguimiento(perfil?.id)
+                            setSiguiendo(false)
+                          } finally {
+                            setCambiandoSeguimiento(false)
+                          }
+                        },
+                      },
+                    ],
+                  )
+                : void (async () => {
+                    setCambiandoSeguimiento(true)
+                    try {
+                      await iniciarSeguimiento({
+                        vendedorId: perfil!.id,
+                        rolVisitaId: jornadaAbierta,
+                      })
+                      setSiguiendo(true)
+                    } catch (e) {
+                      Alert.alert('No pudimos reanudar el seguimiento', (e as Error).message)
+                    } finally {
+                      setCambiandoSeguimiento(false)
+                    }
+                  })()
             }
           />
         ) : null}

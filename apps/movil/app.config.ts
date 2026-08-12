@@ -203,6 +203,20 @@ const config: ExpoConfig = {
       'FOREGROUND_SERVICE',
       'FOREGROUND_SERVICE_LOCATION',
       'RECORD_AUDIO',
+      /**
+       * Sin esto, dictar mientras hay un recorrido en curso no funciona.
+       *
+       * Desde Android 14 los servicios en primer plano tienen que declarar de
+       * qué tipo son, y el permiso de micrófono se evalúa contra esa lista.
+       * Mientras el seguimiento de ubicación mantiene su servicio activo, el
+       * sistema trata la captura de audio como si viniera de ahí: prepara la
+       * grabadora sin quejarse y después no entrega nada.
+       *
+       * El síntoma era exactamente ése: el micrófono andaba en la nota de
+       * pedido y no andaba al terminar una entrega, que es la única pantalla
+       * que se usa con el recorrido en marcha.
+       */
+      'FOREGROUND_SERVICE_MICROPHONE',
       'INTERNET',
       'ACCESS_NETWORK_STATE',
       'VIBRATE',

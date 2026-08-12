@@ -157,7 +157,11 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
         },
       ])
     },
-    onError: (e: Error) => Alert.alert('No pudimos guardar la visita', e.message),
+    onError: (e: Error) =>
+      Alert.alert(
+        'No pudimos guardar la visita',
+        `${e.message}\n\nRevisá la señal y volvé a tocar el botón. Lo que cargaste sigue en pantalla.`,
+      ),
   })
 
   /**

@@ -108,6 +108,25 @@ export function usarDictado(): EstadoDictado {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
       await grabador.prepareToRecordAsync()
       grabador.record()
+
+      /**
+       * Comprobar que efectivamente arrancó.
+       *
+       * `record()` no devuelve nada y no tira error: puede preparar bien, no
+       * grabar, y dejar la pantalla exactamente igual que antes. Eso fue lo que
+       * pasó al dictar con un recorrido en curso —el registro del sistema
+       * mostraba `MediaRecorder: prepare` correcto y la app nunca pasaba a
+       * "grabando", sin un solo cartel.
+       *
+       * Medio segundo alcanza: el estado se relee cada 250 ms.
+       */
+      await new Promise((r) => setTimeout(r, 600))
+      if (!grabador.isRecording) {
+        setError(
+          'El micrófono no llegó a arrancar. Si estás con el recorrido en curso, probá finalizarlo y volver a intentar, o escribí la observación a mano.',
+        )
+        console.warn('[dictado] prepare ok pero isRecording quedó en false')
+      }
     } catch (e) {
       setError('No pudimos abrir el micrófono. Escribí la observación a mano.')
       console.warn('[dictado] error al iniciar', e)

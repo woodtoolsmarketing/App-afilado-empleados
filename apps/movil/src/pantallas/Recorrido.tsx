@@ -179,12 +179,30 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 
         {isLoading ? (
           <Cargando texto="Armando tu recorrido…" />
-        ) : error || !jornada ? (
-          <Vacio
-            titulo="No hay recorrido para hoy"
-            detalle="La oficina todavía no cargó tus destinos. Podés agregar uno a mano."
-            icono="🗺️"
-          />
+        ) : error ? (
+          /* No es lo mismo "no hay recorrido" que "no pude preguntarlo". Con la
+             misma rama para los dos, un vendedor sin señal veía desaparecer sus
+             destinos y creía que la oficina se los había borrado. */
+          <>
+            <Vacio
+              titulo="No pudimos traer tu recorrido"
+              detalle="Revisá la señal. Tus destinos están guardados: esto es sólo que no pudimos consultarlos."
+              icono="📡"
+            />
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
+        ) : !jornada ? (
+          <>
+            <Vacio
+              titulo="No hay recorrido para hoy"
+              detalle="La oficina todavía no cargó tus destinos. Podés agregar uno a mano."
+              icono="🗺️"
+            />
+            <BotonMenu
+              titulo={'AGREGAR\nNUEVO DESTINO'}
+              alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
+            />
+          </>
         ) : (
           <>
             <TituloPanel>{'ESTE ES TU RECORRIDO\nDEL DÍA DE HOY'}</TituloPanel>

@@ -2,7 +2,8 @@ import { colores, espaciado, tipografia } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { StyleSheet, Text } from 'react-native'
 
-import { BotonMenu } from '../componentes/Botones'
+import { BotonMenu, BotonSecundario } from '../componentes/Botones'
+import { Aviso } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { notasPendientes } from '../servicios/notasPedido'
@@ -15,13 +16,27 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * primero, así que va en el título y no escondido adentro de una opción.
  */
 export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>) {
-  const { data: pendientes } = useQuery({
+  const {
+    data: pendientes,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['notas-pendientes'],
     queryFn: notasPendientes,
     refetchOnWindowFocus: true,
   })
 
   const cantidad = pendientes?.length ?? 0
+  /**
+   * "Todavía no llegó" y "falló la consulta" no son cero.
+   *
+   * Con `pendientes?.length ?? 0` los tres casos se veían iguales: el título
+   * decía 0, los dos botones quedaban en gris y el vendedor concluía que sus
+   * notas se habían perdido. Mientras no sepamos, no se afirma nada ni se
+   * traba nada: la pantalla siguiente tiene su propio estado de error.
+   */
+  const sabemos = !isLoading && !error
 
   return (
     <Pantalla>
@@ -30,7 +45,17 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
 
-        <TituloPanel destacado={String(cantidad)}>NOTAS DE PEDIDO PENDIENTES:</TituloPanel>
+        <TituloPanel destacado={sabemos ? String(cantidad) : '—'}>
+          NOTAS DE PEDIDO PENDIENTES:
+        </TituloPanel>
+
+        {error ? (
+          <Aviso tono="atencion" titulo="No pudimos consultar tus notas pendientes">
+            Revisá la señal. Tus notas están guardadas: esto es sólo que no pudimos contarlas.
+          </Aviso>
+        ) : null}
+
+        {error ? <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} /> : null}
 
         <BotonMenu
           titulo={'GENERAR NUEVA NOTA\nDE PEDIDO'}
@@ -39,16 +64,16 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
 
         <BotonMenu
           titulo={'VER NOTAS DE PEDIDO\nPENDIENTES'}
-          subtitulo={cantidad === 0 ? 'No tenés notas pendientes' : undefined}
+          subtitulo={sabemos && cantidad === 0 ? 'No tenés notas pendientes' : undefined}
           alTocar={() => navigation.navigate('NotasPendientes')}
-          deshabilitado={cantidad === 0}
+          deshabilitado={sabemos && cantidad === 0}
         />
 
         <BotonMenu
           titulo={'IMPRIMIR NOTAS DE\nPEDIDO PENDIENTES'}
           subtitulo={cantidad > 0 ? `${cantidad} nota${cantidad === 1 ? '' : 's'} y el rol de visita` : undefined}
           alTocar={() => navigation.navigate('NotasPendientes')}
-          deshabilitado={cantidad === 0}
+          deshabilitado={sabemos && cantidad === 0}
         />
 
         <BotonMenu
