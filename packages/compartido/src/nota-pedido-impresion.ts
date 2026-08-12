@@ -21,6 +21,7 @@
 import { formatearMoneda, type Moneda } from './catalogo'
 import { LOGO_WOODTOOLS } from './logo'
 import {
+  consolidarLineasDeComputo,
   describirCondicionVenta,
   lineasDeComputo,
   numeroDeVendedorImpreso,
@@ -656,23 +657,28 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     //
     // Lo que se computa son los dientes TOTALES menos los rotos: los Z de la
     // columna técnica son por herramienta, y dos sierras de 96 son 192 dientes.
+    //
+    // Y a la inversa: varios renglones pueden dar UNA sola línea. Esta tabla se
+    // lee por código de cómputo, no por herramienta, así que dos sierras
+    // distintas que caen en el mismo código se suman en una fila. Las medidas
+    // que las diferencian están arriba, en la tabla técnica.
     comerciales: conObservaciones(
-      items.flatMap((i) =>
-        lineasDeComputo(computoDeFila(i)).map((l) => ({
-          codigo_computo: l.codigo,
-          cantidad: l.cantidad,
-          // Los dólares van con su símbolo. Un número sin moneda al lado de
-          // otro en pesos es la forma más rápida de cobrar mal.
-          precio_unitario: l.precioUnitario ? formatearMoneda(l.precioUnitario, l.moneda) : '',
-          precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
-          // La condición de venta es de la nota entera y va una sola vez, en
-          // la primera fila. La reparación de dientes rotos se aclara en su
-          // propia fila, que es donde está su código.
-          condicion_venta: l.concepto === 'reparacion' ? 'Reparación dientes' : '',
-          anticipo: '',
-          observaciones: '',
-        })),
-      ),
+      consolidarLineasDeComputo(
+        items.flatMap((i) => lineasDeComputo(computoDeFila(i))),
+      ).map((l) => ({
+        codigo_computo: l.codigo,
+        cantidad: l.cantidad,
+        // Los dólares van con su símbolo. Un número sin moneda al lado de
+        // otro en pesos es la forma más rápida de cobrar mal.
+        precio_unitario: l.precioUnitario ? formatearMoneda(l.precioUnitario, l.moneda) : '',
+        precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
+        // La condición de venta es de la nota entera y va una sola vez, en
+        // la primera fila. La reparación de dientes rotos se aclara en su
+        // propia fila, que es donde está su código.
+        condicion_venta: l.concepto === 'reparacion' ? 'Reparación dientes' : '',
+        anticipo: '',
+        observaciones: '',
+      })),
       nota.observaciones ?? [],
     ),
     // Vacío en las notas de afilado: se cobra en pesos y una cotización ahí

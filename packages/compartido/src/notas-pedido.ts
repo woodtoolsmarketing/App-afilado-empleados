@@ -1142,6 +1142,50 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
   return lineas
 }
 
+/**
+ * Junta en una sola fila las líneas que se computan igual.
+ *
+ * La tabla de CARACTERISTICAS COMERCIALES no discrimina por herramienta: sus
+ * columnas son código de cómputo, cantidad y precio. Dos sierras distintas
+ * —otro diámetro, otro agujero, otra cantidad de dientes— cuyo ancho de corte
+ * cae en el mismo rango comparten el código y el precio por diente, y ahí son
+ * la misma línea. Separadas, el mismo código aparecía dos veces y en fábrica
+ * había que sumarlas a mano.
+ *
+ * Lo que las distingue sigue estando: la tabla técnica de arriba conserva un
+ * renglón por herramienta, con sus medidas y sus dientes. Esta cuenta es la
+ * comercial.
+ *
+ * **Sólo se juntan las que además comparten precio unitario y moneda.** Si el
+ * vendedor pisó el precio de una de las dos, sumarlas daría una fila donde
+ * cantidad × unitario no da el total: una nota que no cierra es peor que una
+ * con el código repetido. En ese caso quedan separadas a propósito.
+ */
+export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[] {
+  const salida: LineaComputo[] = []
+  const porClave = new Map<string, LineaComputo>()
+
+  for (const linea of lineas) {
+    // Sin código no hay contra qué agrupar: pasa tal cual.
+    const clave = linea.codigo
+      ? `${linea.concepto}|${linea.codigo}|${linea.moneda}|${linea.precioUnitario}`
+      : ''
+
+    const previa = clave ? porClave.get(clave) : undefined
+    if (!previa) {
+      const copia = { ...linea }
+      if (clave) porClave.set(clave, copia)
+      salida.push(copia)
+      continue
+    }
+
+    previa.cantidad += linea.cantidad
+    previa.total = redondear(previa.total + linea.total)
+  }
+
+  return salida
+}
+
 /** Adaptador del formulario a la cuenta. */
 export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
   const esVenta = item.servicio === 'venta'
