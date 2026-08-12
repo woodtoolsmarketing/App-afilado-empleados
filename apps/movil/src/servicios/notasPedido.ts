@@ -254,7 +254,12 @@ export interface DatosNuevaNota {
   fechaEntrega: string
   items: FormularioItemNota[]
   tipoCambio: number
-  cotizacionFecha: string
+  /**
+   * Null cuando no hay cotización, que es válido: una nota sin renglones en
+   * dólares no la necesita y no la guarda. Sólo se escribe en las notas que
+   * llevan tipo de cambio.
+   */
+  cotizacionFecha: string | null
   /** Renglones de observación, uno por línea de la columna "Observaciones". */
   observaciones?: string[]
   condicionVenta: CondicionVenta

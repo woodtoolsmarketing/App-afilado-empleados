@@ -121,6 +121,15 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setObservacionNueva('')
   }
 
+  /**
+   * Lo que quedó escrito en el campo sin tocar "AGREGAR RENGLÓN".
+   *
+   * Va a la nota igual. Pedirle al vendedor que además de escribir apriete un
+   * botón para que lo escrito cuente es una trampa: escribe, crea la nota, y la
+   * observación no sale impresa. El botón sigue estando para cargar varias.
+   */
+  const observacionPendiente = observacionNueva.trim()
+
   const renglon = items[activo] ?? items[0]
 
   // Al volver de "Generar nuevo cliente" se completa el encabezado solo: el
@@ -158,11 +167,25 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creadoId])
 
-  const { data: cotizacion, isLoading: cargandoCotizacion } = useQuery({
+  const {
+    data: cotizacion,
+    isLoading: cargandoCotizacion,
+    refetch: reintentarCotizacion,
+    isFetching: buscandoCotizacion,
+  } = useQuery({
     queryKey: ['cotizacion-hoy'],
     queryFn: () => obtenerCotizacion(),
     staleTime: 60 * 60 * 1000,
   })
+
+  /**
+   * ¿Hay algo cotizado en dólares en esta nota?
+   *
+   * De eso depende que la cotización sea imprescindible. El afilado va siempre
+   * en pesos y ni siquiera guarda el tipo de cambio, así que una nota de
+   * afilado no tiene por qué quedar trabada porque no haya cotización.
+   */
+  const hayDolares = items.some((i) => i.moneda === 'USD')
 
   /**
    * Aplica los cambios SOBRE EL ESTADO ANTERIOR, no sobre la copia del render.
@@ -365,16 +388,32 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   const guardar = useMutation({
     mutationFn: async () => {
-      if (!cotizacion) throw new Error('Todavía no tenemos la cotización del dólar')
+      /**
+       * La cotización sólo hace falta si hay algo cotizado en dólares.
+       *
+       * Antes se exigía siempre, así que una nota de afilado —que va toda en
+       * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
+       * no había cotización, mientras el cartel de arriba decía justo lo
+       * contrario: "los precios en dólares no se van a convertir".
+       */
+      if (hayDolares && !cotizacion) {
+        throw new Error(
+          'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
+        )
+      }
+
       return crearNotaPedido({
         encabezado,
         servicios,
         tipoNota: tipoNota!,
         fechaEntrega: fechaEntrega!.toISOString().slice(0, 10),
         items,
-        tipoCambio: cotizacion.venta,
-        cotizacionFecha: cotizacion.fecha,
-        observaciones,
+        tipoCambio: cotizacion?.venta ?? 0,
+        cotizacionFecha: cotizacion?.fecha ?? null,
+        // Lo que quedó escrito en el campo y no se agregó con el botón cuenta
+        // igual. Antes se descartaba en silencio: el vendedor escribía la
+        // observación, creaba la nota, y salía impresa sin ella.
+        observaciones: observacionPendiente ? [...observaciones, observacionPendiente] : observaciones,
         condicionVenta: condicionVenta!,
         condicionVentaDetalle: condicionDetalle,
       })
@@ -687,9 +726,22 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     </Text>
                   </>
                 ) : (
-                  <Text style={estilos.cambioError}>
-                    No pudimos traer la cotización. Los precios en dólares no se van a convertir.
-                  </Text>
+                  <>
+                    {/* Dice lo que pasa DE VERDAD según esta nota. Antes decía
+                        siempre "los precios en dólares no se van a convertir",
+                        incluso cuando la falta de cotización trababa por
+                        completo la creación de la nota. */}
+                    <Text style={estilos.cambioError}>
+                      {hayDolares
+                        ? 'No pudimos traer la cotización, y esta nota tiene renglones en dólares. Hace falta para poder crearla.'
+                        : 'No pudimos traer la cotización. Esta nota va toda en pesos, así que se puede crear igual.'}
+                    </Text>
+                    <BotonSecundario
+                      titulo={buscandoCotizacion ? 'Buscando…' : '↻  Reintentar'}
+                      alTocar={() => void reintentarCotizacion()}
+                      deshabilitado={buscandoCotizacion}
+                    />
+                  </>
                 )}
               </View>
 

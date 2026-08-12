@@ -139,6 +139,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
+  const [falloBusqueda, setFalloBusqueda] = useState<string | null>(null)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Una sola búsqueda alimenta los dos campos: la función `buscar_clientes` de
@@ -153,10 +154,16 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
 
     temporizador.current = setTimeout(async () => {
       setBuscando(true)
+      setFalloBusqueda(null)
       try {
         setResultados(await buscarClientes(consulta))
-      } catch {
+      } catch (e) {
+        // "No encontramos ese cliente" y "no pudimos preguntar" son cosas
+        // distintas, y confundirlas es caro: el vendedor termina cargando de
+        // nuevo un cliente que ya existe, y la oficina se queda con dos fichas
+        // del mismo taller.
         setResultados([])
+        setFalloBusqueda((e as Error).message)
       } finally {
         setBuscando(false)
       }
@@ -288,7 +295,17 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             </View>
           ) : null}
 
-          {consulta.trim().length >= 2 && !buscando && resultados.length === 0 ? (
+          {/* La búsqueda falló: no sabemos si el cliente existe o no. */}
+          {falloBusqueda && !buscando ? (
+            <Aviso tono="atencion" titulo="No pudimos buscar">
+              {falloBusqueda}
+              {'\n\n'}Revisá la señal y escribí de nuevo. No lo cargues como cliente nuevo hasta
+              poder buscarlo: si ya existe, quedarían dos fichas del mismo taller.
+            </Aviso>
+          ) : null}
+
+          {/* La búsqueda respondió bien y vino vacía: ahí sí no existe. */}
+          {!falloBusqueda && consulta.trim().length >= 2 && !buscando && resultados.length === 0 ? (
             <Aviso tono="atencion" titulo="Sin resultados">
               No encontramos ese cliente. Si es la primera vez que lo visitás, cargalo como cliente
               nuevo.

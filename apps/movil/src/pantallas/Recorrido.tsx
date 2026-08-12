@@ -114,17 +114,38 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debeIniciar, jornada?.id, enCurso, finalizada])
 
+  /**
+   * Cerrar la jornada.
+   *
+   * El seguimiento se corta en el `finally`, no después de la escritura. Antes
+   * iba detrás de `finalizarRecorrido`, así que si la base no contestaba —y el
+   * vendedor suele terminar el día adentro de un galpón, justo donde no hay
+   * señal— el GPS quedaba prendido: la notificación seguía en la barra y la
+   * oficina lo veía "en recorrido" mientras cenaba en su casa.
+   *
+   * Apagar el seguimiento aunque falle el cierre es lo correcto: el vendedor
+   * tocó "finalizar", y esa es su decisión sobre su propia ubicación. El cierre
+   * de la jornada se puede reintentar; una noche de rastreo no se deshace.
+   */
   const cerrar = useMutation({
     mutationFn: async () => {
-      if (!jornada) return
-      await finalizarRecorrido(jornada.id)
-      await detenerSeguimiento(perfil?.id)
+      if (!jornada) throw new Error('No hay una jornada abierta para cerrar.')
+      try {
+        await finalizarRecorrido(jornada.id)
+      } finally {
+        await detenerSeguimiento(perfil?.id).catch(() => undefined)
+      }
     },
     onSuccess: () => {
       void cliente.invalidateQueries()
       Alert.alert('Recorrido finalizado', 'Se cerró la jornada de hoy.')
       navigation.navigate('Visitas')
     },
+    onError: (e: Error) =>
+      Alert.alert(
+        'No pudimos cerrar la jornada',
+        `${e.message}\n\nEl seguimiento de ubicación ya se apagó. Cuando tengas señal, volvé a tocar FINALIZAR RECORRIDO para que la oficina lo registre.`,
+      ),
   })
 
   /**

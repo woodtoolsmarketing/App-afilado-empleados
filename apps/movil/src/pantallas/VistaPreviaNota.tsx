@@ -3,6 +3,7 @@ import {
   espaciado,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
+  formatearPesos,
   nombreDeZona,
   notaImprimibleDesdeFila,
   radios,
@@ -309,8 +310,14 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
 
       <View style={estilos.pie}>
         <Text style={estilos.dato}>Condición de venta: {nota.condicion_venta || '—'}</Text>
+        {/* Pasa por `formatearPesos` como en todas las demás pantallas. Salía
+            crudo —"1234.56", sin signo y sin separador de miles—, que es el
+            único lugar de la app donde un importe se mostraba así. */}
         <Text style={estilos.dato}>
-          Tipo de cambio: {nota.tipo_cambio ? nota.tipo_cambio : '(vacío — se cobra en pesos)'}
+          Tipo de cambio:{' '}
+          {nota.tipo_cambio
+            ? formatearPesos(Number(nota.tipo_cambio))
+            : '(vacío — se cobra en pesos)'}
         </Text>
         <Text style={estilos.dato}>
           {nota.tipo_nota === 'factura'
