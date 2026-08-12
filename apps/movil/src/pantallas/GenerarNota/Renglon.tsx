@@ -3,6 +3,14 @@ import {
   aNumero,
   caracteristicasDeArticulo,
   esSinCargo,
+  ETIQUETA_CUCHILLA_MATERIAL,
+  ETIQUETA_CUCHILLA_TIPO,
+  ETIQUETA_CUCHILLA_TRABAJO,
+  totalAfiladoCuchilla,
+  TRAMO_CUCHILLA_MM,
+  type CuchillaMaterial,
+  type CuchillaTipo,
+  type CuchillaTrabajo,
   CAMPOS_POR_HERRAMIENTA,
   colores,
   describirRango,
@@ -38,8 +46,10 @@ import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/For
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   agujeroDeFabrica,
+  codigosAfiladoCuchilla,
   mechasDelTipo,
   medidasDisponibles,
+  type CodigoCuchilla,
   resolverCodigoDeItem,
   type CodigoComputo,
   type ModeloMecha,
@@ -538,6 +548,15 @@ export function PasoRenglon({
       */}
       {item.herramienta === 'mecha' && item.tipo_mecha ? (
         <SelectorModeloMecha item={item} alCambiar={alCambiar} />
+      ) : null}
+
+      {/*
+        El afilado de cuchillas.
+        El código no sale de una medida: sale de tres respuestas. El largo no
+        elige nada, multiplica, porque el precio de la lista es por cada 100 mm.
+      */}
+      {item.herramienta === 'cuchilla' && item.servicio !== 'venta' ? (
+        <SelectorAfiladoCuchilla item={item} alCambiar={alCambiar} />
       ) : null}
 
       {/* Campos propios de la herramienta.
@@ -1151,6 +1170,177 @@ function SelectorModeloMecha({
           </Pressable>
         )
       })}
+    </View>
+  )
+}
+
+/**
+ * Elegir qué afilado de cuchilla corresponde.
+ *
+ * Tres preguntas dan exactamente uno de los seis códigos de la lista, y de ahí
+ * sale el precio por cada 100 mm. El total lo pone el largo por las unidades.
+ *
+ * El perfilado sólo existe en las de dorso ranurado: al elegir "plana" esa
+ * opción desaparece en vez de quedar ofreciendo un código que no existe.
+ */
+function SelectorAfiladoCuchilla({
+  item,
+  alCambiar,
+}: {
+  item: FormularioItemNota
+  alCambiar: (cambios: Partial<FormularioItemNota>) => void
+}) {
+  const [opciones, setOpciones] = useState<CodigoCuchilla[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [fallo, setFallo] = useState(false)
+
+  useEffect(() => {
+    let cancelado = false
+    codigosAfiladoCuchilla()
+      .then((c) => {
+        if (!cancelado) setOpciones(c)
+      })
+      .catch(() => {
+        if (!cancelado) setFallo(true)
+      })
+      .finally(() => {
+        if (!cancelado) setCargando(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
+
+  const trabajosPosibles = opciones
+    .filter((o) => !item.cuchilla_tipo || o.tipo === item.cuchilla_tipo)
+    .map((o) => o.trabajo)
+
+  const elegida =
+    item.cuchilla_tipo && item.cuchilla_material && item.cuchilla_trabajo
+      ? opciones.find(
+          (o) =>
+            o.tipo === item.cuchilla_tipo &&
+            o.material === item.cuchilla_material &&
+            o.trabajo === item.cuchilla_trabajo,
+        )
+      : undefined
+
+  /**
+   * El código y el total salen solos de las tres respuestas y el largo.
+   *
+   * El precio de lista es por cada 100 mm: una plana HSS de 640 mm son 6,4
+   * tramos. Multiplicar por las unidades va después, como en cualquier
+   * renglón.
+   */
+  useEffect(() => {
+    if (!elegida) return
+    const largo = aNumero(item.largo)
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const total = elegida.precio_pesos
+      ? totalAfiladoCuchilla(elegida.precio_pesos, largo, unidades)
+      : 0
+
+    const cambios: Partial<FormularioItemNota> = {}
+    if (item.codigos_computo[0] !== elegida.codigo) {
+      cambios.codigos_computo = [elegida.codigo]
+      cambios.descripcion_catalogo = `${elegida.codigo} · ${elegida.descripcion}`
+      cambios.sin_cargo = esSinCargo(elegida.descripcion)
+    }
+    if (total > 0 && Math.abs(total - aNumero(item.precio_total)) > 0.005) {
+      cambios.precio_total = String(total)
+    }
+    if (Object.keys(cambios).length > 0) alCambiar(cambios)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elegida?.codigo, elegida?.precio_pesos, item.largo, item.cantidad])
+
+  if (cargando) {
+    return (
+      <View style={estilos.bloqueCodigos}>
+        <ActivityIndicator size="small" color={colores.rojo} />
+      </View>
+    )
+  }
+
+  if (fallo || opciones.length === 0) {
+    return (
+      <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
+        Revisá la señal. Podés cargar el código y el precio total a mano.
+      </Aviso>
+    )
+  }
+
+  const largo = aNumero(item.largo)
+  const tramos = largo > 0 ? largo / TRAMO_CUCHILLA_MM : 0
+
+  return (
+    <View style={estilos.bloqueCodigos}>
+      <Desplegable<CuchillaTipo>
+        etiqueta="TIPO DE CUCHILLA"
+        obligatorio
+        marcador="Elegí el tipo"
+        valor={item.cuchilla_tipo}
+        items={(['plana', 'dorso_ranurado'] as CuchillaTipo[]).map((t) => ({
+          valor: t,
+          etiqueta: ETIQUETA_CUCHILLA_TIPO[t],
+        }))}
+        alCambiar={(t) =>
+          alCambiar({
+            cuchilla_tipo: t,
+            // Una plana no se perfila: si venía elegido, se cae.
+            ...(t === 'plana' && item.cuchilla_trabajo === 'perfilado'
+              ? { cuchilla_trabajo: 'afilado' as const }
+              : {}),
+          })
+        }
+      />
+
+      <Desplegable<CuchillaMaterial>
+        etiqueta="MATERIAL"
+        obligatorio
+        marcador="Elegí el material"
+        valor={item.cuchilla_material}
+        items={(['hss', 'md'] as CuchillaMaterial[]).map((m) => ({
+          valor: m,
+          etiqueta: ETIQUETA_CUCHILLA_MATERIAL[m],
+        }))}
+        alCambiar={(m) => alCambiar({ cuchilla_material: m })}
+      />
+
+      <Desplegable<CuchillaTrabajo>
+        etiqueta="TRABAJO"
+        obligatorio
+        marcador="Elegí el trabajo"
+        valor={item.cuchilla_trabajo}
+        items={(['afilado', 'perfilado'] as CuchillaTrabajo[])
+          .filter((t) => trabajosPosibles.includes(t))
+          .map((t) => ({ valor: t, etiqueta: ETIQUETA_CUCHILLA_TRABAJO[t] }))}
+        alCambiar={(t) => alCambiar({ cuchilla_trabajo: t })}
+      />
+
+      {elegida ? (
+        <View style={estilos.opcion}>
+          <View style={estilos.opcionFila}>
+            <Text style={estilos.opcionCodigo}>{elegida.codigo}</Text>
+            <Text style={[estilos.opcionPrecio, elegida.a_cotizar && estilos.aCotizar]}>
+              {elegida.a_cotizar
+                ? 'A cotizar'
+                : `${formatearPesos(Number(elegida.precio_pesos))} / ${TRAMO_CUCHILLA_MM} mm`}
+            </Text>
+          </View>
+          <Text style={estilos.opcionDesc}>{elegida.descripcion}</Text>
+          {/* La cuenta a la vista: es lo que evita la pregunta de "¿por qué me
+              dio ese número?" cuando el largo no es un múltiplo redondo. */}
+          <Text style={estilos.opcionNota}>
+            {largo > 0
+              ? `${formatearMedida(item.largo)} son ${tramos.toLocaleString('es-AR', { maximumFractionDigits: 2 })} tramos de ${TRAMO_CUCHILLA_MM} mm.`
+              : `Completá el LARGO: el precio se cobra por cada ${TRAMO_CUCHILLA_MM} mm.`}
+          </Text>
+        </View>
+      ) : (
+        <Text style={estilos.opcionNota}>
+          Contestá las tres para que salgan el código y el precio.
+        </Text>
+      )}
     </View>
   )
 }

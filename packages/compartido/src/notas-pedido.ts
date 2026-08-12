@@ -290,7 +290,9 @@ export const MEDIDA_PARA_CODIGO: Record<Herramienta, CampoItem | null> = {
   incisor: 'ancho_corte',
   sierra_sin_fin: 'ancho',
   mecha: 'diametro',
-  cuchilla: 'ancho',
+  // El largo: es lo que multiplica el precio del afilado, que se cotiza
+  // por cada 100 mm. El ancho no interviene en el importe.
+  cuchilla: 'largo',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -489,6 +491,58 @@ export function validarClienteNuevo(
  * se cotizan en dólares y van con el resto de la venta; las de producción
  * nacional se facturan en pesos y llevan nota propia.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// El afilado de cuchillas
+//
+// Se cotiza por LARGO, no por unidad suelta ni por diente: la lista dice
+// "AF X100 CUCHILLA PLANA HSS", y ese x100 son 100 milímetros de cuchilla. Una
+// plana HSS de 640 mm son 6,4 tramos.
+//
+// Cuál de los seis códigos corresponde lo deciden tres respuestas, y ninguna
+// es una medida. El perfilado sólo existe en las de dorso ranurado: una plana
+// no se perfila y por eso ese par no tiene código.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CuchillaTipo = 'plana' | 'dorso_ranurado'
+export type CuchillaMaterial = 'hss' | 'md'
+export type CuchillaTrabajo = 'afilado' | 'perfilado'
+
+export const ETIQUETA_CUCHILLA_TIPO: Record<CuchillaTipo, string> = {
+  plana: 'PLANA',
+  dorso_ranurado: 'DORSO RANURADO',
+}
+
+export const ETIQUETA_CUCHILLA_MATERIAL: Record<CuchillaMaterial, string> = {
+  hss: 'HSS (acero rápido)',
+  md: 'M.D. (metal duro)',
+}
+
+export const ETIQUETA_CUCHILLA_TRABAJO: Record<CuchillaTrabajo, string> = {
+  afilado: 'AFILADO',
+  perfilado: 'PERFILADO',
+}
+
+/** Los milímetros que cubre el precio de lista de un afilado de cuchilla. */
+export const TRAMO_CUCHILLA_MM = 100
+
+/**
+ * Lo que cuesta afilar cuchillas, en la moneda del precio de lista.
+ *
+ * `precioPorTramo` es el de la lista —por cada 100 mm— y el largo dice cuántos
+ * tramos entran. No se redondea a tramos enteros: media cuchilla de 50 mm es
+ * medio tramo, no uno.
+ */
+export function totalAfiladoCuchilla(
+  precioPorTramo: number,
+  largoMm: number,
+  unidades: number,
+): number {
+  if (!Number.isFinite(precioPorTramo) || !Number.isFinite(largoMm)) return 0
+  if (precioPorTramo <= 0 || largoMm <= 0) return 0
+  const cuantas = Number.isFinite(unidades) && unidades > 0 ? unidades : 1
+  return redondear((precioPorTramo * largoMm * cuantas) / TRAMO_CUCHILLA_MM)
+}
+
 export type OrigenFresa = 'nacional' | 'importada'
 
 export const ETIQUETA_ORIGEN_FRESA: Record<OrigenFresa, string> = {
@@ -593,6 +647,17 @@ export interface FormularioItemNota {
   // Se marcan al elegir el código: la lista de precios lo dice en la
   // descripción ("AFILADO S.C. SIN CARGO"). Es una marca y no un precio porque
   // el importe no se multiplica: son $ 0,10 la nota entera, no por diente.
+  // ── El afilado de cuchillas ───────────────────────────────────────────────
+  //
+  // El código no sale de una medida sino de tres respuestas. El largo no
+  // elige: multiplica, porque el precio de la lista es por cada 100 mm.
+  /** Plana o de dorso ranurado. */
+  cuchilla_tipo: CuchillaTipo | null
+  /** Acero rápido o metal duro. */
+  cuchilla_material: CuchillaMaterial | null
+  /** Afilar o perfilar. El perfilado sólo existe en las de dorso ranurado. */
+  cuchilla_trabajo: CuchillaTrabajo | null
+
   /** El trabajo principal del renglón va sin cargo. */
   sin_cargo: boolean
   /** La reparación de los dientes rotos va sin cargo. Se decide aparte. */
@@ -634,6 +699,9 @@ export const ITEM_VACIO: FormularioItemNota = {
   reparar_dientes: null,
   codigo_reparacion: '',
   precio_reparacion_por_diente: '',
+  cuchilla_tipo: null,
+  cuchilla_material: null,
+  cuchilla_trabajo: null,
   sin_cargo: false,
   reparacion_sin_cargo: false,
 }

@@ -10,6 +10,9 @@ import {
   MEDIDA_PARA_CODIGO,
   totalDelRenglon,
   type CondicionVenta,
+  type CuchillaMaterial,
+  type CuchillaTipo,
+  type CuchillaTrabajo,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type GrupoNota,
@@ -107,6 +110,37 @@ export async function mechasDelTipo(tipo: TipoMecha): Promise<ModeloMecha[]> {
   const { data, error } = await supabase.rpc('mechas_del_tipo', { p_tipo: tipo })
   if (error) throw error
   return aplicarSinCargo((data ?? []) as ModeloMecha[])
+}
+
+/**
+ * Uno de los seis códigos de afilado de cuchilla, ya clasificado.
+ *
+ * `precio_pesos` es por cada 100 mm de cuchilla, no por unidad: la cuenta la
+ * hace `totalAfiladoCuchilla`.
+ */
+export interface CodigoCuchilla {
+  codigo: string
+  descripcion: string
+  precio: number
+  moneda: 'ARS' | 'USD' | null
+  precio_pesos: number | null
+  a_cotizar: boolean
+  tipo: CuchillaTipo
+  material: CuchillaMaterial
+  trabajo: CuchillaTrabajo
+}
+
+/**
+ * Los seis códigos de afilado de cuchilla.
+ *
+ * Vienen de la lista de mechas —el rubro es "Afil.Mechas Insertos Cuchillas"—
+ * así que están archivados con familia `mecha` y el buscador por medida de la
+ * familia `cuchilla` no los encuentra nunca. Se piden por código.
+ */
+export async function codigosAfiladoCuchilla(): Promise<CodigoCuchilla[]> {
+  const { data, error } = await supabase.rpc('codigos_afilado_cuchilla')
+  if (error) throw error
+  return aplicarSinCargo((data ?? []) as CodigoCuchilla[])
 }
 
 export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
