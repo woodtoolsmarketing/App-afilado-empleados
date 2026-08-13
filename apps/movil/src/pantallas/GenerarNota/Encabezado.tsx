@@ -112,6 +112,20 @@ export function PasoEncabezado({
   }
 
   /**
+   * Cuándo decir que no se encontró nada.
+   *
+   * Sin este aviso, "no hay coincidencias" y "todavía no busqué" se ven igual
+   * —pantalla sin lista— y el vendedor no sabe si esperar o seguir escribiendo.
+   */
+  const sinResultados =
+    !CLIENTE_A_MANO &&
+    !form.cliente_nuevo &&
+    !form.cliente_id &&
+    !buscando &&
+    consulta.trim().length >= 2 &&
+    resultados.length === 0
+
+  /**
    * La zona sale de dónde está el cliente.
    *
    * Se aplica sola cuando no hay duda. Cuando la localidad está en más de una
@@ -298,6 +312,46 @@ export function PasoEncabezado({
         contenedorStyle={estilos.mitad}
       />
 
+      {/* ── Resultados de la búsqueda ─────────────────────────────────────────
+          Van JUSTO ABAJO de los tres campos que buscan —código, nombre y
+          CUIT—, no al final del encabezado. Estaban después de la zona y del
+          vendedor: el vendedor tipeaba el código, la lista aparecía fuera de
+          la pantalla y parecía que el buscador no hacía nada. */}
+      {resultados.length > 0 ? (
+        <View style={estilos.sugerencias}>
+          {resultados.map((c) => (
+            <Pressable
+              key={c.cliente_id}
+              onPress={() => elegirCliente(c)}
+              accessibilityRole="button"
+              accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
+              style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
+            >
+              <View style={estilos.sugerenciaFila}>
+                <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
+                {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
+              </View>
+              <Text style={estilos.sugerenciaNombre} numberOfLines={1}>
+                {c.razon_social}
+              </Text>
+              {/* La dirección desempata dos razones sociales parecidas, que es
+                  la confusión más cara al elegir de una lista. */}
+              {c.direccion ? (
+                <Text style={estilos.sugerenciaDato} numberOfLines={1}>
+                  {c.direccion}
+                </Text>
+              ) : null}
+              {c.cuit ? <Text style={estilos.sugerenciaDato}>CUIT {c.cuit}</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : sinResultados ? (
+        <Text style={estilos.sinResultados}>
+          Ningún cliente coincide con “{consulta.trim()}”. Se busca por código, razón social y
+          CUIT.
+        </Text>
+      ) : null}
+
       {/* ── Zona ───────────────────────────────────────────────────────────────
           Dejó de ser texto libre: el número de zona es el que usa la oficina
           para repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste" escritos a
@@ -311,7 +365,12 @@ export function PasoEncabezado({
           valor: z.id,
           etiqueta: etiquetaZona(z),
           descripcion: z.localidades.slice(0, 4).join(', '),
+          // Se busca por las treinta y seis localidades, no por las cuatro que
+          // entran en la línea.
+          buscarEn: [z.nombre, ...z.provincias, ...z.localidades].join(' '),
         }))}
+        marcadorBusqueda="Buscá por número, zona o localidad…"
+        vacio="Ninguna zona coincide con eso."
         alCambiar={elegirZona}
         error={errores.zona}
       />
@@ -372,29 +431,6 @@ export function PasoEncabezado({
             ? 'Puesto solo con tu número de vendedor. Cambialo si la nota es de otro.'
             : `Puesto solo: es el vendedor a cargo de la zona ${form.zona}.`}
         </Text>
-      ) : null}
-
-      {resultados.length > 0 ? (
-        <View style={estilos.sugerencias}>
-          {resultados.map((c) => (
-            <Pressable
-              key={c.cliente_id}
-              onPress={() => elegirCliente(c)}
-              accessibilityRole="button"
-              accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
-              style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
-            >
-              <View style={estilos.sugerenciaFila}>
-                <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
-                {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
-              </View>
-              <Text style={estilos.sugerenciaNombre} numberOfLines={1}>
-                {c.razon_social}
-              </Text>
-              {c.cuit ? <Text style={estilos.sugerenciaDato}>CUIT {c.cuit}</Text> : null}
-            </Pressable>
-          ))}
-        </View>
       ) : null}
 
       {form.cliente_provisorio ? (
@@ -539,6 +575,11 @@ const estilos = StyleSheet.create({
   },
   sugerenciaDato: {
     fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  sinResultados: {
+    fontFamily: tipografia.familia.cuerpo,
     fontSize: tipografia.tamano.xs,
     color: colores.tintaSuave,
   },

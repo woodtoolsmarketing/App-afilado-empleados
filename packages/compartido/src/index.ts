@@ -1,4 +1,5 @@
 export * from './catalogo'
+export * from './fotos'
 export * from './logo'
 export * from './marca'
 export * from './nota-pedido-impresion'

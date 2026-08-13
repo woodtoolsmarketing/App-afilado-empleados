@@ -5,7 +5,7 @@ import {
   tipografia,
   TOQUE_MINIMO,
 } from '@woodtools/compartido'
-import { forwardRef, useState, type ReactNode } from 'react'
+import { forwardRef, useMemo, useState, type ReactNode } from 'react'
 import {
   Modal,
   Pressable,
@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type StyleProp,
   type TextInputProps,
@@ -224,16 +225,147 @@ export function Opcion({
   )
 }
 
+export interface OpcionDeCampo {
+  /** El valor que se escribe en el campo. */
+  valor: string
+  /** Cuántas herramientas del catálogo tienen ese valor. */
+  cantidad?: number
+}
+
+/**
+ * Campo escribible que además sugiere lo que existe.
+ *
+ * El vendedor sigue tipeando la medida —a veces la sabe y es más rápido— pero a
+ * medida que escribe se va quedando con las que el catálogo realmente tiene. Y
+ * si no la sabe, toca el campo y las ve todas.
+ *
+ * Las opciones no son una lista fija: salen de la cascada, así que después de
+ * elegir diámetro 300 la lista de dientes ya no ofrece los 24 que no existen en
+ * esa medida. Escribir un valor que no está tampoco se bloquea: la lista puede
+ * no tener la herramienta que el cliente trajo, y el renglón tiene que poder
+ * cargarse igual.
+ */
+export function CampoConOpciones({
+  opciones,
+  valor,
+  alElegir,
+  sinCoincidencias = 'Ninguna medida del catálogo coincide. Podés dejarla igual.',
+  ...propsCampo
+}: Omit<PropsCampo, 'value'> & {
+  opciones: OpcionDeCampo[]
+  valor: string
+  /** Cuando el vendedor toca una sugerencia en vez de escribirla. */
+  alElegir: (valor: string) => void
+  sinCoincidencias?: string
+}) {
+  const [enfocado, setEnfocado] = useState(false)
+
+  // Con el campo vacío se ofrecen todas; con algo escrito, las que empiezan
+  // así primero —"3" antes que "13"— porque es lo que uno espera al tipear.
+  const sugeridas = useMemo(() => {
+    const q = valor.trim().replace(',', '.')
+    if (!q) return opciones
+    const empiezan = opciones.filter((o) => o.valor.startsWith(q))
+    const contienen = opciones.filter((o) => !o.valor.startsWith(q) && o.valor.includes(q))
+    return [...empiezan, ...contienen]
+  }, [opciones, valor])
+
+  const exacta = opciones.some((o) => o.valor === valor.trim().replace(',', '.'))
+  const abierta = enfocado && opciones.length > 0 && !exacta
+
+  return (
+    <View style={estilos.conOpciones}>
+      <Campo
+        {...propsCampo}
+        value={valor}
+        onFocus={() => setEnfocado(true)}
+        // Se cierra con demora: sin eso, el toque en una sugerencia llega
+        // después del blur y la lista ya no está para recibirlo.
+        onBlur={() => setTimeout(() => setEnfocado(false), 150)}
+      />
+
+      {abierta ? (
+        <View style={estilos.opcionesCaja}>
+          {sugeridas.length === 0 ? (
+            <Text style={estilos.opcionesVacio}>{sinCoincidencias}</Text>
+          ) : (
+            <ScrollView
+              style={estilos.opcionesLista}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              bounces={false}
+            >
+              {sugeridas.map((o) => (
+                <Pressable
+                  key={o.valor}
+                  onPress={() => {
+                    alElegir(o.valor)
+                    setEnfocado(false)
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${o.valor}${o.cantidad ? `, ${o.cantidad} opciones` : ''}`}
+                  style={({ pressed }) => [estilos.opcionValor, pressed && estilos.filaPresionada]}
+                >
+                  <Text style={estilos.opcionValorTexto}>{o.valor}</Text>
+                  {o.cantidad ? (
+                    <Text style={estilos.opcionValorCantidad}>{o.cantidad}</Text>
+                  ) : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 export interface ItemDesplegable<T extends string> {
   valor: T
   etiqueta: string
   descripcion?: string
+  /**
+   * Texto extra por el que se puede encontrar la opción, sin ocupar lugar en
+   * pantalla. La zona 107 muestra cuatro localidades pero cubre treinta y seis:
+   * acá van todas, así escribir "Castelar" la encuentra igual.
+   */
+  buscarEn?: string
+}
+
+/**
+ * A partir de esta cantidad de opciones la hoja aparece con buscador.
+ *
+ * Ocho es lo que entra cómodo de un vistazo. Las zonas son treinta y las
+ * medidas de una sierra pueden ser cientos: ahí desplazarse hasta encontrar la
+ * que uno ya sabe es peor que escribirla.
+ */
+const OPCIONES_PARA_BUSCADOR = 8
+
+/** Sin tildes y en minúsculas, para que "Morón" se encuentre escribiendo "moron". */
+function comparable(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 }
 
 /**
  * Desplegable. Abre una hoja modal en lugar del selector nativo: se ve igual en
  * todos los teléfonos y las opciones entran con el tamaño de toque que
  * necesitamos.
+ *
+ * ─── Por qué la hoja tiene alto en píxeles y no en porcentaje ───────────────
+ *
+ * Tenía `maxHeight: '70%'` y un ScrollView adentro sin permiso de encogerse.
+ * Con pocas opciones no se notaba, pero el desplegable de ZONA tiene treinta y
+ * cada una con su lista de localidades: la hoja crecía con el contenido, se iba
+ * fuera de la pantalla y lo único que quedaba visible era el velo. El vendedor
+ * tocaba ZONA, la pantalla se ponía negra y no había nada para elegir.
+ *
+ * Ahora el alto sale de la ventana real, en píxeles, y tanto la hoja como el
+ * ScrollView pueden encogerse. Un porcentaje contra un padre sin alto definido
+ * es justamente el caso donde Yoga no tiene contra qué calcularlo.
  */
 export function Desplegable<T extends string>({
   etiqueta,
@@ -245,6 +377,9 @@ export function Desplegable<T extends string>({
   obligatorio,
   deshabilitado,
   etiquetaCentrada,
+  buscable,
+  marcadorBusqueda = 'Escribí para filtrar…',
+  vacio = 'No hay ninguna opción que coincida.',
 }: {
   etiqueta?: string
   marcador?: string
@@ -259,9 +394,37 @@ export function Desplegable<T extends string>({
    * campo más de un formulario sino el control que manda en la pantalla.
    */
   etiquetaCentrada?: boolean
+  /**
+   * Fuerza el buscador. Si no se dice nada aparece solo cuando hay muchas
+   * opciones, que es cuando hace falta.
+   */
+  buscable?: boolean
+  marcadorBusqueda?: string
+  /** Qué decir cuando el filtro no deja nada. */
+  vacio?: string
 }) {
   const [abierto, setAbierto] = useState(false)
+  const [filtro, setFiltro] = useState('')
+  const { height: altoVentana } = useWindowDimensions()
+
   const elegido = items.find((i) => i.valor === valor)
+  const conBuscador = buscable ?? items.length > OPCIONES_PARA_BUSCADOR
+
+  // Se filtra por etiqueta y por descripción: en las zonas la descripción son
+  // las localidades, así que escribir "castelar" encuentra la 107 aunque el
+  // nombre de la zona no diga Castelar.
+  const visibles = useMemo(() => {
+    const q = comparable(filtro)
+    if (!q) return items
+    return items.filter((i) =>
+      comparable([i.etiqueta, i.descripcion, i.buscarEn].filter(Boolean).join(' ')).includes(q),
+    )
+  }, [items, filtro])
+
+  function cerrar() {
+    setAbierto(false)
+    setFiltro('')
+  }
 
   return (
     <View style={estilos.campoContenedor}>
@@ -303,29 +466,71 @@ export function Desplegable<T extends string>({
 
       <MensajeError>{error}</MensajeError>
 
-      <Modal
-        visible={abierto}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAbierto(false)}
-      >
-        <Pressable style={estilos.velo} onPress={() => setAbierto(false)}>
-          <Pressable style={estilos.hoja} onPress={(e) => e.stopPropagation()}>
-            {etiqueta ? <Text style={estilos.hojaTitulo}>{etiqueta}</Text> : null}
-            <ScrollView bounces={false}>
-              {items.map((item) => (
-                <Opcion
-                  key={item.valor}
-                  etiqueta={item.etiqueta}
-                  descripcion={item.descripcion}
-                  seleccionada={item.valor === valor}
-                  alSeleccionar={() => {
-                    alCambiar(item.valor)
-                    setAbierto(false)
-                  }}
-                />
-              ))}
+      <Modal visible={abierto} transparent animationType="fade" onRequestClose={cerrar}>
+        <Pressable style={estilos.velo} onPress={cerrar}>
+          {/* El alto sale de la ventana, en píxeles: con porcentaje la hoja se
+              iba de pantalla cuando había muchas opciones. */}
+          <Pressable
+            style={[estilos.hoja, { maxHeight: Math.round(altoVentana * 0.75) }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={estilos.hojaCabecera}>
+              <Text style={estilos.hojaTitulo}>{etiqueta ?? 'Elegí una opción'}</Text>
+              <Pressable
+                onPress={cerrar}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => [estilos.hojaCerrar, pressed && estilos.filaPresionada]}
+              >
+                <Text style={estilos.hojaCerrarTexto}>✕</Text>
+              </Pressable>
+            </View>
+
+            {conBuscador ? (
+              <TextInput
+                style={estilos.buscador}
+                value={filtro}
+                onChangeText={setFiltro}
+                placeholder={marcadorBusqueda}
+                placeholderTextColor={colores.tintaSuave}
+                autoCorrect={false}
+                autoCapitalize="none"
+                accessibilityLabel={`Buscar en ${etiqueta ?? 'las opciones'}`}
+              />
+            ) : null}
+
+            <ScrollView
+              style={estilos.hojaLista}
+              contentContainerStyle={estilos.hojaListaContenido}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {visibles.length === 0 ? (
+                <Text style={estilos.hojaVacia}>{vacio}</Text>
+              ) : (
+                visibles.map((item) => (
+                  <Opcion
+                    key={item.valor}
+                    etiqueta={item.etiqueta}
+                    descripcion={item.descripcion}
+                    seleccionada={item.valor === valor}
+                    alSeleccionar={() => {
+                      alCambiar(item.valor)
+                      cerrar()
+                    }}
+                  />
+                ))
+              )}
             </ScrollView>
+
+            {conBuscador ? (
+              <Text style={estilos.hojaConteo}>
+                {visibles.length === items.length
+                  ? `${items.length} opciones`
+                  : `${visibles.length} de ${items.length}`}
+              </Text>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
@@ -507,6 +712,60 @@ const estilos = StyleSheet.create({
     paddingHorizontal: espaciado.sm,
   },
 
+  conOpciones: {
+    // La lista se dibuja encima de lo que sigue, no empujándolo: si el
+    // formulario se reacomodara en cada tecla, el campo se movería debajo del
+    // dedo mientras se escribe.
+    position: 'relative',
+    zIndex: 10,
+  },
+  opcionesCaja: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 2,
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: colores.negro,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  opcionesLista: {
+    maxHeight: 200,
+  },
+  opcionValor: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: espaciado.sm,
+    minHeight: 42,
+    paddingHorizontal: espaciado.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colores.panelClaro,
+  },
+  opcionValorTexto: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.base,
+    color: colores.tinta,
+  },
+  opcionValorCantidad: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  opcionesVacio: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+    padding: espaciado.md,
+  },
+
   velo: {
     flex: 1,
     backgroundColor: colores.velo,
@@ -519,15 +778,68 @@ const estilos = StyleSheet.create({
     borderTopLeftRadius: radios.lg,
     borderTopRightRadius: radios.lg,
     padding: espaciado.base,
-    maxHeight: '70%',
+    // El maxHeight en píxeles lo pone el componente con el alto real de la
+    // ventana. `flexShrink` es lo que le permite respetarlo: sin él, el
+    // contenido manda y la hoja se va de pantalla.
+    flexShrink: 1,
+    gap: espaciado.sm,
+  },
+  hojaCabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: espaciado.sm,
   },
   hojaTitulo: {
+    flex: 1,
     fontFamily: tipografia.familia.subtitulo,
     fontSize: tipografia.tamano.lg,
     color: colores.tinta,
     textAlign: 'center',
-    paddingBottom: espaciado.sm,
+  },
+  hojaCerrar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: colores.negro,
+  },
+  hojaCerrarTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.base,
+    color: colores.tinta,
+  },
+  buscador: {
+    minHeight: TOQUE_MINIMO,
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    paddingHorizontal: espaciado.md,
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.base,
+    color: colores.tinta,
+  },
+  hojaLista: {
+    flexShrink: 1,
+  },
+  hojaListaContenido: {
+    paddingBottom: espaciado.xs,
+  },
+  hojaVacia: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.base,
+    color: colores.tintaSuave,
+    textAlign: 'center',
+    paddingVertical: espaciado.base,
+  },
+  hojaConteo: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+    textAlign: 'center',
   },
 
   opcion: {

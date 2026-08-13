@@ -42,13 +42,22 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
+import {
+  Campo,
+  CampoConOpciones,
+  Casilla,
+  Desplegable,
+  MensajeError,
+} from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   agujeroDeFabrica,
   codigosAfiladoCuchilla,
   mechasDelTipo,
   medidasDisponibles,
+  medidasEnCascada,
+  type ArticuloConMedidas,
+  type CascadaMedidas,
   type CodigoCuchilla,
   resolverCodigoDeItem,
   type CodigoComputo,
@@ -136,6 +145,24 @@ const MEDIDAS = new Set<CampoItem>([
   'largo_util', 'espesor', 'paso',
 ])
 
+/**
+ * Los campos que participan de la cascada de medidas.
+ *
+ * Son los mismos nombres que las columnas de `catalogo_medidas`: los dos
+ * vocabularios tienen que seguir coincidiendo, porque la base devuelve las
+ * opciones indexadas por el nombre del campo del formulario.
+ *
+ * `cantidad_dientes` entra aunque no sea un milímetro —es justamente la
+ * pregunta del ejemplo: elegido el diámetro, cuántos dientes hay— y `cantidad`
+ * no, porque es cuántas trajo el cliente y no una característica de la pieza.
+ */
+const CAMPOS_CASCADA: CampoItem[] = [
+  'diametro_exterior', 'diametro', 'ancho_corte', 'diametro_interior',
+  'cantidad_dientes', 'largo', 'ancho', 'espesor', 'paso', 'largo_util',
+]
+
+const CASCADA_VACIA: CascadaMedidas = { total: 0, opciones: {}, articulos: [] }
+
 /** El rótulo de "cantidad de dientes" cambia según el servicio. */
 function etiquetaDientes(servicio: TipoServicio): string {
   if (servicio === 'reparacion') return 'CANTIDAD DE DIENTES A REPARAR'
@@ -163,6 +190,8 @@ export function PasoRenglon({
   const [codigos, setCodigos] = useState<CodigoComputo[]>([])
   const [buscando, setBuscando] = useState(false)
   const [sinCodigo, setSinCodigo] = useState(false)
+  /** Qué medidas siguen siendo posibles según lo que ya se completó. */
+  const [cascada, setCascada] = useState<CascadaMedidas>(CASCADA_VACIA)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * El último código que propusimos solos. Sirve para distinguir "lo puso el
@@ -210,6 +239,43 @@ export function PasoRenglon({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.herramienta, item.servicio])
+
+  // ── Medidas en cascada ───────────────────────────────────────────────────
+  //
+  // Las medidas de una herramienta no son libres: una sierra de 300 mm existe
+  // con 96 o 72 dientes, no con cualquiera. Cada vez que el vendedor completa
+  // una, se le pregunta al catálogo qué sigue siendo posible en las otras.
+  //
+  // Se manda TODO lo que hay escrito, no sólo el último campo: el vendedor
+  // completa en el orden que se acuerda, y cualquier combinación tiene que
+  // achicar igual.
+  const filtrosCascada: Record<string, string> = {}
+  for (const campo of CAMPOS_CASCADA) {
+    const v = ((item as unknown as Record<string, string>)[campo] ?? '').trim()
+    if (v) filtrosCascada[campo] = v
+  }
+  if (item.mano) filtrosCascada.mano = item.mano === 'derecha' ? 'derecha' : 'izquierda'
+  const claveCascada = `${item.herramienta ?? ''}|${JSON.stringify(filtrosCascada)}`
+
+  useEffect(() => {
+    if (!item.herramienta) {
+      setCascada(CASCADA_VACIA)
+      return
+    }
+    let vigente = true
+    const t = setTimeout(() => {
+      medidasEnCascada(item.herramienta!, filtrosCascada)
+        .then((r) => {
+          if (vigente) setCascada(r)
+        })
+        .catch(() => undefined)
+    }, 250)
+    return () => {
+      vigente = false
+      clearTimeout(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveCascada])
 
   // ── Búsqueda automática del código de cómputo ───────────────────────────
   const medidaClave = [item.ancho_corte, item.ancho, item.diametro].join('|')
@@ -427,6 +493,25 @@ export function PasoRenglon({
     } as Partial<FormularioItemNota>)
   }
 
+  /**
+   * Completa el renglón con las medidas de una herramienta del catálogo.
+   *
+   * No toca la DESCRIPCIÓN a propósito: ésa es la del cliente —"marca, modelo,
+   * estado"— y es lo único que el vendedor tiene que seguir escribiendo junto
+   * con la cantidad. Pisarla con el texto de la lista de precios le borraría lo
+   * que ya anotó.
+   */
+  function aplicarArticulo(articulo: ArticuloConMedidas) {
+    const cambios: Record<string, string> = {}
+    for (const campo of CAMPOS_CASCADA) {
+      const v = articulo[campo]
+      if (v === null || v === undefined) continue
+      cambios[campo] = String(v).replace('.', ',')
+    }
+    if (typeof articulo.mano === 'string') cambios.mano = articulo.mano
+    alCambiar(cambios as Partial<FormularioItemNota>)
+  }
+
   function campoNumerico(campo: CampoItem, etiqueta: string, ancho?: 'tercio' | 'mitad') {
     const valor = (item as unknown as Record<string, string>)[campo] ?? ''
     const esPrecio = campo === 'precio_por_diente' || campo === 'precio_total'
@@ -452,6 +537,54 @@ export function PasoRenglon({
       campos.includes('precio_por_diente') &&
       campos.includes('cantidad_dientes')
 
+    /**
+     * Las medidas que el catálogo tiene para lo que ya se eligió.
+     *
+     * `cantidad_dientes` entra acá aunque no sea un milímetro: es exactamente
+     * el caso del que se trata —elegido el diámetro, los dientes posibles son
+     * dos o tres y no cualquiera—.
+     */
+    const opciones = cascada.opciones[campo] ?? []
+
+    const propsComunes = {
+      etiqueta,
+      obligatorio: true as const,
+      editable: !esTotalCalculado,
+      keyboardType: 'decimal-pad' as const,
+      error: errores[campo],
+      contenedorStyle:
+        ancho === 'tercio' ? estilos.tercio : ancho === 'mitad' ? estilos.mitad : undefined,
+    }
+
+    const escribir = (t: string) =>
+      alCambiar({
+        // Las medidas van con coma: el punto se toma como coma, porque el
+        // teclado numérico de Android da uno u otro según el teléfono y
+        // los dos quieren decir lo mismo.
+        [campo]: esMedida ? normalizarMedida(t) : soloNumeros(t),
+      } as Partial<FormularioItemNota>)
+
+    if (opciones.length > 0 && !esTotalCalculado) {
+      return (
+        <CampoConOpciones
+          key={campo}
+          {...propsComunes}
+          valor={valor}
+          onChangeText={escribir}
+          opciones={opciones.map((o) => ({
+            valor: String(o.valor),
+            cantidad: o.cantidad,
+          }))}
+          alElegir={(v) => alCambiar({ [campo]: v } as Partial<FormularioItemNota>)}
+          ayuda={
+            esMedida && aNumero(valor) > 0
+              ? formatearMedida(valor)
+              : `${opciones.length} en el catálogo`
+          }
+        />
+      )
+    }
+
     return (
       <Campo
         key={campo}
@@ -459,14 +592,7 @@ export function PasoRenglon({
         obligatorio
         value={valor}
         editable={!esTotalCalculado}
-        onChangeText={(t) =>
-          alCambiar({
-            // Las medidas van con coma: el punto se toma como coma, porque el
-            // teclado numérico de Android da uno u otro según el teléfono y
-            // los dos quieren decir lo mismo.
-            [campo]: esMedida ? normalizarMedida(t) : soloNumeros(t),
-          } as Partial<FormularioItemNota>)
-        }
+        onChangeText={escribir}
         keyboardType="decimal-pad"
         error={errores[campo]}
         contenedorStyle={ancho === 'tercio' ? estilos.tercio : ancho === 'mitad' ? estilos.mitad : undefined}
@@ -557,6 +683,41 @@ export function PasoRenglon({
       */}
       {item.herramienta === 'cuchilla' && item.servicio !== 'venta' ? (
         <SelectorAfiladoCuchilla item={item} alCambiar={alCambiar} />
+      ) : null}
+
+      {/* ── Cuántas herramientas del catálogo siguen encajando ────────────────
+          Es la mitad que faltaba del filtrado: los campos de arriba dicen qué
+          medidas son posibles, y esto dice cuántas piezas quedan. Con pocas, se
+          elige la exacta y las medidas se completan solas. */}
+      {cascada.total > 0 ? (
+        <View style={estilos.cascada}>
+          <Text style={estilos.cascadaTitulo}>
+            {cascada.total === 1
+              ? 'Una sola del catálogo coincide con esas medidas'
+              : `${cascada.total} del catálogo coinciden con esas medidas`}
+          </Text>
+
+          {cascada.total <= 6 ? (
+            cascada.articulos.map((a) => (
+              <Pressable
+                key={a.codigo}
+                onPress={() => aplicarArticulo(a)}
+                accessibilityRole="button"
+                accessibilityLabel={`Usar ${a.codigo}`}
+                style={({ pressed }) => [estilos.cascadaFila, pressed && estilos.filaTocada]}
+              >
+                <Text style={estilos.cascadaCodigo}>{a.codigo}</Text>
+                <Text style={estilos.cascadaDescripcion} numberOfLines={2}>
+                  {[a.descripcion, a.marca].filter(Boolean).join(' · ')}
+                </Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={estilos.cascadaAyuda}>
+              Completá otra medida y la lista se achica sola.
+            </Text>
+          )}
+        </View>
       ) : null}
 
       {/* Campos propios de la herramienta.
@@ -1346,6 +1507,41 @@ function SelectorAfiladoCuchilla({
 }
 
 const estilos = StyleSheet.create({
+  cascada: {
+    backgroundColor: colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: espaciado.xs,
+  },
+  cascadaTitulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+  cascadaAyuda: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  cascadaFila: {
+    paddingVertical: espaciado.xs,
+    borderTopWidth: 1,
+    borderTopColor: colores.panelClaro,
+  },
+  cascadaCodigo: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.base,
+    color: colores.tinta,
+  },
+  cascadaDescripcion: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  filaTocada: { opacity: 0.6 },
+
   // Los campos cortos van de a dos por fila: una medida ocupa cinco caracteres
   // y antes se comía el ancho entero, obligando a scrollear por nada.
   par: { flexDirection: 'row', gap: espaciado.sm },

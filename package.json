@@ -26,6 +26,7 @@
     "secretos": "node herramientas/secretos-supabase.mjs",
     "probador": "node herramientas/probador/construir.mjs",
     "cargar:catalogo": "node herramientas/cargar-catalogo.cjs",
+    "cargar:medidas": "node herramientas/cargar-medidas.cjs",
     "geocodificar:padron": "node herramientas/geocodificar-padron.mjs",
     "verificar": "npm run verificar:compartido && npm run verificar:movil && npm run verificar:escritorio && npm run verificar:probador",
     "verificar:compartido": "tsc -p packages/compartido/tsconfig.json --noEmit",

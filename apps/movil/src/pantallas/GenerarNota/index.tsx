@@ -61,7 +61,12 @@ import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
 import { usarSesion, etiquetaVendedor } from '../../nucleo/sesion'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
-import { crearNotaPedido, obtenerCotizacion } from '../../servicios/notasPedido'
+import {
+  crearNotaPedido,
+  obtenerCotizacion,
+  tendenciaCliente,
+  type TendenciaCliente,
+} from '../../servicios/notasPedido'
 import { BuscadorArticulo } from './BuscadorArticulo'
 import { PasoEncabezado } from './Encabezado'
 import { PasoRenglon } from './Renglon'
@@ -99,6 +104,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   /** Cómo se cobra. Va a la columna "Condicion de Venta" del talonario. */
   const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)
   const [condicionDetalle, setCondicionDetalle] = useState('')
+  /**
+   * Lo que este cliente usa siempre, para dejarlo preseleccionado.
+   *
+   * Se guarda aparte de los valores elegidos porque la pantalla tiene que poder
+   * decir de dónde salieron. Un desplegable que aparece completo sin explicar
+   * por qué es un desplegable que el vendedor no revisa.
+   */
+  const [tendencia, setTendencia] = useState<TendenciaCliente | null>(null)
   const [fechaEntrega, setFechaEntrega] = useState<Date | null>(null)
   const [calendario, setCalendario] = useState(false)
   const [items, setItems] = useState<FormularioItemNota[]>([ITEM_VACIO])
@@ -115,6 +128,43 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    */
   const [observaciones, setObservaciones] = useState<string[]>([])
   const [observacionNueva, setObservacionNueva] = useState('')
+
+  /**
+   * Al elegir un cliente, traer cómo compra y dejarlo puesto.
+   *
+   * Sólo completa lo que está vacío: si el vendedor ya eligió factura porque
+   * hoy es distinto, la costumbre del cliente no se la pisa. Ese es todo el
+   * criterio —preseleccionar es ahorrar toques, no decidir por el otro.
+   */
+  useEffect(() => {
+    const id = encabezado.cliente_id
+    if (!id) {
+      setTendencia(null)
+      return
+    }
+
+    let vigente = true
+    tendenciaCliente(id)
+      .then((t) => {
+        if (!vigente || !t) return
+        setTendencia(t)
+        if (t.tipo_nota) setTipoNota((actual) => actual ?? t.tipo_nota)
+        if (t.condicion_venta) {
+          setCondicionVenta((actual) => {
+            if (actual) return actual
+            // El detalle viaja con la condición: un "cheque" sin los días
+            // preseleccionados deja el campo obligatorio en blanco.
+            if (t.condicion_detalle) setCondicionDetalle(t.condicion_detalle)
+            return t.condicion_venta
+          })
+        }
+      })
+      .catch(() => undefined)
+
+    return () => {
+      vigente = false
+    }
+  }, [encabezado.cliente_id])
 
   function agregarObservacion() {
     const texto = observacionNueva.trim()
@@ -635,6 +685,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 error={errores.tipo_nota}
               />
 
+              {tendencia?.tipo_nota && tipoNota === tendencia.tipo_nota ? (
+                <Text style={estilos.porTendencia}>{explicarTendencia(tendencia, 'tipo')}</Text>
+              ) : null}
+
               {/* ── Condición de venta ──────────────────────────────────────
                   Va a la columna del talonario que hasta ahora salía vacía.
                   Es opción cerrada y no texto libre: "ctdo" y "contado" son
@@ -656,6 +710,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 }}
                 error={errores.condicion_venta}
               />
+
+              {tendencia?.condicion_venta && condicionVenta === tendencia.condicion_venta ? (
+                <Text style={estilos.porTendencia}>{explicarTendencia(tendencia, 'condicion')}</Text>
+              ) : null}
 
               {condicionVenta === 'cheque' ? (
                 <Campo
@@ -1255,11 +1313,34 @@ function FormularioVenta({
   )
 }
 
+/**
+ * De dónde salió el valor preseleccionado, en una línea.
+ *
+ * Se dice con números —"en 7 de sus últimas 8 notas"— y no con un "habitual" a
+ * secas: la diferencia entre una costumbre firme y un empate de dos contra dos
+ * es justamente lo que decide si el vendedor lo revisa o lo deja pasar.
+ */
+function explicarTendencia(t: TendenciaCliente, cual: 'tipo' | 'condicion'): string {
+  const veces = cual === 'tipo' ? t.tipo_nota_veces : t.condicion_veces
+  if (veces >= t.notas_miradas && t.notas_miradas > 1) {
+    return `Puesto solo: es lo que este cliente usa en sus últimas ${t.notas_miradas} notas.`
+  }
+  if (t.notas_miradas === 1) return 'Puesto solo: es lo que usó en su nota anterior.'
+  return `Puesto solo: lo usó en ${veces} de sus últimas ${t.notas_miradas} notas. Cambialo si hoy es distinto.`
+}
+
 const estilos = StyleSheet.create({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   corto: { maxWidth: 160 },
   medio: { maxWidth: 220 },
+
+  porTendencia: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+    marginTop: -espaciado.xs,
+  },
 
   pasos: { flexDirection: 'row', gap: espaciado.sm, justifyContent: 'center' },
 

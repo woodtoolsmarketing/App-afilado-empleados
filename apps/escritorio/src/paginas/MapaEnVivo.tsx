@@ -1,4 +1,4 @@
-import type { PosicionActual } from '@woodtools/compartido'
+import { urlesDeFotos, type PosicionActual } from '@woodtools/compartido'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import L from 'leaflet'
 import { useEffect, useState } from 'react'
@@ -17,6 +17,11 @@ import { supabase } from '../nucleo/supabase'
 
 type PosicionConPerfil = PosicionActual & {
   perfiles: { nombre_completo: string; codigo_vendedor: string | null; foto_url: string | null } | null
+  /**
+   * La foto ya firmada. `foto_url` es la ruta dentro del bucket privado y no
+   * sirve como `src`: el marcador salía siempre con las iniciales.
+   */
+  foto_firmada?: string | null
 }
 
 const CENTRO_AMBA: [number, number] = [-34.6037, -58.3816]
@@ -33,7 +38,18 @@ export function PaginaMapaEnVivo() {
         .select('*, perfiles:vendedor_id ( nombre_completo, codigo_vendedor, foto_url )')
         .eq('en_recorrido', true)
       if (error) throw error
-      return data as PosicionConPerfil[]
+
+      // El bucket de fotos es privado: hay que pedir una URL firmada por cada
+      // ruta antes de armar los marcadores.
+      const filas = (data ?? []) as PosicionConPerfil[]
+      const firmadas = await urlesDeFotos(
+        supabase,
+        filas.map((f) => f.perfiles?.foto_url),
+      )
+      return filas.map((f) => ({
+        ...f,
+        foto_firmada: f.perfiles?.foto_url ? (firmadas.get(f.perfiles.foto_url) ?? null) : null,
+      }))
     },
     refetchInterval: 30_000,
   })
@@ -207,8 +223,8 @@ function iconoVendedor(p: PosicionConPerfil): L.DivIcon {
     .map((x) => x[0]?.toUpperCase() ?? '')
     .join('')
 
-  const interior = p.perfiles?.foto_url
-    ? `<img src="${escapar(p.perfiles.foto_url)}" width="44" height="44" class="marcador-vendedor" alt="" />`
+  const interior = p.foto_firmada
+    ? `<img src="${escapar(p.foto_firmada)}" width="44" height="44" class="marcador-vendedor" alt="" />`
     : `<div class="marcador-vendedor" style="width:44px;height:44px;display:grid;place-items:center;font-weight:800;color:#B30F0F;font-family:system-ui">${iniciales}</div>`
 
   return L.divIcon({

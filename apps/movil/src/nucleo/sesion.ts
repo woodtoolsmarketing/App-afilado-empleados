@@ -1,4 +1,4 @@
-import { compararVersiones, ETIQUETA_ROL, type Perfil } from '@woodtools/compartido'
+import { compararVersiones, ETIQUETA_ROL, olvidarFotos, type Perfil } from '@woodtools/compartido'
 import * as Application from 'expo-application'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
@@ -285,6 +285,8 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   async cerrarSesion() {
     await supabase.auth.signOut().catch(() => undefined)
     await SecureStore.deleteItemAsync(CLAVE_RECORDAR_HASTA).catch(() => undefined)
+    // Las URL firmadas de las fotos se emitieron contra la sesión que se va.
+    olvidarFotos()
     set({ estado: 'sin_sesion', perfil: null, errorAcceso: null })
   },
 

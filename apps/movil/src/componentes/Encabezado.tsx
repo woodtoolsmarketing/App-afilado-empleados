@@ -2,6 +2,7 @@ import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
+import { usarFotoDePerfil } from '../nucleo/foto'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
 
 /**
@@ -11,6 +12,9 @@ import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
 
 export function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
   const perfil = usarSesion((s) => s.perfil)
+  // La foto vive en un bucket privado: lo que hay guardado es la ruta, no una
+  // dirección. Hasta que llega la URL firmada se muestran las iniciales.
+  const foto = usarFotoDePerfil(perfil?.foto_url)
 
   return (
     <View style={estilos.contenedor}>
@@ -28,13 +32,13 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
 
       <View style={estilos.identidad}>
         <View style={estilos.avatarMarco}>
-          {perfil?.foto_url ? (
+          {foto ? (
             <Image
-              source={{ uri: perfil.foto_url }}
+              source={{ uri: foto }}
               style={estilos.avatar}
               contentFit="cover"
               transition={200}
-              accessibilityLabel={`Foto de ${perfil.nombre_completo}`}
+              accessibilityLabel={`Foto de ${perfil?.nombre_completo ?? 'el vendedor'}`}
             />
           ) : (
             <View style={[estilos.avatar, estilos.avatarVacio]}>

@@ -304,6 +304,104 @@ export async function vendedorDeZona(codigo: string): Promise<string | null> {
   return typeof data === 'string' && data.trim() ? data.trim() : null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Medidas en cascada
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Un valor que todavía es posible para un campo, y cuántos códigos lo tienen. */
+export interface OpcionMedida {
+  valor: number | string
+  cantidad: number
+}
+
+export interface ArticuloConMedidas {
+  codigo: string
+  descripcion?: string
+  marca?: string
+  subrubro_nombre?: string
+  notas?: string
+  precio?: number
+  moneda?: 'ARS' | 'USD'
+  a_cotizar?: boolean
+  [medida: string]: unknown
+}
+
+export interface CascadaMedidas {
+  /** Cuántos códigos del catálogo siguen encajando con lo elegido. */
+  total: number
+  /** Por campo del formulario, los valores que siguen dando resultados. */
+  opciones: Record<string, OpcionMedida[]>
+  articulos: ArticuloConMedidas[]
+}
+
+const CASCADA_VACIA: CascadaMedidas = { total: 0, opciones: {}, articulos: [] }
+
+/**
+ * Qué medidas siguen siendo posibles, dado lo que el vendedor ya eligió.
+ *
+ * Las medidas de la herramienta no son libres: una sierra de 300 mm existe con
+ * 96 o 72 dientes, no con cualquiera. Hasta ahora el renglón las pedía escritas
+ * a mano y no había forma de saberlo, así que se cargaban medidas que no
+ * existen y el código de cómputo no aparecía nunca.
+ *
+ * Esto le pregunta a la base, en una sola ida, tres cosas: cuántas herramientas
+ * quedan, qué valores siguen siendo posibles en CADA campo, y cuáles son con su
+ * precio. Sin orden fijo: se complete lo que se complete, los demás se achican.
+ */
+export async function medidasEnCascada(
+  herramienta: Herramienta,
+  filtros: Record<string, string | number>,
+  limite = 20,
+): Promise<CascadaMedidas> {
+  // Sólo viajan los que tienen algo: un filtro vacío no filtra, y mandarlo
+  // haría que la base compare contra null y no devuelva nada.
+  const limpios: Record<string, string | number> = {}
+  for (const [k, v] of Object.entries(filtros)) {
+    const texto = String(v ?? '').trim().replace(',', '.')
+    if (texto) limpios[k] = texto
+  }
+
+  const { data, error } = await supabase.rpc('medidas_en_cascada', {
+    p_herramienta: herramienta,
+    p_filtros: limpios,
+    p_limite: limite,
+  })
+  // Que falle la cascada no puede trabar la carga: los campos siguen siendo
+  // escribibles y el renglón se completa igual.
+  if (error) return CASCADA_VACIA
+  return (data as CascadaMedidas | null) ?? CASCADA_VACIA
+}
+
+/**
+ * Cómo compra habitualmente el cliente.
+ *
+ * Cada cliente repite casi siempre lo mismo —uno factura y paga a 30 días, otro
+ * pide presupuesto y paga al contado— y hasta ahora eso se elegía de cero en
+ * cada nota. Esto mira sus últimas doce notas no anuladas y devuelve lo más
+ * frecuente, para dejarlo preseleccionado.
+ *
+ * Devuelve null cuando el cliente no tiene historial: ahí no hay costumbre que
+ * respetar y los desplegables arrancan vacíos, como siempre.
+ */
+export interface TendenciaCliente {
+  tipo_nota: TipoNotaPedido | null
+  tipo_nota_veces: number
+  condicion_venta: CondicionVenta | null
+  condicion_detalle: string | null
+  condicion_veces: number
+  notas_miradas: number
+}
+
+export async function tendenciaCliente(clienteId: string): Promise<TendenciaCliente | null> {
+  const { data, error } = await supabase.rpc('tendencia_cliente', { p_cliente_id: clienteId })
+  // Que falle la tendencia no puede impedir cargar la nota: es una comodidad.
+  if (error) return null
+
+  const fila = (Array.isArray(data) ? data[0] : data) as TendenciaCliente | undefined
+  if (!fila || !fila.notas_miradas) return null
+  return fila
+}
+
 /**
  * Resuelve el código de cómputo a partir de la medida que corresponde a cada
  * herramienta (ancho de corte en sierras, ancho en cuchillas, diámetro en
