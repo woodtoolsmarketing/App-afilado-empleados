@@ -149,6 +149,28 @@ const FILAS_TECNICAS = MAXIMO_RENGLONES
 const FILAS_COMERCIALES = MAXIMO_RENGLONES
 
 /**
+ * El alto de la hoja, en milímetros.
+ *
+ * Una A4 son 297 mm y con los márgenes de 8 mm quedan 281 útiles, pero ése es
+ * el número teórico: el área imprimible real la decide la impresora y siempre
+ * es menor. Con 265 la nota se ve llena —lo que sobra se lo reparten las filas
+ * de las tablas— y queda colchón para que ninguna impresora la mande a una
+ * segunda hoja.
+ */
+const ALTO_HOJA_MM = 265
+
+/**
+ * El alto de los dos bloques de texto libre, en milímetros.
+ *
+ * **Fijo, como en el talonario de papel.** Antes crecían con el texto, y unos
+ * datos de cliente largos —dirección, CP, dos teléfonos, mail y contacto, que
+ * es lo que trae el padrón— empujaban toda la nota fuera de la hoja. En el
+ * papel ese recuadro tampoco crece: lo que no entra, no entra.
+ */
+const ALTO_DATOS_CLIENTE_MM = 17
+const ALTO_DESCRIPCION_MM = 11
+
+/**
  * El duplicado tiene el chrome apretado —encabezado, rótulos y cajas chicas—
  * pero **llena la hoja**: el espacio que se le gana al adorno se le da a las
  * filas donde el taller escribe a mano. Una hoja A4 a medio usar es papel
@@ -476,15 +498,46 @@ export function generarHtmlNotaPedido(
  * pedido pendientes".
  */
 export const ESTILOS_NOTA_PEDIDO = `
+/* ── Una nota, una hoja ──────────────────────────────────────────────────────
+   La hoja es una caja de alto FIJO, no una lista de bloques que se apilan
+   hasta donde lleguen. Antes el original medía 277 mm contra los 281 útiles de
+   una A4: entraba por cuatro milímetros en esta PC y se iba a una segunda hoja
+   en cuanto el WebView del celular calculaba una fuente un pelo más alta o la
+   impresora se guardaba un margen propio. Y al revés, una nota de dos
+   renglones dejaba media hoja en blanco.
+
+   Con el alto fijo pasan las dos cosas que hacen falta: lo que sobra se lo
+   reparten las filas de las tablas —que es donde en fábrica escriben a mano— y
+   lo que falta las aprieta hasta su mínimo. La hoja siempre sale llena y nunca
+   pasa a la siguiente.
+
+   ${ALTO_HOJA_MM} mm y no 281: el área imprimible real siempre es menor que la
+   teórica y cambia con la impresora. El colchón es barato —se lo come el hueco
+   de las firmas— y desbordar no lo es. */
 .nota {
   font-family: Arial, Helvetica, sans-serif;
   font-size: 9.5pt;
   color: #000;
   width: 190mm;
-  margin: 0 auto 8mm;
+  height: ${ALTO_HOJA_MM}mm;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   page-break-after: always;
+  break-after: page;
 }
-.nota:last-child { page-break-after: auto; }
+.nota:last-child { page-break-after: auto; break-after: auto; }
+
+/* Las dos tablas se reparten en partes iguales todo lo que sobra. El alto al
+   100% es lo que hace que el sobrante baje a las FILAS y no quede como aire
+   debajo de la tabla. */
+.nota .tabla.tecnica, .nota .tabla.comercial { flex: 1 1 0; height: 100%; }
+.nota .tabla tbody tr { height: auto; }
+/* El bloque de firmas se va al pie. El aire de arriba es suyo y no sobrante:
+   con las tablas repartiéndose todo lo que queda, dejarlo librado al sobrante
+   pegaba las líneas de firma contra el borde de la hoja. */
+.firmas { margin-top: auto; padding-top: 7mm; }
 
 .nota table { border-collapse: collapse; width: 100%; }
 .nota td, .nota th { border: 1px solid #000; padding: 1.5px 3px; }
@@ -510,14 +563,26 @@ export const ESTILOS_NOTA_PEDIDO = `
 
 .bloque-cliente { border: 1px solid #000; border-top: 0; }
 .rotulo { padding: 2px 4px; }
+/* Alto FIJO y no mínimo: es el recuadro del talonario, y crecer con el texto
+   era lo que empujaba la nota a una segunda hoja. */
 .texto-libre {
   border-top: 1px solid #000;
-  min-height: 11mm;
+  height: ${ALTO_DATOS_CLIENTE_MM}mm;
   padding: 2px 4px;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow: hidden;
+  /* Letra chica y renglones juntos: lo que se busca acá es que entren las
+     cinco líneas que trae la ficha del padrón —dirección, CP, teléfono, mail
+     y contacto— y no que se lea de lejos. */
+  font-size: 8pt;
+  line-height: 1.15;
 }
-.texto-libre.alto-2 { min-height: 9mm; border: 1px solid #000; border-top: 0; }
+.texto-libre.alto-2 {
+  height: ${ALTO_DESCRIPCION_MM}mm;
+  border: 1px solid #000;
+  border-top: 0;
+}
 
 .bloque-titulo {
   background: #d9d9d9;
@@ -530,7 +595,10 @@ export const ESTILOS_NOTA_PEDIDO = `
 
 .tabla th { background: #d9d9d9; font-weight: normal; font-size: 8.5pt; text-align: center; }
 .tabla .grupo { font-weight: bold; }
-.tabla td { height: 5.2mm; font-size: 8.5pt; }
+/* 4.4 mm es el PISO, no el alto: con el reparto de arriba las filas crecen
+   hasta llenar la hoja, y sólo bajan hasta acá cuando la nota viene cargada
+   hasta el tope. Menos que esto ya no se puede escribir a mano. */
+.tabla td { height: 4.4mm; font-size: 8.5pt; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
 /* Las casillas de operación pasaron de una X a llevar la cantidad de dientes,
@@ -570,7 +638,7 @@ export const ESTILOS_NOTA_PEDIDO = `
 }
 .resumen strong { font-size: 10pt; }
 
-.firmas { display: flex; justify-content: space-around; margin-top: 14mm; text-align: center; }
+.firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
 
 .deposito { display: flex; justify-content: flex-end; gap: 4mm; margin-top: 2mm; }
@@ -594,32 +662,26 @@ export const ESTILOS_NOTA_PEDIDO = `
 /* Llena la hoja: A4 (297mm) menos los 8mm de margen de cada lado. La tabla
    comercial es la única que crece, así que todo el espacio sobrante termina
    siendo renglones para escribir y no aire entre bloques. */
-.duplicado {
-  font-size: 8.5pt;
-  /* A4 menos los márgenes son 281 mm, pero pedir exactamente eso desbordaba:
-     el área imprimible real de Chrome es un pelo menor y la palabra
-     "DUPLICADO" del pie se iba sola a una tercera hoja en blanco. Con holgura
-     la página se llena igual —el hueco del medio crece hasta el borde— y no se
-     gasta papel. */
-  min-height: 270mm;
-  display: flex;
-  flex-direction: column;
-}
-.duplicado .comercial-duplicado { flex: 1 0 auto; }
+/* El alto ya lo pone la caja de la hoja para las dos copias: acá sólo queda lo
+   que distingue al duplicado, que es la letra apretada. */
+.duplicado { font-size: 8.5pt; }
+/* En el duplicado la tabla comercial va angosta al costado, así que el bloque
+   entero es el que se estira; adentro, la tabla llena su alto. */
+.duplicado .comercial-duplicado { flex: 1 1 0; }
+.duplicado .comercial-duplicado .comercial { height: 100%; }
+.duplicado .tabla.comercial { flex: none; }
 .duplicado .control-titulo, .duplicado .numero-titulo { font-size: 10pt; padding: 1px; }
 .duplicado .control-linea { line-height: 1.25; }
 .duplicado .numero { font-size: 13pt; padding: 2px 0 3px; }
 .duplicado .comprobantes { line-height: 1.6; padding: 3px 4px; }
 .duplicado .logo { max-height: 18mm; }
-.duplicado .texto-libre { min-height: 8mm; }
-.duplicado .texto-libre.alto-2 { min-height: 7mm; }
+.duplicado .texto-libre { height: 10mm; }
+.duplicado .texto-libre.alto-2 { height: 8mm; }
 .duplicado .bloque-titulo { padding: 1px; font-size: 9pt; }
 .duplicado .tabla th { font-size: 7.5pt; }
-/* 5 mm y no 6: con doce filas técnicas y doce comerciales —el tope de
-   renglones de la nota— a 6 mm la hoja se desbordaba a una tercera página. A
-   5 mm sigue habiendo lugar de sobra para escribir a mano, y está el hueco
-   libre del medio para los renglones que se agreguen. */
-.duplicado .tabla td { height: 5mm; font-size: 8pt; }
+/* Igual que en el original: es el piso. El reparto de la hoja las estira
+   hasta llenarla. */
+.duplicado .tabla td { height: 4.2mm; font-size: 8pt; }
 .duplicado .deposito { margin-top: 1.5mm; }
 .duplicado .caja td { height: 4.2mm; font-size: 7.5pt; }
 .duplicado .caja .alto { height: 10mm; }
