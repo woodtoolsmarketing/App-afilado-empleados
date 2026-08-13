@@ -254,6 +254,15 @@ export function PasoRenglon({
     const v = ((item as unknown as Record<string, string>)[campo] ?? '').trim()
     if (v) filtrosCascada[campo] = v
   }
+  /**
+   * ¿Ya hay al menos una medida cargada?
+   *
+   * Se mira ANTES de sumar la mano, que no es una medida: una mecha derecha
+   * sigue siendo "todas las derechas" y contarla como filtro haría aparecer el
+   * cartel con 68 coincidencias sin que el vendedor haya elegido nada.
+   */
+  const hayMedidaCargada = Object.keys(filtrosCascada).length > 0
+
   if (item.mano) filtrosCascada.mano = item.mano === 'derecha' ? 'derecha' : 'izquierda'
   const claveCascada = `${item.herramienta ?? ''}|${JSON.stringify(filtrosCascada)}`
 
@@ -688,8 +697,13 @@ export function PasoRenglon({
       {/* ── Cuántas herramientas del catálogo siguen encajando ────────────────
           Es la mitad que faltaba del filtrado: los campos de arriba dicen qué
           medidas son posibles, y esto dice cuántas piezas quedan. Con pocas, se
-          elige la exacta y las medidas se completan solas. */}
-      {cascada.total > 0 ? (
+          elige la exacta y las medidas se completan solas.
+
+          No aparece hasta que hay una medida cargada. Sin filtros el número es
+          el catálogo entero —144 sierras— y eso no es información: es un cartel
+          que ocupa lugar y dice lo mismo siempre. Recién empieza a servir
+          cuando baja. */}
+      {hayMedidaCargada && cascada.total > 0 ? (
         <View style={estilos.cascada}>
           <Text style={estilos.cascadaTitulo}>
             {cascada.total === 1
