@@ -918,6 +918,33 @@ export function renglonNuevo(
   return { ...ITEM_VACIO, servicio, herramienta, servicio_elegido: servicioElegido }
 }
 
+/**
+ * ¿El renglón está todavía en blanco?
+ *
+ * Se mira todo menos la operación: un renglón recién abierto tiene una puesta
+ * —de algo hay que dibujar los campos— pero eso no es una decisión del
+ * vendedor.
+ *
+ * Sirve para saber si hay que volver a preguntarle la operación cuando la nota
+ * pasa a llevar más de una. Sin esto, marcar AFILADO y después VENTA dejaba el
+ * primer renglón como "ya decidido en afilado", porque durante un instante
+ * hubo una sola operación tildada — y marcar de a una es justamente cómo se
+ * usa el desplegable.
+ */
+export function renglonEnBlanco(item: FormularioItemNota): boolean {
+  for (const clave of Object.keys(ITEM_VACIO) as Array<keyof FormularioItemNota>) {
+    if (clave === 'servicio' || clave === 'servicio_elegido') continue
+    const actual = item[clave]
+    const vacio = ITEM_VACIO[clave]
+    if (Array.isArray(actual)) {
+      if (actual.length > 0) return false
+      continue
+    }
+    if (actual !== vacio) return false
+  }
+  return true
+}
+
 /** Cómo se nombra cada medida en el resumen de una línea. */
 const ABREVIATURA_MEDIDA: Partial<Record<CampoItem, string>> = {
   diametro_exterior: 'Ø ext',

@@ -541,6 +541,19 @@ export function PasoRenglon({
     for (const campo of CAMPOS_CASCADA) {
       const v = articulo[campo]
       if (v === null || v === undefined) continue
+      /**
+       * El agujero del artículo es el DE FÁBRICA, no el que trajo el cliente.
+       *
+       * Escribirlo en el campo cargado dejaba el renglón diciendo "20" al lado
+       * de una ayuda que dice "de fábrica 20, dejalo vacío si es ése". Peor
+       * que confuso: el campo existe para avisar cuando la pieza tiene OTRO
+       * agujero —agrandado, o con buje— y llenarlo solo con el de fábrica
+       * borra esa distinción antes de que el vendedor la mire.
+       */
+      if (campo === 'diametro_interior') {
+        cambios.diametro_interior_catalogo = String(v).replace('.', ',')
+        continue
+      }
       cambios[campo] = String(v).replace('.', ',')
     }
     if (typeof articulo.mano === 'string') cambios.mano = articulo.mano

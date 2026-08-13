@@ -269,27 +269,29 @@ export function PasoCliente({
         </Aviso>
       ) : null}
 
-      <View style={estilos.fila}>
-        <Campo
-          etiqueta="COD. CLIENTE"
-          value={form.cliente_codigo}
-          onChangeText={(t) => alTipear('cliente_codigo', t)}
-          placeholder="1003"
-          autoCapitalize="characters"
-          contenedorStyle={estilos.mitad}
-          editable={!form.cliente_nuevo}
-          accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-        />
-        <Campo
-          etiqueta="NOMBRE"
-          value={form.cliente_nombre}
-          onChangeText={(t) => alTipear('cliente_nombre', t)}
-          placeholder="Razón social"
-          autoCapitalize="words"
-          contenedorStyle={estilos.mitad}
-          error={errores.cliente_nombre}
-        />
-      </View>
+      <Campo
+        etiqueta="COD. CLIENTE"
+        value={form.cliente_codigo}
+        onChangeText={(t) => alTipear('cliente_codigo', t)}
+        placeholder="1003"
+        autoCapitalize="characters"
+        contenedorStyle={estilos.mitad}
+        editable={!form.cliente_nuevo}
+        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+      />
+
+      {/* A lo ancho, y no a media fila junto al código: "MULTIPLACAS S.A" no
+          entraba y el casillero mostraba "ULTIPLACAS S.A". El nombre estaba
+          bien —se corría adentro del campo— pero un vendedor que lee una razón
+          social sin la primera letra tiene toda la razón en desconfiar. */}
+      <Campo
+        etiqueta="NOMBRE O RAZÓN SOCIAL"
+        value={form.cliente_nombre}
+        onChangeText={(t) => alTipear('cliente_nombre', t)}
+        placeholder="Razón social"
+        autoCapitalize="words"
+        error={errores.cliente_nombre}
+      />
 
       {/* En la beta no se dan de alta clientes: escribirlos en la nota es
           justamente lo que se está probando, y crear fichas sueltas mientras

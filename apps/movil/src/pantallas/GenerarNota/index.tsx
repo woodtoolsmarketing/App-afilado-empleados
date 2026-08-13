@@ -24,6 +24,7 @@ import {
   radios,
   MAXIMO_RENGLONES,
   OBSERVACION_MAXIMO_CARACTERES,
+  renglonEnBlanco,
   renglonNuevo,
   resumenRenglon,
   soloNumeros,
@@ -47,7 +48,7 @@ import {
 } from '@woodtools/compartido'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Alert,
   KeyboardAvoidingView,
@@ -271,6 +272,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * entero y vivo, listo para generar la misma nota otra vez.
    */
   const [creadas, setCreadas] = useState<string[]>([])
+  /**
+   * Ya se guardó: el aviso de "salís sin guardar" no tiene que aparecer cuando
+   * la salida es justamente la que sigue a haber guardado.
+   */
+  const guardado = useRef(false)
 
   const renglon = items[activo] ?? items[0]
 
@@ -399,12 +405,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
             ? r.herramienta
             : null
         /**
-         * Con una sola operación no hay nada que elegir y queda puesta. Con
-         * varias, un renglón que hubo que mudar vuelve a preguntar: antes se
-         * mudaba callado a la primera de la lista y el vendedor cargaba una
-         * venta adentro de un renglón de afilado sin enterarse.
+         * Con una sola operación no hay nada que elegir y queda puesta.
+         *
+         * Con varias vuelve a preguntar, salvo que el renglón ya tenga algo
+         * cargado: ése se cargó cuando la operación era una sola y no hay
+         * ninguna duda de cuál es. El renglón EN BLANCO sí vuelve a preguntar,
+         * y es el caso que importa —las operaciones se marcan de a una, así
+         * que el primer renglón pasaba por "una sola operación" y quedaba
+         * decidido en afilado sin que nadie lo eligiera—.
          */
-        const elegido = unaSola ? true : sigue && r.servicio_elegido
+        const elegido = unaSola
+          ? true
+          : sigue && r.servicio_elegido && !renglonEnBlanco(r)
         if (
           servicio === r.servicio &&
           herramienta === r.herramienta &&
@@ -731,6 +743,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       })
     },
     onSuccess: async () => {
+      guardado.current = true
       await cliente.invalidateQueries()
       Alert.alert(
         'Nota corregida',
@@ -748,6 +761,37 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   })
 
   const guardando = guardar.isPending || corregir.isPending
+
+  /**
+   * Salir de una corrección con el botón de atrás no puede tirar el trabajo.
+   *
+   * Corrigiendo, la pantalla arranca llena: el vendedor cambia dos medidas y
+   * un precio, toca atrás sin querer —o para cerrar el teclado, que en Android
+   * es el mismo botón— y la corrección se pierde entera sin una palabra. La
+   * nota no se toca, pero lo tipeado sí.
+   *
+   * Sólo en corrección: creando, lo que se pierde es un formulario en blanco.
+   */
+  useEffect(() => {
+    if (!corrigiendo || guardado.current) return
+    const quitar = navigation.addListener('beforeRemove', (e) => {
+      if (guardado.current) return
+      e.preventDefault()
+      Alert.alert(
+        'Dejás la corrección sin guardar',
+        `La nota ${numeroDeNota(borrador?.numero ?? null).toLowerCase()} va a quedar como estaba.`,
+        [
+          { text: 'Seguir corrigiendo', style: 'cancel' },
+          {
+            text: 'Salir sin guardar',
+            style: 'destructive',
+            onPress: () => navigation.dispatch(e.data.action),
+          },
+        ],
+      )
+    })
+    return quitar
+  }, [navigation, corrigiendo, borrador?.numero])
 
   function alCrear() {
     /**
