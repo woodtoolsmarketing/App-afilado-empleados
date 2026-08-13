@@ -5,7 +5,7 @@ import {
   tipografia,
   TOQUE_MINIMO,
 } from '@woodtools/compartido'
-import { forwardRef, useMemo, useState, type ReactNode } from 'react'
+import { forwardRef, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Modal,
   Pressable,
@@ -258,65 +258,188 @@ export function CampoConOpciones({
   alElegir: (valor: string) => void
   sinCoincidencias?: string
 }) {
-  const [enfocado, setEnfocado] = useState(false)
+  const [abierta, setAbierta] = useState(false)
 
-  // Con el campo vacío se ofrecen todas; con algo escrito, las que empiezan
-  // así primero —"3" antes que "13"— porque es lo que uno espera al tipear.
-  const sugeridas = useMemo(() => {
-    const q = valor.trim().replace(',', '.')
-    if (!q) return opciones
-    const empiezan = opciones.filter((o) => o.valor.startsWith(q))
-    const contienen = opciones.filter((o) => !o.valor.startsWith(q) && o.valor.includes(q))
-    return [...empiezan, ...contienen]
-  }, [opciones, valor])
-
-  const exacta = opciones.some((o) => o.valor === valor.trim().replace(',', '.'))
-  const abierta = enfocado && opciones.length > 0 && !exacta
-
+  /**
+   * La lista va en una hoja modal, NO flotando sobre el campo.
+   *
+   * Flotando no se veía nunca, y el motivo es de Android: los campos de medida
+   * se dibujan de a dos por fila, y una capa que se sale de su fila queda
+   * recortada por el borde del contenedor. El vendedor tocaba el campo, no
+   * pasaba nada, y seguía completando a mano. Una hoja modal se dibuja sobre
+   * todo lo demás y no la puede tapar ningún contenedor.
+   */
   return (
-    <View style={estilos.conOpciones}>
+    <>
       <Campo
         {...propsCampo}
         value={valor}
-        onFocus={() => setEnfocado(true)}
-        // Se cierra con demora: sin eso, el toque en una sugerencia llega
-        // después del blur y la lista ya no está para recibirlo.
-        onBlur={() => setTimeout(() => setEnfocado(false), 150)}
+        accesorio={
+          opciones.length > 0 ? (
+            <Pressable
+              onPress={() => setAbierta(true)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver las ${opciones.length} medidas del catálogo`}
+              style={({ pressed }) => [estilos.verOpciones, pressed && estilos.filaPresionada]}
+            >
+              <Text style={estilos.verOpcionesTexto}>▼</Text>
+            </Pressable>
+          ) : (
+            propsCampo.accesorio
+          )
+        }
       />
 
-      {abierta ? (
-        <View style={estilos.opcionesCaja}>
-          {sugeridas.length === 0 ? (
-            <Text style={estilos.opcionesVacio}>{sinCoincidencias}</Text>
-          ) : (
-            <ScrollView
-              style={estilos.opcionesLista}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
-              bounces={false}
+      <HojaDeOpciones
+        visible={abierta}
+        titulo={propsCampo.etiqueta ?? 'Elegí una medida'}
+        // Se abre filtrada por lo que ya venía escrito: si tipeó "30", que no
+        // tenga que volver a escribirlo para encontrar el 300.
+        filtroInicial={valor.trim().replace(',', '.')}
+        marcadorBusqueda="Escribí para filtrar…"
+        vacio={sinCoincidencias}
+        items={opciones.map((o) => ({
+          valor: o.valor,
+          etiqueta: o.valor,
+          descripcion: o.cantidad ? `${o.cantidad} en el catálogo` : undefined,
+        }))}
+        elegido={valor.trim().replace(',', '.')}
+        alElegir={(v) => {
+          alElegir(v)
+          setAbierta(false)
+        }}
+        alCerrar={() => setAbierta(false)}
+      />
+    </>
+  )
+}
+
+/**
+ * La hoja que se abre desde abajo con las opciones.
+ *
+ * La usan el desplegable y los campos de medida, así que hay un solo lugar
+ * donde puede fallar el alto —y un solo lugar donde arreglarlo—.
+ *
+ * ─── Por qué el alto es fijo y no un máximo ─────────────────────────────────
+ *
+ * Con `maxHeight` el alto lo decide el contenido, y el contenido es un
+ * ScrollView, que puede achicarse hasta cero porque para eso se desplaza.
+ * Resultado: con treinta zonas la hoja se colapsaba y lo único que quedaba en
+ * pantalla era el velo negro. Con las listas largas el alto se fija y el
+ * ScrollView llena lo que sobra; con las cortas se deja que mida el contenido,
+ * que ahí no hay nada que colapsar.
+ */
+function HojaDeOpciones({
+  visible,
+  titulo,
+  items,
+  elegido,
+  alElegir,
+  alCerrar,
+  filtroInicial = '',
+  forzarBuscador,
+  marcadorBusqueda = 'Escribí para filtrar…',
+  vacio = 'No hay ninguna opción que coincida.',
+}: {
+  visible: boolean
+  titulo: string
+  items: Array<{ valor: string; etiqueta: string; descripcion?: string; buscarEn?: string }>
+  elegido: string | null
+  alElegir: (valor: string) => void
+  alCerrar: () => void
+  filtroInicial?: string
+  /** Fuerza el buscador aunque haya pocas opciones. */
+  forzarBuscador?: boolean
+  marcadorBusqueda?: string
+  vacio?: string
+}) {
+  const [filtro, setFiltro] = useState(filtroInicial)
+  const { height: altoVentana } = useWindowDimensions()
+
+  // Cada vez que se abre arranca del texto que tenía el campo.
+  useEffect(() => {
+    if (visible) setFiltro(filtroInicial)
+  }, [visible, filtroInicial])
+
+  const conBuscador = forzarBuscador ?? items.length > OPCIONES_PARA_BUSCADOR
+  // El alto se fija cuando hay muchas opciones, que es cuando el ScrollView
+  // puede colapsar.
+  const listaLarga = items.length > OPCIONES_PARA_BUSCADOR
+  const alto = Math.round(altoVentana * 0.7)
+
+  const visibles = useMemo(() => {
+    const q = comparable(filtro)
+    if (!q) return items
+    return items.filter((i) =>
+      comparable([i.etiqueta, i.descripcion, i.buscarEn].filter(Boolean).join(' ')).includes(q),
+    )
+  }, [items, filtro])
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={alCerrar}>
+      <Pressable style={estilos.velo} onPress={alCerrar}>
+        <Pressable
+          style={[estilos.hoja, listaLarga ? { height: alto } : { maxHeight: alto }]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={estilos.hojaCabecera}>
+            <Text style={estilos.hojaTitulo}>{titulo}</Text>
+            <Pressable
+              onPress={alCerrar}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar"
+              style={({ pressed }) => [estilos.hojaCerrar, pressed && estilos.filaPresionada]}
             >
-              {sugeridas.map((o) => (
-                <Pressable
-                  key={o.valor}
-                  onPress={() => {
-                    alElegir(o.valor)
-                    setEnfocado(false)
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${o.valor}${o.cantidad ? `, ${o.cantidad} opciones` : ''}`}
-                  style={({ pressed }) => [estilos.opcionValor, pressed && estilos.filaPresionada]}
-                >
-                  <Text style={estilos.opcionValorTexto}>{o.valor}</Text>
-                  {o.cantidad ? (
-                    <Text style={estilos.opcionValorCantidad}>{o.cantidad}</Text>
-                  ) : null}
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      ) : null}
-    </View>
+              <Text style={estilos.hojaCerrarTexto}>✕</Text>
+            </Pressable>
+          </View>
+
+          {conBuscador ? (
+            <TextInput
+              style={estilos.buscador}
+              value={filtro}
+              onChangeText={setFiltro}
+              placeholder={marcadorBusqueda}
+              placeholderTextColor={colores.tintaSuave}
+              autoCorrect={false}
+              autoCapitalize="none"
+              accessibilityLabel={`Buscar en ${titulo}`}
+            />
+          ) : null}
+
+          <ScrollView
+            style={listaLarga ? estilos.hojaListaFija : undefined}
+            contentContainerStyle={estilos.hojaListaContenido}
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {visibles.length === 0 ? (
+              <Text style={estilos.hojaVacia}>{vacio}</Text>
+            ) : (
+              visibles.map((item) => (
+                <Opcion
+                  key={item.valor}
+                  etiqueta={item.etiqueta}
+                  descripcion={item.descripcion}
+                  seleccionada={item.valor === elegido}
+                  alSeleccionar={() => alElegir(item.valor)}
+                />
+              ))
+            )}
+          </ScrollView>
+
+          {conBuscador ? (
+            <Text style={estilos.hojaConteo}>
+              {visibles.length === items.length
+                ? `${items.length} opciones`
+                : `${visibles.length} de ${items.length}`}
+            </Text>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
   )
 }
 
@@ -355,17 +478,8 @@ function comparable(texto: string): string {
  * todos los teléfonos y las opciones entran con el tamaño de toque que
  * necesitamos.
  *
- * ─── Por qué la hoja tiene alto en píxeles y no en porcentaje ───────────────
- *
- * Tenía `maxHeight: '70%'` y un ScrollView adentro sin permiso de encogerse.
- * Con pocas opciones no se notaba, pero el desplegable de ZONA tiene treinta y
- * cada una con su lista de localidades: la hoja crecía con el contenido, se iba
- * fuera de la pantalla y lo único que quedaba visible era el velo. El vendedor
- * tocaba ZONA, la pantalla se ponía negra y no había nada para elegir.
- *
- * Ahora el alto sale de la ventana real, en píxeles, y tanto la hoja como el
- * ScrollView pueden encogerse. Un porcentaje contra un padre sin alto definido
- * es justamente el caso donde Yoga no tiene contra qué calcularlo.
+ * El alto de la hoja y el buscador viven en `HojaDeOpciones`, que comparte con
+ * los campos de medida: un solo lugar donde puede fallar el alto.
  */
 export function Desplegable<T extends string>({
   etiqueta,
@@ -404,26 +518,10 @@ export function Desplegable<T extends string>({
   vacio?: string
 }) {
   const [abierto, setAbierto] = useState(false)
-  const [filtro, setFiltro] = useState('')
-  const { height: altoVentana } = useWindowDimensions()
-
   const elegido = items.find((i) => i.valor === valor)
-  const conBuscador = buscable ?? items.length > OPCIONES_PARA_BUSCADOR
-
-  // Se filtra por etiqueta y por descripción: en las zonas la descripción son
-  // las localidades, así que escribir "castelar" encuentra la 107 aunque el
-  // nombre de la zona no diga Castelar.
-  const visibles = useMemo(() => {
-    const q = comparable(filtro)
-    if (!q) return items
-    return items.filter((i) =>
-      comparable([i.etiqueta, i.descripcion, i.buscarEn].filter(Boolean).join(' ')).includes(q),
-    )
-  }, [items, filtro])
 
   function cerrar() {
     setAbierto(false)
-    setFiltro('')
   }
 
   return (
@@ -466,74 +564,20 @@ export function Desplegable<T extends string>({
 
       <MensajeError>{error}</MensajeError>
 
-      <Modal visible={abierto} transparent animationType="fade" onRequestClose={cerrar}>
-        <Pressable style={estilos.velo} onPress={cerrar}>
-          {/* El alto sale de la ventana, en píxeles: con porcentaje la hoja se
-              iba de pantalla cuando había muchas opciones. */}
-          <Pressable
-            style={[estilos.hoja, { maxHeight: Math.round(altoVentana * 0.75) }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={estilos.hojaCabecera}>
-              <Text style={estilos.hojaTitulo}>{etiqueta ?? 'Elegí una opción'}</Text>
-              <Pressable
-                onPress={cerrar}
-                hitSlop={12}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar"
-                style={({ pressed }) => [estilos.hojaCerrar, pressed && estilos.filaPresionada]}
-              >
-                <Text style={estilos.hojaCerrarTexto}>✕</Text>
-              </Pressable>
-            </View>
-
-            {conBuscador ? (
-              <TextInput
-                style={estilos.buscador}
-                value={filtro}
-                onChangeText={setFiltro}
-                placeholder={marcadorBusqueda}
-                placeholderTextColor={colores.tintaSuave}
-                autoCorrect={false}
-                autoCapitalize="none"
-                accessibilityLabel={`Buscar en ${etiqueta ?? 'las opciones'}`}
-              />
-            ) : null}
-
-            <ScrollView
-              style={estilos.hojaLista}
-              contentContainerStyle={estilos.hojaListaContenido}
-              bounces={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              {visibles.length === 0 ? (
-                <Text style={estilos.hojaVacia}>{vacio}</Text>
-              ) : (
-                visibles.map((item) => (
-                  <Opcion
-                    key={item.valor}
-                    etiqueta={item.etiqueta}
-                    descripcion={item.descripcion}
-                    seleccionada={item.valor === valor}
-                    alSeleccionar={() => {
-                      alCambiar(item.valor)
-                      cerrar()
-                    }}
-                  />
-                ))
-              )}
-            </ScrollView>
-
-            {conBuscador ? (
-              <Text style={estilos.hojaConteo}>
-                {visibles.length === items.length
-                  ? `${items.length} opciones`
-                  : `${visibles.length} de ${items.length}`}
-              </Text>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <HojaDeOpciones
+        visible={abierto}
+        titulo={etiqueta ?? 'Elegí una opción'}
+        items={items}
+        elegido={valor}
+        alElegir={(v) => {
+          alCambiar(v as T)
+          cerrar()
+        }}
+        alCerrar={cerrar}
+        forzarBuscador={buscable}
+        marcadorBusqueda={marcadorBusqueda}
+        vacio={vacio}
+      />
     </View>
   )
 }
@@ -712,58 +756,13 @@ const estilos = StyleSheet.create({
     paddingHorizontal: espaciado.sm,
   },
 
-  conOpciones: {
-    // La lista se dibuja encima de lo que sigue, no empujándolo: si el
-    // formulario se reacomodara en cada tecla, el campo se movería debajo del
-    // dedo mientras se escribe.
-    position: 'relative',
-    zIndex: 10,
+  /** El triangulito que abre las medidas del catálogo, dentro del campo. */
+  verOpciones: {
+    paddingHorizontal: espaciado.xs,
   },
-  opcionesCaja: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    marginTop: 2,
-    backgroundColor: colores.campoBlanco,
-    borderWidth: 2,
-    borderColor: colores.negro,
-    borderRadius: radios.sm,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: colores.negro,
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  opcionesLista: {
-    maxHeight: 200,
-  },
-  opcionValor: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: espaciado.sm,
-    minHeight: 42,
-    paddingHorizontal: espaciado.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colores.panelClaro,
-  },
-  opcionValorTexto: {
-    fontFamily: tipografia.familia.fuerte,
+  verOpcionesTexto: {
     fontSize: tipografia.tamano.base,
-    color: colores.tinta,
-  },
-  opcionValorCantidad: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
-  },
-  opcionesVacio: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
-    padding: espaciado.md,
+    color: colores.rojo,
   },
 
   velo: {
@@ -778,10 +777,8 @@ const estilos = StyleSheet.create({
     borderTopLeftRadius: radios.lg,
     borderTopRightRadius: radios.lg,
     padding: espaciado.base,
-    // El maxHeight en píxeles lo pone el componente con el alto real de la
-    // ventana. `flexShrink` es lo que le permite respetarlo: sin él, el
-    // contenido manda y la hoja se va de pantalla.
-    flexShrink: 1,
+    // El alto lo pone HojaDeOpciones con el alto real de la ventana: fijo
+    // cuando hay muchas opciones, al contenido cuando son pocas.
     gap: espaciado.sm,
   },
   hojaCabecera: {
@@ -822,8 +819,13 @@ const estilos = StyleSheet.create({
     fontSize: tipografia.tamano.base,
     color: colores.tinta,
   },
-  hojaLista: {
-    flexShrink: 1,
+  /**
+   * Con alto fijo en la hoja, el ScrollView llena lo que sobra entre el
+   * buscador y el pie. `flex: 1` contra un padre de alto definido siempre
+   * resuelve; `flexShrink` contra uno de alto automático puede dar cero.
+   */
+  hojaListaFija: {
+    flex: 1,
   },
   hojaListaContenido: {
     paddingBottom: espaciado.xs,

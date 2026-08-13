@@ -286,6 +286,32 @@ export function PasoRenglon({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claveCascada])
 
+  /**
+   * El agujero de fábrica, sacado de la cascada.
+   *
+   * Ya se buscaba antes leyendo el "d=30" de la descripción de la lista de
+   * precios, pero eso sólo acertaba cuando coincidían diámetro, ancho Y
+   * dientes: con el diámetro solo no encontraba nada y el aviso "De fábrica"
+   * no aparecía nunca. Acá el dato viene separado en su propia columna, así
+   * que en cuanto las medidas cargadas dejan un solo agujero posible, ése es.
+   *
+   * Cuando quedan varios no se pone ninguno, que es lo honesto: el agujero es
+   * contra lo que se compara para saber si la pieza fue agrandada o lleva buje,
+   * y poner uno a medias haría aparecer un aviso equivocado.
+   */
+  const agujerosPosibles = cascada.opciones.diametro_interior ?? []
+
+  useEffect(() => {
+    if (!campos.includes('diametro_interior')) return
+    if (agujerosPosibles.length !== 1) return
+
+    const deCatalogo = String(agujerosPosibles[0].valor).replace('.', ',')
+    if (deCatalogo !== item.diametro_interior_catalogo) {
+      alCambiar({ diametro_interior_catalogo: deCatalogo })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agujerosPosibles.length, agujerosPosibles[0]?.valor, item.diametro_interior_catalogo])
+
   // ── Búsqueda automática del código de cómputo ───────────────────────────
   const medidaClave = [item.ancho_corte, item.ancho, item.diametro].join('|')
 
@@ -808,24 +834,49 @@ export function PasoRenglon({
           const agujero = agujeroDelRenglon(item)
           const deFabrica = item.diametro_interior_catalogo.trim()
 
+          /**
+           * Los agujeros que el catálogo tiene para lo que ya se cargó.
+           *
+           * A 300 mm hay cinco: 25,4 / 30 / 60 / 80 / 130, porque conviven
+           * sierras universales, de multiple y de triturador. Elegir uno por el
+           * vendedor sería poner en un comprobante un número que nadie miró;
+           * ofrecerle esos cinco es una sola tocada en vez de tipear.
+           */
+          const propsAgujero = {
+            etiqueta: 'DIÁMETRO INTERIOR (OPCIONAL)',
+            keyboardType: 'decimal-pad' as const,
+            contenedorStyle: estilos.mitad,
+            placeholder: deFabrica || 'El agujero de la herramienta',
+            error: errores.diametro_interior,
+            ayuda: deFabrica
+              ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
+              : agujerosPosibles.length > 1
+                ? `El catálogo tiene ${agujerosPosibles.length} agujeros para esa medida. Tocá ▼ y elegí, o cargá otra medida para achicar.`
+                : buscandoAgujero
+                  ? 'Buscando el agujero de fábrica en la lista de precios…'
+                  : 'Si lo dejás vacío, la nota sale sin agujero.',
+          }
+
           return (
             <View key={campo}>
-              <Campo
-                etiqueta="DIÁMETRO INTERIOR (OPCIONAL)"
-                value={item.diametro_interior}
-                onChangeText={(t) => alCambiar({ diametro_interior: normalizarMedida(t) })}
-                keyboardType="decimal-pad"
-                contenedorStyle={estilos.mitad}
-                placeholder={deFabrica || 'El agujero de la herramienta'}
-                error={errores.diametro_interior}
-                ayuda={
-                  deFabrica
-                    ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
-                    : buscandoAgujero
-                      ? 'Buscando el agujero de fábrica en la lista de precios…'
-                      : 'Si lo dejás vacío, la nota sale sin agujero.'
-                }
-              />
+              {agujerosPosibles.length > 0 ? (
+                <CampoConOpciones
+                  {...propsAgujero}
+                  valor={item.diametro_interior}
+                  onChangeText={(t) => alCambiar({ diametro_interior: normalizarMedida(t) })}
+                  opciones={agujerosPosibles.map((o) => ({
+                    valor: String(o.valor),
+                    cantidad: o.cantidad,
+                  }))}
+                  alElegir={(v) => alCambiar({ diametro_interior: v.replace('.', ',') })}
+                />
+              ) : (
+                <Campo
+                  {...propsAgujero}
+                  value={item.diametro_interior}
+                  onChangeText={(t) => alCambiar({ diametro_interior: normalizarMedida(t) })}
+                />
+              )}
 
               {agujero.ajuste !== 'de_fabrica' ? (
                 <Aviso
