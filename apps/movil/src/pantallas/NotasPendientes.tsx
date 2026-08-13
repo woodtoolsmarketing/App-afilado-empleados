@@ -137,6 +137,14 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
           <Vacio titulo="No tenés notas pendientes" icono="📄" />
         ) : (
           <>
+            {/* Mientras no se impriman se pueden corregir enteras: cliente,
+                renglones y precios. El ✎ de cada fila abre el mismo formulario
+                con lo que la nota ya dice. */}
+            <Aviso tono="info">
+              Tocá el ✎ para corregir una nota antes de imprimirla. Una vez impresa pasa a NOTAS DE
+              PEDIDO IMPRESAS y ya no se puede tocar.
+            </Aviso>
+
             {todas.map((n) => (
               <FilaNota
                 key={n.id}
@@ -144,6 +152,10 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 elegida={elegidas.has(n.id)}
                 alAlternar={() => alternar(n.id)}
                 alVer={() => navigation.navigate('DetalleNota', { notaId: n.id })}
+                // `push` y no `navigate`: si el formulario quedara montado más
+                // abajo en la pila, `navigate` volvería a ése —cargado con la
+                // nota anterior— en vez de abrir el que se pidió.
+                alCorregir={() => navigation.push('GenerarNota', { notaId: n.id })}
               />
             ))}
 
@@ -205,11 +217,13 @@ function FilaNota({
   elegida,
   alAlternar,
   alVer,
+  alCorregir,
 }: {
   nota: NotaResumen
   elegida: boolean
   alAlternar: () => void
   alVer: () => void
+  alCorregir: () => void
 }) {
   const sinNumero = nota.numero === null
 
@@ -249,6 +263,16 @@ function FilaNota({
           ) : null}
           <Text style={estilos.hora}>{formatearHora(nota.creado_en)}</Text>
         </View>
+      </Pressable>
+
+      <Pressable
+        onPress={alCorregir}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
+        style={({ pressed }) => [estilos.corregir, pressed && estilos.corregirTocado]}
+      >
+        <Text style={estilos.corregirTexto}>✎</Text>
       </Pressable>
     </View>
   )
@@ -312,5 +336,23 @@ const estilos = StyleSheet.create({
     fontSize: tipografia.tamano.micro,
     color: colores.tintaTenue,
     marginLeft: 'auto',
+  },
+
+  /** El lápiz que abre la nota para corregirla. Sólo existe en las pendientes. */
+  corregir: {
+    width: 46,
+    minHeight: 46,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+    backgroundColor: colores.panelClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  corregirTocado: { backgroundColor: colores.campo },
+  corregirTexto: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.lg,
+    color: colores.rojo,
   },
 })

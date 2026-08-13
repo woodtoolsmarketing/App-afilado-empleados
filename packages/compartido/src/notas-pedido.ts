@@ -553,6 +553,18 @@ export const ETIQUETA_ORIGEN_FRESA: Record<OrigenFresa, string> = {
 /** Un renglón de la nota. Los campos que no apliquen quedan vacíos. */
 export interface FormularioItemNota {
   servicio: TipoServicio
+  /**
+   * ¿La operación de este renglón la eligió el vendedor?
+   *
+   * Cuando la nota lleva una sola operación no hay nada que elegir y esto no se
+   * mira. Cuando lleva varias —afilado y venta en la misma visita— el renglón
+   * nuevo arrancaba en la primera de la lista y el desplegable aparecía ya
+   * resuelto: el vendedor cargaba una venta adentro de un renglón de afilado
+   * sin enterarse. `servicio` sigue teniendo un valor siempre —de él dependen
+   * los campos que se dibujan— pero mientras esto sea false la pantalla lo
+   * muestra sin elegir y el validador lo pide.
+   */
+  servicio_elegido: boolean
   herramienta: Herramienta | null
 
   // Venta
@@ -666,6 +678,7 @@ export interface FormularioItemNota {
 
 export const ITEM_VACIO: FormularioItemNota = {
   servicio: 'afilado',
+  servicio_elegido: false,
   herramienta: null,
   codigo_herramienta: '',
   unidades: '',
@@ -763,10 +776,27 @@ const CAMPOS_NUMERICOS = new Set<CampoItem>([
   'precio_por_diente', 'precio_total', 'dientes_rotos_cantidad',
 ])
 
+export interface OpcionesValidacionItem {
+  /**
+   * La nota lleva más de una operación, así que cuál le toca a este renglón es
+   * una pregunta de verdad y hay que contestarla.
+   */
+  pedirServicio?: boolean
+}
+
 export function validarItemNota(
   item: FormularioItemNota,
+  opciones: OpcionesValidacionItem = {},
 ): ResultadoValidacion<string> {
   const errores: Record<string, string> = {}
+
+  // Se pide antes que nada: de la operación dependen la herramienta y los
+  // campos, así que marcar errores de campos que todavía no se sabe si
+  // corresponden sería mandar a completar cosas al pedo.
+  if (opciones.pedirServicio && !item.servicio_elegido) {
+    errores.servicio = 'Elegí con qué operación va este renglón'
+    return { valido: false, errores }
+  }
 
   if (item.servicio === 'venta') {
     if (!item.herramienta) {
@@ -878,8 +908,14 @@ export function validarItemNota(
 export function renglonNuevo(
   servicio: TipoServicio,
   herramienta: Herramienta | null = null,
+  /**
+   * true cuando el vendedor dijo con qué operación va este renglón —tocó
+   * "AGREGAR RENGLÓN DE VENTA", o la nota lleva una sola operación—. false
+   * cuando el servicio es sólo el que había que poner para dibujar algo.
+   */
+  servicioElegido = false,
 ): FormularioItemNota {
-  return { ...ITEM_VACIO, servicio, herramienta }
+  return { ...ITEM_VACIO, servicio, herramienta, servicio_elegido: servicioElegido }
 }
 
 /** Cómo se nombra cada medida en el resumen de una línea. */
@@ -952,6 +988,32 @@ export function totalDeRenglones(items: FormularioItemNota[], tipoCambio = 0): n
  */
 export const MAXIMO_RENGLONES = 12
 
+/**
+ * Cuánto se tarda en devolver el trabajo, cuando nadie dice otra cosa.
+ *
+ * Una semana es el plazo normal de la casa, y es la fecha que el vendedor
+ * terminaba eligiendo a mano en el calendario, nota tras nota. Viene puesta y
+ * se cambia con un toque: preseleccionar es ahorrar trabajo, no decidir por el
+ * otro.
+ */
+export const DIAS_ENTREGA_POR_DEFECTO = 7
+
+/** La fecha de entrega que corresponde a una nota cargada hoy. */
+export function fechaEntregaPorDefecto(desde: Date = new Date()): Date {
+  const fecha = new Date(desde)
+  fecha.setDate(fecha.getDate() + DIAS_ENTREGA_POR_DEFECTO)
+  return fecha
+}
+
+/**
+ * Cuánto entra en un renglón de observaciones.
+ *
+ * Es el ancho de la columna "Observaciones" del talonario: más que esto no se
+ * imprime, se corta. Vale más frenarlo donde se escribe que descubrirlo cuando
+ * la nota ya salió en papel.
+ */
+export const OBSERVACION_MAXIMO_CARACTERES = 60
+
 export interface ValidacionRenglones {
   valido: boolean
   /** Índice del primer renglón con problemas, para llevar al vendedor ahí. */
@@ -964,7 +1026,10 @@ export interface ValidacionRenglones {
  * juntar todos los errores: la pantalla muestra uno por vez, y una lista de
  * problemas de un renglón que no se está viendo no ayuda a nadie.
  */
-export function validarRenglones(items: FormularioItemNota[]): ValidacionRenglones {
+export function validarRenglones(
+  items: FormularioItemNota[],
+  opciones: OpcionesValidacionItem = {},
+): ValidacionRenglones {
   if (items.length === 0) {
     return {
       valido: false,
@@ -984,7 +1049,7 @@ export function validarRenglones(items: FormularioItemNota[]): ValidacionRenglon
   }
 
   for (let i = 0; i < items.length; i++) {
-    const { valido, errores } = validarItemNota(items[i])
+    const { valido, errores } = validarItemNota(items[i], opciones)
     if (!valido) return { valido: false, indice: i, errores: errores as Record<string, string> }
   }
 
@@ -1002,6 +1067,23 @@ export type CampoEncabezado =
   | 'condicion_venta'
   | 'condicion_venta_detalle'
 
+/**
+ * Las tres páginas en que se carga la nota.
+ *
+ * El formulario entero no entra en un teléfono y tampoco se completa de una
+ * sentada: el vendedor identifica al cliente, después carga lo que trajo, y
+ * recién al final acuerda cómo se cobra. Cada página se valida sola —al pasar a
+ * la siguiente— y no toda la nota, que es lo que hacía que tocar CONTINUAR en
+ * la primera marcara en rojo campos que todavía no se habían mostrado.
+ */
+export type ParteDeLaNota = 'cliente' | 'operacion' | 'facturacion'
+
+const CAMPOS_DE_LA_PARTE: Record<ParteDeLaNota, CampoEncabezado[]> = {
+  cliente: ['cliente', 'cliente_nombre', 'zona', 'datos_cliente', 'fecha_entrega'],
+  operacion: ['servicios'],
+  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
+}
+
 export function validarEncabezadoNota(
   enc: FormularioNotaEncabezado,
   extra: {
@@ -1015,6 +1097,11 @@ export function validarEncabezadoNota(
      * Ahí no se puede exigir un `cliente_id` que no va a existir nunca.
      */
     clienteAMano?: boolean
+    /**
+     * Qué páginas mirar. Sin esto se miran todas, que es lo que necesita el
+     * chequeo final antes de crear la nota.
+     */
+    partes?: ParteDeLaNota[]
   },
 ): ResultadoValidacion<CampoEncabezado> {
   const errores: Partial<Record<CampoEncabezado, string>> = {}
@@ -1055,11 +1142,22 @@ export function validarEncabezadoNota(
   }
   if (!enc.zona.trim()) errores.zona = 'Falta la zona'
   if (!enc.datos_cliente.trim()) errores.datos_cliente = 'Completá los datos del cliente'
-  if (extra.servicios.length === 0) errores.servicios = 'Elegí al menos un tipo de servicio'
+  if (extra.servicios.length === 0) errores.servicios = 'Elegí al menos un tipo de operación'
   if (!extra.tipoNota) errores.tipo_nota = 'Elegí si es factura o presupuesto'
   if (!extra.fechaEntrega) errores.fecha_entrega = 'Elegí la fecha de entrega'
 
-  return { valido: Object.keys(errores).length === 0, errores }
+  // Se calculan todos y después se filtra, para que el texto de cada error
+  // tenga un solo dueño: repetir las reglas por página es la forma segura de
+  // que dos páginas terminen exigiendo cosas distintas del mismo campo.
+  if (!extra.partes) return { valido: Object.keys(errores).length === 0, errores }
+
+  const miradas = new Set(extra.partes.flatMap((p) => CAMPOS_DE_LA_PARTE[p]))
+  const filtrados: Partial<Record<CampoEncabezado, string>> = {}
+  for (const [campo, mensaje] of Object.entries(errores) as Array<[CampoEncabezado, string]>) {
+    if (miradas.has(campo)) filtrados[campo] = mensaje
+  }
+
+  return { valido: Object.keys(filtrados).length === 0, errores: filtrados }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1480,6 +1578,39 @@ export function avisosDeAgujero(items: FormularioItemNota[]): string[] {
     )
   }
   return avisos
+}
+
+/** Cómo empiezan las líneas que agrega `avisosDeAgujero`. */
+const LINEA_DE_AGUJERO = /\bcon (agujero agrandado|buje reductor):\s/
+
+/**
+ * La descripción general **como la escribió el vendedor**, sin los avisos de
+ * agujero que le pegamos al guardar.
+ *
+ * Hace falta al volver a abrir una nota para corregirla: sin esto, los avisos
+ * vuelven al campo como si fueran texto del vendedor y al guardar se agregan de
+ * nuevo, así que cada corrección duplicaba la línea.
+ */
+export function sinAvisosDeAgujero(texto: string | null | undefined): string {
+  return String(texto ?? '')
+    .split('\n')
+    .filter((linea) => !LINEA_DE_AGUJERO.test(linea))
+    .join('\n')
+    .trim()
+}
+
+/**
+ * Cómo empieza la observación que escribe el servidor cuando una carga produjo
+ * varias notas ("Va con nota de pedido 000011, 000012").
+ *
+ * No es del vendedor: se aparta al abrir la nota para corregirla y se vuelve a
+ * poner al guardar. Si quedara en la lista editable, alcanzaría con borrarla
+ * sin querer para que dos notas hermanas dejaran de referenciarse.
+ */
+export const OBSERVACION_HERMANAS = 'Va con nota de pedido '
+
+export function esObservacionDelSistema(texto: string): boolean {
+  return texto.trimStart().startsWith(OBSERVACION_HERMANAS)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

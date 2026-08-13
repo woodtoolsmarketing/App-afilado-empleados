@@ -18,7 +18,12 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
+import {
+  Campo,
+  Desplegable,
+  DesplegableMultiple,
+  MensajeError,
+} from '../../componentes/Formulario'
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
@@ -26,7 +31,12 @@ import { buscarClientes } from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
 
 /**
- * Encabezado de la nota de pedido.
+ * Las dos primeras páginas de la nota de pedido.
+ *
+ * `PasoCliente` es la primera —a quién se le hace la nota y para cuándo— y
+ * `PasoOperacion` la segunda —qué vino a hacer—. Están en el mismo archivo
+ * porque son las dos mitades del encabezado del talonario; se dibujan en
+ * pantallas distintas porque completas no entran en un teléfono.
  *
  * Los tres campos de identificación —Cód. Cliente, Nombre y CUIT— buscan sobre
  * lo mismo y al elegir un cliente se completan los tres. El vendedor se acuerda
@@ -47,11 +57,20 @@ const SERVICIOS_BASE: TipoServicio[] = [
   'hermanado',
 ]
 
-export function PasoEncabezado({
+/** Una línea que diga qué es cada operación, para no elegir por el nombre solo. */
+const QUE_ES_LA_OPERACION: Partial<Record<TipoServicio, string>> = {
+  venta: 'Se lleva una herramienta nueva',
+  afilado: 'Trae una herramienta a afilar',
+  reparacion: 'Dientes rotos o daños a reparar',
+  rectificado: 'Corregir la geometría de la pieza',
+  hermanado: 'Igualar incisores entre sí',
+  rebaje: 'Sólo cuchillas, y sólo si hay afilado',
+  reclamo: 'Sobre un trabajo que ya hicimos',
+}
+
+export function PasoCliente({
   form,
   alCambiar,
-  servicios,
-  alCambiarServicios,
   alCrearCliente,
   errores,
   ubicacionInicial,
@@ -59,8 +78,6 @@ export function PasoEncabezado({
 }: {
   form: FormularioNotaEncabezado
   alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
-  servicios: TipoServicio[]
-  alCambiarServicios: (servicios: TipoServicio[]) => void
   /** Abre "GENERAR NUEVO CLIENTE" con lo que ya se escribió. */
   alCrearCliente: () => void
   errores: Record<string, string | undefined>
@@ -241,19 +258,6 @@ export function PasoEncabezado({
     )
   }
 
-  const conAfilado = servicios.includes('afilado')
-  const disponibles: TipoServicio[] = conAfilado
-    ? [...SERVICIOS_BASE, 'rebaje', 'reclamo']
-    : [...SERVICIOS_BASE, 'reclamo']
-
-  function alternarServicio(s: TipoServicio) {
-    const nuevo = servicios.includes(s)
-      ? servicios.filter((x) => x !== s)
-      : [...servicios, s]
-    // Al destildar afilado, rebaje deja de tener sentido y se va con él.
-    alCambiarServicios(nuevo.includes('afilado') ? nuevo : nuevo.filter((x) => x !== 'rebaje'))
-  }
-
   return (
     <>
       {/* ── Identificación del cliente ────────────────────────────────────── */}
@@ -352,6 +356,37 @@ export function PasoEncabezado({
         </Text>
       ) : null}
 
+      {/* El número sale del perfil pero se puede corregir: hay altas sin
+          código cargado y el comprobante lo necesita igual. Se imprime sin los
+          ceros de relleno del Gestión ("007" sale 7). */}
+      <View style={estilos.fila}>
+        <Text style={[estilos.vendedor, estilos.mitad]}>VENDEDOR: {form.vendedor}</Text>
+        <Campo
+          etiqueta="VENDEDOR Nº"
+          value={form.vendedor_numero}
+          onChangeText={(t) => {
+            setOrigenVendedor(null)
+            alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })
+          }}
+          keyboardType="number-pad"
+          placeholder="7"
+          contenedorStyle={estilos.mitad}
+          ayuda={
+            form.vendedor_numero
+              ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
+              : undefined
+          }
+        />
+      </View>
+
+      {origenVendedor && form.vendedor_numero ? (
+        <Text style={estilos.zonaAuto}>
+          {origenVendedor === 'usuario'
+            ? 'Puesto solo con tu número de vendedor. Cambialo si la nota es de otro.'
+            : `Puesto solo: es el vendedor a cargo de la zona ${form.zona}.`}
+        </Text>
+      ) : null}
+
       {/* ── Zona ───────────────────────────────────────────────────────────────
           Dejó de ser texto libre: el número de zona es el que usa la oficina
           para repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste" escritos a
@@ -402,37 +437,6 @@ export function PasoEncabezado({
         </View>
       ) : null}
 
-      {/* El número sale del perfil pero se puede corregir: hay altas sin
-          código cargado y el comprobante lo necesita igual. Se imprime sin los
-          ceros de relleno del Gestión ("007" sale 7). */}
-      <View style={estilos.fila}>
-        <Text style={[estilos.vendedor, estilos.mitad]}>VENDEDOR: {form.vendedor}</Text>
-        <Campo
-          etiqueta="VENDEDOR Nº"
-          value={form.vendedor_numero}
-          onChangeText={(t) => {
-            setOrigenVendedor(null)
-            alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })
-          }}
-          keyboardType="number-pad"
-          placeholder="7"
-          contenedorStyle={estilos.mitad}
-          ayuda={
-            form.vendedor_numero
-              ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
-              : undefined
-          }
-        />
-      </View>
-
-      {origenVendedor && form.vendedor_numero ? (
-        <Text style={estilos.zonaAuto}>
-          {origenVendedor === 'usuario'
-            ? 'Puesto solo con tu número de vendedor. Cambialo si la nota es de otro.'
-            : `Puesto solo: es el vendedor a cargo de la zona ${form.zona}.`}
-        </Text>
-      ) : null}
-
       {form.cliente_provisorio ? (
         <Aviso tono="atencion" titulo="Cliente provisorio">
           Ya está cargado con todos sus datos, pero todavía sin código definitivo. La nota se guarda
@@ -447,7 +451,6 @@ export function PasoEncabezado({
 
       <MensajeError>{errores.cliente}</MensajeError>
 
-      {/* ── Textos con dictado ────────────────────────────────────────────── */}
       <CampoDictado
         etiqueta="DATOS DEL CLIENTE"
         obligatorio
@@ -457,7 +460,38 @@ export function PasoEncabezado({
         placeholder="Dirección, teléfono, contacto…"
         error={errores.datos_cliente}
       />
+    </>
+  )
+}
 
+/**
+ * La segunda página: qué vino a hacer el cliente.
+ *
+ * El TIPO DE OPERACIÓN eran siete casillas sueltas repartidas en dos columnas.
+ * Ahora es un desplegable que acepta varias, como cualquier otro campo del
+ * formulario: la pregunta es una sola —qué trajo— y la respuesta puede tener
+ * más de una parte.
+ */
+export function PasoOperacion({
+  form,
+  alCambiar,
+  servicios,
+  alCambiarServicios,
+  errores,
+}: {
+  form: FormularioNotaEncabezado
+  alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
+  servicios: TipoServicio[]
+  alCambiarServicios: (servicios: TipoServicio[]) => void
+  errores: Record<string, string | undefined>
+}) {
+  const conAfilado = servicios.includes('afilado')
+  const disponibles: TipoServicio[] = conAfilado
+    ? [...SERVICIOS_BASE, 'rebaje', 'reclamo']
+    : [...SERVICIOS_BASE, 'reclamo']
+
+  return (
+    <>
       <CampoDictado
         etiqueta="DESCRIPCIÓN GRAL. DE LA HERRAMIENTA"
         valor={form.descripcion_herramienta}
@@ -466,27 +500,29 @@ export function PasoEncabezado({
         placeholder="Qué trae el cliente, en general"
       />
 
-      {/* ── Tipo de servicio ──────────────────────────────────────────────────
-          En dos columnas: son siete casillas de una palabra cada una y en una
-          sola columna ocupaban una pantalla entera de scroll para nada. */}
-      <Text style={estilos.tituloBloque}>TIPO DE SERVICIO</Text>
-
-      <View style={estilos.servicios}>
-        {disponibles.map((s) => (
-          <View key={s} style={estilos.servicio}>
-            <Casilla
-              etiqueta={ETIQUETA_TIPO_SERVICIO[s]}
-              valor={servicios.includes(s)}
-              alCambiar={() => alternarServicio(s)}
-              // Van de a dos por fila: "RECTIFICADO" no entra en el tamaño
-              // normal y se montaba sobre el tilde.
-              compacta
-            />
-          </View>
-        ))}
-      </View>
-
-      <MensajeError>{errores.servicios}</MensajeError>
+      <DesplegableMultiple<TipoServicio>
+        etiqueta="TIPO DE OPERACIÓN"
+        obligatorio
+        marcador="Elegí qué vino a hacer"
+        valores={servicios}
+        items={disponibles.map((s) => ({
+          valor: s,
+          etiqueta: ETIQUETA_TIPO_SERVICIO[s],
+          descripcion: QUE_ES_LA_OPERACION[s],
+        }))}
+        // Al destildar afilado, rebaje deja de tener sentido y se va con él.
+        alCambiar={(nuevos) =>
+          alCambiarServicios(
+            nuevos.includes('afilado') ? nuevos : nuevos.filter((x) => x !== 'rebaje'),
+          )
+        }
+        ayuda={
+          conAfilado
+            ? undefined
+            : 'REBAJE aparece cuando la nota lleva afilado: sólo se rebajan cuchillas que se afilan.'
+        }
+        error={errores.servicios}
+      />
     </>
   )
 }
@@ -533,10 +569,6 @@ const estilos = StyleSheet.create({
     color: colores.tinta,
   },
 
-  servicios: { flexDirection: 'row', flexWrap: 'wrap' },
-  // 48% y no 50%: deja el respiro entre columnas sin pelear con el `gap`.
-  servicio: { width: '48%' },
-
   enlaceNuevo: { alignSelf: 'flex-start', paddingVertical: espaciado.xs },
   enlaceNuevoTexto: {
     fontFamily: tipografia.familia.cuerpo,
@@ -582,15 +614,5 @@ const estilos = StyleSheet.create({
     fontFamily: tipografia.familia.cuerpo,
     fontSize: tipografia.tamano.xs,
     color: colores.tintaSuave,
-  },
-
-  tituloBloque: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
-    letterSpacing: 0.8,
-    textDecorationLine: 'underline',
-    textAlign: 'center',
-    marginTop: espaciado.sm,
   },
 })

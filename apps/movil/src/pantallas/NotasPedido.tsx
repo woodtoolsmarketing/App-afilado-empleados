@@ -64,9 +64,20 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
 
         <BotonMenu
           titulo={'VER NOTAS DE PEDIDO\nPENDIENTES'}
-          subtitulo={sabemos && cantidad === 0 ? 'No tenés notas pendientes' : undefined}
+          subtitulo={
+            sabemos && cantidad === 0 ? 'No tenés notas pendientes' : 'Se pueden corregir'
+          }
           alTocar={() => navigation.navigate('NotasPendientes')}
           deshabilitado={sabemos && cantidad === 0}
+        />
+
+        {/* Las que ya salieron en papel van aparte. Es el corte que decide si
+            una nota todavía se puede tocar: mientras no se imprimió, lo que
+            dice no llegó a nadie. */}
+        <BotonMenu
+          titulo={'NOTAS DE PEDIDO\nIMPRESAS'}
+          subtitulo="Se miran y se reimprimen; no se editan"
+          alTocar={() => navigation.navigate('NotasImpresas')}
         />
 
         <BotonMenu

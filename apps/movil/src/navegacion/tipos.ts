@@ -24,6 +24,11 @@ export type ParametrosApp = {
    */
   GenerarNota:
     | {
+        /**
+         * Con esto la pantalla abre cargada con una nota que todavía no se
+         * imprimió, para corregirla, en vez de empezar una nueva.
+         */
+        notaId?: string
         clienteCreadoId?: string
         clienteCreadoNombre?: string
         clienteCreadoCuit?: string
@@ -34,6 +39,8 @@ export type ParametrosApp = {
     | undefined
   NuevoCliente: { nombreInicial?: string; documentoInicial?: string } | undefined
   NotasPendientes: undefined
+  /** Las que ya salieron en papel. Se miran y se reimprimen; no se editan. */
+  NotasImpresas: undefined
   HistorialNotas: undefined
   DetalleNota: { notaId: string }
   /** Lo que va a salir en papel, antes de mandarlo a la impresora. */

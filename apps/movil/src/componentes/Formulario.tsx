@@ -582,6 +582,162 @@ export function Desplegable<T extends string>({
   )
 }
 
+/**
+ * Desplegable de varias opciones a la vez.
+ *
+ * Es el TIPO DE OPERACIÓN. Antes eran siete casillas sueltas, en dos columnas,
+ * que ocupaban media pantalla y se leían como siete preguntas distintas cuando
+ * en realidad son una sola: qué vino a hacer el cliente. Acá se ve como
+ * cualquier otro campo —una caja con el ▼— y adentro se marcan las que hagan
+ * falta.
+ *
+ * Cada toque se aplica al instante; el botón de abajo sólo cierra. Así, si la
+ * hoja se cierra tocando afuera, lo marcado queda igual: un "LISTO" que además
+ * confirma es un botón que se puede perder.
+ */
+export function DesplegableMultiple<T extends string>({
+  etiqueta,
+  marcador = 'Elegí una o más',
+  valores,
+  items,
+  alCambiar,
+  error,
+  obligatorio,
+  deshabilitado,
+  ayuda,
+}: {
+  etiqueta?: string
+  marcador?: string
+  valores: T[]
+  items: ItemDesplegable<T>[]
+  alCambiar: (valores: T[]) => void
+  error?: string | null
+  obligatorio?: boolean
+  deshabilitado?: boolean
+  ayuda?: string
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const { height: altoVentana } = useWindowDimensions()
+
+  // En el orden de la lista, no en el que se fueron tocando: así el rótulo del
+  // campo dice siempre lo mismo para la misma selección.
+  const elegidos = items.filter((i) => valores.includes(i.valor))
+  const resumen = elegidos.map((i) => i.etiqueta).join(' · ')
+
+  function alternar(valor: T) {
+    alCambiar(
+      valores.includes(valor) ? valores.filter((v) => v !== valor) : [...valores, valor],
+    )
+  }
+
+  const listaLarga = items.length > OPCIONES_PARA_BUSCADOR
+  const alto = Math.round(altoVentana * 0.7)
+
+  return (
+    <View style={estilos.campoContenedor}>
+      {etiqueta ? <Etiqueta obligatorio={obligatorio}>{etiqueta}</Etiqueta> : null}
+
+      <Pressable
+        onPress={() => setAbierto(true)}
+        disabled={deshabilitado}
+        accessibilityRole="button"
+        accessibilityLabel={`${etiqueta ?? 'Opciones'}: ${resumen || marcador}`}
+        style={({ pressed }) => [
+          estilos.desplegableFila,
+          pressed && estilos.filaPresionada,
+          deshabilitado && estilos.deshabilitado,
+        ]}
+      >
+        <View
+          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+        >
+          <Text style={[estilos.campoTexto, !resumen && estilos.marcador]} numberOfLines={2}>
+            {resumen || marcador}
+          </Text>
+        </View>
+        <Text style={estilos.flecha}>▼</Text>
+      </Pressable>
+
+      {ayuda && !error ? <Text style={estilos.ayuda}>{ayuda}</Text> : null}
+      <MensajeError>{error}</MensajeError>
+
+      <Modal
+        visible={abierto}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAbierto(false)}
+      >
+        <Pressable style={estilos.velo} onPress={() => setAbierto(false)}>
+          <Pressable
+            style={[estilos.hoja, listaLarga ? { height: alto } : { maxHeight: alto }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={estilos.hojaCabecera}>
+              <Text style={estilos.hojaTitulo}>{etiqueta ?? 'Elegí una o más'}</Text>
+              <Pressable
+                onPress={() => setAbierto(false)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => [estilos.hojaCerrar, pressed && estilos.filaPresionada]}
+              >
+                <Text style={estilos.hojaCerrarTexto}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={listaLarga ? estilos.hojaListaFija : undefined}
+              contentContainerStyle={estilos.hojaListaContenido}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {items.map((item) => {
+                const marcado = valores.includes(item.valor)
+                return (
+                  <Pressable
+                    key={item.valor}
+                    onPress={() => alternar(item.valor)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: marcado }}
+                    accessibilityLabel={item.etiqueta}
+                    style={({ pressed }) => [
+                      estilos.opcion,
+                      marcado && estilos.opcionSeleccionada,
+                      pressed && estilos.filaPresionada,
+                    ]}
+                  >
+                    <View style={[estilos.casillaCaja, marcado && estilos.casillaMarcada]}>
+                      {marcado ? <Text style={estilos.casillaTilde}>✓</Text> : null}
+                    </View>
+                    <View style={estilos.opcionTextos}>
+                      <Text style={estilos.opcionEtiqueta}>{item.etiqueta}</Text>
+                      {item.descripcion ? (
+                        <Text style={estilos.opcionDescripcion}>{item.descripcion}</Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                )
+              })}
+            </ScrollView>
+
+            <Pressable
+              onPress={() => setAbierto(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => [estilos.hojaListo, pressed && estilos.filaPresionada]}
+            >
+              <Text style={estilos.hojaListoTexto}>
+                {valores.length === 0
+                  ? 'CERRAR'
+                  : `LISTO · ${valores.length} ${valores.length === 1 ? 'ELEGIDA' : 'ELEGIDAS'}`}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  )
+}
+
 const estilos = StyleSheet.create({
   campoContenedor: {
     gap: espaciado.xs,
@@ -842,6 +998,22 @@ const estilos = StyleSheet.create({
     fontSize: tipografia.tamano.xs,
     color: colores.tintaSuave,
     textAlign: 'center',
+  },
+  /** El pie de la hoja de varias opciones: cierra y dice cuántas quedaron. */
+  hojaListo: {
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colores.rojo,
+    borderWidth: 2,
+    borderColor: colores.negro,
+    borderRadius: radios.sm,
+  },
+  hojaListoTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.base,
+    color: colores.blanco,
+    letterSpacing: 0.8,
   },
 
   opcion: {

@@ -24,7 +24,7 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { imprimirNotas } from '../servicios/impresion'
-import { marcarImpresas, obtenerNota } from '../servicios/notasPedido'
+import { marcarImpresas, obtenerNota, sePuedeCorregir } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -246,8 +246,17 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 
         {yaImpresa ? (
           <Aviso tono="info">
-            {`Ya se imprimió el ${formatearFechaCorta(n.impresa_en ?? n.creado_en)}. Podés volver a imprimirla si hace falta.`}
+            {`Ya se imprimió el ${formatearFechaCorta(n.impresa_en ?? n.creado_en)}. Podés volver a imprimirla, pero ya no se puede corregir: la fábrica tiene ese comprobante.`}
           </Aviso>
+        ) : null}
+
+        {/* Mientras no salió en papel se corrige entera —cliente, renglones y
+            precios— en el mismo formulario con que se cargó. */}
+        {sePuedeCorregir(estado) ? (
+          <BotonSecundario
+            titulo="✎  CORREGIR ESTA NOTA"
+            alTocar={() => navigation.push('GenerarNota', { notaId })}
+          />
         ) : null}
 
         <BotonSecundario

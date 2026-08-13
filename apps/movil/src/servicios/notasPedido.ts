@@ -5,18 +5,26 @@ import {
   avisosDeAgujero,
   CONDICIONES_CON_DETALLE,
   aplicarSinCargo,
+  ENCABEZADO_VACIO,
+  esObservacionDelSistema,
   FAMILIA_CATALOGO,
+  ITEM_VACIO,
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
+  sinAvisosDeAgujero,
   totalDelRenglon,
+  ZONAS,
   type CondicionVenta,
   type CuchillaMaterial,
   type CuchillaTipo,
   type CuchillaTrabajo,
+  type EstadoNotaPedido,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
   type GrupoNota,
   type Herramienta,
+  type ManoMecha,
+  type OrigenFresa,
   type TipoMecha,
   type TipoNotaPedido,
   type TipoServicio,
@@ -512,6 +520,12 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         paso: i.paso,
         tipo_mecha: i.tipo_mecha,
         mano: i.mano,
+        // Las tres respuestas que eligen el código de afilado de cuchilla. No
+        // se imprimen: se guardan para que al volver a abrir la nota el
+        // selector aparezca contestado y no en blanco con el código puesto.
+        cuchilla_tipo: i.cuchilla_tipo,
+        cuchilla_material: i.cuchilla_material,
+        cuchilla_trabajo: i.cuchilla_trabajo,
         promocion_detalle: i.promocion_detalle,
         afilado_reparacion: i.afilado_reparacion,
         origen_fresa: i.origen_fresa,
@@ -671,6 +685,275 @@ interface FilaNotaCreada {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Corregir una nota que todavía no se imprimió
+//
+// El corte es la impresión, no el tiempo: mientras la nota no haya salido en
+// papel, lo que dice todavía no llegó a nadie y equivocarse de cliente o de
+// medida se arregla. Una vez impresa es un comprobante que la fábrica tiene en
+// la mano, y ahí ya no.
+//
+// La regla vive en las políticas de la tabla —sólo `pendiente` y
+// `pendiente_cliente`—; acá sólo se traduce entre las filas de la base y el
+// formulario, que son dos formas distintas de escribir lo mismo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Los estados en los que una nota todavía se puede corregir. */
+export const ESTADOS_EDITABLES: EstadoNotaPedido[] = ['pendiente', 'pendiente_cliente']
+
+export function sePuedeCorregir(estado: string | null | undefined): boolean {
+  return ESTADOS_EDITABLES.includes(estado as EstadoNotaPedido)
+}
+
+/** Una nota traída de la base, lista para volver a abrirse en el formulario. */
+export interface BorradorNota {
+  notaId: string
+  numero: number | null
+  estado: EstadoNotaPedido
+  encabezado: FormularioNotaEncabezado
+  servicios: TipoServicio[]
+  tipoNota: TipoNotaPedido | null
+  /** ISO corto (`2026-08-20`), como lo guarda la base. */
+  fechaEntrega: string | null
+  condicionVenta: CondicionVenta | null
+  condicionDetalle: string
+  /** Sólo las del vendedor: las que escribe el servidor van aparte. */
+  observaciones: string[]
+  /** Las del servidor ("Va con nota de pedido…"), para devolverlas al guardar. */
+  observacionesDelSistema: string[]
+  items: FormularioItemNota[]
+  /** Vacío cuando la nota no lleva tipo de cambio (las de afilado). */
+  tipoCambio: string
+  cotizacionFecha: string | null
+}
+
+/** Un número de la base al texto que el formulario sabe leer y escribir. */
+function comoTexto(valor: unknown): string {
+  if (valor === null || valor === undefined || valor === '') return ''
+  // Con coma: el resto de la app tipea a la argentina y `aNumero` desambigua
+  // mirando la coma primero. Un "1234.56" que vuelve de la base se leería como
+  // mil doscientos treinta y cuatro con la lectura de miles.
+  return String(valor).replace('.', ',')
+}
+
+function comoCadena(valor: unknown): string {
+  return valor === null || valor === undefined ? '' : String(valor)
+}
+
+/** Reverso de `filaDeItem`: una fila de la base vuelta renglón del formulario. */
+function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
+  const detalle = (fila.detalle ?? {}) as Record<string, unknown>
+  const servicio = (fila.servicio as TipoServicio) ?? 'afilado'
+  const esVenta = servicio === 'venta'
+
+  /**
+   * El agujero se guarda siempre —el cargado, o el de fábrica si no cargaron—
+   * así que al volver hay que distinguir cuál de los dos era. Si coincide con
+   * el de catálogo, el vendedor no había cargado nada: el campo vuelve vacío,
+   * que es como estaba.
+   */
+  const agujeroGuardado = comoCadena(detalle.diametro_interior)
+  const agujeroCatalogo = comoCadena(detalle.diametro_interior_catalogo)
+  const agujeroCargado =
+    agujeroGuardado && agujeroGuardado !== agujeroCatalogo ? agujeroGuardado : ''
+
+  return {
+    ...ITEM_VACIO,
+    servicio,
+    // Ya fue decidida cuando se creó la nota: no se vuelve a preguntar.
+    servicio_elegido: true,
+    herramienta: (fila.herramienta as Herramienta | null) ?? null,
+
+    codigo_herramienta: comoCadena(fila.codigo_herramienta),
+    unidades: esVenta ? comoCadena(fila.cantidad) : '',
+    promocion: fila.promocion === true,
+    promocion_detalle: comoCadena(detalle.promocion_detalle),
+    /**
+     * El unitario va a los dos campos a propósito.
+     *
+     * En la base es una sola columna, pero el formulario lo lee de dos lugares
+     * según la herramienta: `precio_por_diente` en las que se cobran por
+     * diente, `precio` en las mechas —donde el total se recalcula al cambiar
+     * las unidades—. Dejarlo sólo en el primero hacía que una mecha corregida
+     * no volviera a calcular su total. Para la cuenta es inocuo: en un renglón
+     * de servicio `precio` no interviene.
+     */
+    precio: comoTexto(fila.precio_unitario),
+    origen_fresa: (detalle.origen_fresa as OrigenFresa | null) ?? null,
+    moneda: fila.moneda === 'USD' ? 'USD' : 'ARS',
+
+    cantidad: esVenta ? '' : comoCadena(fila.cantidad),
+    descripcion: comoCadena(fila.descripcion),
+    cantidad_dientes: comoCadena(fila.cantidad_dientes),
+    codigos_computo: Array.isArray(fila.codigos_computo) ? (fila.codigos_computo as string[]) : [],
+    precio_por_diente: esVenta ? '' : comoTexto(fila.precio_unitario),
+    precio_total: esVenta ? '' : comoTexto(fila.precio_total),
+
+    diametro_exterior: comoCadena(detalle.diametro_exterior),
+    diametro_interior: agujeroCargado,
+    diametro_interior_catalogo: agujeroCatalogo,
+    diametro: comoCadena(detalle.diametro),
+    ancho_corte: comoCadena(detalle.ancho_corte),
+    largo: comoCadena(detalle.largo),
+    ancho: comoCadena(detalle.ancho),
+    largo_util: comoCadena(detalle.largo_util),
+    espesor: comoCadena(detalle.espesor),
+    paso: comoCadena(detalle.paso),
+
+    tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
+    mano: (detalle.mano as ManoMecha | null) ?? null,
+
+    dientes_rotos: fila.dientes_rotos === true,
+    afilado_reparacion: detalle.afilado_reparacion === true,
+    dientes_rotos_cantidad: comoCadena(detalle.dientes_rotos_cantidad),
+    reparar_dientes:
+      detalle.reparar_dientes === null || detalle.reparar_dientes === undefined
+        ? null
+        : detalle.reparar_dientes === true,
+    codigo_reparacion: comoCadena(detalle.codigo_reparacion),
+    precio_reparacion_por_diente: comoTexto(detalle.precio_reparacion_unitario),
+
+    // Sólo en el afilado de cuchillas: son las tres respuestas que eligen el
+    // código. En las notas viejas no están guardadas y el selector va a
+    // aparecer en blanco; el código y el precio vuelven igual.
+    cuchilla_tipo: (detalle.cuchilla_tipo as CuchillaTipo | null) ?? null,
+    cuchilla_material: (detalle.cuchilla_material as CuchillaMaterial | null) ?? null,
+    cuchilla_trabajo: (detalle.cuchilla_trabajo as CuchillaTrabajo | null) ?? null,
+
+    sin_cargo: detalle.sin_cargo === true,
+    reparacion_sin_cargo: detalle.reparacion_sin_cargo === true,
+  }
+}
+
+/**
+ * Trae una nota y la devuelve como estaba en el formulario.
+ *
+ * Lo único que no vuelve son las tres respuestas del afilado de cuchillas
+ * —plana o de dorso, HSS o metal duro, afilar o perfilar—: no se guardan
+ * porque su único efecto es elegir el código, y el código sí vuelve. El
+ * renglón queda completo y cotizado igual.
+ */
+export async function notaParaCorregir(id: string): Promise<BorradorNota> {
+  const nota = (await obtenerNota(id)) as Record<string, any>
+
+  const zonaCodigo = comoCadena(nota.zona)
+  // El código de zona no es único —el 121 está dos veces— así que se toma la
+  // primera. El selector necesita un id; lo que se imprime es el código, que
+  // en las dos es el mismo.
+  const zona = ZONAS.find((z) => z.codigo === zonaCodigo)
+
+  const todas: string[] = Array.isArray(nota.observaciones) ? nota.observaciones : []
+
+  const filas: Array<Record<string, unknown>> = Array.isArray(nota.items) ? nota.items : []
+  const items = filas
+    .slice()
+    .sort((a, b) => Number(a.orden ?? 0) - Number(b.orden ?? 0))
+    .map(itemDeFila)
+
+  return {
+    notaId: id,
+    numero: nota.numero ?? null,
+    estado: nota.estado as EstadoNotaPedido,
+    encabezado: {
+      ...ENCABEZADO_VACIO,
+      cliente_id: nota.cliente_id ?? null,
+      cliente_codigo: comoCadena(nota.cliente_codigo),
+      cliente_nombre: comoCadena(nota.cliente_nombre),
+      cliente_cuit: comoCadena(nota.cliente_cuit),
+      vendedor: comoCadena(nota.vendedor?.nombre_completo),
+      vendedor_numero: comoCadena(nota.vendedor_numero),
+      zona: zonaCodigo,
+      zona_id: zona?.id ?? '',
+      datos_cliente: comoCadena(nota.datos_cliente),
+      datos_cliente_origen: nota.datos_cliente_origen === 'voz' ? 'voz' : 'texto',
+      // Sin los avisos de agujero que le pegamos al guardar: si volvieran al
+      // campo como texto del vendedor, al guardar se agregarían de nuevo.
+      descripcion_herramienta: sinAvisosDeAgujero(nota.descripcion_herramienta),
+      descripcion_herramienta_origen:
+        nota.descripcion_herramienta_origen === 'voz' ? 'voz' : 'texto',
+      cliente_nuevo: false,
+      cliente_provisorio: nota.estado === 'pendiente_cliente' && !!nota.cliente_id,
+    },
+    servicios: Array.isArray(nota.servicios) ? (nota.servicios as TipoServicio[]) : [],
+    tipoNota: (nota.tipo_nota as TipoNotaPedido | null) ?? null,
+    fechaEntrega: nota.fecha_entrega ?? null,
+    condicionVenta: (nota.condicion_venta as CondicionVenta | null) ?? null,
+    condicionDetalle: comoCadena(nota.condicion_venta_detalle),
+    observaciones: todas.filter((o) => !esObservacionDelSistema(o)),
+    observacionesDelSistema: todas.filter(esObservacionDelSistema),
+    items,
+    tipoCambio: comoTexto(nota.tipo_cambio),
+    cotizacionFecha: nota.cotizacion_fecha ?? null,
+  }
+}
+
+export interface DatosCorreccionNota extends DatosNuevaNota {
+  notaId: string
+  /** Las que escribió el servidor, para devolverlas tal cual. */
+  observacionesDelSistema?: string[]
+}
+
+/**
+ * Guarda la corrección de una nota que todavía no se imprimió.
+ *
+ * **Una nota es un comprobante y un comprobante no se parte al medio.** Si la
+ * corrección mezcla cosas que se facturan por separado —un afilado y una venta,
+ * una sierra sin fin— eso serían dos notas y esta ya tiene un número asignado.
+ * Se avisa y no se guarda nada, que es mejor que guardar la mitad.
+ */
+export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<void> {
+  const grupos = agruparParaNotas(datos.items, datos.tipoCambio)
+  if (grupos.length === 0) throw new Error('La nota necesita al menos un renglón')
+  if (grupos.length > 1) {
+    throw new Error(
+      'Lo que quedó cargado tendría que salir en dos notas distintas (el afilado y la venta no van en el mismo comprobante). Sacá de esta nota lo que no corresponda y cargalo aparte.',
+    )
+  }
+
+  const g = grupos[0]
+  const enc = datos.encabezado
+
+  const avisos = avisosDeAgujero(datos.items)
+  const descripcionGeneral = [enc.descripcion_herramienta.trim(), ...avisos]
+    .filter(Boolean)
+    .join('\n')
+
+  const observaciones = [
+    ...(datos.observaciones ?? []).filter((o) => o.trim()),
+    ...(datos.observacionesDelSistema ?? []),
+  ]
+
+  const { error } = await supabase.rpc('actualizar_nota_pedido', {
+    p_nota_id: datos.notaId,
+    p_nota: {
+      cliente_id: enc.cliente_id,
+      cliente_codigo: enc.cliente_codigo || null,
+      cliente_nombre: enc.cliente_nombre,
+      cliente_cuit: enc.cliente_cuit || null,
+      zona: enc.zona || null,
+      datos_cliente: enc.datos_cliente || null,
+      datos_cliente_origen: enc.datos_cliente_origen,
+      descripcion_herramienta: descripcionGeneral || null,
+      descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
+      vendedor_numero: enc.vendedor_numero.trim() || null,
+      servicios: g.servicios,
+      tipo_nota: datos.tipoNota,
+      fecha_entrega: datos.fechaEntrega,
+      tipo_cambio: g.llevaTipoDeCambio || g.tieneDolares ? datos.tipoCambio : null,
+      cotizacion_fecha: g.llevaTipoDeCambio || g.tieneDolares ? datos.cotizacionFecha : null,
+      total: g.total || null,
+      observaciones,
+      condicion_venta: datos.condicionVenta,
+      condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
+        ? (datos.condicionVentaDetalle ?? '').trim()
+        : null,
+    },
+    p_items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
+  })
+
+  if (error) throw error
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Consulta
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -684,14 +967,41 @@ export interface NotaResumen {
   total: number | null
   creado_en: string
   servicios: TipoServicio[]
+  /** Cuándo salió por la impresora. Null en las que siguen pendientes. */
+  impresa_en?: string | null
 }
+
+const COLUMNAS_RESUMEN =
+  'id, numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios, impresa_en'
 
 export async function notasPendientes(): Promise<NotaResumen[]> {
   const { data, error } = await supabase
     .from('notas_pedido')
-    .select('id, numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios')
-    .in('estado', ['pendiente', 'pendiente_cliente'])
+    .select(COLUMNAS_RESUMEN)
+    .in('estado', ESTADOS_EDITABLES)
     .order('creado_en', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as NotaResumen[]
+}
+
+/**
+ * Las que ya salieron en papel.
+ *
+ * Van en su propia lista y no se pueden corregir: la fábrica ya tiene ese
+ * comprobante en la mano, y cambiarlo por atrás dejaría dos versiones de la
+ * misma nota dando vueltas. Se puede mirar y volver a imprimir.
+ *
+ * Se traen las últimas cien: es una lista para buscar la de esta semana, no un
+ * archivo histórico. Para eso está HISTORIAL DE NOTAS, que va por fecha.
+ */
+export async function notasImpresas(): Promise<NotaResumen[]> {
+  const { data, error } = await supabase
+    .from('notas_pedido')
+    .select(COLUMNAS_RESUMEN)
+    .in('estado', ['impresa', 'entregada'])
+    .order('creado_en', { ascending: false })
+    .limit(100)
 
   if (error) throw error
   return (data ?? []) as NotaResumen[]

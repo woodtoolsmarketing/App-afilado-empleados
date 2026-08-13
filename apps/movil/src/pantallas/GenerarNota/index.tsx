@@ -14,6 +14,7 @@ import {
   ETIQUETA_ORIGEN_FRESA,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
+  fechaEntregaPorDefecto,
   formatearFechaCorta,
   formatearMoneda,
   fechaLocalISO,
@@ -22,10 +23,12 @@ import {
   ITEM_VACIO,
   radios,
   MAXIMO_RENGLONES,
+  OBSERVACION_MAXIMO_CARACTERES,
   renglonNuevo,
   resumenRenglon,
   soloNumeros,
   SUMAR_OTRA,
+  tieneRenglonesEnDolares,
   tipografia,
   totalDeRenglones,
   totalDelRenglon,
@@ -38,6 +41,7 @@ import {
   type FormularioNotaEncabezado,
   type Herramienta,
   type OrigenFresa,
+  type ParteDeLaNota,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -56,43 +60,57 @@ import {
 
 import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
-import { Aviso, Pastilla } from '../../componentes/Estado'
+import { Aviso, Cargando, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
 import { usarSesion, etiquetaVendedor } from '../../nucleo/sesion'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import {
+  corregirNotaPedido,
   crearNotaPedido,
+  notaParaCorregir,
   obtenerCotizacion,
   tendenciaCliente,
   type TendenciaCliente,
 } from '../../servicios/notasPedido'
 import { BuscadorArticulo } from './BuscadorArticulo'
-import { PasoEncabezado } from './Encabezado'
+import { PasoCliente, PasoOperacion } from './Encabezado'
 import { PasoRenglon } from './Renglon'
 import type { PropsPantalla } from '../../navegacion/tipos'
 
 /**
  * "GENERAR NUEVA NOTA DE PEDIDO"
  *
- * Dos pasos, porque el formulario completo no entra de una en un teléfono y
- * porque el segundo depende de lo que se elija en el primero:
+ * Tres páginas, en el orden en que pasan las cosas en el taller:
  *
- *   1. Cliente, datos y tipo de servicio.
- *   2. Los renglones, con los campos que pide la herramienta de cada uno.
+ *   1. **A quién.** Cliente, zona, vendedor y para cuándo se entrega.
+ *   2. **Qué trajo.** Tipo de operación y los renglones, con los campos que
+ *      pide la herramienta de cada uno.
+ *   3. **Cómo se cobra.** Factura o presupuesto, condición de venta, tipo de
+ *      cambio y observaciones.
+ *
+ * Antes eran dos, con la facturación mezclada en la primera: el vendedor tenía
+ * que decidir la condición de venta antes de haber cargado nada, que es
+ * justamente el momento en que todavía no sabe cuánto va a salir.
  *
  * La nota lleva varios renglones, como el talonario de papel. Se edita uno por
  * vez —el resto queda arriba como tarjetas— porque en un teléfono no entran dos
  * formularios abiertos y porque así el vendedor siempre sabe cuál está tocando.
  *
- * El tipo de cambio se trae solo al abrir la pantalla y queda congelado en la
- * nota. No es un dato que el vendedor tenga que averiguar.
+ * **La misma pantalla corrige.** Con `notaId` en los parámetros se abre cargada
+ * con una nota que todavía no se imprimió, y el botón del final guarda encima
+ * en vez de crear otra. Es el mismo formulario a propósito: mantener dos
+ * pantallas que dibujan lo mismo termina en que una de las dos se queda atrás.
  */
 export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'GenerarNota'>) {
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
-  const [paso, setPaso] = useState<1 | 2>(1)
+  /** Cuando viene, esta pantalla corrige esa nota en vez de crear una nueva. */
+  const notaId = route.params?.notaId ?? null
+  const corrigiendo = !!notaId
+
+  const [paso, setPaso] = useState<1 | 2 | 3>(1)
   const [encabezado, setEncabezado] = useState<FormularioNotaEncabezado>({
     ...ENCABEZADO_VACIO,
     vendedor: etiquetaVendedor(perfil),
@@ -112,7 +130,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * por qué es un desplegable que el vendedor no revisa.
    */
   const [tendencia, setTendencia] = useState<TendenciaCliente | null>(null)
-  const [fechaEntrega, setFechaEntrega] = useState<Date | null>(null)
+  /**
+   * Viene puesta a una semana, que es el plazo normal de la casa.
+   *
+   * Era el último campo obligatorio que quedaba sin ayuda: el vendedor abría el
+   * calendario y contaba siete días a mano en cada nota. Se cambia con un
+   * toque. Corrigiendo arranca en null y la pisa la que tenía la nota.
+   */
+  const [fechaEntrega, setFechaEntrega] = useState<Date | null>(
+    corrigiendo ? null : fechaEntregaPorDefecto(),
+  )
   const [calendario, setCalendario] = useState(false)
   const [items, setItems] = useState<FormularioItemNota[]>([ITEM_VACIO])
   /** Cuál de los renglones se está editando. */
@@ -122,19 +149,63 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [seleccionandoHerramientas, setSeleccionandoHerramientas] = useState(false)
   const [herramientasElegidas, setHerramientasElegidas] = useState<Herramienta[]>([])
   /**
-   * Las observaciones van a la columna "Observaciones" del talonario, que hasta
-   * ahora salía siempre vacía. Se cargan de a una porque el papel las reparte
-   * por renglón: una observación por fila.
+   * Las observaciones van a la columna "Observaciones" del talonario, una por
+   * renglón, igual que en el papel.
+   *
+   * Se cargan como renglones sueltos y **sin botón**: el último siempre está
+   * vacío y en cuanto se escribe algo aparece el siguiente. Antes había que
+   * tocar "AGREGAR RENGLÓN" para que lo escrito contara, y lo que quedaba en el
+   * campo sin tocarlo salía o no salía impreso según el caso.
    */
-  const [observaciones, setObservaciones] = useState<string[]>([])
-  const [observacionNueva, setObservacionNueva] = useState('')
+  const [observaciones, setObservaciones] = useState<string[]>([''])
+  /** Las que escribe el servidor ("Va con nota de pedido…"): no se editan. */
+  const [observacionesDelSistema, setObservacionesDelSistema] = useState<string[]>([])
+
+  // ── La nota que se está corrigiendo ──────────────────────────────────────
+  const {
+    data: borrador,
+    isLoading: cargandoNota,
+    error: errorNota,
+  } = useQuery({
+    queryKey: ['nota-a-corregir', notaId],
+    queryFn: () => notaParaCorregir(notaId!),
+    enabled: corrigiendo,
+    // Una recarga en medio de la corrección pisaría lo que el vendedor está
+    // escribiendo con lo que hay guardado. Se trae una vez y no se vuelve.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  })
+
+  const [cargado, setCargado] = useState(false)
+
+  useEffect(() => {
+    if (!borrador || cargado) return
+    setEncabezado(borrador.encabezado)
+    setServicios(borrador.servicios)
+    setTipoNota(borrador.tipoNota)
+    setCondicionVenta(borrador.condicionVenta)
+    setCondicionDetalle(borrador.condicionDetalle)
+    // La fecha viene como `2026-08-20`; con `new Date` de un ISO corto se lee
+    // en UTC y en Argentina eso la corre un día para atrás.
+    if (borrador.fechaEntrega) {
+      const [a, m, d] = borrador.fechaEntrega.split('-').map(Number)
+      setFechaEntrega(new Date(a, m - 1, d))
+    }
+    if (borrador.items.length > 0) setItems(borrador.items)
+    setObservaciones([...borrador.observaciones, ''])
+    setObservacionesDelSistema(borrador.observacionesDelSistema)
+    if (borrador.tipoCambio) setCambioPropio(borrador.tipoCambio)
+    setCargado(true)
+  }, [borrador, cargado])
 
   /**
    * Al elegir un cliente, traer cómo compra y dejarlo puesto.
    *
    * Sólo completa lo que está vacío: si el vendedor ya eligió factura porque
    * hoy es distinto, la costumbre del cliente no se la pisa. Ese es todo el
-   * criterio —preseleccionar es ahorrar toques, no decidir por el otro.
+   * criterio —preseleccionar es ahorrar toques, no decidir por el otro—, y es
+   * lo que hace que corregir una nota no le cambie nada de lo que ya decía.
    */
   useEffect(() => {
     const id = encabezado.cliente_id
@@ -166,21 +237,31 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     }
   }, [encabezado.cliente_id])
 
-  function agregarObservacion() {
-    const texto = observacionNueva.trim()
-    if (!texto) return
-    setObservaciones((o) => [...o, texto])
-    setObservacionNueva('')
+  /**
+   * Escribir en un renglón de observaciones.
+   *
+   * El último siempre queda vacío: en cuanto se escribe en él aparece otro
+   * abajo. Así cargar la segunda observación no depende de encontrar un botón.
+   */
+  function escribirObservacion(indice: number, texto: string) {
+    setObservaciones((previas) => {
+      const nuevas = previas.slice()
+      nuevas[indice] = texto
+      const esUltima = indice === nuevas.length - 1
+      if (esUltima && texto.trim() && nuevas.length < MAXIMO_RENGLONES) nuevas.push('')
+      return nuevas
+    })
   }
 
-  /**
-   * Lo que quedó escrito en el campo sin tocar "AGREGAR RENGLÓN".
-   *
-   * Va a la nota igual. Pedirle al vendedor que además de escribir apriete un
-   * botón para que lo escrito cuente es una trampa: escribe, crea la nota, y la
-   * observación no sale impresa. El botón sigue estando para cargar varias.
-   */
-  const observacionPendiente = observacionNueva.trim()
+  function quitarObservacion(indice: number) {
+    setObservaciones((previas) => {
+      const nuevas = previas.filter((_, i) => i !== indice)
+      return nuevas.length > 0 ? nuevas : ['']
+    })
+  }
+
+  /** Las que efectivamente van a la nota: el renglón vacío del final no cuenta. */
+  const observacionesCargadas = observaciones.filter((o) => o.trim())
 
   /**
    * Los ids de las notas que ya salieron de esta pantalla.
@@ -192,6 +273,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [creadas, setCreadas] = useState<string[]>([])
 
   const renglon = items[activo] ?? items[0]
+
+  /** Con una sola operación no hay nada que elegir por renglón. */
+  const pedirServicio = servicios.length > 1
 
   // Al volver de "Generar nuevo cliente" se completa el encabezado solo: el
   // vendedor no tiene que volver a buscar lo que acaba de crear.
@@ -264,11 +348,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   /**
    * ¿Hay algo cotizado en dólares en esta nota?
    *
-   * De eso depende que la cotización sea imprescindible. El afilado va siempre
-   * en pesos y ni siquiera guarda el tipo de cambio, así que una nota de
-   * afilado no tiene por qué quedar trabada porque no haya cotización.
+   * De eso depende que el recuadro del tipo de cambio exista siquiera. El
+   * afilado se cobra en pesos y la nota sale sin cotización impresa, así que el
+   * recuadro no decía nada: era un número grande al lado del total, en otra
+   * moneda, en una pantalla donde todo lo demás está en pesos.
+   *
+   * Se mira sobre las líneas de cómputo y no sobre el campo `moneda` del
+   * renglón: en un renglón de servicio la moneda es siempre pesos, aunque el
+   * campo haya quedado en dólares de cuando ese renglón era una venta.
    */
-  const hayDolares = items.some((i) => i.moneda === 'USD')
+  const hayDolares = tieneRenglonesEnDolares(items)
 
   /**
    * Aplica los cambios SOBRE EL ESTADO ANTERIOR, no sobre la copia del render.
@@ -300,21 +389,48 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // Un renglón cuyo servicio se destildó queda huérfano: pasa al primero que
     // siga tildado, y suelta la herramienta si esa ya no aplica.
     const principal = nuevos[0] ?? 'afilado'
+    const unaSola = nuevos.length === 1
     setItems((rs) =>
       rs.map((r) => {
-        const servicio = nuevos.includes(r.servicio) ? r.servicio : principal
+        const sigue = nuevos.includes(r.servicio)
+        const servicio = sigue ? r.servicio : principal
         const herramienta =
           r.herramienta && HERRAMIENTAS_POR_SERVICIO[servicio].includes(r.herramienta)
             ? r.herramienta
             : null
-        if (servicio === r.servicio && herramienta === r.herramienta) return r
-        return { ...r, servicio, herramienta, codigos_computo: [] }
+        /**
+         * Con una sola operación no hay nada que elegir y queda puesta. Con
+         * varias, un renglón que hubo que mudar vuelve a preguntar: antes se
+         * mudaba callado a la primera de la lista y el vendedor cargaba una
+         * venta adentro de un renglón de afilado sin enterarse.
+         */
+        const elegido = unaSola ? true : sigue && r.servicio_elegido
+        if (
+          servicio === r.servicio &&
+          herramienta === r.herramienta &&
+          elegido === r.servicio_elegido
+        ) {
+          return r
+        }
+        return {
+          ...r,
+          servicio,
+          herramienta,
+          servicio_elegido: elegido,
+          codigos_computo: servicio === r.servicio && herramienta === r.herramienta
+            ? r.codigos_computo
+            : [],
+        }
       }),
     )
     if (intentado) revalidarEncabezado(encabezado, nuevos)
   }
 
-  function revalidarEncabezado(enc: FormularioNotaEncabezado, servs: TipoServicio[]) {
+  function revalidarEncabezado(
+    enc: FormularioNotaEncabezado,
+    servs: TipoServicio[],
+    partes?: ParteDeLaNota[],
+  ) {
     const { errores: e } = validarEncabezadoNota(enc, {
       servicios: servs,
       tipoNota,
@@ -322,6 +438,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
       clienteAMano: CLIENTE_A_MANO,
+      partes: partes ?? PARTES_DEL_PASO[paso],
     })
     setErrores(e as Record<string, string | undefined>)
   }
@@ -338,9 +455,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   useEffect(() => {
     if (!intentado || paso !== 2 || !renglon) return
-    setErrores(validarItemNota(renglon).errores as Record<string, string | undefined>)
+    setErrores(
+      validarItemNota(renglon, { pedirServicio }).errores as Record<string, string | undefined>,
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renglon, intentado, paso])
+  }, [renglon, intentado, paso, pedirServicio])
 
   /** El servicio se elige por renglón cuando arriba tildaron más de uno. */
   function cambiarServicioDelRenglon(servicio: TipoServicio) {
@@ -348,16 +467,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       renglon.herramienta && HERRAMIENTAS_POR_SERVICIO[servicio].includes(renglon.herramienta)
         ? renglon.herramienta
         : null
-    cambiarItem({ servicio, herramienta, codigos_computo: [] })
+    cambiarItem({ servicio, servicio_elegido: true, herramienta, codigos_computo: [] })
   }
 
-  /**
-   * "SUMAR OTRA MECHA" y "AGREGAR OTRA HERRAMIENTA".
-   *
-   * Antes de abrir uno nuevo se valida el que está abierto: apilar renglones a
-   * medio cargar termina en una nota que no se puede crear y en un vendedor
-   * buscando cuál de los seis le falta.
-   */
   /**
    * ¿Entra otro renglón?
    *
@@ -374,17 +486,26 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     )
   }
 
+  /**
+   * "SUMAR OTRA MECHA" y "AGREGAR OTRA HERRAMIENTA".
+   *
+   * Antes de abrir uno nuevo se valida el que está abierto: apilar renglones a
+   * medio cargar termina en una nota que no se puede crear y en un vendedor
+   * buscando cuál de los seis le falta.
+   */
   function sumarRenglon(herramienta: Herramienta | null, servicio = renglon.servicio) {
     if (lugarLibre <= 0) {
       avisarSinLugar()
       return
     }
     setIntentado(true)
-    const { valido, errores: e } = validarItemNota(renglon)
+    const { valido, errores: e } = validarItemNota(renglon, { pedirServicio })
     setErrores(e as Record<string, string | undefined>)
     if (!valido) return
 
-    const nuevos = [...items, renglonNuevo(servicio, herramienta)]
+    // La operación del renglón nuevo la decidió el botón que se tocó, así que
+    // no hay nada que volver a preguntar.
+    const nuevos = [...items, renglonNuevo(servicio, herramienta, true)]
     setItems(nuevos)
     setActivo(nuevos.length - 1)
     setIntentado(false)
@@ -450,7 +571,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     }
     const nuevos = [
       ...items,
-      ...herramientasElegidas.map((hta) => renglonNuevo(renglon.servicio, hta)),
+      ...herramientasElegidas.map((hta) => renglonNuevo(renglon.servicio, hta, true)),
     ]
     setItems(nuevos)
     setActivo(items.length)
@@ -484,8 +605,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     ])
   }
 
+  /**
+   * Pasar de página valida SÓLO la que se está dejando.
+   *
+   * Antes se validaba la nota entera en cada CONTINUAR, así que la primera
+   * pantalla marcaba en rojo la condición de venta —un campo que recién
+   * aparece en la tercera— y no había forma de avanzar sin ir a buscarlo.
+   */
   function alContinuar() {
     setIntentado(true)
+
     const { valido, errores: e } = validarEncabezadoNota(encabezado, {
       servicios,
       tipoNota,
@@ -493,52 +622,70 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
       clienteAMano: CLIENTE_A_MANO,
+      partes: PARTES_DEL_PASO[paso],
     })
     setErrores(e as Record<string, string | undefined>)
     if (!valido) return
+
+    // De la segunda página no se sale con renglones a medio cargar: el que
+    // falta se resuelve acá, con la herramienta delante, y no tres pantallas
+    // después cuando ya no se acuerda cuál era.
+    if (paso === 2) {
+      const revision = validarRenglones(items, { pedirServicio })
+      if (!revision.valido) {
+        setActivo(revision.indice)
+        setErrores(revision.errores as Record<string, string | undefined>)
+        return
+      }
+    }
+
     setIntentado(false)
     setErrores({})
-    setPaso(2)
+    setPaso(paso === 1 ? 2 : 3)
+  }
+
+  /** Lo que se manda a la base, igual para crear y para corregir. */
+  function datosDeLaNota() {
+    return {
+      encabezado,
+      servicios,
+      tipoNota: tipoNota!,
+      // Fecha local, no UTC: `toISOString` adelanta el día a partir de las
+      // 21:00 en Argentina, así que una nota cargada de noche se guardaba con
+      // la entrega un día después de la que el vendedor había elegido —y la
+      // pantalla le seguía mostrando la correcta.
+      fechaEntrega: fechaLocalISO(fechaEntrega!),
+      items,
+      tipoCambio: cambioEnUso,
+      // La fecha es la del dólar oficial. Si el vendedor puso otro
+      // cambio, esa fecha ya no describe de dónde salió el número: se deja
+      // en null en vez de atribuirle al oficial un valor que no es suyo.
+      cotizacionFecha: cambioPisado ? null : (cotizacion?.fecha ?? null),
+      observaciones: observacionesCargadas,
+      condicionVenta: condicionVenta!,
+      condicionVentaDetalle: condicionDetalle,
+    }
+  }
+
+  function exigirCotizacion() {
+    /**
+     * La cotización sólo hace falta si hay algo cotizado en dólares.
+     *
+     * Antes se exigía siempre, así que una nota de afilado —que va toda en
+     * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
+     * no había cotización.
+     */
+    if (hayDolares && cambioEnUso <= 0) {
+      throw new Error(
+        'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
+      )
+    }
   }
 
   const guardar = useMutation({
     mutationFn: async () => {
-      /**
-       * La cotización sólo hace falta si hay algo cotizado en dólares.
-       *
-       * Antes se exigía siempre, así que una nota de afilado —que va toda en
-       * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
-       * no había cotización, mientras el cartel de arriba decía justo lo
-       * contrario: "los precios en dólares no se van a convertir".
-       */
-      if (hayDolares && cambioEnUso <= 0) {
-        throw new Error(
-          'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
-        )
-      }
-
-      return crearNotaPedido({
-        encabezado,
-        servicios,
-        tipoNota: tipoNota!,
-        // Fecha local, no UTC: `toISOString` adelanta el día a partir de las
-        // 21:00 en Argentina, así que una nota cargada de noche se guardaba con
-        // la entrega un día después de la que el vendedor había elegido —y la
-        // pantalla le seguía mostrando la correcta.
-        fechaEntrega: fechaLocalISO(fechaEntrega!),
-        items,
-        tipoCambio: cambioEnUso,
-        // La fecha es la del dólar oficial. Si el vendedor puso otro
-        // cambio, esa fecha ya no describe de dónde salió el número: se deja
-        // en null en vez de atribuirle al oficial un valor que no es suyo.
-        cotizacionFecha: cambioPisado ? null : (cotizacion?.fecha ?? null),
-        // Lo que quedó escrito en el campo y no se agregó con el botón cuenta
-        // igual. Antes se descartaba en silencio: el vendedor escribía la
-        // observación, creaba la nota, y salía impresa sin ella.
-        observaciones: observacionPendiente ? [...observaciones, observacionPendiente] : observaciones,
-        condicionVenta: condicionVenta!,
-        condicionVentaDetalle: condicionDetalle,
-      })
+      exigirCotizacion()
+      return crearNotaPedido(datosDeLaNota())
     },
     onSuccess: async (notas) => {
       setCreadas(notas.map((n) => n.id))
@@ -574,6 +721,34 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     onError: (e: Error) => Alert.alert('No pudimos crear la nota', e.message),
   })
 
+  const corregir = useMutation({
+    mutationFn: async () => {
+      exigirCotizacion()
+      return corregirNotaPedido({
+        ...datosDeLaNota(),
+        notaId: notaId!,
+        observacionesDelSistema,
+      })
+    },
+    onSuccess: async () => {
+      await cliente.invalidateQueries()
+      Alert.alert(
+        'Nota corregida',
+        'Queda guardada con los cambios y sigue pendiente de imprimir. El número no cambió.',
+        [
+          {
+            text: 'Ver cómo quedó',
+            onPress: () => navigation.navigate('VistaPrevia', { notaIds: [notaId!] }),
+          },
+          { text: 'Listo', onPress: () => navigation.navigate('NotasPendientes') },
+        ],
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos guardar los cambios', e.message),
+  })
+
+  const guardando = guardar.isPending || corregir.isPending
+
   function alCrear() {
     /**
      * La nota ya salió: no se vuelve a crear.
@@ -584,7 +759,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
      * idéntica, con otro número, que Administración recibía como si fueran dos
      * pedidos distintos.
      */
-    if (creadas.length > 0) {
+    if (!corrigiendo && creadas.length > 0) {
       Alert.alert(
         'Esta nota ya se creó',
         'Si querés verla o imprimirla, tocá "VER LA NOTA". Para cargar otro pedido, volvé y empezá una nueva.',
@@ -600,15 +775,42 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     }
 
     setIntentado(true)
-    // Se validan todos, no sólo el que está abierto: el vendedor puede haber
-    // dejado a medias uno de más arriba. Si falla, la pantalla salta a ése.
-    const { valido, indice, errores: e } = validarRenglones(items)
-    setErrores(e as Record<string, string | undefined>)
+
+    // Antes de guardar se mira la nota entera, no sólo esta página: desde acá
+    // se puede volver atrás y dejar algo sin completar.
+    const { valido, errores: eEncabezado } = validarEncabezadoNota(encabezado, {
+      servicios,
+      tipoNota,
+      fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
+      condicionVenta,
+      condicionVentaDetalle: condicionDetalle,
+      clienteAMano: CLIENTE_A_MANO,
+    })
+
     if (!valido) {
-      setActivo(indice)
+      setErrores(eEncabezado as Record<string, string | undefined>)
+      // Se salta a la página donde está el campo que falta: marcarlo en rojo
+      // en una pantalla que no se está viendo no le sirve a nadie.
+      const faltantes = Object.keys(eEncabezado)
+      const destino = ([1, 2, 3] as const).find((p) =>
+        PARTES_DEL_PASO[p].some((parte) => CAMPOS_DE_LA_PAGINA[parte].some((c) => faltantes.includes(c))),
+      )
+      if (destino && destino !== paso) setPaso(destino)
       return
     }
-    guardar.mutate()
+
+    // Se validan todos, no sólo el que está abierto: el vendedor puede haber
+    // dejado a medias uno de más arriba. Si falla, la pantalla salta a ése.
+    const revision = validarRenglones(items, { pedirServicio })
+    setErrores(revision.errores as Record<string, string | undefined>)
+    if (!revision.valido) {
+      setActivo(revision.indice)
+      setPaso(2)
+      return
+    }
+
+    if (corrigiendo) corregir.mutate()
+    else guardar.mutate()
   }
 
   const tipoCambio = cambioEnUso
@@ -616,6 +818,26 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
   const grupos = agruparParaNotas(items, tipoCambio)
+
+  // ── Mientras se trae la nota que se va a corregir ────────────────────────
+  if (corrigiendo && !cargado) {
+    return (
+      <Pantalla>
+        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Panel contentStyle={estilos.contenido}>
+          <BarraPanel alVolver={() => navigation.goBack()} />
+          {errorNota ? (
+            <Aviso tono="error" titulo="No pudimos abrir la nota">
+              Revisá la conexión. La nota sigue guardada tal cual estaba: esto es un problema para
+              leerla, no algo que le haya pasado.
+            </Aviso>
+          ) : (
+            <Cargando texto={cargandoNota ? 'Buscando la nota…' : 'Abriendo la nota…'} />
+          )}
+        </Panel>
+      </Pantalla>
+    )
+  }
 
   return (
     <Pantalla>
@@ -627,29 +849,38 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       >
         <Panel contentStyle={estilos.contenido}>
           <BarraPanel
-            alVolver={() => (paso === 2 ? setPaso(1) : navigation.goBack())}
+            alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
           />
 
-          <TituloPanel>{'GENERAR NUEVA\nNOTA DE PEDIDO'}</TituloPanel>
+          <TituloPanel>
+            {corrigiendo ? 'CORREGIR NOTA\nDE PEDIDO' : 'GENERAR NUEVA\nNOTA DE PEDIDO'}
+          </TituloPanel>
+
+          {corrigiendo ? (
+            <Aviso tono="info" titulo={numeroDeNota(borrador?.numero ?? null)}>
+              Todavía no se imprimió, así que se puede corregir entera. Al guardar se reemplaza lo
+              que decía; el número no cambia.
+            </Aviso>
+          ) : null}
 
           <View style={estilos.pasos}>
-            <Pastilla
-              texto="1 · CLIENTE"
-              color={paso === 1 ? colores.rojo : colores.tintaTenue}
-            />
+            <Pastilla texto="1 · CLIENTE" color={paso === 1 ? colores.rojo : colores.tintaTenue} />
             <Pastilla
               texto="2 · HERRAMIENTA"
               color={paso === 2 ? colores.rojo : colores.tintaTenue}
             />
+            <Pastilla
+              texto="3 · FACTURACIÓN"
+              color={paso === 3 ? colores.rojo : colores.tintaTenue}
+            />
           </View>
 
+          {/* ── 1 · A quién se le hace la nota ──────────────────────────── */}
           {paso === 1 ? (
             <>
-              <PasoEncabezado
+              <PasoCliente
                 form={encabezado}
                 alCambiar={cambiarEncabezado}
-                servicios={servicios}
-                alCambiarServicios={cambiarServicios}
                 alCrearCliente={() =>
                   navigation.navigate('NuevoCliente', {
                     nombreInicial: encabezado.cliente_nombre,
@@ -659,6 +890,225 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 errores={errores}
                 ubicacionInicial={ubicacionNueva}
                 codigoVendedorUsuario={perfil?.codigo_vendedor}
+              />
+
+              <BotonSecundario
+                titulo={
+                  fechaEntrega
+                    ? `Entrega: ${formatearFechaCorta(fechaEntrega)}`
+                    : 'Elegir fecha de entrega'
+                }
+                alTocar={() => setCalendario(true)}
+              />
+              {/* De dónde salió la que está puesta. Sin esto, una fecha que
+                  aparece sola se lee como una fecha acordada con el cliente. */}
+              <Text style={estilos.porTendencia}>
+                Puesta sola a una semana. Cambiala si acordaste otra.
+              </Text>
+              <MensajeError>{errores.fecha_entrega}</MensajeError>
+
+              {calendario ? (
+                <DateTimePicker
+                  value={fechaEntrega ?? fechaEntregaPorDefecto()}
+                  mode="date"
+                  display="calendar"
+                  minimumDate={new Date()}
+                  onChange={(_e, f) => {
+                    setCalendario(false)
+                    if (f) {
+                      setFechaEntrega(f)
+                      if (intentado) revalidarEncabezado(encabezado, servicios)
+                    }
+                  }}
+                />
+              ) : null}
+
+              <BotonMenu titulo="CONTINUAR" alTocar={alContinuar} />
+            </>
+          ) : null}
+
+          {/* ── 2 · Qué trajo el cliente ────────────────────────────────── */}
+          {paso === 2 ? (
+            <>
+              <ResumenCliente encabezado={encabezado} servicios={servicios} tipoNota={null} />
+
+              <PasoOperacion
+                form={encabezado}
+                alCambiar={cambiarEncabezado}
+                servicios={servicios}
+                alCambiarServicios={cambiarServicios}
+                errores={errores}
+              />
+
+              {servicios.length === 0 ? (
+                <Aviso tono="atencion" titulo="Falta el tipo de operación">
+                  Elegí arriba qué vino a hacer el cliente. De eso dependen los campos que pide cada
+                  renglón.
+                </Aviso>
+              ) : (
+                <>
+                  {items.length > 1 ? (
+                    <View style={estilos.renglones}>
+                      <Text style={estilos.renglonesTitulo}>
+                        RENGLONES DE LA NOTA · {items.length} de {MAXIMO_RENGLONES}
+                      </Text>
+                      {items.map((r, i) => (
+                        <TarjetaRenglon
+                          key={i}
+                          indice={i}
+                          item={r}
+                          pedirServicio={pedirServicio}
+                          abierto={i === activo}
+                          alEditar={() => irARenglon(i)}
+                          alQuitar={() => quitarRenglon(i)}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {/* Con una sola operación tildada no hay nada que elegir.
+                      Con varias arranca SIN elegir: un renglón que se abre ya
+                      resuelto en la primera de la lista es un renglón que
+                      nadie mira, y ahí es donde una venta terminaba cargada
+                      como afilado. */}
+                  {pedirServicio ? (
+                    <Desplegable<TipoServicio>
+                      etiqueta="ESTE RENGLÓN ES DE"
+                      obligatorio
+                      marcador="Elegí la operación"
+                      valor={renglon.servicio_elegido ? renglon.servicio : null}
+                      items={servicios.map((s) => ({
+                        valor: s,
+                        etiqueta: ETIQUETA_TIPO_SERVICIO[s],
+                      }))}
+                      alCambiar={cambiarServicioDelRenglon}
+                      error={errores.servicio}
+                    />
+                  ) : null}
+
+                  {pedirServicio && !renglon.servicio_elegido ? (
+                    <Aviso tono="info" titulo="Elegí la operación de este renglón">
+                      La nota lleva {servicios.length} operaciones y cada renglón va con una. Los
+                      campos que hay que completar dependen de cuál sea.
+                    </Aviso>
+                  ) : (
+                    <>
+                      {/*
+                        La clave remonta el formulario al cambiar de renglón. El
+                        buscador de códigos guarda estado propio y arrastrar el de
+                        otro renglón sería peor que no mostrar nada.
+                      */}
+                      {renglon.servicio === 'venta' ? (
+                        <FormularioVenta
+                          key={activo}
+                          item={renglon}
+                          alCambiar={cambiarItem}
+                          errores={errores}
+                          tipoCambio={cambioEnUso}
+                        />
+                      ) : (
+                        <PasoRenglon
+                          key={activo}
+                          item={renglon}
+                          alCambiar={cambiarItem}
+                          errores={errores}
+                        />
+                      )}
+
+                      {/* Cargar otro renglón es lo mismo que cerrar éste: se valida igual. */}
+                      {renglon.servicio === 'venta' ? (
+                        <BotonSecundario
+                          titulo="⊕  AGREGAR OTRO ARTÍCULO"
+                          alTocar={() => sumarRenglon(null)}
+                        />
+                      ) : (
+                        <>
+                          {/*
+                            Varias herramientas de la misma medida entran en un renglón.
+                            Medidas distintas, no: cada ancho da un código de cómputo y
+                            un precio distintos, así que separarlas es lo único que
+                            puede cotizar bien. El botón hace esa separación.
+                          */}
+                          {aNumero(renglon.cantidad) > 1 && renglon.herramienta ? (
+                            <BotonSecundario
+                              titulo={`⊘  SEPARAR: NO TODAS SON DE LA MISMA MEDIDA`}
+                              alTocar={separarPorMedida}
+                            />
+                          ) : null}
+
+                          {renglon.herramienta ? (
+                            <BotonSecundario
+                              titulo={`⊕  ${SUMAR_OTRA[renglon.herramienta]}`}
+                              alTocar={() => sumarRenglon(renglon.herramienta)}
+                            />
+                          ) : null}
+
+                          <BotonSecundario
+                            titulo={
+                              seleccionandoHerramientas
+                                ? '▲  CERRAR LA LISTA'
+                                : '⊕  AGREGAR OTRAS HERRAMIENTAS'
+                            }
+                            alTocar={() => setSeleccionandoHerramientas((v) => !v)}
+                          />
+
+                          {seleccionandoHerramientas ? (
+                            <View style={estilos.multiple}>
+                              <Text style={estilos.multipleTitulo}>
+                                Marcá todas las que traiga el cliente. Se agrega un renglón por cada
+                                una.
+                              </Text>
+                              {HERRAMIENTAS_POR_SERVICIO[renglon.servicio].map((hta) => (
+                                <Casilla
+                                  key={hta}
+                                  etiqueta={ETIQUETA_HERRAMIENTA[hta]}
+                                  valor={herramientasElegidas.includes(hta)}
+                                  alCambiar={(v) =>
+                                    setHerramientasElegidas((prev) =>
+                                      v ? [...prev, hta] : prev.filter((x) => x !== hta),
+                                    )
+                                  }
+                                />
+                              ))}
+                              <BotonSecundario
+                                titulo={`AGREGAR ${herramientasElegidas.length || ''} RENGLÓN${herramientasElegidas.length === 1 ? '' : 'ES'}`}
+                                alTocar={agregarHerramientasElegidas}
+                              />
+                            </View>
+                          ) : null}
+                        </>
+                      )}
+
+                      {/* ── Renglones de OTRA operación ──────────────────────
+                          Los botones de arriba siempre siguen la operación del
+                          renglón abierto: estando en una venta, todos agregaban
+                          otra venta y no había forma visible de sumar el afilado
+                          que el cliente trajo en la misma visita. */}
+                      {servicios
+                        .filter((s) => s !== renglon.servicio)
+                        .map((s) => (
+                          <BotonSecundario
+                            key={s}
+                            titulo={`⊕  AGREGAR RENGLÓN DE ${ETIQUETA_TIPO_SERVICIO[s]}`}
+                            alTocar={() => sumarRenglon(null, s)}
+                          />
+                        ))}
+                    </>
+                  )}
+                </>
+              )}
+
+              <BotonMenu titulo="CONTINUAR" alTocar={alContinuar} />
+            </>
+          ) : null}
+
+          {/* ── 3 · Cómo se cobra ───────────────────────────────────────── */}
+          {paso === 3 ? (
+            <>
+              <ResumenCliente
+                encabezado={encabezado}
+                servicios={servicios}
+                tipoNota={tipoNota}
               />
 
               <Desplegable<TipoNotaPedido>
@@ -747,102 +1197,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 />
               ) : null}
 
-              <BotonSecundario
-                titulo={
-                  fechaEntrega
-                    ? `Entrega: ${formatearFechaCorta(fechaEntrega)}`
-                    : 'Elegir fecha de entrega'
-                }
-                alTocar={() => setCalendario(true)}
-              />
-              <MensajeError>{errores.fecha_entrega}</MensajeError>
-
-              {calendario ? (
-                <DateTimePicker
-                  value={fechaEntrega ?? new Date()}
-                  mode="date"
-                  display="calendar"
-                  minimumDate={new Date()}
-                  onChange={(_e, f) => {
-                    setCalendario(false)
-                    if (f) {
-                      setFechaEntrega(f)
-                      if (intentado) revalidarEncabezado(encabezado, servicios)
-                    }
-                  }}
-                />
-              ) : null}
-
-              <BotonMenu titulo="CONTINUAR" alTocar={alContinuar} />
-            </>
-          ) : (
-            <>
-              <View style={estilos.resumen}>
-                <Text style={estilos.resumenCliente} numberOfLines={1}>
-                  {encabezado.cliente_codigo ? `${encabezado.cliente_codigo} · ` : ''}
-                  {encabezado.cliente_nombre}
-                </Text>
-                <View style={estilos.resumenPastillas}>
-                  {servicios.map((s) => (
-                    <Pastilla key={s} texto={ETIQUETA_TIPO_SERVICIO[s]} color={colores.rojo} />
-                  ))}
-                  {tipoNota ? (
-                    <Pastilla texto={ETIQUETA_TIPO_NOTA[tipoNota]} color={colores.azul} />
-                  ) : null}
-                </View>
-              </View>
-
-              {items.length > 1 ? (
-                <View style={estilos.renglones}>
-                  <Text style={estilos.renglonesTitulo}>
-                    RENGLONES DE LA NOTA · {items.length} de {MAXIMO_RENGLONES}
-                  </Text>
-                  {items.map((r, i) => (
-                    <TarjetaRenglon
-                      key={i}
-                      indice={i}
-                      item={r}
-                      abierto={i === activo}
-                      alEditar={() => irARenglon(i)}
-                      alQuitar={() => quitarRenglon(i)}
-                    />
-                  ))}
-                </View>
-              ) : null}
-
-              {/* Con un solo servicio tildado no hay nada que elegir. */}
-              {servicios.length > 1 ? (
-                <Desplegable<TipoServicio>
-                  etiqueta="SERVICIO DE ESTE RENGLÓN"
-                  obligatorio
-                  valor={renglon.servicio}
-                  items={servicios.map((s) => ({ valor: s, etiqueta: ETIQUETA_TIPO_SERVICIO[s] }))}
-                  alCambiar={cambiarServicioDelRenglon}
-                />
-              ) : null}
-
-              {/*
-                La clave remonta el formulario al cambiar de renglón. El buscador
-                de códigos guarda estado propio y arrastrar el de otro renglón
-                sería peor que no mostrar nada.
-              */}
-              {renglon.servicio === 'venta' ? (
-                <FormularioVenta
-                  key={activo}
-                  item={renglon}
-                  alCambiar={cambiarItem}
-                  errores={errores}
-                  tipoCambio={cambioEnUso}
-                />
-              ) : (
-                <PasoRenglon
-                  key={activo}
-                  item={renglon}
-                  alCambiar={cambiarItem}
-                  errores={errores}
-                />
-              )}
-
               {/* ── Cómo se va a repartir en notas ──────────────────────────
                   El afilado se cobra en pesos y la venta se cotiza en dólares:
                   no pueden ir en el mismo comprobante. Se muestra antes de
@@ -850,7 +1204,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               {grupos.length > 1 ? (
                 <View style={estilos.grupos}>
                   <Text style={estilos.gruposTitulo}>
-                    ESTO SALE EN {grupos.length} NOTAS DE PEDIDO
+                    {corrigiendo
+                      ? 'ESTO YA NO ENTRA EN UNA SOLA NOTA'
+                      : `ESTO SALE EN ${grupos.length} NOTAS DE PEDIDO`}
                   </Text>
                   {grupos.map((g) => (
                     <View key={g.grupo} style={estilos.grupo}>
@@ -864,75 +1220,77 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                       </Text>
                     </View>
                   ))}
+                  {corrigiendo ? (
+                    <Text style={estilos.grupoDetalle}>
+                      Esta nota ya tiene su número y no se puede partir en dos. Sacá de acá lo que
+                      no corresponda y cargalo en una nota nueva.
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
 
-              {/* El tipo de cambio no se tipea: se trae y se congela en la nota. */}
-              <View style={estilos.cambio}>
-                <Text style={estilos.cambioRotulo}>TIPO DE CAMBIO</Text>
-                {cargandoCotizacion ? (
-                  <Text style={estilos.cambioValor}>Buscando…</Text>
-                ) : cotizacion ? (
-                  <>
-                    <Text style={estilos.cambioValor}>{formatearPesos(cambioEnUso)}</Text>
-                    <Text style={estilos.cambioNota}>
-                      {cambioPisado
-                        ? `Lo pusiste vos. El oficial del ${formatearFechaCorta(cotizacion.fecha)} es ${formatearPesos(cotizacion.venta)}.`
-                        : `Dólar oficial del ${formatearFechaCorta(cotizacion.fecha)}${cotizacion.aproximada ? ' (última disponible)' : ''}`}
-                    </Text>
+              {/* ── Tipo de cambio ──────────────────────────────────────────
+                  Aparece SÓLO cuando hay algo cotizado en dólares. El afilado
+                  se cobra en pesos y la nota sale sin cotización impresa: el
+                  recuadro ahí no decía nada, y un número grande en otra moneda
+                  al lado del total es una invitación a leerlo mal. */}
+              {hayDolares ? (
+                <View style={estilos.cambio}>
+                  <Text style={estilos.cambioRotulo}>TIPO DE CAMBIO</Text>
+                  {cargandoCotizacion ? (
+                    <Text style={estilos.cambioValor}>Buscando…</Text>
+                  ) : cotizacion ? (
+                    <>
+                      <Text style={estilos.cambioValor}>{formatearPesos(cambioEnUso)}</Text>
+                      <Text style={estilos.cambioNota}>
+                        {cambioPisado
+                          ? `Lo pusiste vos. El oficial del ${formatearFechaCorta(cotizacion.fecha)} es ${formatearPesos(cotizacion.venta)}.`
+                          : `Dólar oficial del ${formatearFechaCorta(cotizacion.fecha)}${cotizacion.aproximada ? ' (última disponible)' : ''}`}
+                      </Text>
 
-                    {/*
-                      El vendedor puede acordar otro cambio con el cliente, y de
-                      hecho lo hace. Antes no había dónde ponerlo: la nota se
-                      armaba con el oficial y la diferencia se arreglaba después
-                      por teléfono, o salía mal cobrada.
-
-                      El oficial se sigue mostrando al lado: es contra lo que se
-                      compara para saber si el acordado es razonable.
-                    */}
-                    {editandoCambio ? (
-                      <View style={estilos.cambioEdicion}>
-                        <Campo
-                          etiqueta="TIPO DE CAMBIO A USAR"
-                          value={cambioPropio}
-                          onChangeText={(t) => setCambioPropio(soloNumeros(t))}
-                          keyboardType="decimal-pad"
-                          placeholder={String(cotizacion.venta)}
-                          ayuda={
-                            cambioElegido > 0
-                              ? `Se va a usar ${formatearPesos(cambioElegido)} en toda la nota.`
-                              : 'Dejalo vacío para usar el oficial.'
-                          }
-                        />
+                      {/*
+                        El vendedor puede acordar otro cambio con el cliente, y de
+                        hecho lo hace. Antes no había dónde ponerlo: la nota se
+                        armaba con el oficial y la diferencia se arreglaba después
+                        por teléfono, o salía mal cobrada.
+                      */}
+                      {editandoCambio ? (
+                        <View style={estilos.cambioEdicion}>
+                          <Campo
+                            etiqueta="TIPO DE CAMBIO A USAR"
+                            value={cambioPropio}
+                            onChangeText={(t) => setCambioPropio(soloNumeros(t))}
+                            keyboardType="decimal-pad"
+                            placeholder={String(cotizacion.venta)}
+                            ayuda={
+                              cambioElegido > 0
+                                ? `Se va a usar ${formatearPesos(cambioElegido)} en toda la nota.`
+                                : 'Dejalo vacío para usar el oficial.'
+                            }
+                          />
+                          <BotonSecundario
+                            titulo="Volver al oficial"
+                            alTocar={() => {
+                              setCambioPropio('')
+                              setEditandoCambio(false)
+                            }}
+                          />
+                        </View>
+                      ) : (
                         <BotonSecundario
-                          titulo="Volver al oficial"
-                          alTocar={() => {
-                            setCambioPropio('')
-                            setEditandoCambio(false)
-                          }}
+                          titulo="✎  Usar otro tipo de cambio"
+                          alTocar={() => setEditandoCambio(true)}
                         />
-                      </View>
-                    ) : (
-                      <BotonSecundario
-                        titulo="✎  Usar otro tipo de cambio"
-                        alTocar={() => setEditandoCambio(true)}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {/* Dice lo que pasa DE VERDAD según esta nota. Antes decía
-                        siempre "los precios en dólares no se van a convertir",
-                        incluso cuando la falta de cotización trababa por
-                        completo la creación de la nota. */}
-                    <Text style={estilos.cambioError}>
-                      {hayDolares
-                        ? 'No pudimos traer la cotización, y esta nota tiene renglones en dólares. Reintentá, o poné el tipo de cambio a mano para poder crearla.'
-                        : 'No pudimos traer la cotización. Esta nota va toda en pesos, así que se puede crear igual.'}
-                    </Text>
-                    {/* Sin señal, tipearlo es la única salida: sin esto la nota
-                        con dólares quedaba trabada hasta volver a tener red. */}
-                    {hayDolares ? (
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={estilos.cambioError}>
+                        No pudimos traer la cotización, y esta nota tiene renglones en dólares.
+                        Reintentá, o poné el tipo de cambio a mano para poder guardarla.
+                      </Text>
+                      {/* Sin señal, tipearlo es la única salida: sin esto la nota
+                          con dólares quedaba trabada hasta volver a tener red. */}
                       <Campo
                         etiqueta="TIPO DE CAMBIO A USAR"
                         value={cambioPropio}
@@ -944,126 +1302,57 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                             : 'Poné el valor que acordaste con el cliente.'
                         }
                       />
-                    ) : null}
-                    <BotonSecundario
-                      titulo={buscandoCotizacion ? 'Buscando…' : '↻  Reintentar'}
-                      alTocar={() => void reintentarCotizacion()}
-                      deshabilitado={buscandoCotizacion}
-                    />
-                  </>
-                )}
-              </View>
-
-              {/* Cargar otro renglón es lo mismo que cerrar éste: se valida igual. */}
-              {renglon.servicio === 'venta' ? (
-                <BotonSecundario
-                  titulo="⊕  AGREGAR OTRO ARTÍCULO"
-                  alTocar={() => sumarRenglon(null)}
-                />
-              ) : (
-                <>
-                  {/*
-                    Varias herramientas de la misma medida entran en un renglón.
-                    Medidas distintas, no: cada ancho da un código de cómputo y
-                    un precio distintos, así que separarlas es lo único que
-                    puede cotizar bien. El botón hace esa separación.
-                  */}
-                  {aNumero(renglon.cantidad) > 1 && renglon.herramienta ? (
-                    <BotonSecundario
-                      titulo={`⊘  SEPARAR: NO TODAS SON DE LA MISMA MEDIDA`}
-                      alTocar={separarPorMedida}
-                    />
-                  ) : null}
-
-                  {renglon.herramienta ? (
-                    <BotonSecundario
-                      titulo={`⊕  ${SUMAR_OTRA[renglon.herramienta]}`}
-                      alTocar={() => sumarRenglon(renglon.herramienta)}
-                    />
-                  ) : null}
-
-                  <BotonSecundario
-                    titulo={
-                      seleccionandoHerramientas
-                        ? '▲  CERRAR LA LISTA'
-                        : '⊕  AGREGAR OTRAS HERRAMIENTAS'
-                    }
-                    alTocar={() => setSeleccionandoHerramientas((v) => !v)}
-                  />
-
-                  {seleccionandoHerramientas ? (
-                    <View style={estilos.multiple}>
-                      <Text style={estilos.multipleTitulo}>
-                        Marcá todas las que traiga el cliente. Se agrega un renglón por cada una.
-                      </Text>
-                      {HERRAMIENTAS_POR_SERVICIO[renglon.servicio].map((hta) => (
-                        <Casilla
-                          key={hta}
-                          etiqueta={ETIQUETA_HERRAMIENTA[hta]}
-                          valor={herramientasElegidas.includes(hta)}
-                          alCambiar={(v) =>
-                            setHerramientasElegidas((prev) =>
-                              v ? [...prev, hta] : prev.filter((x) => x !== hta),
-                            )
-                          }
-                        />
-                      ))}
                       <BotonSecundario
-                        titulo={`AGREGAR ${herramientasElegidas.length || ''} RENGLÓN${herramientasElegidas.length === 1 ? '' : 'ES'}`}
-                        alTocar={agregarHerramientasElegidas}
+                        titulo={buscandoCotizacion ? 'Buscando…' : '↻  Reintentar'}
+                        alTocar={() => void reintentarCotizacion()}
+                        deshabilitado={buscandoCotizacion}
                       />
-                    </View>
-                  ) : null}
-                </>
-              )}
-
-              {/* ── Renglones de OTRO servicio ──────────────────────────────
-                  Los botones de arriba siempre siguen el servicio del renglón
-                  abierto: estando en una venta, todos agregaban otra venta y no
-                  había forma visible de sumar el afilado que el cliente trajo
-                  en la misma visita. Había que agregar un renglón y después
-                  cambiarle el servicio con el desplegable de arriba, que nadie
-                  encontró. Estos botones hacen las dos cosas de una. */}
-              {servicios.filter((s) => s !== renglon.servicio).map((s) => (
-                <BotonSecundario
-                  key={s}
-                  titulo={`⊕  AGREGAR RENGLÓN DE ${ETIQUETA_TIPO_SERVICIO[s]}`}
-                  alTocar={() => sumarRenglon(null, s)}
-                />
-              ))}
+                    </>
+                  )}
+                </View>
+              ) : null}
 
               {/* ── Observaciones ──────────────────────────────────────────
                   Van a la columna "Observaciones" del talonario, una por
-                  renglón, igual que en el formulario de papel. */}
+                  renglón, igual que en el formulario de papel. Sesenta
+                  caracteres es lo que entra en esa columna: más no se imprime,
+                  se corta, así que se frena acá y no en el papel. */}
               <View style={estilos.observaciones}>
                 <Text style={estilos.observacionesTitulo}>OBSERVACIONES</Text>
 
-                {observaciones.map((o, i) => (
-                  <View key={`${o}-${i}`} style={estilos.observacion}>
+                {observaciones.map((texto, i) => (
+                  <View key={i} style={estilos.observacion}>
                     <Text style={estilos.observacionNumero}>{i + 1}</Text>
-                    <Text style={estilos.observacionTexto}>{o}</Text>
-                    <Pressable
-                      onPress={() => setObservaciones((prev) => prev.filter((_, k) => k !== i))}
-                      hitSlop={10}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Quitar la observación ${i + 1}`}
-                    >
-                      <Text style={estilos.observacionQuitar}>✕</Text>
-                    </Pressable>
+                    <Campo
+                      value={texto}
+                      onChangeText={(t) => escribirObservacion(i, t)}
+                      placeholder={i === 0 ? 'Ej. Retira el jueves a la mañana' : ''}
+                      maxLength={OBSERVACION_MAXIMO_CARACTERES}
+                      contenedorStyle={estilos.observacionCampo}
+                    />
+                    {observaciones.length > 1 ? (
+                      <Pressable
+                        onPress={() => quitarObservacion(i)}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Quitar la observación ${i + 1}`}
+                      >
+                        <Text style={estilos.observacionQuitar}>✕</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ))}
 
-                <Campo
-                  etiqueta=""
-                  value={observacionNueva}
-                  onChangeText={setObservacionNueva}
-                  placeholder="Ej. Retira el jueves a la mañana"
-                  multiline
-                  numberOfLines={2}
-                  onSubmitEditing={agregarObservacion}
-                />
+                <Text style={estilos.observacionesAyuda}>
+                  Una por renglón, hasta {OBSERVACION_MAXIMO_CARACTERES} caracteres cada una. El
+                  renglón siguiente aparece solo.
+                </Text>
 
-                <BotonSecundario titulo="⊕  AGREGAR RENGLÓN" alTocar={agregarObservacion} />
+                {observacionesDelSistema.length > 0 ? (
+                  <Text style={estilos.observacionesAyuda}>
+                    {observacionesDelSistema.join(' · ')} — lo pone el sistema y se mantiene.
+                  </Text>
+                ) : null}
               </View>
 
               {totalNota > 0 ? (
@@ -1077,20 +1366,78 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
               {intentado && Object.keys(errores).length > 0 ? (
                 <Aviso tono="error" titulo="Faltan datos">
-                  Revisá los campos marcados en rojo antes de crear la nota.
+                  Revisá los campos marcados en rojo antes de guardar.
                 </Aviso>
               ) : null}
 
               <BotonMenu
-                titulo={grupos.length > 1 ? `CREAR ${grupos.length}\nNOTAS DE PEDIDO` : 'CREAR NOTA\nDE PEDIDO'}
+                titulo={
+                  corrigiendo
+                    ? 'GUARDAR LOS\nCAMBIOS'
+                    : grupos.length > 1
+                      ? `CREAR ${grupos.length}\nNOTAS DE PEDIDO`
+                      : 'CREAR NOTA\nDE PEDIDO'
+                }
                 alTocar={alCrear}
-                cargando={guardar.isPending}
+                cargando={guardando}
               />
             </>
-          )}
+          ) : null}
         </Panel>
       </KeyboardAvoidingView>
     </Pantalla>
+  )
+}
+
+/** Qué se valida al salir de cada página. */
+const PARTES_DEL_PASO: Record<1 | 2 | 3, ParteDeLaNota[]> = {
+  1: ['cliente'],
+  2: ['operacion'],
+  3: ['facturacion'],
+}
+
+/** Los mismos campos, para poder llevar al vendedor a la página que le falta. */
+const CAMPOS_DE_LA_PAGINA: Record<ParteDeLaNota, string[]> = {
+  cliente: ['cliente', 'cliente_nombre', 'zona', 'datos_cliente', 'fecha_entrega'],
+  operacion: ['servicios'],
+  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
+}
+
+function numeroDeNota(numero: number | null): string {
+  return numero === null
+    ? 'Nota sin número todavía'
+    : `Nota de pedido Nº ${String(numero).padStart(6, '0')}`
+}
+
+/**
+ * Con quién es la nota, arriba de las páginas 2 y 3.
+ *
+ * En la segunda y la tercera el cliente ya no está en pantalla, y cargar seis
+ * renglones sin ver a quién se le están cargando es la clase de error que
+ * recién se descubre en la impresora.
+ */
+function ResumenCliente({
+  encabezado,
+  servicios,
+  tipoNota,
+}: {
+  encabezado: FormularioNotaEncabezado
+  servicios: TipoServicio[]
+  tipoNota: TipoNotaPedido | null
+}) {
+  return (
+    <View style={estilos.resumen}>
+      <Text style={estilos.resumenCliente} numberOfLines={1}>
+        {encabezado.cliente_codigo ? `${encabezado.cliente_codigo} · ` : ''}
+        {encabezado.cliente_nombre || 'Sin cliente'}
+      </Text>
+      <View style={estilos.resumenPastillas}>
+        {servicios.map((s) => (
+          <Pastilla key={s} texto={ETIQUETA_TIPO_SERVICIO[s]} color={colores.rojo} />
+        ))}
+        {tipoNota ? <Pastilla texto={ETIQUETA_TIPO_NOTA[tipoNota]} color={colores.azul} /> : null}
+      </View>
+    </View>
   )
 }
 
@@ -1104,18 +1451,20 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 function TarjetaRenglon({
   indice,
   item,
+  pedirServicio,
   abierto,
   alEditar,
   alQuitar,
 }: {
   indice: number
   item: FormularioItemNota
+  pedirServicio: boolean
   abierto: boolean
   alEditar: () => void
   alQuitar: () => void
 }) {
   const total = totalDelRenglon(item)
-  const completo = validarItemNota(item).valido
+  const completo = validarItemNota(item, { pedirServicio }).valido
 
   return (
     <View style={[estilos.tarjeta, abierto && estilos.tarjetaAbierta]}>
@@ -1342,7 +1691,12 @@ const estilos = StyleSheet.create({
     marginTop: -espaciado.xs,
   },
 
-  pasos: { flexDirection: 'row', gap: espaciado.sm, justifyContent: 'center' },
+  pasos: {
+    flexDirection: 'row',
+    gap: espaciado.xs,
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
 
   resumen: {
     backgroundColor: colores.campoBlanco,
@@ -1384,18 +1738,18 @@ const estilos = StyleSheet.create({
     color: colores.rojo,
     letterSpacing: 0.8,
   },
+  observacionesAyuda: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaSuave,
+  },
   observacion: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
+  observacionCampo: { flex: 1 },
   observacionNumero: {
     fontFamily: tipografia.familia.titulo,
     fontSize: tipografia.tamano.xs,
     color: colores.rojo,
     minWidth: 16,
-  },
-  observacionTexto: {
-    flex: 1,
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
   },
   observacionQuitar: {
     fontFamily: tipografia.familia.fuerte,
@@ -1512,12 +1866,19 @@ const estilos = StyleSheet.create({
   },
 
   cambioEdicion: { gap: espaciado.xs, marginTop: espaciado.sm },
+  /**
+   * Más chico que antes.
+   *
+   * Era el recuadro más grande de la pantalla —un número enorme, centrado—
+   * cuando en realidad es un dato de referencia: lo que se mira es el total.
+   */
   cambio: {
     backgroundColor: colores.panelClaro,
     borderWidth: 2,
     borderColor: colores.negro,
     borderRadius: radios.sm,
-    padding: espaciado.md,
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
     alignItems: 'center',
     gap: 2,
   },
@@ -1528,8 +1889,8 @@ const estilos = StyleSheet.create({
     letterSpacing: 0.8,
   },
   cambioValor: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.base,
     color: colores.tinta,
   },
   cambioNota: {
