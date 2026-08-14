@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('woodtools', {
   // publicar necesita el código y una sesión de Expo, que en una máquina donde
   // sólo se instaló el panel no están.
   proyectoDisponible: (): Promise<boolean> => ipcRenderer.invoke('proyecto-disponible'),
-  publicarActualizacion: (): Promise<{ ok: boolean; salida: string }> =>
-    ipcRenderer.invoke('publicar-actualizacion'),
+  // Si esto da false, publicar no sirve: la app se compiló sin la capacidad de
+  // recibir actualizaciones y el envío no le llega a ningún teléfono.
+  actualizacionesConfiguradas: (): Promise<boolean> =>
+    ipcRenderer.invoke('actualizaciones-configuradas'),
+  // El canal decide a QUÉ teléfonos llega: cada APK escucha el suyo.
+  publicarActualizacion: (canal: string): Promise<{ ok: boolean; salida: string }> =>
+    ipcRenderer.invoke('publicar-actualizacion', canal),
 })

@@ -93,14 +93,14 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
    * panel: no habría qué publicar.
    */
   const publicar = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (canal: string) => {
       const puente = window.woodtools
       if (!puente?.publicarActualizacion) {
         throw new Error(
           'Esta copia del panel no puede publicar: hace falta tenerla abierta desde la carpeta del proyecto.',
         )
       }
-      return puente.publicarActualizacion()
+      return puente.publicarActualizacion(canal)
     },
     onSuccess: (r) => {
       setSalidaPublicar(r.salida)
@@ -118,6 +118,25 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     queryKey: ['proyecto-disponible'],
     queryFn: async () => (await window.woodtools?.proyectoDisponible?.()) ?? false,
   })
+
+  /**
+   * ¿El circuito de actualizaciones está realmente prendido?
+   *
+   * Se pregunta aparte de "¿está el proyecto?" porque son dos cosas distintas y
+   * fallaban distinto. El proyecto estuvo siempre; lo que faltaba era la URL de
+   * actualizaciones, y sin ella la app se compila sin poder recibirlas. Durante
+   * seis versiones el botón dijo que publicaba y no le llegó a ningún teléfono.
+   */
+  const { data: otaPrendido = false } = useQuery({
+    queryKey: ['actualizaciones-configuradas'],
+    queryFn: async () => (await window.woodtools?.actualizacionesConfiguradas?.()) ?? false,
+  })
+
+  /**
+   * A qué teléfonos llega. Cada APK se compila escuchando un canal y sólo
+   * recibe lo que se publica ahí, así que elegir mal es publicar al vacío.
+   */
+  const [canal, setCanal] = useState('interno')
 
   const exigida = minimaEditada ?? minima ?? '0.0.0'
 
@@ -171,18 +190,48 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
           un APK nuevo.
         </p>
 
+        {/* Antes que nada: si el circuito está apagado, publicar no sirve y
+            decirlo vale más que un botón que miente. */}
+        {puedePublicar && !otaPrendido && (
+          <div className="aviso atencion" style={{ marginBottom: 12 }}>
+            <strong>Las actualizaciones por aire están apagadas.</strong> Falta completar{' '}
+            <code>EAS_UPDATE_URL</code> en el <code>.env</code> del proyecto. Mientras esté vacía,
+            la app se compila sin poder recibirlas y lo que se publique no le llega a ningún
+            celular. Hay que completarla y compilar un APK nuevo; a partir de ése, sí.
+          </div>
+        )}
+
         {puedePublicar ? (
-          <button
-            className="primario"
-            disabled={soloLectura || publicar.isPending}
-            onClick={() => {
-              if (confirm('¿Publicar la actualización para todos los celulares?')) {
-                publicar.mutate()
-              }
-            }}
-          >
-            {publicar.isPending ? 'Publicando… (puede tardar unos minutos)' : 'Publicar actualización'}
-          </button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+              <span style={{ color: 'var(--tinta-suave)' }}>A qué celulares</span>
+              <select
+                value={canal}
+                onChange={(e) => setCanal(e.target.value)}
+                disabled={soloLectura || publicar.isPending}
+              >
+                <option value="interno">Interno — los de prueba</option>
+                <option value="beta">Beta — los que están probando</option>
+                <option value="produccion">Producción — todos los vendedores</option>
+              </select>
+            </label>
+
+            <button
+              className="primario"
+              disabled={soloLectura || publicar.isPending || !otaPrendido}
+              onClick={() => {
+                /* El canal va en la pregunta: publicar al que no era es el
+                   error caro, y una vez publicado no se deshace. */
+                if (confirm(`¿Publicar la actualización a los celulares del canal "${canal}"?`)) {
+                  publicar.mutate(canal)
+                }
+              }}
+            >
+              {publicar.isPending
+                ? 'Publicando… (puede tardar unos minutos)'
+                : 'Publicar actualización'}
+            </button>
+          </div>
         ) : (
           <div className="aviso atencion">
             Esta copia del panel no puede publicar. Hay que abrirlo desde la carpeta del proyecto, en

@@ -17,6 +17,9 @@ interface Window {
     version: () => Promise<string>
     /** Sólo con el panel abierto desde la carpeta del proyecto. */
     proyectoDisponible?: () => Promise<boolean>
-    publicarActualizacion?: () => Promise<{ ok: boolean; salida: string }>
+    /** false cuando la app se compila sin poder recibir actualizaciones. */
+    actualizacionesConfiguradas?: () => Promise<boolean>
+    /** `canal` decide a qué teléfonos llega: cada APK escucha el suyo. */
+    publicarActualizacion?: (canal: string) => Promise<{ ok: boolean; salida: string }>
   }
 }

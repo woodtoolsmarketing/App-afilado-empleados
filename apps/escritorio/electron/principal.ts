@@ -113,10 +113,61 @@ function carpetaDelProyecto(): string | null {
 
 ipcMain.handle('proyecto-disponible', () => carpetaDelProyecto() !== null)
 
-ipcMain.handle('publicar-actualizacion', async () => {
+/**
+ * A qué canales se puede publicar, y con qué APK se corresponde cada uno.
+ *
+ * No es una lista decorativa: **una actualización sólo llega a los teléfonos
+ * cuyo APK se compiló para ese canal**. El panel publicaba siempre a
+ * `produccion`, y los teléfonos que hay hoy tienen el APK `interno`: aunque
+ * todo lo demás estuviera bien, no les llegaba nada y el panel decía que sí.
+ */
+const CANALES = ['interno', 'beta', 'produccion'] as const
+type Canal = (typeof CANALES)[number]
+
+/**
+ * ¿Está prendido el circuito de actualizaciones por aire?
+ *
+ * Sin `EAS_UPDATE_URL`, la app se compila con las actualizaciones apagadas y
+ * publicar no sirve de nada. Estuvo así seis versiones seguidas: la línea
+ * existía en el `.env` pero vacía, que para el código es lo mismo que no
+ * estar. El panel lo mira antes de ofrecer el botón, para no prometer algo que
+ * no va a pasar.
+ */
+function actualizacionesConfiguradas(raiz: string): boolean {
+  const archivo = path.join(raiz, '.env')
+  if (!fs.existsSync(archivo)) return false
+  const linea = fs
+    .readFileSync(archivo, 'utf8')
+    .split(/\r?\n/)
+    .find((l) => l.startsWith('EAS_UPDATE_URL='))
+  return !!linea && linea.slice('EAS_UPDATE_URL='.length).trim() !== ''
+}
+
+ipcMain.handle('actualizaciones-configuradas', () => {
+  const raiz = carpetaDelProyecto()
+  return raiz !== null && actualizacionesConfiguradas(raiz)
+})
+
+ipcMain.handle('publicar-actualizacion', async (_evento, canalPedido: string) => {
   const raiz = carpetaDelProyecto()
   if (!raiz) {
     return { ok: false, salida: 'No se encontró la carpeta del proyecto en esta máquina.' }
+  }
+
+  // El canal viene del renderer: se valida contra la lista y no se pasa nunca
+  // tal cual a la línea de comandos.
+  const canal: Canal = (CANALES as readonly string[]).includes(canalPedido)
+    ? (canalPedido as Canal)
+    : 'interno'
+
+  if (!actualizacionesConfiguradas(raiz)) {
+    return {
+      ok: false,
+      salida:
+        'Las actualizaciones por aire están apagadas: falta EAS_UPDATE_URL en el .env del ' +
+        'proyecto. Mientras esté vacía, la app se compila sin la capacidad de recibirlas y ' +
+        'publicar no le llega a ningún teléfono.',
+    }
   }
 
   const eas = path.join(raiz, 'node_modules', 'eas-cli', 'bin', 'run')
@@ -127,7 +178,7 @@ ipcMain.handle('publicar-actualizacion', async () => {
   return new Promise((resolver) => {
     const proceso = spawn(
       process.execPath,
-      [eas, 'update', '--branch', 'produccion', '--message', 'Actualización desde el panel'],
+      [eas, 'update', '--branch', canal, '--message', `Actualización desde el panel (${canal})`],
       {
         cwd: path.join(raiz, 'apps', 'movil'),
         // ELECTRON_RUN_AS_NODE hace que este mismo ejecutable se comporte como
