@@ -646,7 +646,7 @@ export function PasoRenglon({
         contenedorStyle={ancho === 'tercio' ? estilos.tercio : ancho === 'mitad' ? estilos.mitad : undefined}
         ayuda={
           esTotalCalculado
-            ? `${formatearPesos(aNumero(valor))} · sale de la cuenta. Para cambiarlo, tocá PRECIO POR DIENTE.`
+            ? `${cuentaDelRenglon(item)} · Para cambiarlo, tocá PRECIO POR DIENTE.`
             : esPrecio && aNumero(valor) > 0
               ? formatearPesos(aNumero(valor))
               : esMedida && aNumero(valor) > 0
@@ -1226,6 +1226,35 @@ export function PasoRenglon({
       })}
     </>
   )
+}
+
+/**
+ * La cuenta que da el precio total, escrita: `32 × $ 139.656,00 = $ 4.468.992,00`.
+ *
+ * El total salía solo como un importe, y un importe grande no se puede
+ * revisar: hay que aceptarlo o rehacer la cuenta a mano. Con la multiplicación
+ * a la vista se ve de dónde sale, y sobre todo se ve **cuántos** se están
+ * computando — que es donde se cuela el error caro.
+ *
+ * Pasó de verdad: un renglón de reparación de fresas quedó en $ 4.468.992
+ * porque el precio de reparar UN diente es $ 139.656 y se cargaron cuatro
+ * fresas de ocho dientes. La cuenta estaba bien; lo que no se veía era que
+ * eran treinta y dos dientes.
+ *
+ * Cuando el renglón tiene además reparación de dientes rotos son dos líneas
+ * con precios distintos, y se muestran las dos sumadas.
+ */
+function cuentaDelRenglon(item: FormularioItemNota): string {
+  const lineas = lineasDelRenglon(item).filter((l) => l.cantidad > 0)
+  const total = totalDelRenglon(item)
+  if (lineas.length === 0) return formatearPesos(total)
+
+  const partes = lineas.map((l) =>
+    l.sinCargo
+      ? `${l.cantidad} sin cargo`
+      : `${l.cantidad} × ${formatearPesos(l.precioUnitario)}`,
+  )
+  return `${partes.join(' + ')} = ${formatearPesos(total)}`
 }
 
 function rotuloServicio(s: TipoServicio): string {

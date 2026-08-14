@@ -1087,6 +1087,7 @@ export type CampoEncabezado =
   | 'cliente'
   | 'cliente_nombre'
   | 'zona'
+  | 'vendedor_numero'
   | 'datos_cliente'
   | 'tipo_nota'
   | 'servicios'
@@ -1106,7 +1107,14 @@ export type CampoEncabezado =
 export type ParteDeLaNota = 'cliente' | 'operacion' | 'facturacion'
 
 const CAMPOS_DE_LA_PARTE: Record<ParteDeLaNota, CampoEncabezado[]> = {
-  cliente: ['cliente', 'cliente_nombre', 'zona', 'datos_cliente', 'fecha_entrega'],
+  cliente: [
+    'cliente',
+    'cliente_nombre',
+    'zona',
+    'vendedor_numero',
+    'datos_cliente',
+    'fecha_entrega',
+  ],
   operacion: ['servicios'],
   facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
 }
@@ -1168,6 +1176,25 @@ export function validarEncabezadoNota(
     }
   }
   if (!enc.zona.trim()) errores.zona = 'Falta la zona'
+
+  /**
+   * El número de vendedor va IMPRESO en el comprobante, y hasta ahora no se
+   * exigía.
+   *
+   * La app lo completa sola —con el del que carga, o con el que tiene a cargo
+   * la zona— pero las dos cosas pueden fallar: un administrativo no tiene
+   * código propio, y la zona sólo lo resuelve si está asignada a un único
+   * vendedor. Cuando fallaban las dos, la nota se creaba igual y salía impresa
+   * con "Vendedor Nº ___" en blanco. Pasó de verdad: dos de las diecinueve
+   * notas cargadas quedaron así, y en la oficina no hay forma de saber de quién
+   * son.
+   *
+   * El campo se puede escribir a mano, así que exigirlo no traba a nadie: pide
+   * el dato que el comprobante necesita, donde se puede resolver.
+   */
+  if (!enc.vendedor_numero.trim()) {
+    errores.vendedor_numero = 'Falta el número de vendedor: va impreso en la nota'
+  }
   if (!enc.datos_cliente.trim()) errores.datos_cliente = 'Completá los datos del cliente'
   if (extra.servicios.length === 0) errores.servicios = 'Elegí al menos un tipo de operación'
   if (!extra.tipoNota) errores.tipo_nota = 'Elegí si es factura o presupuesto'

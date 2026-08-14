@@ -365,6 +365,7 @@ export function PasoCliente({
         <Text style={[estilos.vendedor, estilos.mitad]}>VENDEDOR: {form.vendedor}</Text>
         <Campo
           etiqueta="VENDEDOR Nº"
+          obligatorio
           value={form.vendedor_numero}
           onChangeText={(t) => {
             setOrigenVendedor(null)
@@ -373,10 +374,11 @@ export function PasoCliente({
           keyboardType="number-pad"
           placeholder="7"
           contenedorStyle={estilos.mitad}
+          error={errores.vendedor_numero}
           ayuda={
             form.vendedor_numero
               ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
-              : undefined
+              : 'Va impreso en la nota.'
           }
         />
       </View>

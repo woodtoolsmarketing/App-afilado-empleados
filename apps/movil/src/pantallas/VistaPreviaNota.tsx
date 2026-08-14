@@ -290,7 +290,7 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
           <Text style={estilos.tituloTabla}>OBSERVACIONES</Text>
           {observaciones.map((o, i) => (
             <View key={i} style={estilos.filaTabla}>
-              <Text style={[estilos.celda, estilos.colNum]}>{i + 1}</Text>
+              <Text style={[estilos.celda, estilos.colNumObservacion]}>{i + 1}</Text>
               <Text style={[estilos.celda, estilos.colObservacion]}>{o}</Text>
             </View>
           ))}
@@ -447,6 +447,14 @@ const estilos = StyleSheet.create({
   colCodigo: { flex: 2 },
   colNum: { flex: 1, textAlign: 'right' },
   colPrecio: { flex: 2, textAlign: 'right' },
+  /**
+   * El número del renglón de observación.
+   *
+   * No usa `colNum`, que va alineado a la derecha porque es de una columna de
+   * cantidades: ahí el número quedaba pegado contra el texto de al lado y se
+   * leía "1Jueves". Acá va a la izquierda, con su propio ancho.
+   */
+  colNumObservacion: { width: 22, textAlign: 'left' },
   colObservacion: { flex: 6 },
 
   notaPie: {
