@@ -1080,19 +1080,7 @@ export function PasoRenglon({
                     return (
                       <Pressable
                         key={c.codigo}
-                        onPress={() =>
-                          alCambiar({
-                            codigos_computo: elegido
-                              ? item.codigos_computo.filter((x) => x !== c.codigo)
-                              : [...item.codigos_computo, c.codigo],
-                            ...(!elegido && c.a_cotizar
-                              ? { precio_por_diente: '' }
-                              : !elegido && c.precio_pesos !== null
-                                ? { precio_por_diente: String(c.precio_pesos) }
-                                : {}),
-                            ...(elegido ? {} : { sin_cargo: esSinCargo(c.descripcion) }),
-                          })
-                        }
+                        onPress={() => alCambiar(alTocarCodigo(item, codigos, c, elegido))}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: elegido }}
                         style={({ pressed }) => [
@@ -1226,6 +1214,50 @@ export function PasoRenglon({
       })}
     </>
   )
+}
+
+/**
+ * Qué cambia al tildar o destildar un código de cómputo.
+ *
+ * El precio y la marca de "sin cargo" **salen de los códigos que quedan**, no
+ * del que se acaba de tocar. Antes sólo se tocaban al TILDAR: destildar sacaba
+ * el código de la lista y dejaba pegados el precio por diente y el sin cargo
+ * del código que se había sacado. El vendedor destildaba "AFILADO S.C. SIN
+ * CARGO" para cobrarlo, y el renglón seguía cotizando $ 0,10.
+ *
+ * Con ninguno tildado no hay precio de lista que valga: se limpia, y el
+ * validador pide el importe antes de dejar crear la nota.
+ */
+function alTocarCodigo(
+  item: FormularioItemNota,
+  disponibles: CodigoComputo[],
+  tocado: CodigoComputo,
+  estabaElegido: boolean,
+): Partial<FormularioItemNota> {
+  const codigos = estabaElegido
+    ? item.codigos_computo.filter((x) => x !== tocado.codigo)
+    : [...item.codigos_computo, tocado.codigo]
+
+  // El que manda es el último que quedó tildado; con uno solo, ése.
+  const ultimo = codigos.length > 0 ? codigos[codigos.length - 1] : null
+  const fuente = ultimo ? disponibles.find((c) => c.codigo === ultimo) : undefined
+
+  if (!fuente) {
+    return codigos.length === 0
+      ? { codigos_computo: codigos, precio_por_diente: '', sin_cargo: false }
+      : { codigos_computo: codigos }
+  }
+
+  return {
+    codigos_computo: codigos,
+    // Un código a cotizar no trae importe: lo pone el vendedor.
+    precio_por_diente: fuente.a_cotizar
+      ? ''
+      : fuente.precio_pesos !== null
+        ? String(fuente.precio_pesos)
+        : item.precio_por_diente,
+    sin_cargo: esSinCargo(fuente.descripcion),
+  }
 }
 
 /**

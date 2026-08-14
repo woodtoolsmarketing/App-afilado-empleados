@@ -473,13 +473,57 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renglon, intentado, paso, pedirServicio])
 
-  /** El servicio se elige por renglón cuando arriba tildaron más de uno. */
+  /**
+   * El servicio se elige por renglón cuando arriba tildaron más de uno.
+   *
+   * **Cambiar de operación limpia los números de la otra.** La venta y el
+   * servicio usan casilleros distintos para lo mismo —UNIDADES contra CANTIDAD,
+   * PRECIO UNITARIO contra PRECIO POR DIENTE— y el formulario dibuja los que
+   * corresponden, así que los de la operación anterior quedaban cargados pero
+   * invisibles. Después, al guardar, competían con los buenos y a veces
+   * ganaban: la nota impresa salía con la cantidad y el precio del afilado en
+   * un renglón que el vendedor había pasado a venta.
+   */
   function cambiarServicioDelRenglon(servicio: TipoServicio) {
     const herramienta =
       renglon.herramienta && HERRAMIENTAS_POR_SERVICIO[servicio].includes(renglon.herramienta)
         ? renglon.herramienta
         : null
-    cambiarItem({ servicio, servicio_elegido: true, herramienta, codigos_computo: [] })
+
+    const deLaOtra: Partial<FormularioItemNota> =
+      servicio === 'venta'
+        ? {
+            // Lo del afilado no va en una venta.
+            cantidad: '',
+            cantidad_dientes: '',
+            precio_por_diente: '',
+            precio_total: '',
+            dientes_rotos: false,
+            dientes_rotos_cantidad: '',
+            reparar_dientes: null,
+            codigo_reparacion: '',
+            precio_reparacion_por_diente: '',
+          }
+        : {
+            // Y lo de la venta no va en un servicio.
+            unidades: '',
+            precio: '',
+            codigo_herramienta: '',
+            descripcion_catalogo: '',
+            moneda: 'ARS',
+            promocion: false,
+            promocion_detalle: '',
+            origen_fresa: null,
+          }
+
+    cambiarItem({
+      servicio,
+      servicio_elegido: true,
+      herramienta,
+      codigos_computo: [],
+      sin_cargo: false,
+      ...deLaOtra,
+    })
   }
 
   /**
@@ -538,7 +582,34 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     const actual = renglon
     const total = Math.max(2, Math.round(aNumero(actual.cantidad)))
 
-    const grupo1 = { ...actual, cantidad: String(total - 1) }
+    /**
+     * El precio del grupo que se queda tiene que bajar con la cantidad.
+     *
+     * En las herramientas que se cobran por diente da igual: el importe se
+     * recalcula solo a partir del precio por diente. Pero en mechas, cuchillas
+     * y sierras sin fin el PRECIO TOTAL **es** el dato —lo tipea el vendedor o
+     * lo pone el selector por el largo— y no lo recalcula nadie. Y el renglón
+     * que se queda no se vuelve a abrir: la pantalla salta al grupo nuevo.
+     *
+     * Resultado hasta ahora: separar 3 cuchillas dejaba el primer grupo con 2
+     * unidades y el importe de 3. La nota salía cobrando una cuchilla de más,
+     * y no había dónde verlo: la tarjeta, el total y lo guardado mostraban
+     * todos el mismo número.
+     *
+     * Se escala en la misma proporción que la cantidad, que es la única
+     * lectura posible de un total que ya estaba puesto para N unidades.
+     */
+    const totalViejo = aNumero(actual.precio_total)
+    const precioGrupo1 =
+      totalViejo > 0
+        ? String(Math.round(((totalViejo * (total - 1)) / total) * 100) / 100)
+        : actual.precio_total
+
+    const grupo1 = {
+      ...actual,
+      cantidad: String(total - 1),
+      precio_total: precioGrupo1,
+    }
     const grupo2: FormularioItemNota = {
       ...actual,
       cantidad: '1',

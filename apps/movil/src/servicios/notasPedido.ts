@@ -483,17 +483,39 @@ export interface NotaCreada {
  * servidor, que es el único que sabe con qué id quedó cada nota.
  */
 function filaDeItem(i: FormularioItemNota, orden: number) {
+  /**
+   * De qué campo sale cada número lo decide el SERVICIO, no cuál está lleno.
+   *
+   * Antes era un `||`: `i.cantidad || i.unidades` y `i.precio_por_diente ||
+   * i.precio`. Eso da por sentado que un renglón de venta nunca tiene cargados
+   * los campos del afilado, y deja de ser cierto en cuanto el vendedor cambia
+   * la operación del renglón —que es justamente para lo que está el
+   * desplegable—: al pasar de AFILADO a VENTA se limpian la herramienta y el
+   * código, pero la cantidad y el precio por diente quedan pegados, y como van
+   * primero en el `||`, **ganan** sobre las unidades y el precio que el
+   * vendedor acaba de cargar.
+   *
+   * El total de la nota salía bien —lo calcula `computoDeRenglon`, que sí mira
+   * el servicio— pero la fila guardada quedaba con la cantidad y el unitario
+   * del afilado, y la impresión los lee de ahí. La nota impresa no cerraba
+   * contra su propio total.
+   */
+  const esVenta = i.servicio === 'venta'
+  const cuantas = aNumero(esVenta ? i.unidades : i.cantidad)
+  const unitario = aNumero(esVenta ? i.precio : i.precio_por_diente)
+
   return {
     orden,
     servicio: i.servicio,
     herramienta: i.herramienta,
     codigo_herramienta: i.codigo_herramienta || null,
     descripcion: i.descripcion || null,
-    cantidad: Math.max(1, Math.round(aNumero(i.cantidad || i.unidades)) || 1),
-    cantidad_dientes: aNumero(i.cantidad_dientes) || null,
+    cantidad: Math.max(1, Math.round(cuantas) || 1),
+    // Los dientes son del afilado: una venta no tiene por qué arrastrarlos.
+    cantidad_dientes: esVenta ? null : aNumero(i.cantidad_dientes) || null,
     // El unitario es lo que sale de la lista de precios —por diente en el
     // afilado, por unidad en la venta— y el total es la multiplicación.
-    precio_unitario: aNumero(i.precio_por_diente || i.precio) || null,
+    precio_unitario: unitario || null,
     precio_total: totalDelRenglon(i) || null,
     // En qué moneda están esos dos. El afilado siempre en pesos; la venta,
     // en la de la lista de precios de la que salió el artículo.
@@ -700,7 +722,24 @@ interface FilaNotaCreada {
 /** Los estados en los que una nota todavía se puede corregir. */
 export const ESTADOS_EDITABLES: EstadoNotaPedido[] = ['pendiente', 'pendiente_cliente']
 
-export function sePuedeCorregir(estado: string | null | undefined): boolean {
+/**
+ * ¿Se puede corregir?
+ *
+ * **Lo que cierra la puerta es el papel, no el estado.** Hay un caso, hecho a
+ * propósito, donde la nota se imprime y el estado no cambia: las que esperan el
+ * código de cliente quedan en `pendiente_cliente` con `impresa_en` sellado,
+ * para no caerse de la cola de Administración. Mirando sólo el estado, ésas
+ * salían en papel y se seguían pudiendo editar: la fábrica con un comprobante
+ * y la base con otro.
+ *
+ * `impresaEn` es opcional para no romper a quien todavía llame con el estado
+ * solo, pero todas las pantallas se lo pasan.
+ */
+export function sePuedeCorregir(
+  estado: string | null | undefined,
+  impresaEn?: string | null,
+): boolean {
+  if (impresaEn) return false
   return ESTADOS_EDITABLES.includes(estado as EstadoNotaPedido)
 }
 

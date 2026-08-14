@@ -16,7 +16,12 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Casilla } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { marcarImpresas, notasPendientes, type NotaResumen } from '../servicios/notasPedido'
+import {
+  marcarImpresas,
+  notasPendientes,
+  sePuedeCorregir,
+  type NotaResumen,
+} from '../servicios/notasPedido'
 import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -265,15 +270,30 @@ function FilaNota({
         </View>
       </Pressable>
 
-      <Pressable
-        onPress={alCorregir}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
-        style={({ pressed }) => [estilos.corregir, pressed && estilos.corregirTocado]}
-      >
-        <Text style={estilos.corregirTexto}>✎</Text>
-      </Pressable>
+      {/*
+        El ✎ desaparece cuando la nota ya salió en papel.
+
+        Puede pasar acá, en la lista de PENDIENTES: las notas que esperan el
+        código de cliente se imprimen sin cambiar de estado —para no caerse de
+        la cola de Administración— así que siguen figurando como pendientes.
+        Ofrecer corregirlas era mandar al vendedor a cargar cambios que el
+        servidor iba a rechazar al guardar.
+      */}
+      {sePuedeCorregir(nota.estado, nota.impresa_en) ? (
+        <Pressable
+          onPress={alCorregir}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
+          style={({ pressed }) => [estilos.corregir, pressed && estilos.corregirTocado]}
+        >
+          <Text style={estilos.corregirTexto}>✎</Text>
+        </Pressable>
+      ) : (
+        <View style={estilos.corregirVacio}>
+          <Text style={estilos.corregirVacioTexto}>ya{'\n'}salió</Text>
+        </View>
+      )}
     </View>
   )
 }
@@ -350,6 +370,14 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
   },
   corregirTocado: { backgroundColor: colores.campo },
+  /** El hueco del ✎ cuando la nota ya se imprimió: dice por qué no está. */
+  corregirVacio: { width: 46, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
+  corregirVacioTexto: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaTenue,
+    textAlign: 'center',
+  },
   corregirTexto: {
     fontFamily: tipografia.familia.fuerte,
     fontSize: tipografia.tamano.lg,

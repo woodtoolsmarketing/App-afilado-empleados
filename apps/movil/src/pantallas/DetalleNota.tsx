@@ -252,7 +252,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 
         {/* Mientras no salió en papel se corrige entera —cliente, renglones y
             precios— en el mismo formulario con que se cargó. */}
-        {sePuedeCorregir(estado) ? (
+        {sePuedeCorregir(estado, n.impresa_en) ? (
           <BotonSecundario
             titulo="✎  CORREGIR ESTA NOTA"
             alTocar={() => navigation.push('GenerarNota', { notaId })}
