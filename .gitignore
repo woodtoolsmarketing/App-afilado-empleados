@@ -64,3 +64,9 @@ __pycache__/
 
 # Salida del probador para publicar (se genera en cada despliegue)
 publico/
+
+# El proyecto Android nativo lo genera `expo prebuild` y no se versiona: en un
+# proyecto Expo administrado, tenerlo en el repo hace que EAS deje de aplicar
+# `app.config.ts` y compile con lo que quedó congelado en la carpeta.
+apps/movil/android/
+apps/movil/ios/
