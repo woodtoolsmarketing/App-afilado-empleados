@@ -202,3 +202,224 @@ ipcMain.handle('publicar-actualizacion', async (_evento, canalPedido: string) =>
     proceso.on('close', (codigo) => resolver({ ok: codigo === 0, salida }))
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compilar el APK desde el panel y dejarlo listo para bajar
+//
+// Es el circuito que hasta ahora se hacía a mano y en tres lugares: compilar en
+// una terminal, bajar el archivo, y hacérselo llegar a cada vendedor por
+// WhatsApp o por cable. Con diez teléfonos deja de cerrar — nadie sabe cuál es
+// el último archivo ni quién quedó atrás.
+//
+// Acá pasa entero: se compila en esta máquina, se sube al bucket privado y
+// queda anotado en `versiones_app`, que es de donde el panel saca cuál es la
+// versión vigente de cada canal.
+//
+// **Compila localmente, no en la nube.** Con Gradle acá no hay cuota mensual
+// que se agote ni cola que esperar. A cambio hace falta el JDK y el SDK de
+// Android en esta PC; si faltan se dice cuál falta, en vez de fallar con un
+// error de Gradle que no significa nada para quien lo lee.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Dónde suele quedar el JDK 17, que es el que pide Expo 52. */
+function buscarJdk(): string | null {
+  if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME
+  for (const nido of ['C:\\Program Files\\Eclipse Adoptium', 'C:\\Program Files\\Java']) {
+    if (!fs.existsSync(nido)) continue
+    const jdk = fs
+      .readdirSync(nido)
+      .filter((n) => n.includes('17'))
+      .sort()
+      .pop()
+    if (jdk) return path.join(nido, jdk)
+  }
+  return null
+}
+
+function buscarSdkAndroid(): string | null {
+  const candidatos = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    'C:\\Android\\Sdk',
+    path.join(process.env.LOCALAPPDATA ?? '', 'Android', 'Sdk'),
+  ].filter((c): c is string => !!c)
+  return candidatos.find((c) => fs.existsSync(path.join(c, 'platform-tools'))) ?? null
+}
+
+/**
+ * Corre un comando y va contando lo que sale.
+ *
+ * `alAvanzar` existe porque compilar tarda varios minutos, y una ventana quieta
+ * durante cinco minutos se lee como colgada. Se manda la última línea, que es
+ * donde Gradle dice en qué tarea está.
+ */
+function correr(
+  comando: string,
+  argumentos: string[],
+  opciones: { cwd: string; env: NodeJS.ProcessEnv },
+  alAvanzar: (linea: string) => void,
+): Promise<{ ok: boolean; salida: string }> {
+  return new Promise((resolver) => {
+    // `shell: false`: los argumentos van como argumentos y no se concatenan en
+    // una línea de comandos que alguien pueda torcer.
+    const proceso = spawn(comando, argumentos, { ...opciones, shell: false })
+    let salida = ''
+    const juntar = (d: Buffer) => {
+      const texto = d.toString()
+      salida += texto
+      if (salida.length > 60_000) salida = salida.slice(-60_000)
+      const ultima = texto.trim().split(/\r?\n/).pop()
+      if (ultima) alAvanzar(ultima)
+    }
+    proceso.stdout.on('data', juntar)
+    proceso.stderr.on('data', juntar)
+    proceso.on('error', (e) => resolver({ ok: false, salida: `${salida}\n${e.message}` }))
+    proceso.on('close', (codigo) => resolver({ ok: codigo === 0, salida }))
+  })
+}
+
+/** La versión que declara la app, para nombrar el archivo y anotarla. */
+function leerVersionDeLaApp(movil: string): string {
+  try {
+    const config = fs.readFileSync(path.join(movil, 'app.config.ts'), 'utf8')
+    return config.match(/version:\s*'([^']+)'/)?.[1] ?? '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+ipcMain.handle('herramientas-de-compilacion', () => ({
+  proyecto: carpetaDelProyecto() !== null,
+  jdk: buscarJdk(),
+  sdk: buscarSdkAndroid(),
+}))
+
+ipcMain.handle(
+  'compilar-apk',
+  async (
+    evento,
+    datos: { canal: string; token: string; supabaseUrl: string; anonKey: string },
+  ) => {
+    const raiz = carpetaDelProyecto()
+    if (!raiz) return { ok: false, salida: 'No se encontró la carpeta del proyecto.' }
+
+    const canal = (CANALES as readonly string[]).includes(datos?.canal) ? datos.canal : 'interno'
+
+    const jdk = buscarJdk()
+    if (!jdk) {
+      return {
+        ok: false,
+        salida:
+          'Falta el JDK 17 en esta máquina. Se instala con:\n' +
+          '  winget install --id EclipseAdoptium.Temurin.17.JDK',
+      }
+    }
+
+    const sdk = buscarSdkAndroid()
+    if (!sdk) {
+      return {
+        ok: false,
+        salida:
+          'Falta el SDK de Android en esta máquina: hace falta la carpeta con platform-tools,\n' +
+          'normalmente en C:\\Android\\Sdk.',
+      }
+    }
+
+    const avisar = (etapa: string, detalle: string) =>
+      evento.sender.send('compilacion-avanza', { etapa, detalle })
+
+    const entorno: NodeJS.ProcessEnv = {
+      ...process.env,
+      JAVA_HOME: jdk,
+      ANDROID_HOME: sdk,
+      ANDROID_SDK_ROOT: sdk,
+      APP_VARIANTE: canal,
+    }
+
+    const movil = path.join(raiz, 'apps', 'movil')
+    const android = path.join(movil, 'android')
+
+    /**
+     * El proyecto nativo se regenera siempre, no sólo si falta.
+     *
+     * Lo produce `app.config.ts`, que cambia: un permiso, el logo, la URL de
+     * actualizaciones. Una carpeta vieja compilaría con lo de antes y no habría
+     * nada que lo delatara hasta tener el APK instalado en un teléfono.
+     */
+    avisar('preparando', 'Generando el proyecto Android desde la configuración…')
+    const preparacion = await correr(
+      process.execPath,
+      [path.join(raiz, 'node_modules', 'expo', 'bin', 'cli'), 'prebuild', '--platform', 'android', '--clean'],
+      { cwd: movil, env: { ...entorno, ELECTRON_RUN_AS_NODE: '1' } },
+      (l) => avisar('preparando', l),
+    )
+    if (!preparacion.ok) return { ok: false, salida: preparacion.salida }
+
+    avisar('compilando', 'Compilando el APK. La primera vez tarda bastante…')
+    const compilacion = await correr(
+      path.join(android, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew'),
+      ['assembleRelease'],
+      { cwd: android, env: entorno },
+      (l) => avisar('compilando', l),
+    )
+
+    if (!compilacion.ok) {
+      /**
+       * El error de Gradle que más cuesta reconocer.
+       *
+       * "Unable to establish loopback connection" suena a problema de red y no
+       * lo es: Gradle abre un canal entre sus propios procesos y el antivirus
+       * lo corta. Sin esta traducción, quien lo lee sale a revisar el wifi.
+       */
+      const esElAntivirus = /loopback connection/i.test(compilacion.salida)
+      return {
+        ok: false,
+        salida: esElAntivirus
+          ? 'La compilación la bloquea el antivirus: Gradle no puede comunicarse con su propio ' +
+            'proceso auxiliar. No es un problema de red ni del código.\n\n' +
+            'Hay que excluir en el antivirus:\n' +
+            `  ${path.join(jdk, 'bin', 'java.exe')}\n\n` +
+            `Salida original:\n${compilacion.salida}`
+          : compilacion.salida,
+      }
+    }
+
+    const apk = path.join(android, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
+    if (!fs.existsSync(apk)) {
+      return { ok: false, salida: `La compilación terminó pero no apareció el APK en:\n${apk}` }
+    }
+
+    /**
+     * Se sube con el token de quien está usando el panel, no con una clave
+     * maestra: así "sólo Administración publica" lo sigue haciendo cumplir la
+     * base y no este archivo.
+     */
+    const tamano = fs.statSync(apk).size
+    const version = leerVersionDeLaApp(movil)
+    const sello = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+    const destino = `${canal}/woodtools-${canal}-${version}-${sello}.apk`
+
+    avisar('subiendo', `Subiendo ${(tamano / 1_048_576).toFixed(0)} MB…`)
+    try {
+      const respuesta = await fetch(
+        `${datos.supabaseUrl}/storage/v1/object/instaladores/${destino}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${datos.token}`,
+            apikey: datos.anonKey,
+            'Content-Type': 'application/vnd.android.package-archive',
+          },
+          body: fs.readFileSync(apk),
+        },
+      )
+      if (!respuesta.ok) {
+        return { ok: false, salida: `No se pudo subir el APK: ${await respuesta.text()}` }
+      }
+    } catch (e) {
+      return { ok: false, salida: `No se pudo subir el APK: ${(e as Error).message}` }
+    }
+
+    return { ok: true, salida: compilacion.salida, archivo: destino, tamano, version }
+  },
+)

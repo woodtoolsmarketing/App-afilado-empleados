@@ -24,4 +24,43 @@ contextBridge.exposeInMainWorld('woodtools', {
   // El canal decide a QUÉ teléfonos llega: cada APK escucha el suyo.
   publicarActualizacion: (canal: string): Promise<{ ok: boolean; salida: string }> =>
     ipcRenderer.invoke('publicar-actualizacion', canal),
+
+  /** Qué hay instalado para poder compilar: proyecto, JDK y SDK de Android. */
+  herramientasDeCompilacion: (): Promise<{
+    proyecto: boolean
+    jdk: string | null
+    sdk: string | null
+  }> => ipcRenderer.invoke('herramientas-de-compilacion'),
+
+  /**
+   * Compila el APK acá y lo sube.
+   *
+   * El token es el de la sesión de quien está usando el panel: la base sigue
+   * decidiendo quién puede publicar, y esto no lleva ninguna clave maestra.
+   */
+  compilarApk: (datos: {
+    canal: string
+    token: string
+    supabaseUrl: string
+    anonKey: string
+  }): Promise<{
+    ok: boolean
+    salida: string
+    archivo?: string
+    tamano?: number
+    version?: string
+  }> => ipcRenderer.invoke('compilar-apk', datos),
+
+  /**
+   * Avisa en qué anda la compilación. Devuelve la función para desuscribirse:
+   * sin eso, cada vez que se vuelve a entrar a la pantalla queda otro oyente
+   * escuchando el mismo canal.
+   */
+  alAvanzarCompilacion: (
+    escuchar: (paso: { etapa: string; detalle: string }) => void,
+  ): (() => void) => {
+    const oyente = (_e: unknown, paso: { etapa: string; detalle: string }) => escuchar(paso)
+    ipcRenderer.on('compilacion-avanza', oyente)
+    return () => ipcRenderer.removeListener('compilacion-avanza', oyente)
+  },
 })

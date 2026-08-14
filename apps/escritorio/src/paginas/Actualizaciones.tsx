@@ -1,6 +1,6 @@
 import { versionAtrasada } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
 
@@ -25,6 +25,22 @@ import { supabase } from '../nucleo/supabase'
  */
 
 const CLAVE_VERSION_MINIMA = 'version_minima_app'
+
+/** Un APK ya publicado, tal como lo baja el vendedor. */
+interface VersionPublicada {
+  canal: string
+  version: string
+  archivo: string
+  tamano_bytes: number | null
+  notas: string | null
+  publicado_en: string
+}
+
+const NOMBRE_CANAL: Record<string, string> = {
+  interno: 'Interno',
+  beta: 'Beta',
+  produccion: 'Producción',
+}
 
 interface DispositivoConDuenio {
   id: string
@@ -138,6 +154,88 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
    */
   const [canal, setCanal] = useState('interno')
 
+  // ── Compilar el APK y dejarlo para bajar ──────────────────────────────────
+  const [paso, setPaso] = useState<{ etapa: string; detalle: string } | null>(null)
+  const [notasVersion, setNotasVersion] = useState('')
+
+  /** El puente avisa en qué anda; sin desuscribirse, cada visita suma un oyente. */
+  useEffect(() => window.woodtools?.alAvanzarCompilacion?.(setPaso), [])
+
+  const { data: herramientas } = useQuery({
+    queryKey: ['herramientas-de-compilacion'],
+    queryFn: async () =>
+      (await window.woodtools?.herramientasDeCompilacion?.()) ?? {
+        proyecto: false,
+        jdk: null,
+        sdk: null,
+      },
+  })
+
+  /** La última versión publicada de cada canal, que es lo que baja el vendedor. */
+  const { data: versiones } = useQuery({
+    queryKey: ['versiones-app'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('versiones_app')
+        .select('canal, version, archivo, tamano_bytes, notas, publicado_en')
+        .order('publicado_en', { ascending: false })
+        .limit(12)
+      if (error) throw error
+      return data as VersionPublicada[]
+    },
+  })
+
+  const compilar = useMutation({
+    mutationFn: async () => {
+      const puente = window.woodtools
+      if (!puente?.compilarApk) {
+        throw new Error('Esta copia del panel no puede compilar: falta la carpeta del proyecto.')
+      }
+
+      /**
+       * El token de la sesión viaja al proceso principal para que la subida la
+       * autorice la base. Así "sólo Administración publica" sigue siendo una
+       * regla del servidor y no una condición en el código del panel.
+       */
+      const { data: sesion } = await supabase.auth.getSession()
+      const token = sesion.session?.access_token
+      if (!token) throw new Error('Se venció la sesión. Volvé a entrar al panel.')
+
+      const r = await puente.compilarApk({
+        canal,
+        token,
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL as string,
+        anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      })
+      if (!r.ok) throw new Error(r.salida)
+
+      // Recién se anota cuando el archivo ya está arriba: una fila que apunta a
+      // un APK que no se subió es peor que no tener fila.
+      const { error } = await supabase.from('versiones_app').insert({
+        canal,
+        version: r.version ?? '0.0.0',
+        archivo: r.archivo!,
+        tamano_bytes: r.tamano ?? null,
+        notas: notasVersion.trim() || null,
+      })
+      if (error) throw error
+      return r
+    },
+    onSuccess: () => {
+      setPaso(null)
+      setNotasVersion('')
+      setMensaje('APK compilado y publicado. Los vendedores ya lo pueden bajar.')
+      void cliente.invalidateQueries({ queryKey: ['versiones-app'] })
+    },
+    onError: (e: Error) => {
+      setPaso(null)
+      setSalidaPublicar(e.message)
+      setMensaje('La compilación no terminó.')
+    },
+  })
+
+  const puedeCompilar = !!herramientas?.proyecto && !!herramientas.jdk && !!herramientas.sdk
+
   const exigida = minimaEditada ?? minima ?? '0.0.0'
 
   return (
@@ -236,6 +334,119 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
           <div className="aviso atencion">
             Esta copia del panel no puede publicar. Hay que abrirlo desde la carpeta del proyecto, en
             la PC que tiene el código y la sesión de Expo.
+          </div>
+        )}
+
+        {/* ── Compilar un APK nuevo ──────────────────────────────────────────
+            Va acá abajo, después de publicar por aire, porque ése es el orden
+            en que conviene intentarlo: por aire resuelve casi todo y tarda un
+            minuto; compilar tarda media hora y obliga a reinstalar. */}
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--borde, #ddd)' }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Compilar un APK nuevo</h3>
+          <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginBottom: 12 }}>
+            Hace falta sólo cuando cambia algo nativo: un permiso, una librería, la versión de
+            Android. Se compila acá y queda listo para que cada vendedor lo baje desde su
+            teléfono. Tarda varios minutos.
+          </p>
+
+          {puedeCompilar ? (
+            <>
+              <label style={{ display: 'block', fontSize: 13, marginBottom: 10 }}>
+                <span style={{ color: 'var(--tinta-suave)' }}>Qué trae esta versión (opcional)</span>
+                <input
+                  type="text"
+                  value={notasVersion}
+                  onChange={(e) => setNotasVersion(e.target.value)}
+                  placeholder="Ej. Arregla el precio al separar renglones"
+                  disabled={soloLectura || compilar.isPending}
+                  style={{ display: 'block', width: '100%', maxWidth: 460, marginTop: 4 }}
+                />
+              </label>
+
+              <button
+                className="primario"
+                disabled={soloLectura || compilar.isPending}
+                onClick={() => {
+                  if (confirm(`¿Compilar el APK del canal "${canal}"? Puede tardar varios minutos.`)) {
+                    compilar.mutate()
+                  }
+                }}
+              >
+                {compilar.isPending ? 'Compilando…' : 'Compilar y publicar el APK'}
+              </button>
+
+              {/* Media hora de ventana quieta se lee como colgada: se muestra
+                  en qué anda, con la última línea que largó Gradle. */}
+              {compilar.isPending && paso && (
+                <div className="aviso info" style={{ marginTop: 10, fontSize: 13 }}>
+                  <strong>
+                    {paso.etapa === 'preparando'
+                      ? 'Preparando el proyecto'
+                      : paso.etapa === 'compilando'
+                        ? 'Compilando'
+                        : 'Subiendo'}
+                  </strong>
+                  <div
+                    style={{
+                      fontFamily: 'ui-monospace, Consolas, monospace',
+                      fontSize: 11,
+                      color: 'var(--tinta-suave)',
+                      marginTop: 4,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {paso.detalle}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="aviso atencion">
+              Esta máquina no puede compilar todavía. Falta:{' '}
+              {[
+                !herramientas?.proyecto && 'la carpeta del proyecto',
+                !herramientas?.jdk && 'el JDK 17',
+                !herramientas?.sdk && 'el SDK de Android',
+              ]
+                .filter(Boolean)
+                .join(', ')}
+              . Por aire se puede publicar igual.
+            </div>
+          )}
+        </div>
+
+        {/* ── Lo que hay para bajar ──────────────────────────────────────── */}
+        {versiones && versiones.length > 0 && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--borde, #ddd)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>APK publicados</h3>
+            <table style={{ width: '100%', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Canal</th>
+                  <th style={{ textAlign: 'left' }}>Versión</th>
+                  <th style={{ textAlign: 'left' }}>Qué trae</th>
+                  <th style={{ textAlign: 'right' }}>Tamaño</th>
+                  <th style={{ textAlign: 'left' }}>Publicado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versiones.map((v) => (
+                  <tr key={`${v.canal}-${v.publicado_en}`}>
+                    <td>{NOMBRE_CANAL[v.canal] ?? v.canal}</td>
+                    <td>{v.version}</td>
+                    <td style={{ color: 'var(--tinta-suave)' }}>{v.notas ?? '—'}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {v.tamano_bytes ? `${Math.round(v.tamano_bytes / 1_048_576)} MB` : '—'}
+                    </td>
+                    <td style={{ color: 'var(--tinta-suave)' }}>
+                      {new Date(v.publicado_en).toLocaleDateString('es-AR')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
