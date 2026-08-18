@@ -30,12 +30,19 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
-  const { data: dispositivos } = useQuery({
+  const { data: dispositivos, error: falloDispositivos } = useQuery({
     queryKey: ['dispositivos'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('dispositivos')
-        .select('*, perfiles ( nombre_completo, codigo_vendedor )')
+        // El nombre de la clave foránea va explícito y no es un adorno:
+        // `dispositivos` apunta DOS veces a `perfiles` —de quién es el teléfono
+        // y quién lo habilitó—. Pidiendo "perfiles" a secas, PostgREST no sabe
+        // por cuál de los dos caminos ir y rechaza la consulta entera. La lista
+        // quedaba vacía y la pantalla anunciaba que no había teléfonos
+        // esperando, que es la peor forma de fallar: sin ruido y diciendo que
+        // todo está bien.
+        .select('*, perfiles!dispositivos_perfil_id_fkey ( nombre_completo, codigo_vendedor )')
         .order('creado_en', { ascending: false })
       if (error) throw error
       return data as Array<
@@ -108,6 +115,30 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       void cliente.invalidateQueries()
     },
     onError: (e: Error) => setMensaje(`No se pudieron guardar las zonas: ${e.message}`),
+  })
+
+  /**
+   * El número de vendedor, después del alta.
+   *
+   * Hasta ahora se cargaba una sola vez, al aprobar el usuario, y si quedaba
+   * mal no había dónde corregirlo: el número va impreso en cada nota de pedido
+   * y en la columna "Codigo" del rol de visita, así que un dígito equivocado se
+   * arrastra a todo el papel que firma ese vendedor.
+   */
+  const guardarCodigo = useMutation({
+    mutationFn: async (params: { perfilId: string; codigo: string }) => {
+      const limpio = params.codigo.trim()
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ codigo_vendedor: limpio === '' ? null : limpio })
+        .eq('id', params.perfilId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Número de vendedor actualizado. Sale en las notas nuevas.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo guardar el número: ${e.message}`),
   })
 
   const autorizarDispositivo = useMutation({
@@ -202,7 +233,15 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       <section className="tarjeta">
         <h2>Teléfonos por habilitar ({telefonosPendientes.length})</h2>
 
-        {telefonosPendientes.length === 0 ? (
+        {/* Sin esto, un fallo al traer la lista se ve igual que "no hay
+            teléfonos esperando", y alguien se queda sin poder entrar a la app
+            mientras el panel asegura que está todo en orden. */}
+        {falloDispositivos ? (
+          <p className="vacio" style={{ color: 'var(--rojo-accion)' }}>
+            No pudimos traer los teléfonos: {(falloDispositivos as Error).message}. Nadie confirmó
+            que no haya ninguno esperando; volvé a entrar en un momento.
+          </p>
+        ) : telefonosPendientes.length === 0 ? (
           <p className="vacio">Todos los teléfonos registrados están habilitados.</p>
         ) : (
           <table>
@@ -278,7 +317,13 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                     {p.email}
                   </small>
                 </td>
-                <td>{p.codigo_vendedor ? `#${p.codigo_vendedor}` : '—'}</td>
+                <td>
+                  <CodigoDeVendedor
+                    perfil={p}
+                    soloLectura={soloLectura}
+                    alGuardar={(codigo) => guardarCodigo.mutate({ perfilId: p.id, codigo })}
+                  />
+                </td>
                 <td>
                   <ZonasACargo
                     perfil={p}
@@ -352,6 +397,51 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
  * empresa y puede sumar una zona antes que el código. Un código que no existe
  * simplemente no le va a coincidir a ninguna nota.
  */
+/**
+ * El número de vendedor de la celda, editable en el lugar.
+ *
+ * Mismo trato que las zonas: se escribe y el botón de guardar aparece recién
+ * cuando hay algo distinto que guardar. Vaciarlo lo deja sin número, que es una
+ * situación válida —administración y supervisores no llevan uno— y no un error.
+ */
+function CodigoDeVendedor({
+  perfil,
+  soloLectura,
+  alGuardar,
+}: {
+  perfil: Perfil
+  soloLectura: boolean
+  alGuardar: (codigo: string) => void
+}) {
+  const guardado = perfil.codigo_vendedor ?? ''
+  const [texto, setTexto] = useState(guardado)
+
+  const cambio = texto.trim() !== guardado
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder="—"
+        inputMode="numeric"
+        disabled={soloLectura}
+        style={{ width: 56 }}
+        aria-label={`Número de vendedor de ${perfil.nombre_completo}`}
+      />
+      {cambio ? (
+        <button
+          className="chico primario"
+          disabled={soloLectura}
+          onClick={() => alGuardar(texto)}
+        >
+          Guardar
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function ZonasACargo({
   perfil,
   soloLectura,

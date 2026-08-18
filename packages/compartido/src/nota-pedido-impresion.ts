@@ -99,14 +99,6 @@ export interface NotaParaImprimir {
   comerciales: RenglonComercial[]
 
   /**
-   * Cuántos renglones de producto lleva la nota.
-   *
-   * Va impreso: es lo que permite verificar de un vistazo que no falta ninguno
-   * —ni se coló uno de más— sin contar filas a mano en una tabla que además
-   * trae renglones en blanco para escribir.
-   */
-  renglones: number
-  /**
    * Los totales ya escritos, uno por moneda: `$ 65.696,40 · U$S 120,00`.
    *
    * Salen de las mismas líneas que se imprimen arriba, así que la suma no
@@ -406,16 +398,24 @@ export function generarHtmlNotaPedido(
       </table>`
 
   /**
-   * Cuántos renglones lleva la nota y cuánto suma.
+   * Cuánto suma la nota.
    *
-   * Es lo que permite verificar de un vistazo que no falta ninguno sin contar
-   * filas a mano en una tabla que además trae renglones en blanco. El duplicado
-   * lleva el conteo pero no los importes: es la copia del taller.
+   * Antes acá iba también "Renglones cargados: N de 12". Se sacó a pedido: ese
+   * número sirve para decidir mientras se carga —cuántos van, cuántos quedan— y
+   * eso pasa en el teléfono, no en el papel. Impreso llegaba tarde, cuando ya
+   * no se puede agregar nada. Ahora la app lo muestra desde el primer renglón.
+   *
+   * El duplicado no lleva importes: es la copia del taller. Como era lo único
+   * que le quedaba a esta franja, en el duplicado no se dibuja nada en vez de
+   * dejar un recuadro vacío; el alto que libera se lo reparten las filas de las
+   * tablas, que es donde en fábrica escriben a mano.
    */
-  const resumen = `<div class="resumen">
-    <span>Renglones cargados: <strong>${nota.renglones}</strong> de ${MAXIMO_RENGLONES}</span>
-    ${esDuplicado || !nota.totales ? '' : `<span>TOTAL: <strong>${escapar(nota.totales)}</strong></span>`}
+  const totalVisible = !esDuplicado && !!nota.totales
+  const resumen = totalVisible
+    ? `<div class="resumen">
+    <span>TOTAL: <strong>${escapar(nota.totales)}</strong></span>
   </div>`
+    : ''
 
   return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}">
   <table class="encabezado">
@@ -498,6 +498,16 @@ export function generarHtmlNotaPedido(
  * pedido pendientes".
  */
 export const ESTILOS_NOTA_PEDIDO = `
+/* ── Que el teléfono no agrande la letra ─────────────────────────────────────
+   Esto apaga el "autoajuste de texto" de Chromium, que reagranda por su cuenta
+   los párrafos que le parecen chicos. No es lo mismo que el ajuste de letra del
+   sistema —ése se compensa al generar el documento, ver conLetraCompensada—
+   pero es la otra mitad del mismo problema y apagarlo es gratis. */
+html {
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
 /* ── Una nota, una hoja ──────────────────────────────────────────────────────
    La hoja es una caja de alto FIJO, no una lista de bloques que se apilan
    hasta donde lleguen. Antes el original medía 277 mm contra los 281 útiles de
@@ -629,7 +639,10 @@ export const ESTILOS_NOTA_PEDIDO = `
 /* Cuántos renglones lleva la nota y cuánto suma. */
 .resumen {
   display: flex;
-  justify-content: space-between;
+  /* Quedó un solo dato —el total— y va a la derecha, alineado con la columna
+     de importes de la tabla de arriba. Con space-between se pegaba al margen
+     izquierdo, lejos de los números que resume. */
+  justify-content: flex-end;
   gap: 8mm;
   border: 1px solid #000;
   border-top: 0;
@@ -782,10 +795,6 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     .join('  ·  ')
 
   return {
-    // Los renglones que cargó el vendedor, no las filas de la tabla comercial:
-    // un renglón con dientes rotos a reparar da dos filas y sigue siendo una
-    // sola herramienta sobre el mostrador.
-    renglones: items.length,
     totales,
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
@@ -904,9 +913,51 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
  * Opcionalmente lleva adelante el **rol de visita del día**. Va primero porque
  * es la hoja de la jornada: las notas son lo que pasó dentro de ella.
  */
+/**
+ * Devuelve la hoja de estilos con los tamaños de letra divididos por `escala`.
+ *
+ * ─── Por qué hace falta ──────────────────────────────────────────────────────
+ *
+ * La nota se arma como HTML y el celular la convierte a PDF con un WebView.
+ * Android le aplica a ese WebView el ajuste de letra del sistema —el que el
+ * vendedor mueve en Pantalla → Tamaño de la letra— porque es una función de
+ * accesibilidad y está prendida por defecto. `expo-print` no la apaga: al
+ * WebView sólo le configura la codificación de caracteres.
+ *
+ * El resultado es el peor de los mundos: las LETRAS crecen un 15 o un 30 %,
+ * pero las cajas declaradas en milímetros —el alto de la hoja, el de las filas,
+ * el de los recuadros— no se mueven. La nota se desborda o queda apretada
+ * según qué teléfono la imprima, y los ${ALTO_HOJA_MM} mm medidos dejan de
+ * valer. Dos vendedores con el mismo pedido sacaban hojas distintas.
+ *
+ * Como no se puede apagar el zoom desde el CSS, se compensa: si el sistema va a
+ * multiplicar por 1,3, acá se divide por 1,3 y el papel sale igual que siempre.
+ * `line-height` es sin unidad a propósito, así acompaña sola.
+ *
+ * Con escala 1 —o sin dato— devuelve el CSS intacto: quien no tenga el problema
+ * no paga nada, ni siquiera un redondeo.
+ */
+function conLetraCompensada(css: string, escala: number | undefined): string {
+  if (!escala || !Number.isFinite(escala) || escala <= 0 || escala === 1) return css
+  return css.replace(
+    /font-size:\s*([\d.]+)pt/g,
+    (_todo, valor: string) => `font-size: ${Math.round((Number(valor) / escala) * 1000) / 1000}pt`,
+  )
+}
+
 export function generarDocumentoImpresion(
   notas: Array<{ nota: NotaParaImprimir; opciones: OpcionesImpresion }>,
-  extras?: { rolDeVisita?: RolDeVisitaParaImprimir },
+  extras?: {
+    rolDeVisita?: RolDeVisitaParaImprimir
+    /**
+     * Cuánto agranda la letra el sistema donde se va a generar el PDF.
+     *
+     * En el celular es `PixelRatio.getFontScale()`. En la PC no se pasa: el
+     * navegador de escritorio no le aplica al documento el tamaño de letra del
+     * sistema operativo, así que ahí ya sale bien.
+     */
+    escalaDeLetra?: number
+  },
 ): string {
   const paginas = notas.map(({ nota, opciones }) => generarHtmlNotaPedido(nota, opciones))
   if (extras?.rolDeVisita) paginas.unshift(generarHtmlRolDeVisita(extras.rolDeVisita))
@@ -920,8 +971,7 @@ export function generarDocumentoImpresion(
 <head>
 <meta charset="utf-8">
 <title>${titulo}</title>
-<style>${ESTILOS_NOTA_PEDIDO}
-${ESTILOS_ROL_DE_VISITA}</style>
+<style>${conLetraCompensada(ESTILOS_NOTA_PEDIDO + '\n' + ESTILOS_ROL_DE_VISITA, extras?.escalaDeLetra)}</style>
 </head>
 <body>${paginas.join('\n')}</body>
 </html>`

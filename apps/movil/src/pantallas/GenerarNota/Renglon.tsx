@@ -95,7 +95,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
   reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
-  codigos_computo: 'CÓDIGO/S DE CÓMPUTO',
+  codigos_computo: 'CÓDIGO DE CÓMPUTO',
   precio_por_diente: 'PRECIO POR DIENTE',
   precio_total: 'PRECIO TOTAL',
 }
@@ -1056,7 +1056,7 @@ export function PasoRenglon({
         if (campo === 'codigos_computo') {
           return (
             <View key={campo} style={estilos.bloqueCodigos}>
-              <Text style={estilos.rotulo}>CÓDIGO/S DE CÓMPUTO</Text>
+              <Text style={estilos.rotulo}>CÓDIGO DE CÓMPUTO</Text>
 
               {buscando ? (
                 <View style={estilos.buscando}>
@@ -1081,8 +1081,11 @@ export function PasoRenglon({
                       <Pressable
                         key={c.codigo}
                         onPress={() => alCambiar(alTocarCodigo(item, codigos, c, elegido))}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: elegido }}
+                        // Radio y no casilla: elegir uno saca el otro. Con
+                        // "checkbox" el lector de pantalla anunciaba que se
+                        // podían tildar varios, que es justo lo que ya no pasa.
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: elegido, selected: elegido }}
                         style={({ pressed }) => [
                           estilos.opcion,
                           elegido && estilos.opcionElegida,
@@ -1202,6 +1205,17 @@ export function PasoRenglon({
                 )
               ) : null}
 
+              {/* Dónde va el trabajo de más, ahora que acá va uno solo. Sin
+                  este renglón, el vendedor que necesita dos cosas vuelve a
+                  intentar tildando dos códigos y no entiende por qué se le
+                  apaga el anterior. */}
+              {codigos.length > 1 ? (
+                <Text style={estilos.buscandoTexto}>
+                  Uno por herramienta. Si además hay que reparar, contestá ¿TIENE DIENTES ROTOS?; si
+                  es otra herramienta, usá SUMAR OTRA.
+                </Text>
+              ) : null}
+
               <MensajeError>{errores.codigos_computo}</MensajeError>
             </View>
           )
@@ -1217,16 +1231,29 @@ export function PasoRenglon({
 }
 
 /**
- * Qué cambia al tildar o destildar un código de cómputo.
+ * Qué cambia al elegir un código de cómputo.
  *
- * El precio y la marca de "sin cargo" **salen de los códigos que quedan**, no
- * del que se acaba de tocar. Antes sólo se tocaban al TILDAR: destildar sacaba
- * el código de la lista y dejaba pegados el precio por diente y el sin cargo
- * del código que se había sacado. El vendedor destildaba "AFILADO S.C. SIN
- * CARGO" para cobrarlo, y el renglón seguía cotizando $ 0,10.
+ * ─── Uno por renglón, no varios ──────────────────────────────────────────────
  *
- * Con ninguno tildado no hay precio de lista que valga: se limpia, y el
- * validador pide el importe antes de dejar crear la nota.
+ * Elegir un código **reemplaza** al que estuviera puesto. Antes se sumaban: la
+ * app proponía el más ajustado a la medida, el vendedor tocaba otro porque el
+ * trabajo era distinto, y quedaban los dos tildados. La cuenta no se duplicaba
+ * —el precio sale de `precio_por_diente`, que es uno solo— pero la nota salía
+ * impresa con DOS códigos para un mismo trabajo, y en fábrica eso no se puede
+ * leer: no dice cuál de los dos hay que hacer.
+ *
+ * Que sean varios nunca fue una decisión, era el toque que agregaba en vez de
+ * cambiar. El trabajo de más tiene su propio lugar y sigue funcionando igual:
+ *
+ *   · reparar además de afilar  → "¿TIENE DIENTES ROTOS?" trae su propio
+ *     código y su propio precio, aparte del afilado;
+ *   · otra herramienta          → "SUMAR OTRA" o "AGREGAR OTRAS HERRAMIENTAS",
+ *     que abren un renglón nuevo con sus medidas.
+ *
+ * Tocar el que ya está elegido lo saca y deja el renglón sin código. El precio
+ * y el "sin cargo" salen siempre del que quedó, y sin ninguno se limpian: si no
+ * se limpiaran, destildar "AFILADO S.C. SIN CARGO" para cobrarlo dejaría el
+ * renglón cotizando $ 0,10, que es como estaba antes de todo esto.
  */
 function alTocarCodigo(
   item: FormularioItemNota,
@@ -1234,13 +1261,9 @@ function alTocarCodigo(
   tocado: CodigoComputo,
   estabaElegido: boolean,
 ): Partial<FormularioItemNota> {
-  const codigos = estabaElegido
-    ? item.codigos_computo.filter((x) => x !== tocado.codigo)
-    : [...item.codigos_computo, tocado.codigo]
+  const codigos = estabaElegido ? [] : [tocado.codigo]
 
-  // El que manda es el último que quedó tildado; con uno solo, ése.
-  const ultimo = codigos.length > 0 ? codigos[codigos.length - 1] : null
-  const fuente = ultimo ? disponibles.find((c) => c.codigo === ultimo) : undefined
+  const fuente = codigos.length > 0 ? disponibles.find((c) => c.codigo === codigos[0]) : undefined
 
   if (!fuente) {
     return codigos.length === 0

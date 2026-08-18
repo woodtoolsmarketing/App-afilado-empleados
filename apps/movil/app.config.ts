@@ -162,7 +162,28 @@ const config: ExpoConfig = {
    */
   owner: process.env.EAS_OWNER || 'woodtoolssrls-team',
   scheme: 'woodtoolsvisitas',
-  version: '1.0.0',
+
+  /**
+   * La versión que ve el vendedor en Configuración: `1.0.1`, `1.0.2`, …
+   *
+   * ─── Se sube A MANO, y es a propósito ────────────────────────────────────
+   *
+   * EAS sabe incrementar solo, pero no acá: `autoIncrement` reescribe el
+   * archivo de configuración, y con `app.config.ts` —que es código, no un
+   * JSON— no puede, así que corta con "autoIncrement option is not supported
+   * when using app.config.js". Y con `appVersionSource: remote` lo único que
+   * incrementa del lado del servidor es el versionCode; el nombre de versión
+   * lo lee siempre de este campo.
+   *
+   * Así que la regla es una línea: **antes de compilar, subir el último
+   * número.** Lo que va entre paréntesis —`1.0.1 (2)`— lo pone EAS solo.
+   *
+   * OJO con las actualizaciones por aire: `runtimeVersion` sigue a esta
+   * versión, así que un APK 1.0.1 NO recibe lo publicado para 1.0.0. Después
+   * de compilar hay que publicar de nuevo, o el botón del panel manda a un
+   * runtime que ya no usa nadie.
+   */
+  version: '1.0.1',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -178,7 +199,9 @@ const config: ExpoConfig = {
 
   android: {
     package: PAQUETE[VARIANTE],
-    versionCode: 1,
+    // Sin versionCode: con `appVersionSource: remote` lo lleva EAS y este campo
+    // se ignora —lo avisa en cada compilación—. Dejarlo escrito acá en 1 hacía
+    // creer que todas las compilaciones eran la misma.
     adaptiveIcon: {
       foregroundImage: './assets/icono-adaptativo.png',
       // Blanco, no el rojo de la marca: el logo lleva el texto en negro y la

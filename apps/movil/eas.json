@@ -27,6 +27,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "interno",
+      "autoIncrement": true,
       "env": {
         "APP_VARIANTE": "interno",
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
@@ -40,6 +41,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "beta",
+      "autoIncrement": true,
       "env": {
         "APP_VARIANTE": "beta",
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
@@ -53,6 +55,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "produccion",
+      "autoIncrement": true,
       "env": {
         "APP_VARIANTE": "produccion",
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"

@@ -1,5 +1,5 @@
 import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
-import type { ReactNode } from 'react'
+import { Children, type ReactNode } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 /** Indicadores de carga, avisos y estados vacíos. */
@@ -32,16 +32,40 @@ export function Aviso({
   children: ReactNode
 }) {
   const t = TONOS[tono]
+
+  // Un aviso escrito con una interpolación adentro —"La nota lleva {n}
+  // operaciones"— no llega como un texto: llega partido en pedazos, y el
+  // `typeof children === 'string'` de antes fallaba justo ahí. El texto suelto
+  // caía dentro del View y React Native mata el proceso, no muestra un error.
+  // Se veía como si el teléfono saltara solo a otra pantalla.
+  //
+  // Así que la pregunta no es "¿es UN texto?" sino "¿son TODOS texto?".
+  const pedazos = Children.toArray(children)
+  const esTexto = (p: unknown) => typeof p === 'string' || typeof p === 'number'
+  const todoTexto = pedazos.length > 0 && pedazos.every(esTexto)
+
   return (
     <View
       style={[estilos.aviso, { backgroundColor: t.fondo, borderLeftColor: t.borde }]}
       accessibilityLiveRegion="polite"
     >
       {titulo ? <Text style={[estilos.avisoTitulo, { color: t.texto }]}>{titulo}</Text> : null}
-      {typeof children === 'string' ? (
+      {todoTexto ? (
+        // Todo en un solo Text: los pedazos son un párrafo, no renglones sueltos.
         <Text style={[estilos.avisoTexto, { color: t.texto }]}>{children}</Text>
       ) : (
-        children
+        // Mezcla de texto y elementos. Hoy no hay ninguno así, pero envolver el
+        // texto que ande suelto cuesta una línea y evita que el próximo aviso
+        // mixto vuelva a tumbar la app.
+        pedazos.map((p, i) =>
+          esTexto(p) ? (
+            <Text key={i} style={[estilos.avisoTexto, { color: t.texto }]}>
+              {p}
+            </Text>
+          ) : (
+            p
+          ),
+        )
       )}
     </View>
   )

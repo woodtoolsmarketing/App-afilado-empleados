@@ -13,6 +13,7 @@ import {
 import * as FileSystem from 'expo-file-system'
 import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
+import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
 import {
@@ -354,7 +355,13 @@ export async function imprimirNotas(params: {
     }
   }
 
-  const html = generarDocumentoImpresion(paginas, { rolDeVisita: rolDeVisita ?? undefined })
+  // El tamaño de letra del teléfono le llega al WebView que arma el PDF, y
+  // agranda las letras sin agrandar las cajas en milímetros. Pasándole cuánto
+  // agranda, la plantilla lo descuenta y la hoja sale igual en todos lados.
+  const html = generarDocumentoImpresion(paginas, {
+    rolDeVisita: rolDeVisita ?? undefined,
+    escalaDeLetra: PixelRatio.getFontScale(),
+  })
   const { uri } = await Print.printToFileAsync({ html, base64: false })
 
   if (params.comoPdf) {

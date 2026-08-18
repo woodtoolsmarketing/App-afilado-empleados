@@ -1062,11 +1062,20 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 </Aviso>
               ) : (
                 <>
+                  {/* La cuenta va desde el primer renglón, no desde el
+                      segundo. Antes aparecía recién con dos cargados, que es
+                      justo cuando ya no hace falta contar: lo que se quiere
+                      saber es cuántos van y cuántos quedan MIENTRAS se carga.
+                      Es el mismo dato que hasta ahora salía impreso en la
+                      nota; acá sirve para decidir, ahí sólo para constatar. */}
+                  <View style={estilos.renglones}>
+                    <Text style={estilos.renglonesTitulo}>
+                      RENGLONES DE LA NOTA · {items.length} de {MAXIMO_RENGLONES}
+                    </Text>
+                  </View>
+
                   {items.length > 1 ? (
                     <View style={estilos.renglones}>
-                      <Text style={estilos.renglonesTitulo}>
-                        RENGLONES DE LA NOTA · {items.length} de {MAXIMO_RENGLONES}
-                      </Text>
                       {items.map((r, i) => (
                         <TarjetaRenglon
                           key={i}
