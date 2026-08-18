@@ -74,6 +74,58 @@ ipcMain.handle('imprimir', async () => {
   })
 })
 
+/**
+ * Imprimir un documento que arma el panel, no la ventana que se está mirando.
+ *
+ * Es lo que hace posible la cola: el celular encola una nota y esta máquina la
+ * saca en papel. Y de paso resuelve el problema de raíz —el PDF lo arma
+ * Chromium acá, con la misma letra y el mismo tamaño siempre, sin el ajuste de
+ * accesibilidad del teléfono de cada vendedor en el medio—.
+ *
+ * Va en una ventana propia, oculta y sin Node:
+ *
+ *   · propia, porque `webContents.print()` imprime lo que la ventana muestra, y
+ *     no se le puede pedir al panel que se convierta en la nota y vuelva;
+ *   · oculta, porque el operador no tiene por qué ver parpadear una hoja;
+ *   · sin Node y con `javascript: false`, porque acá entra HTML armado con
+ *     datos de la base. No debería poder ejecutar nada, y no puede.
+ *
+ * `silent: false` a propósito: sale el diálogo de impresión. La oficina elige
+ * impresora y confirma, que es lo que hoy hace a mano y no hay motivo para
+ * quitárselo. Si alguna vez se quiere sin diálogo, es este parámetro.
+ */
+ipcMain.handle('imprimir-documento', async (_evento, html: unknown) => {
+  if (typeof html !== 'string' || html.length === 0) {
+    return { impreso: false, motivo: 'No llegó el documento a imprimir' }
+  }
+
+  const hoja = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      javascript: false,
+    },
+  })
+
+  try {
+    await hoja.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    return await new Promise<{ impreso: boolean; motivo?: string }>((resolver) => {
+      hoja.webContents.print(
+        { silent: false, printBackground: true, margins: { marginType: 'none' } },
+        (impreso, motivo) => resolver({ impreso, motivo }),
+      )
+    })
+  } catch (e) {
+    return { impreso: false, motivo: (e as Error).message }
+  } finally {
+    // Pase lo que pase la ventana se cierra: una hoja oculta que queda viva es
+    // memoria que nadie va a reclamar y que nadie ve.
+    if (!hoja.isDestroyed()) hoja.destroy()
+  }
+})
+
 ipcMain.handle('abrir-externo', async (_evento, url: string) => {
   if (typeof url === 'string' && url.startsWith('https://')) {
     await shell.openExternal(url)

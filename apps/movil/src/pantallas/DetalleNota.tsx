@@ -24,7 +24,12 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { imprimirNotas } from '../servicios/impresion'
-import { marcarImpresas, obtenerNota, sePuedeCorregir } from '../servicios/notasPedido'
+import {
+  encolarImpresion,
+  marcarImpresas,
+  obtenerNota,
+  sePuedeCorregir,
+} from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -90,6 +95,27 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
       Alert.alert(comoPdf ? 'PDF generado' : 'Enviado a la impresora', r.mensaje)
     },
     onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
+  })
+
+  /**
+   * Pedirle a la oficina que la imprima.
+   *
+   * No se marca nada acá: la nota se sella cuando la PC confirma que el papel
+   * salió. Que quede "pendiente" después de tocar el botón no es un error, es
+   * lo correcto —todavía no se imprimió—.
+   */
+  const encolar = useMutation({
+    mutationFn: () => encolarImpresion(notaId),
+    onSuccess: (r) => {
+      void cliente.invalidateQueries()
+      Alert.alert(
+        r.encolada ? 'Va a la oficina' : 'Ya estaba pedida',
+        r.encolada
+          ? 'La nota quedó en la cola. La imprimen en la oficina y recién ahí queda marcada como impresa.'
+          : (r.motivo ?? 'Ya hay un pedido esperando para esta nota.'),
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos mandarla', e.message),
   })
 
   if (isLoading) {
@@ -269,6 +295,16 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
           subtitulo="Original y duplicado"
           alTocar={() => imprimir.mutate(false)}
           cargando={imprimir.isPending}
+        />
+
+        {/* La salida para cuando no hay impresora cerca —que en la calle es
+            casi siempre— y para cuando la nota tiene que salir sí o sí igual a
+            las demás: el papel lo saca la PC de la oficina, con el mismo
+            tamaño de letra todas las veces. */}
+        <BotonSecundario
+          titulo="🖨  Mandar a imprimir a la oficina"
+          alTocar={() => encolar.mutate()}
+          cargando={encolar.isPending}
         />
 
         <BotonSecundario

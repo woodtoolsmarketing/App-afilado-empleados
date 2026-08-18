@@ -13,6 +13,8 @@ interface ImportMeta {
 interface Window {
   woodtools?: {
     imprimir: () => Promise<{ impreso: boolean; motivo?: string }>
+    /** Imprime un documento armado por el panel, no la ventana visible. */
+    imprimirDocumento?: (html: string) => Promise<{ impreso: boolean; motivo?: string }>
     abrirExterno: (url: string) => Promise<boolean>
     version: () => Promise<string>
     /** Sólo con el panel abierto desde la carpeta del proyecto. */

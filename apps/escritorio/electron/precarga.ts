@@ -11,6 +11,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 // duplicados al fusionarse las dos interfaces.
 contextBridge.exposeInMainWorld('woodtools', {
   imprimir: (): Promise<{ impreso: boolean; motivo?: string }> => ipcRenderer.invoke('imprimir'),
+  // Imprime un documento armado por el panel —una nota de la cola— en vez de
+  // la ventana que se está mirando.
+  imprimirDocumento: (html: string): Promise<{ impreso: boolean; motivo?: string }> =>
+    ipcRenderer.invoke('imprimir-documento', html),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),
   // Sólo existe cuando el panel está abierto desde la carpeta del proyecto:

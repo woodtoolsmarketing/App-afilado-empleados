@@ -1114,3 +1114,47 @@ export async function marcarImpresas(ids: string[]): Promise<void> {
     .eq('estado', 'pendiente_cliente')
   if (errorSinNumero) throw errorSinNumero
 }
+
+/**
+ * Manda la nota a la impresora de la oficina en vez de imprimirla acá.
+ *
+ * ─── Para qué existe ─────────────────────────────────────────────────────────
+ *
+ * Imprimir desde el teléfono sale distinto en cada teléfono: el PDF lo arma un
+ * WebView al que Android le aplica el ajuste de letra del equipo, así que la
+ * misma nota entra en una hoja o se desborda según cómo tenga la pantalla el
+ * vendedor. Y además hace falta que haya una impresora cerca que conteste.
+ *
+ * Encolando, el papel lo saca siempre la misma máquina. El vendedor toca el
+ * botón en la calle y la nota lo está esperando impresa en la oficina.
+ *
+ * La orden es un PEDIDO: la nota no se sella acá. Se sella cuando la PC
+ * confirma que el papel salió —lo hace `resolver_orden_impresion`—, así una
+ * impresora trabada no deja la nota marcada como impresa y sin poder corregir.
+ *
+ * Si ya hay una orden esperando para esta nota, la base la rechaza por el
+ * índice único y se contesta que ya estaba encolada. Tocar dos veces —porque no
+ * pasó nada visible— no saca dos juegos de papel.
+ */
+export async function encolarImpresion(
+  notaId: string,
+  opciones?: { conRolDeVisita?: boolean },
+): Promise<{ encolada: boolean; motivo?: string }> {
+  const { data: sesion } = await supabase.auth.getSession()
+  const quien = sesion.session?.user.id
+  if (!quien) return { encolada: false, motivo: 'No hay sesión abierta.' }
+
+  const { error } = await supabase.from('ordenes_impresion').insert({
+    nota_id: notaId,
+    pedida_por: quien,
+    con_rol_de_visita: opciones?.conRolDeVisita === true,
+  })
+
+  if (!error) return { encolada: true }
+
+  // 23505 es el índice único: ya hay una orden viva para esta nota.
+  if (error.code === '23505') {
+    return { encolada: false, motivo: 'Esta nota ya está en la cola de la oficina.' }
+  }
+  throw error
+}

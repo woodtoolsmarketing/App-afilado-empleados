@@ -6,6 +6,7 @@ import { usarSesion } from './nucleo/sesion'
 import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaClientes } from './paginas/Clientes'
+import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
 import { PaginaNotasPedido } from './paginas/NotasPedido'
@@ -44,6 +45,10 @@ export function App() {
           <Route
             path="/notas"
             element={<PaginaNotasPedido soloLectura={!sesion.esAdministracion} />}
+          />
+          <Route
+            path="/cola-impresion"
+            element={<PaginaColaImpresion soloLectura={!sesion.esAdministracion} />}
           />
           <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
           <Route path="/mapa" element={<PaginaMapaEnVivo />} />
@@ -109,10 +114,30 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  /**
+   * Cuántas notas están esperando el papel.
+   *
+   * Va como globo en el menú porque la cola no sirve si hay que acordarse de
+   * mirarla: el vendedor manda a imprimir desde la calle y necesita que en la
+   * oficina alguien lo vea sin que nadie le avise.
+   */
+  const { data: aImprimir } = useQuery({
+    queryKey: ['cola-impresion-total'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('ordenes_impresion')
+        .select('id', { count: 'exact', head: true })
+        .in('estado', ['pendiente', 'imprimiendo'])
+      return count ?? 0
+    },
+    refetchInterval: 15_000,
+  })
+
   const enlaces = [
     { a: '/', icono: '▦', texto: 'Tablero' },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
     { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente },
+    { a: '/cola-impresion', icono: '🖨', texto: 'Cola de impresión', globo: aImprimir },
     { a: '/roles', icono: '▤', texto: 'Roles de visita' },
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
