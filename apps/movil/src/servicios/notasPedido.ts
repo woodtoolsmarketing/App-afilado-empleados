@@ -2,7 +2,7 @@ import {
   agruparParaNotas,
   agujeroDelRenglon,
   aNumero,
-  avisosDeAgujero,
+  descripcionGeneralDeLaNota,
   CONDICIONES_CON_DETALLE,
   aplicarSinCargo,
   ENCABEZADO_VACIO,
@@ -12,6 +12,7 @@ import {
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
   sinAvisosDeAgujero,
+  sinLineaDeServicio,
   totalDelRenglon,
   ZONAS,
   type CondicionVenta,
@@ -617,13 +618,6 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   // facturación que la app inventó por atrás.
   const observaciones = (datos.observaciones ?? []).filter((o) => o.trim())
 
-  // El agujero distinto del de fábrica va a la descripción general, que es lo
-  // que la fábrica lee antes de tocar la pieza.
-  const avisos = avisosDeAgujero(datos.items)
-  const descripcionGeneral = [enc.descripcion_herramienta.trim(), ...avisos]
-    .filter(Boolean)
-    .join('\n')
-
   // Toda la carga en un solo pedido. El servidor la mete en una transacción:
   // reserva de una vez los números que hacen falta —seguidos, sin que se meta
   // otro vendedor en el medio—, marca cada nota con su instante exacto de
@@ -641,7 +635,10 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       zona: enc.zona || null,
       datos_cliente: enc.datos_cliente || null,
       datos_cliente_origen: enc.datos_cliente_origen,
-      descripcion_herramienta: descripcionGeneral || null,
+      // Con los renglones DE ESTA nota, no con todos los de la carga: cuando
+      // se parte en dos comprobantes, cada uno anuncia lo suyo.
+      descripcion_herramienta:
+        descripcionGeneralDeLaNota(enc.descripcion_herramienta, g.items) || null,
       descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
       vendedor_numero: enc.vendedor_numero.trim() || null,
       /**
@@ -904,9 +901,12 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
       zona_id: zona?.id ?? '',
       datos_cliente: comoCadena(nota.datos_cliente),
       datos_cliente_origen: nota.datos_cliente_origen === 'voz' ? 'voz' : 'texto',
-      // Sin los avisos de agujero que le pegamos al guardar: si volvieran al
-      // campo como texto del vendedor, al guardar se agregarían de nuevo.
-      descripcion_herramienta: sinAvisosDeAgujero(nota.descripcion_herramienta),
+      // Sin lo que le pega la app al guardar —la línea del servicio y los
+      // avisos de agujero—: si volvieran al campo como texto del vendedor, al
+      // guardar se agregarían de nuevo y cada corrección dejaría una línea más.
+      descripcion_herramienta: sinLineaDeServicio(
+        sinAvisosDeAgujero(nota.descripcion_herramienta),
+      ),
       descripcion_herramienta_origen:
         nota.descripcion_herramienta_origen === 'voz' ? 'voz' : 'texto',
       cliente_nuevo: false,
@@ -951,10 +951,10 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
   const g = grupos[0]
   const enc = datos.encabezado
 
-  const avisos = avisosDeAgujero(datos.items)
-  const descripcionGeneral = [enc.descripcion_herramienta.trim(), ...avisos]
-    .filter(Boolean)
-    .join('\n')
+  const descripcionGeneral = descripcionGeneralDeLaNota(
+    enc.descripcion_herramienta,
+    datos.items,
+  )
 
   const observaciones = [
     ...(datos.observaciones ?? []).filter((o) => o.trim()),

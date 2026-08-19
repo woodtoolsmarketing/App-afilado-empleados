@@ -1052,6 +1052,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 alCambiar={cambiarEncabezado}
                 servicios={servicios}
                 alCambiarServicios={cambiarServicios}
+                items={items}
                 errores={errores}
               />
 

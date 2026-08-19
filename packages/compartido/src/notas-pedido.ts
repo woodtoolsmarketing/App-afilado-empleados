@@ -12,7 +12,12 @@
  */
 
 import { aPesos, PRECIO_SIN_CARGO, type Moneda } from './catalogo'
-import type { ResultadoValidacion, TipoNotaPedido, TipoServicio } from './tipos'
+import {
+  ETIQUETA_TIPO_SERVICIO,
+  type ResultadoValidacion,
+  type TipoNotaPedido,
+  type TipoServicio,
+} from './tipos'
 import { CODIGO_POSTAL } from './validaciones'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1611,6 +1616,186 @@ export function agujeroDelRenglon(item: FormularioItemNota): AgujeroDelRenglon {
     ajuste: a > b ? 'agrandado' : 'buje_reductor',
     comparable: true,
   }
+}
+
+/**
+ * Cómo se nombra cada herramienta DENTRO DE UNA FRASE.
+ *
+ * Tabla aparte de `ETIQUETA_HERRAMIENTA` a propósito, y no por prolijidad:
+ * aquélla está hecha para los títulos de la pantalla, donde "SIERRAS" a secas
+ * se entiende porque arriba dice de qué se está hablando. Metida en una frase
+ * miente: una nota con sierras circulares y sierras sin fin salía
+ * "AFILADO DE SIERRAS Y SIERRA SIN FIN", que se lee como un error de tipeo —y
+ * donde "sierras" no quiere decir "todas las sierras" sino justamente las
+ * circulares, que es lo que el renglón imprime como "S.C."—.
+ *
+ * En minúscula porque es dato cargado, no rótulo del formulario: en el
+ * talonario la mayúscula sostenida es de la hoja preimpresa.
+ */
+const EN_LA_DESCRIPCION: Record<Herramienta, string> = {
+  sierra: 'sierras circulares',
+  fresa: 'fresas',
+  cabezal: 'cabezales',
+  incisor: 'incisores',
+  sierra_sin_fin: 'sierras sin fin',
+  mecha: 'mechas',
+  cuchilla: 'cuchillas',
+}
+
+/**
+ * La preposición de cada servicio.
+ *
+ * Seis de los siete son un trabajo sobre la pieza y van con "de". El reclamo
+ * no: no se le hace un reclamo a la sierra, se reclama POR la sierra. Escrito
+ * "RECLAMO de sierras circulares", en el taller se lee como una orden de
+ * trabajo más, que es exactamente lo que no es.
+ */
+const PREPOSICION: Partial<Record<TipoServicio, string>> = { reclamo: 'por' }
+
+/** "sierras circulares", "sierras circulares y fresas", "a, b y c". */
+function enumerar(partes: string[]): string {
+  if (partes.length <= 1) return partes[0] ?? ''
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+}
+
+/**
+ * Cuánto puede medir la línea antes de comerse dos renglones del recuadro.
+ *
+ * El recuadro de la descripción general tiene alto fijo y recorta sin avisar
+ * (ver `ALTO_DESCRIPCION_MM` en la plantilla de impresión). A 7,5 pt entran
+ * unos 125 caracteres por renglón; con 120 queda margen y la línea nunca pasa
+ * de uno.
+ */
+const LARGO_MAXIMO_LINEA = 120
+
+/**
+ * Qué trabajo hay que hacer, y sobre qué. Encabeza la descripción general.
+ *
+ * Sale de los renglones y no de una casilla aparte: el servicio y la
+ * herramienta ya se cargan renglón por renglón, y pedirle al vendedor que los
+ * vuelva a escribir en la descripción es pedirle que copie a mano algo que la
+ * app ya sabe —y que va a quedar desactualizado en cuanto agregue un renglón—.
+ *
+ * Va una parte por servicio, porque una misma nota puede llevar más de uno:
+ *
+ *     AFILADO de sierras circulares y fresas
+ *     AFILADO de sierras circulares · VENTA de mechas
+ *     RECLAMO por fresas
+ *
+ * El servicio en mayúscula y la herramienta en minúscula: el servicio es lo
+ * único que en fábrica hace falta leer sin acercarse, y la minúscula deja claro
+ * que eso es dato cargado y no un rótulo del formulario.
+ *
+ * Se arma con los renglones DE ESA NOTA, no con todos los de la carga. Cuando
+ * la carga se parte en varias notas por grupo de facturación, cada una se lleva
+ * los suyos: una nota de afilado que dijera "VENTA de mechas" porque el
+ * vendedor cargó mechas en la nota hermana estaría mintiendo sobre lo que
+ * fábrica tiene que hacer con esas piezas.
+ *
+ * Devuelve '' mientras no haya ningún renglón con herramienta elegida: al
+ * principio de la carga no hay nada que anunciar, y una línea a medio armar es
+ * peor que ninguna.
+ */
+export function lineaDeServicio(items: FormularioItemNota[]): string {
+  const porServicio = new Map<TipoServicio, Herramienta[]>()
+
+  for (const item of items) {
+    if (!item.herramienta) continue
+    const suyas = porServicio.get(item.servicio) ?? []
+    if (!suyas.includes(item.herramienta)) suyas.push(item.herramienta)
+    porServicio.set(item.servicio, suyas)
+  }
+
+  if (porServicio.size === 0) return ''
+
+  const completa = [...porServicio]
+    .map(
+      ([servicio, herramientas]) =>
+        `${ETIQUETA_TIPO_SERVICIO[servicio]} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
+          herramientas.map((h) => EN_LA_DESCRIPCION[h]),
+        )}`,
+    )
+    .join(' · ')
+
+  if (completa.length <= LARGO_MAXIMO_LINEA) return completa
+
+  // Tres servicios con dos herramientas cada uno no entran en un renglón, y el
+  // recuadro no avisa: recorta. Se dejan los servicios solos, que es el dato
+  // que hay que leer de lejos; qué herramienta es cada uno ya está renglón por
+  // renglón en la tabla de abajo.
+  return [...porServicio.keys()].map((s) => ETIQUETA_TIPO_SERVICIO[s]).join(' · ')
+}
+
+const escaparRegex = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Cómo se reconoce la línea que pone `lineaDeServicio`.
+ *
+ * Matchea la línea ENTERA, no un prefijo, y se arma con las tablas de verdad
+ * —servicios y herramientas— así que no se puede desincronizar.
+ *
+ * Que sea la línea entera importa: con un reconocedor por prefijo, un vendedor
+ * que escribiera "AFILADO de urgencia, el cliente pasa el jueves" perdía
+ * también "el cliente pasa el jueves" al reabrir la nota para corregirla, sin
+ * que nada avisara. Esa frase empieza igual que la línea automática pero no lo
+ * es, y así no matchea.
+ */
+const LINEA_DE_SERVICIO = (() => {
+  const servicios = Object.values(ETIQUETA_TIPO_SERVICIO).map(escaparRegex).join('|')
+  const herramientas = Object.values(EN_LA_DESCRIPCION).map(escaparRegex).join('|')
+  const lista = `(?:${herramientas})(?:, (?:${herramientas}))*(?: y (?:${herramientas}))?`
+  const parte = `(?:${servicios}) (?:de|por) ${lista}`
+  // La segunda forma es la corta, la que sale cuando la completa no entra en un
+  // renglón: los servicios solos.
+  const corta = `(?:${servicios})`
+  return new RegExp(`^(?:${parte}(?: · ${parte})*|${corta}(?: · ${corta})+)$`)
+})()
+
+/**
+ * La descripción general **como la escribió el vendedor**, sin la línea de
+ * servicio que le pega la app al guardar.
+ *
+ * Mismo motivo que `sinAvisosDeAgujero`: al reabrir una nota para corregirla,
+ * la línea automática volvía al campo como si fuera texto del vendedor y al
+ * guardar se agregaba otra. Cada corrección dejaba una línea más.
+ */
+export function sinLineaDeServicio(texto: string | null | undefined): string {
+  return String(texto ?? '')
+    .split('\n')
+    .filter((linea) => !LINEA_DE_SERVICIO.test(linea.trim()))
+    .join('\n')
+    .trim()
+}
+
+/**
+ * La descripción general que va guardada en la nota, con sus tres partes.
+ *
+ *  1. **Qué hay que hacer y sobre qué** — "AFILADO de sierras circulares". Lo
+ *     arma la app con los renglones; el vendedor ya lo cargó ahí y no tiene por
+ *     qué escribirlo dos veces.
+ *  2. **Los avisos de agujero.** Dato de taller: si la pieza no trae el agujero
+ *     de fábrica, hay que saberlo antes de tocarla.
+ *  3. **Lo que agrega el vendedor**, tal cual lo escribió o lo dictó.
+ *
+ * En ese orden, y el orden es una decisión: el recuadro del papel tiene alto
+ * fijo y lo que no entra se recorta en silencio, así que último va lo que menos
+ * duele perder. El servicio y el agujero los necesita fábrica para trabajar; el
+ * comentario del vendedor es un agregado. Antes el texto del vendedor iba
+ * primero y lo que se caía eran los avisos de agujero.
+ *
+ * Vive acá y no en la app porque la usan los tres caminos que crean notas —la
+ * app, la corrección de una nota ya creada y el probador— y ya pasó que una
+ * copia quedara atrás.
+ *
+ * Los `items` son los de ESA nota, no los de toda la carga.
+ */
+export function descripcionGeneralDeLaNota(
+  textoDelVendedor: string,
+  items: FormularioItemNota[],
+): string {
+  return [lineaDeServicio(items), ...avisosDeAgujero(items), textoDelVendedor.trim()]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**

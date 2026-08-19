@@ -8,8 +8,10 @@ import {
   tipografia,
   VENDEDORES_CON_CERO,
   zonaParaUbicacion,
+  lineaDeServicio,
   ZONAS,
   type ClienteBuscado,
+  type FormularioItemNota,
   type FormularioNotaEncabezado,
   type TipoServicio,
   type UbicacionCliente,
@@ -481,14 +483,18 @@ export function PasoOperacion({
   alCambiar,
   servicios,
   alCambiarServicios,
+  items,
   errores,
 }: {
   form: FormularioNotaEncabezado
   alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
   servicios: TipoServicio[]
   alCambiarServicios: (servicios: TipoServicio[]) => void
+  /** Los renglones cargados hasta ahora: de ahí sale la descripción general. */
+  items: FormularioItemNota[]
   errores: Record<string, string | undefined>
 }) {
+  const linea = lineaDeServicio(items)
   const conAfilado = servicios.includes('afilado')
   const disponibles: TipoServicio[] = conAfilado
     ? [...SERVICIOS_BASE, 'rebaje', 'reclamo']
@@ -496,12 +502,27 @@ export function PasoOperacion({
 
   return (
     <>
+      {/* Qué va a decir la nota, armado con los renglones que se van cargando.
+          Se muestra acá y no sólo al imprimir porque es el momento en que se
+          puede corregir: si dice "AFILADO DE SIERRAS" y el cliente trajo
+          fresas, el renglón está mal cargado y se ve al toque. */}
+      <View style={estilos.servicio}>
+        <Text style={estilos.servicioRotulo}>DESCRIPCIÓN GRAL. DE LA HERRAMIENTA</Text>
+        {linea ? (
+          <Text style={estilos.servicioTexto}>{linea}</Text>
+        ) : (
+          <Text style={estilos.servicioVacio}>
+            Se completa sola con las herramientas que cargues abajo.
+          </Text>
+        )}
+      </View>
+
       <CampoDictado
-        etiqueta="DESCRIPCIÓN GRAL. DE LA HERRAMIENTA"
+        etiqueta="AGREGAR A LA DESCRIPCIÓN"
         valor={form.descripcion_herramienta}
         alCambiar={(t) => alCambiar({ descripcion_herramienta: t })}
         alCambiarOrigen={(o) => alCambiar({ descripcion_herramienta_origen: o })}
-        placeholder="Qué trae el cliente, en general"
+        placeholder="Algo más que tenga que saber la fábrica"
       />
 
       <DesplegableMultiple<TipoServicio>
@@ -533,6 +554,34 @@ export function PasoOperacion({
 
 const estilos = StyleSheet.create({
   fila: { flexDirection: 'row', gap: espaciado.sm },
+
+  /* La descripción general que arma la app. Va con el mismo rótulo que tenía
+     el campo, porque para el vendedor es el mismo dato: lo que va a decir la
+     nota. Lo que cambió es quién lo escribe. */
+  servicio: {
+    backgroundColor: colores.panelClaro,
+    borderRadius: radios.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colores.verdeOscuro,
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
+    gap: espaciado.xs,
+  },
+  servicioRotulo: {
+    fontFamily: tipografia.familia.cuerpo,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaSuave,
+  },
+  servicioTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.sm,
+    color: colores.tinta,
+  },
+  servicioVacio: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaTenue,
+  },
   mitad: { flex: 1 },
 
   vendedor: {

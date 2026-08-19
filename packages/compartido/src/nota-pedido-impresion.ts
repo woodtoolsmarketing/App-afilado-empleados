@@ -184,7 +184,26 @@ export const A4_ALTO_PT = 842
  * papel ese recuadro tampoco crece: lo que no entra, no entra.
  */
 const ALTO_DATOS_CLIENTE_MM = 17
-const ALTO_DESCRIPCION_MM = 11
+/**
+ * El recuadro de la descripción general: cuatro renglones.
+ *
+ * ─── Por qué 13 y no más ─────────────────────────────────────────────────────
+ *
+ * Porque más no hay. La hoja está llena: las dos tablas se llevan todo lo que
+ * sobra y NO devuelven nada —tienen `flex-basis: 0`, así que su peso de encogido
+ * es cero y el reparto negativo cae entero sobre los recuadros de texto—. Medido
+ * subiendo este número de a un milímetro, el alto real se clava en 13,2 mm y de
+ * ahí no se mueve: declarar 18 o 20 da exactamente lo mismo que declarar 13.
+ * Un número más grande sería mentira en el código.
+ *
+ * El cuarto renglón se gana con la letra, no con la caja: a 7,5 pt (ver los
+ * estilos) el renglón mide 3,04 mm en vez de 3,25 y entran cuatro en el mismo
+ * lugar. Hace falta porque la descripción ya no es sólo del vendedor: la
+ * encabeza la línea que arma la app ("AFILADO DE SIERRAS Y FRESAS") y abajo
+ * pueden ir hasta dos avisos de agujero. Con tres renglones, lo que el vendedor
+ * agregaba se recortaba sin que nadie se enterara.
+ */
+const ALTO_DESCRIPCION_MM = 13
 
 /**
  * El duplicado tiene el chrome apretado —encabezado, rótulos y cajas chicas—
@@ -197,6 +216,65 @@ const ALTO_DESCRIPCION_MM = 11
  */
 const FILAS_TECNICAS_DUPLICADO = MAXIMO_RENGLONES
 const FILAS_COMERCIALES_DUPLICADO = MAXIMO_RENGLONES
+
+/**
+ * El reparto de columnas de las tablas, en porcentaje del ancho de la hoja.
+ *
+ * ─── Por qué las columnas se declaran y no se dejan al navegador ─────────────
+ *
+ * Antes el ancho lo repartía solo el algoritmo automático de tablas, que mira
+ * el contenido. Y el contenido lo decidían los ENCABEZADOS: "ØExt.-Largo",
+ * "ØInt.-Ancho", "Ancho Corte / Espesor" son títulos largos y se llevaban 23 mm
+ * cada uno para mostrar números de dos o tres cifras. A la descripción de la
+ * herramienta —el único texto libre de la fila, y el más largo— le quedaban
+ * 26,6 mm.
+ *
+ * En esos 26,6 mm un "SIERRA CIRCULAR WIDIA 300x30" envuelve a TRES renglones,
+ * y la fila pasa de 5,5 mm a 10,6. Con doce renglones cargados eso son 60 mm de
+ * más, y la nota terminaba pidiendo 331 mm dentro de la caja de `.nota`, que
+ * mide `ALTO_HOJA_MM`.
+ *
+ * Lo que hacía que no se notara —y que fuera tan difícil de encontrar— es que
+ * `.nota` tiene `overflow: hidden`: esos 66 mm no daban error, no pasaban a una
+ * segunda hoja y no aparecían en ningún lado. Se recortaban en silencio. Lo que
+ * caía afuera era el final: el TOTAL, las firmas y la palabra ORIGINAL o
+ * DUPLICADO del pie. De ahí que la nota "saliera cortada" sin importar el
+ * tamaño de papel ni la impresora.
+ *
+ * Con `table-layout: fixed` (ver los estilos) el ancho sale de acá y no del
+ * contenido, así que la fila mide siempre lo mismo y la hoja no puede
+ * desbordar. Los porcentajes son sobre los 190 mm de `.nota`.
+ */
+const COLUMNAS_TECNICAS = [
+  30, // Descripción — el texto libre, y por eso la más ancha: 57 mm
+  5.5, // Afil.
+  5.5, // Rect.
+  5.5, // Rep.
+  5.5, // Tens.
+  5.5, // Rell
+  7, // Otro
+  6, // Cantidad
+  7.5, // ØExt.-Largo
+  7.5, // ØInt.-Ancho
+  7.5, // Ancho Corte / Espesor
+  7, // Z-Paso
+]
+
+const COLUMNAS_COMERCIALES = [
+  12, // Código de Cómputo
+  7, // Cantidad
+  11, // Precio unitario
+  11, // Precio total
+  14, // Condición de Venta
+  8, // Anticipo
+  37, // Observaciones — el otro texto libre
+]
+
+/** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
+const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
+
+const colgroup = (anchos: number[]): string =>
+  `<colgroup>${anchos.map((a) => `<col style="width:${a}%">`).join('')}</colgroup>`
 
 function escapar(v: unknown): string {
   return String(v ?? '')
@@ -357,12 +435,12 @@ export function generarHtmlNotaPedido(
   // de corrido se comían el ancho de las columnas de al lado. El código de
   // cómputo cede el espacio, que es el que le sobraba.
   const comercialesCabecera = esDuplicado
-    ? `<tr><th class="w-codigo">Código de Cómputo</th><th class="w-cant">Cantidad</th></tr>`
+    ? `<tr><th>Código de Cómputo</th><th>Cantidad</th></tr>`
     : `<tr>
-        <th class="w-codigo">Código de Cómputo</th>
-        <th class="w-cant">Cantidad</th>
-        <th class="w-precio">Precio<br>unitario</th>
-        <th class="w-precio">Precio<br>total</th>
+        <th>Código de Cómputo</th>
+        <th>Cantidad</th>
+        <th>Precio<br>unitario</th>
+        <th>Precio<br>total</th>
         <th>Condicion de Venta</th>
         <th>Anticipo</th>
         <th>Observaciones</th>
@@ -404,6 +482,7 @@ export function generarHtmlNotaPedido(
   const bloqueComercial = esDuplicado
     ? `<div class="comercial-duplicado">
         <table class="tabla comercial">
+          ${colgroup(COLUMNAS_COMERCIALES_DUPLICADO)}
           <thead>${comercialesCabecera}</thead>
           <tbody>${filasComerciales}</tbody>
         </table>
@@ -417,6 +496,7 @@ export function generarHtmlNotaPedido(
         </div>
       </div>`
     : `<table class="tabla comercial">
+        ${colgroup(COLUMNAS_COMERCIALES)}
         <thead>${comercialesCabecera}</thead>
         <tbody>${filasComerciales}</tbody>
       </table>`
@@ -482,6 +562,7 @@ export function generarHtmlNotaPedido(
 
   <div class="bloque-titulo">CARACTERISTICAS TECNICAS</div>
   <table class="tabla tecnica">
+    ${colgroup(COLUMNAS_TECNICAS)}
     <thead>
       <tr>
         <th colspan="7" class="grupo">Operación</th>
@@ -492,13 +573,13 @@ export function generarHtmlNotaPedido(
         <th rowspan="2">Z-Paso</th>
       </tr>
       <tr>
-        <th class="w-desc">Descripción</th>
-        <th class="w-tick">Afil.</th>
-        <th class="w-tick">Rect.</th>
-        <th class="w-tick">Rep.</th>
-        <th class="w-tick">Tens.</th>
-        <th class="w-tick">Rell</th>
-        <th class="w-otro">Otro</th>
+        <th>Descripción</th>
+        <th>Afil.</th>
+        <th>Rect.</th>
+        <th>Rep.</th>
+        <th>Tens.</th>
+        <th>Rell</th>
+        <th>Otro</th>
       </tr>
     </thead>
     <tbody>${filasTecnicas}</tbody>
@@ -616,6 +697,11 @@ html {
   height: ${ALTO_DESCRIPCION_MM}mm;
   border: 1px solid #000;
   border-top: 0;
+  /* Medio punto menos que el recuadro de arriba, y es lo que hace entrar el
+     cuarto renglón: la caja no puede crecer (ver ALTO_DESCRIPCION_MM) y acá
+     ahora conviven la línea del servicio, lo que agrega el vendedor y los
+     avisos de agujero. */
+  font-size: 7.5pt;
 }
 
 .bloque-titulo {
@@ -633,18 +719,32 @@ html {
    hasta llenar la hoja, y sólo bajan hasta acá cuando la nota viene cargada
    hasta el tope. Menos que esto ya no se puede escribir a mano. */
 .tabla td { height: 4.4mm; font-size: 8.5pt; }
+
+/* ── Una fila, un renglón ────────────────────────────────────────────────────
+   El ancho de cada columna lo fija el <colgroup> (ver COLUMNAS_TECNICAS) y no
+   el contenido. Sin esto el reparto automático le daba 26,6 mm a la
+   descripción, el texto envolvía a tres renglones y la nota se pasaba 66 mm de
+   la hoja — que "overflow: hidden" recortaba sin avisar.
+
+   El "nowrap" es la garantía, no un adorno: acá no hay JavaScript que pueda
+   medir y reacomodar —el WebView que arma el PDF en el celular lo tiene
+   apagado—, así que la única forma de que la hoja NO PUEDA desbordar es que
+   ninguna fila pueda crecer. Una descripción más larga que su casilla se corta
+   con puntos suspensivos: se pierde el final de un renglón, a la vista, en vez
+   de perderse el pie de la nota entera sin que nadie se entere.
+
+   Los <th> quedan afuera a propósito: los encabezados sí envuelven ("Ancho
+   Corte / Espesor", "Precio unitario"), y son dos renglones fijos que no
+   dependen de lo que se cargue. */
+.nota .tabla { table-layout: fixed; }
+.nota .tabla td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
-/* Las casillas de operación pasaron de una X a llevar la cantidad de dientes,
-   así que 3.5% (6,6 mm) ya no alcanza: un "187" no entraba. El ancho sale de
-   la descripción, que es texto libre y se acomoda. */
-.w-desc { width: 14%; } .w-tick { width: 5%; } .w-otro { width: 8%; }
+/* Los anchos de columna ya no se declaran acá: viven en los <colgroup> que
+   arma "colgroup()", porque con "table-layout: fixed" el ancho lo fija la
+   primera fila o las columnas, y los <th> de este talonario tienen colspan y
+   rowspan —el reparto por encabezado no era posible—. */
 .tabla .tick { font-size: 8pt; }
-/* El código de cómputo bajó de 20% a 14% para hacerle lugar a las dos
-   columnas de precio. Entra igual: son códigos de cuatro dígitos, y en el peor
-   caso —dos códigos separados por coma— sigue entrando. En el duplicado, que
-   sólo tiene dos columnas, se lo deja ancho. */
-.w-codigo { width: 14%; } .w-cant { width: 8%; } .w-precio { width: 11%; }
 .comercial th { line-height: 1.1; }
 .cambio { letter-spacing: 1px; }
 
@@ -654,8 +754,6 @@ html {
    de líneas vacías al lado de un número de cuatro dígitos. */
 .comercial-duplicado { display: flex; align-items: flex-start; gap: 4mm; }
 .comercial-duplicado .comercial { width: 62mm; flex: 0 0 62mm; }
-.duplicado .comercial-duplicado .w-codigo { width: 62%; }
-.duplicado .comercial-duplicado .w-cant { width: 38%; }
 /* El hueco del medio. Crece con la hoja: es el espacio para agregar renglones. */
 .espacio-libre { flex: 1 1 auto; }
 .cajas-duplicado { display: flex; flex-direction: column; gap: 3mm; flex: 0 0 52mm; }
@@ -713,7 +811,7 @@ html {
 .duplicado .comprobantes { line-height: 1.6; padding: 3px 4px; }
 .duplicado .logo { max-height: 18mm; }
 .duplicado .texto-libre { height: 10mm; }
-.duplicado .texto-libre.alto-2 { height: 8mm; }
+.duplicado .texto-libre.alto-2 { height: 12mm; }
 .duplicado .bloque-titulo { padding: 1px; font-size: 9pt; }
 .duplicado .tabla th { font-size: 7.5pt; }
 /* Igual que en el original: es el piso. El reparto de la hoja las estira
@@ -724,14 +822,41 @@ html {
 .duplicado .caja .alto { height: 10mm; }
 .duplicado .talon { margin-top: 2.5mm; padding-top: 2mm; }
 
-@page { size: A4 portrait; margin: 8mm; }
-
 @media print {
-  .nota { margin: 0 auto; }
   .control-titulo, .numero-titulo, .bloque-titulo, .tabla th {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+}
+`
+
+/**
+ * El papel, y la caja donde entra cada hoja.
+ *
+ * Va aparte del resto de los estilos porque es lo único que NO se agranda
+ * cuando el sistema agranda la letra: el papel mide lo que mide. Ver
+ * `conMedidasEscaladas`, que escala todo lo demás y a esto no lo toca.
+ */
+const ESTILOS_PAGINA = `
+@page { size: A4 portrait; margin: 8mm; }
+
+/* Una hoja de papel. Mide siempre lo mismo, pase lo que pase con la letra del
+   teléfono, y es la que decide dónde corta la página. */
+.hoja {
+  width: 190mm;
+  height: ${ALTO_HOJA_MM}mm;
+  margin: 0 auto;
+  overflow: hidden;
+  page-break-after: always;
+  break-after: page;
+}
+.hoja:last-child { page-break-after: auto; break-after: auto; }
+
+/* Adentro de una hoja, el salto de página lo manda la hoja. */
+.hoja > .nota {
+  margin: 0;
+  page-break-after: auto;
+  break-after: auto;
 }
 `
 
@@ -961,12 +1086,76 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
  * Con escala 1 —o sin dato— devuelve el CSS intacto: quien no tenga el problema
  * no paga nada, ni siquiera un redondeo.
  */
-function conLetraCompensada(css: string, escala: number | undefined): string {
-  if (!escala || !Number.isFinite(escala) || escala <= 0 || escala === 1) return css
+/** ¿Hay que compensar algo, o el sistema no está agrandando la letra? */
+function escalaValida(escala: number | undefined): escala is number {
+  return !!escala && Number.isFinite(escala) && escala > 0 && escala !== 1
+}
+
+const redondear = (n: number) => Math.round(n * 1000) / 1000
+
+/**
+ * Agranda TODAS las medidas del documento por la escala de letra del sistema.
+ *
+ * ─── Por qué se agranda la hoja en vez de achicar la letra ───────────────────
+ *
+ * El WebView de Android que arma el PDF le aplica al texto —y sólo al texto— el
+ * tamaño de letra del sistema. Las cajas en milímetros no se enteran, así que
+ * con la letra en grande el contenido no entra y el pie de la hoja se pierde:
+ * el TOTAL, las firmas y la palabra ORIGINAL o DUPLICADO.
+ *
+ * El primer intento fue el evidente: dividir cada `font-size` por la escala,
+ * para que el WebView lo volviera a multiplicar y quedara igual. **No funciona,
+ * y no por poco.** Ese WebView no dibuja texto por debajo de 8 px y no hay
+ * forma de bajarle ese piso desde el CSS. Con el sistema en 2×, los 8,5 pt de
+ * las filas quedaban en 4,25 pt = 5,67 px, o sea por debajo del piso: se
+ * subían a 8 px y recién ahí se multiplicaban por 2. Resultado, 16 px donde
+ * hacían falta 11,33 — un 41 % más grandes—. La compensación no sólo no
+ * arreglaba: empeoraba, porque cuanto más chica la letra pedida, más la subía
+ * el piso. Está medido en el teléfono, con el registro de `imprimirNotas`:
+ * "escala de letra=2 · 8.5pt compensado=4.25pt".
+ *
+ * Así que se hace al revés, y por eso esto multiplica en lugar de dividir:
+ *
+ *  1. los `font-size` se dejan como están —nunca se acercan al piso de 8 px—;
+ *  2. TODA otra medida (mm y px: altos, anchos, bordes, separaciones) se
+ *     multiplica por la escala;
+ *  3. el WebView multiplica el texto por la escala, por su cuenta;
+ *  4. queda una maqueta idéntica, `escala` veces más grande en todo;
+ *  5. `transform: scale(1 / escala)` la devuelve al tamaño del papel.
+ *
+ * El `transform` no pasa por el motor de fuentes, así que ningún piso lo toca.
+ *
+ * Los `pt` quedan afuera a propósito: en esta hoja de estilos **todo `pt` es un
+ * `font-size`** y ninguna medida de caja se expresa en puntos. Si eso deja de
+ * ser cierto hay que revisar esta función; la prueba que lo comprueba está en
+ * el banco de medición.
+ */
+function conMedidasEscaladas(css: string, escala: number | undefined): string {
+  if (!escalaValida(escala)) return css
   return css.replace(
-    /font-size:\s*([\d.]+)pt/g,
-    (_todo, valor: string) => `font-size: ${Math.round((Number(valor) / escala) * 1000) / 1000}pt`,
+    /([\d.]+)(mm|px)\b/g,
+    (_todo, valor: string, unidad: string) => `${redondear(Number(valor) * escala)}${unidad}`,
   )
+}
+
+/**
+ * La regla que devuelve la hoja agrandada a su tamaño real.
+ *
+ * Va aparte y después de todo lo demás para que gane por orden, y sólo se
+ * emite cuando hace falta: en la PC el navegador no le aplica al documento el
+ * tamaño de letra del sistema operativo, así que ahí no hay nada que compensar
+ * y el documento sale exactamente como salía.
+ */
+function estilosDeEscala(escala: number | undefined): string {
+  if (!escalaValida(escala)) return ''
+  return `
+/* La maqueta se dibujó ${escala}× más grande para esquivar el piso de tamaño de
+   letra del WebView; acá vuelve al tamaño del papel. */
+.hoja > .nota {
+  transform: scale(${redondear(1 / escala)});
+  transform-origin: top left;
+}
+`
 }
 
 export function generarDocumentoImpresion(
@@ -983,19 +1172,36 @@ export function generarDocumentoImpresion(
     escalaDeLetra?: number
   },
 ): string {
-  const paginas = notas.map(({ nota, opciones }) => generarHtmlNotaPedido(nota, opciones))
+  // Cada nota va adentro de una hoja de papel de tamaño fijo. La hoja es la que
+  // manda el salto de página; la nota, adentro, puede estar dibujada más grande
+  // y volver a escala con un transform (ver conMedidasEscaladas).
+  const paginas = notas.map(
+    ({ nota, opciones }) => `<div class="hoja">${generarHtmlNotaPedido(nota, opciones)}</div>`,
+  )
+  // El rol de visita queda afuera del escalado: no tiene alto fijo —crece con
+  // los destinos del día y puede ocupar más de una hoja— así que encerrarlo en
+  // una caja de tamaño fijo lo recortaría, que es justo el problema que se
+  // acaba de sacar de la nota. Con la letra del sistema en grande el rol sale
+  // más grande y puede pasar a una hoja más, pero no pierde nada.
   if (extras?.rolDeVisita) paginas.unshift(generarHtmlRolDeVisita(extras.rolDeVisita))
 
   const titulo = extras?.rolDeVisita
     ? 'Rol de visita y notas de pedido · WoodTools'
     : 'Notas de pedido · WoodTools'
 
+  const estilos = [
+    ESTILOS_PAGINA,
+    conMedidasEscaladas(ESTILOS_NOTA_PEDIDO, extras?.escalaDeLetra),
+    ESTILOS_ROL_DE_VISITA,
+    estilosDeEscala(extras?.escalaDeLetra),
+  ].join('\n')
+
   return `<!doctype html>
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
 <title>${titulo}</title>
-<style>${conLetraCompensada(ESTILOS_NOTA_PEDIDO + '\n' + ESTILOS_ROL_DE_VISITA, extras?.escalaDeLetra)}</style>
+<style>${estilos}</style>
 </head>
 <body>${paginas.join('\n')}</body>
 </html>`

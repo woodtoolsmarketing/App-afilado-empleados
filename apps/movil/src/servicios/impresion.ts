@@ -273,6 +273,53 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
   })
 }
 
+/**
+ * Cuánto agranda la letra el sistema, con un cerco.
+ *
+ * `PixelRatio.getFontScale()` es `Dimensions.get('window').fontScale ||
+ * PixelRatio.get()`: si el sistema no informa la escala, devuelve **la
+ * densidad de pantalla**, que es otra cosa completamente distinta y en este
+ * teléfono vale 2,81. Con ese número la plantilla dibujaría la hoja 2,81 veces
+ * más grande y la achicaría otro tanto, y saldría toda la letra diminuta, sin
+ * que nada avisara.
+ *
+ * Hoy en Android no pasa —`Configuration.fontScale` siempre viene cargado— pero
+ * el respaldo existe y no cuesta nada taparlo. Fuera del rango que puede tener
+ * un ajuste de letra de verdad, se imprime como si no hubiera ajuste: que la
+ * hoja salga bien es más importante que compensar un número que no entendemos.
+ */
+/**
+ * Arma el PDF, con un reintento.
+ *
+ * `printToFileAsync` falla de vez en cuando con "An error occured while writing
+ * the PDF data": el WebView que usa `expo-print` se crea suelto, sin pantalla, y
+ * a veces se lo llevan puesto antes de que Chromium termine de escribir. Visto
+ * en el teléfono: el primer intento falló y el segundo, idéntico, salió bien.
+ *
+ * Reintentar es gratis y no imprime nada: acá sólo se escribe un archivo en la
+ * carpeta temporal de la app. La alternativa era un cartel de error delante de
+ * un vendedor parado frente a la impresora, por algo que se arregla solo
+ * volviendo a intentar.
+ *
+ * El tamaño de hoja va explícito: sin eso `expo-print` arma el PDF en hoja
+ * Carta —su default— y la impresora lo achica para meterlo en una A4.
+ */
+async function armarPdf(html: string): Promise<{ uri: string }> {
+  const opciones = { html, base64: false, width: A4_ANCHO_PT, height: A4_ALTO_PT }
+  try {
+    return await Print.printToFileAsync(opciones)
+  } catch (e) {
+    console.warn('[impresion] falló el primer intento de armar el PDF; se reintenta', e)
+    return await Print.printToFileAsync(opciones)
+  }
+}
+
+function escalaDeLetraDelSistema(): number {
+  const escala = PixelRatio.getFontScale()
+  if (!Number.isFinite(escala) || escala < 0.5 || escala > 2.5) return 1
+  return escala
+}
+
 export interface ResultadoImpresion {
   mensaje: string
   uri?: string
@@ -357,21 +404,29 @@ export async function imprimirNotas(params: {
     }
   }
 
-  // El tamaño de letra del teléfono le llega al WebView que arma el PDF, y
+  // El tamaño de letra del teléfono le llega al WebView que arma el PDF y
   // agranda las letras sin agrandar las cajas en milímetros. Pasándole cuánto
-  // agranda, la plantilla lo descuenta y la hoja sale igual en todos lados.
+  // agranda, la plantilla dibuja toda la hoja a esa misma escala y la devuelve
+  // a tamaño de papel con un transform. Ver `conMedidasEscaladas`.
+  const escalaDeLetra = escalaDeLetraDelSistema()
+
+  // Se deja registrado qué escala vio la app en el momento de imprimir.
+  //
+  // Sin esto no hay forma de distinguir dos causas que dejan el mismo papel
+  // mal impreso: que la app haya leído mal el tamaño de letra del sistema, o
+  // que lo haya leído bien y el WebView no respete la compensación. Se
+  // averiguaba imprimiendo, que cuesta una hoja por intento; en el registro
+  // sale gratis.
+  console.warn(
+    `[impresion] escala de letra=${escalaDeLetra} · densidad=${PixelRatio.get()} · ` +
+      `8.5pt compensado=${(8.5 / escalaDeLetra).toFixed(2)}pt`,
+  )
+
   const html = generarDocumentoImpresion(paginas, {
     rolDeVisita: rolDeVisita ?? undefined,
-    escalaDeLetra: PixelRatio.getFontScale(),
+    escalaDeLetra,
   })
-  // El tamaño de hoja va explícito: sin esto `expo-print` arma el PDF en hoja
-  // Carta —su default— y la impresora lo achica para meterlo en una A4.
-  const { uri } = await Print.printToFileAsync({
-    html,
-    base64: false,
-    width: A4_ANCHO_PT,
-    height: A4_ALTO_PT,
-  })
+  const { uri } = await armarPdf(html)
 
   if (params.comoPdf) {
     if (await Sharing.isAvailableAsync()) {

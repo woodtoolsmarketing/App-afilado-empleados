@@ -13,7 +13,7 @@ import {
   agruparParaNotas,
   agujeroDelRenglon,
   aNumero,
-  avisosDeAgujero,
+  descripcionGeneralDeLaNota,
   CONDICIONES_CON_DETALLE,
   FAMILIA_CATALOGO,
   MEDIDA_PARA_CODIGO,
@@ -615,14 +615,6 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   if (grupos.length === 0) throw new Error('La nota necesita al menos un renglón')
   const observaciones = (datos.observaciones ?? []).filter((o) => o.trim())
 
-  // El agujero distinto del de fábrica va a la descripción general.
-  const descripcionGeneral = [
-    enc.descripcion_herramienta.trim(),
-    ...avisosDeAgujero(datos.items),
-  ]
-    .filter(Boolean)
-    .join('\n')
-
   // Toda la carga en un solo pedido, igual que la app: el servidor reserva los
   // números seguidos, marca el instante exacto de cada nota y deshace todo si
   // algo falla.
@@ -635,7 +627,10 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       zona: enc.zona || null,
       datos_cliente: enc.datos_cliente || null,
       datos_cliente_origen: enc.datos_cliente_origen,
-      descripcion_herramienta: descripcionGeneral || null,
+      // Con los renglones DE ESTA nota: cuando la carga se parte en dos
+      // comprobantes, cada uno anuncia lo suyo.
+      descripcion_herramienta:
+        descripcionGeneralDeLaNota(enc.descripcion_herramienta, g.items) || null,
       descripcion_herramienta_origen: enc.descripcion_herramienta_origen,
       vendedor_numero: enc.vendedor_numero.trim() || null,
       /**
