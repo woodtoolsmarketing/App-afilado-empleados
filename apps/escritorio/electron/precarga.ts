@@ -29,6 +29,31 @@ contextBridge.exposeInMainWorld('woodtools', {
   publicarActualizacion: (canal: string): Promise<{ ok: boolean; salida: string }> =>
     ipcRenderer.invoke('publicar-actualizacion', canal),
 
+  /**
+   * Los instaladores guardados en esta PC, y en qué dirección los sirve.
+   *
+   * Llamarlo también levanta el servidor si no estaba: no hace falta un botón
+   * de "encender" que alguien se olvide de tocar.
+   */
+  instaladores: (): Promise<{
+    archivos: Array<{ archivo: string; tamano: number; fecha: string }>
+    /** `http://192.168.x.x:8756`, o null si esta PC no está en ninguna red. */
+    direccion: string | null
+    carpeta: string
+    sirviendo: boolean
+  }> => ipcRenderer.invoke('instaladores'),
+
+  /** Abre el diálogo para elegir un APK ya compilado y lo guarda acá. */
+  agregarInstalador: (): Promise<{
+    ok: boolean
+    motivo?: string
+    archivo?: string
+    tamano?: number
+  }> => ipcRenderer.invoke('instalador-agregar'),
+
+  borrarInstalador: (archivo: string): Promise<boolean> =>
+    ipcRenderer.invoke('instalador-borrar', archivo),
+
   /** Qué hay instalado para poder compilar: proyecto, JDK y SDK de Android. */
   herramientasDeCompilacion: (): Promise<{
     proyecto: boolean
@@ -37,17 +62,11 @@ contextBridge.exposeInMainWorld('woodtools', {
   }> => ipcRenderer.invoke('herramientas-de-compilacion'),
 
   /**
-   * Compila el APK acá y lo sube.
+   * Compila el APK acá y lo guarda para repartirlo por la red de la oficina.
    *
-   * El token es el de la sesión de quien está usando el panel: la base sigue
-   * decidiendo quién puede publicar, y esto no lleva ninguna clave maestra.
+   * No lleva credenciales: el archivo se queda en esta PC.
    */
-  compilarApk: (datos: {
-    canal: string
-    token: string
-    supabaseUrl: string
-    anonKey: string
-  }): Promise<{
+  compilarApk: (datos: { canal: string }): Promise<{
     ok: boolean
     salida: string
     archivo?: string

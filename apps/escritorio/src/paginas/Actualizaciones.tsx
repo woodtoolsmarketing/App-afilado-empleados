@@ -194,6 +194,36 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     },
   })
 
+  /**
+   * Los instaladores que esta PC tiene guardados, y en qué dirección los sirve.
+   *
+   * Se vuelve a preguntar seguido porque la dirección la reparte el router y
+   * puede cambiar sola: mostrar un número viejo es peor que no mostrar ninguno,
+   * porque el vendedor lo tipea y no llega a ningún lado.
+   */
+  const { data: servidor } = useQuery({
+    queryKey: ['instaladores'],
+    queryFn: async () => (await window.woodtools?.instaladores?.()) ?? null,
+    refetchInterval: 30_000,
+  })
+
+  const agregar = useMutation({
+    mutationFn: async () => {
+      const r = await window.woodtools?.agregarInstalador?.()
+      if (!r) throw new Error('Esta copia del panel no puede guardar instaladores.')
+      if (!r.ok && r.motivo !== 'cancelado') throw new Error('No se pudo guardar el APK.')
+      return r
+    },
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['instaladores'] }),
+  })
+
+  const borrar = useMutation({
+    mutationFn: async (archivo: string) => {
+      await window.woodtools?.borrarInstalador?.(archivo)
+    },
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['instaladores'] }),
+  })
+
   const compilar = useMutation({
     mutationFn: async () => {
       const puente = window.woodtools
@@ -201,25 +231,12 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
         throw new Error('Esta copia del panel no puede compilar: falta la carpeta del proyecto.')
       }
 
-      /**
-       * El token de la sesión viaja al proceso principal para que la subida la
-       * autorice la base. Así "sólo Administración publica" sigue siendo una
-       * regla del servidor y no una condición en el código del panel.
-       */
-      const { data: sesion } = await supabase.auth.getSession()
-      const token = sesion.session?.access_token
-      if (!token) throw new Error('Se venció la sesión. Volvé a entrar al panel.')
-
-      const r = await puente.compilarApk({
-        canal,
-        token,
-        supabaseUrl: import.meta.env.VITE_SUPABASE_URL as string,
-        anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
-      })
+      const r = await puente.compilarApk({ canal })
       if (!r.ok) throw new Error(r.salida)
 
-      // Recién se anota cuando el archivo ya está arriba: una fila que apunta a
-      // un APK que no se subió es peor que no tener fila.
+      // Recién se anota cuando el archivo ya está guardado: una fila que apunta
+      // a un APK que no existe es peor que no tener fila. Quién puede escribirla
+      // lo sigue decidiendo la base: la política de versiones_app pide admin.
       const { error } = await supabase.from('versiones_app').insert({
         canal,
         version: r.version ?? '0.0.0',
@@ -453,10 +470,19 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                     <td style={{ color: 'var(--tinta-suave)' }}>
                       {new Date(v.publicado_en).toLocaleDateString('es-AR')}
                     </td>
-                    {/* La tabla listaba los APK publicados sin ninguna forma de
-                        bajarlos, que es como un estante con vitrina cerrada.
-                        Abre en el navegador del sistema: el instalador lo tiene
-                        que recibir el teléfono, no esta ventana. */}
+                    {/* Dónde está el instalador de esta fila.
+
+                        Un APK puede estar en dos lados y hasta ahora sólo se
+                        contemplaba uno: si la fila traía `url_externa` había
+                        botón, y si traía `archivo` —que es lo que escribe el
+                        botón de compilar— salía un guión. O sea que lo que
+                        compilaba el panel nunca se podía bajar.
+
+                        Ahora `archivo` quiere decir "guardado en esta PC", y lo
+                        sirve el servidor de acá abajo. Como la dirección la
+                        reparte el router, se arma en el momento y no se guarda
+                        en la fila: una dirección vieja anotada en la base manda
+                        al vendedor a un número que ya es de otra máquina. */}
                     <td>
                       {v.url_externa ? (
                         <button
@@ -465,6 +491,10 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                         >
                           Bajar APK
                         </button>
+                      ) : v.archivo && servidor?.direccion ? (
+                        <span style={{ color: 'var(--tinta-suave)', fontSize: 12 }}>
+                          En esta PC ↓
+                        </span>
                       ) : (
                         <span style={{ color: 'var(--tinta-tenue)' }}>—</span>
                       )}
@@ -490,6 +520,114 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
           >
             {salidaPublicar}
           </pre>
+        )}
+      </section>
+
+      {/* ── Instalar en los teléfonos, desde esta PC ────────────────────── */}
+      <section className="tarjeta">
+        <h2>Instalar en los teléfonos</h2>
+
+        {/*
+          Por qué el APK se sirve desde acá y no desde la nube.
+
+          Supabase rechaza subidas de más de 50 MB y el APK pesa 82: está
+          medido, no supuesto. Y el enlace de EAS se borra a los 89 días, así
+          que tampoco sirve como archivo permanente — el día que caduque, el
+          botón "Bajar APK" de la tabla de arriba deja de funcionar sin avisar.
+
+          Esta PC ya es el lugar al que los teléfonos le hablan por wifi para
+          imprimir. Guardar acá el instalador y servirlo en la misma red es la
+          pieza que faltaba, no una función aparte.
+        */}
+        {!window.woodtools?.instaladores ? (
+          <p style={{ color: 'var(--tinta-suave)', margin: 0 }}>
+            Esta copia del panel es vieja y no puede repartir instaladores.
+          </p>
+        ) : (
+          <>
+            <p style={{ color: 'var(--tinta-suave)', marginTop: 0 }}>
+              El teléfono tiene que estar en el wifi de la oficina, igual que para imprimir.
+            </p>
+
+            {servidor?.direccion ? (
+              <div
+                style={{
+                  background: 'var(--panel-oscuro, #f4f4f4)',
+                  borderRadius: 8,
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 13, color: 'var(--tinta-suave)', marginBottom: 6 }}>
+                  Abrí esta dirección en el navegador del teléfono:
+                </div>
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums',
+                    userSelect: 'all',
+                  }}
+                >
+                  {servidor.direccion}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--tinta-tenue)', marginTop: 8 }}>
+                  La dirección puede cambiar sola: el router la reparte. Si el teléfono no la
+                  encuentra, volvé a esta pantalla y fijate el número de nuevo.
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: 'var(--ambar-oscuro, #b87a12)' }}>
+                Esta PC no aparece en ninguna red. Sin red no hay forma de que el teléfono llegue
+                hasta acá.
+              </p>
+            )}
+
+            <button onClick={() => agregar.mutate()} disabled={agregar.isPending}>
+              {agregar.isPending ? 'Guardando…' : 'Agregar un APK'}
+            </button>
+            {agregar.isError && (
+              <p style={{ color: 'var(--rojo-accion, #e01b24)', fontSize: 13 }}>
+                {(agregar.error as Error).message}
+              </p>
+            )}
+
+            {servidor && servidor.archivos.length > 0 ? (
+              <table style={{ width: '100%', fontSize: 13, marginTop: 16 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Archivo</th>
+                    <th style={{ textAlign: 'right' }}>Tamaño</th>
+                    <th style={{ textAlign: 'left' }}>Guardado</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {servidor.archivos.map((a) => (
+                    <tr key={a.archivo}>
+                      <td style={{ wordBreak: 'break-all' }}>{a.archivo}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {Math.round(a.tamano / 1_048_576)} MB
+                      </td>
+                      <td style={{ color: 'var(--tinta-suave)' }}>
+                        {new Date(a.fecha).toLocaleDateString('es-AR')}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button className="chico" onClick={() => borrar.mutate(a.archivo)}>
+                          Borrar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginTop: 16 }}>
+                Todavía no hay ningún instalador guardado. Agregá el APK y los teléfonos van a
+                poder bajarlo de esa dirección.
+              </p>
+            )}
+          </>
         )}
       </section>
 

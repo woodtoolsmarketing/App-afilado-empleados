@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs'
+import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 
 /**
@@ -53,6 +55,12 @@ function crearVentana() {
 
 app.whenReady().then(() => {
   crearVentana()
+
+  // El instalador queda disponible desde que el panel arranca, sin depender de
+  // que alguien entre a la pantalla de actualizaciones. Un vendedor parado en
+  // la oficina no tiene por qué esperar a que en administración abran una
+  // pantalla para poder bajarse la app.
+  arrancarServidorDeInstaladores()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) crearVentana()
@@ -135,6 +143,242 @@ ipcMain.handle('abrir-externo', async (_evento, url: string) => {
 })
 
 ipcMain.handle('version', () => app.getVersion())
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El instalador de la app, guardado acá y servido a la red de la oficina
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Dónde vive el APK, y por qué acá.
+ *
+ * La idea original era guardarlo en Supabase y bajarlo desde cualquier lado.
+ * No se puede: el plan del proyecto rechaza subidas de más de 50 MB y el APK
+ * pesa 82. Está medido —1 MB y 40 MB entran, 55 MB devuelve 413— así que no es
+ * un problema de permisos ni del bucket. El botón "Compilar APK" del panel
+ * terminaba en error después de veinte minutos de compilación, con el archivo
+ * ya hecho en el disco.
+ *
+ * Y el enlace de EAS tampoco sirve como archivo permanente: el artefacto se
+ * borra a los 89 días, y el día que se borre el botón "Bajar APK" deja de
+ * funcionar sin avisar.
+ *
+ * `userData` y no una carpeta al lado del ejecutable: es la carpeta de datos
+ * del usuario, la única que sobrevive a una reinstalación o a una actualización
+ * del panel. Un APK guardado junto al .exe se pierde en la primera.
+ */
+function carpetaDeInstaladores(): string {
+  const carpeta = path.join(app.getPath('userData'), 'instaladores')
+  fs.mkdirSync(carpeta, { recursive: true })
+  return carpeta
+}
+
+/**
+ * El puerto del servidor de instaladores.
+ *
+ * Fijo a propósito: la dirección se publica en la base para que el teléfono la
+ * lea, y un puerto que cambia en cada arranque obligaría a republicar y a que
+ * el teléfono acierte el momento. 8756 está bien arriba del rango reservado y
+ * no lo usa nada común.
+ */
+const PUERTO_INSTALADORES = 8756
+
+/** Los APK guardados, del más nuevo al más viejo. */
+function instaladoresGuardados(): Array<{ archivo: string; tamano: number; fecha: string }> {
+  return fs
+    .readdirSync(carpetaDeInstaladores())
+    .filter((n) => n.toLowerCase().endsWith('.apk'))
+    .map((archivo) => {
+      const datos = fs.statSync(path.join(carpetaDeInstaladores(), archivo))
+      return { archivo, tamano: datos.size, fecha: datos.mtime.toISOString() }
+    })
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+}
+
+/**
+ * La dirección de esta PC en la red de la oficina.
+ *
+ * Se busca cada vez y no se guarda: el router la reparte por DHCP y puede
+ * cambiar sola. Ya pasó con la impresora —por eso la app la busca en la red
+ * antes de rendirse— y no hay motivo para suponer que con la PC no va a pasar.
+ *
+ * Se descartan las interfaces internas (127.0.0.1) y las de máquinas virtuales
+ * y Docker, que existen en cualquier PC de trabajo y no llevan a ningún lado
+ * desde un teléfono.
+ */
+function direccionEnLaRed(): string | null {
+  const interfaces = os.networkInterfaces()
+  const candidatas: string[] = []
+
+  for (const [nombre, direcciones] of Object.entries(interfaces)) {
+    if (/vmware|virtualbox|vethernet|docker|loopback/i.test(nombre)) continue
+    for (const d of direcciones ?? []) {
+      if (d.family !== 'IPv4' || d.internal) continue
+      candidatas.push(d.address)
+    }
+  }
+
+  // Las privadas primero: son las que un teléfono en el wifi de la oficina
+  // puede alcanzar.
+  const privada = candidatas.find((ip) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip))
+  return privada ?? candidatas[0] ?? null
+}
+
+/**
+ * El servidor que sirve el APK a los teléfonos.
+ *
+ * Sólo `GET`, sólo archivos `.apk`, y sólo los que están en la carpeta de
+ * instaladores: el nombre pedido se compara contra la lista de archivos reales
+ * en vez de pegarlo a una ruta, así que no hay forma de salirse de la carpeta
+ * pidiendo `../../algo`.
+ *
+ * Queda abierto a toda la red de la oficina, sin contraseña. Es una decisión,
+ * no un descuido: quien está en ese wifi ya puede ver la impresora y todo lo
+ * demás, y el APK no lleva nada que un teléfono con la app instalada no tenga.
+ * Poner una clave acá obligaría a repartir la clave, que es el problema que
+ * esto viene a resolver.
+ */
+let servidorInstaladores: http.Server | null = null
+
+function paginaDeDescarga(archivos: ReturnType<typeof instaladoresGuardados>): string {
+  const filas = archivos
+    .map(
+      (a) =>
+        `<li><a href="/apk/${encodeURIComponent(a.archivo)}">${a.archivo}</a>` +
+        ` <small>${(a.tamano / 1_048_576).toFixed(0)} MB</small></li>`,
+    )
+    .join('')
+
+  // Página mínima y sin nada externo: la abre un teléfono que quizá no tiene
+  // datos, sólo el wifi de la oficina.
+  return `<!doctype html><html lang="es-AR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WoodTools · Instalar la app</title>
+<style>
+ body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#B30F0F;color:#fff}
+ h1{font-size:20px;margin:0 0 4px}p{opacity:.85;margin:0 0 20px;font-size:14px}
+ ul{list-style:none;padding:0;margin:0}
+ li{background:#fff;border-radius:10px;margin-bottom:12px}
+ a{display:block;padding:18px;color:#B30F0F;font-weight:700;text-decoration:none;font-size:17px}
+ small{display:block;padding:0 18px 14px;color:#666;font-weight:400}
+ .vacio{background:rgba(255,255,255,.15);border-radius:10px;padding:18px}
+</style></head><body>
+<h1>Instalar WoodTools</h1>
+<p>Tocá el archivo y después "Instalar". Si Android pregunta, hay que permitirle
+al navegador instalar aplicaciones.</p>
+${filas ? `<ul>${filas}</ul>` : '<div class="vacio">Todavía no hay ningún instalador cargado.</div>'}
+</body></html>`
+}
+
+function arrancarServidorDeInstaladores(): void {
+  if (servidorInstaladores) return
+
+  servidorInstaladores = http.createServer((pedido, respuesta) => {
+    /**
+     * HEAD también, no sólo GET.
+     *
+     * El gestor de descargas de Android pide primero las cabeceras para saber
+     * cuánto pesa el archivo y poder mostrar el progreso. Rechazándole el HEAD
+     * la descarga arranca a ciegas o directamente falla, y el vendedor ve un
+     * error sin nada que lo explique. Se responde igual que a un GET pero sin
+     * cuerpo, que es lo que HEAD significa.
+     */
+    const soloCabeceras = pedido.method === 'HEAD'
+    if (pedido.method !== 'GET' && !soloCabeceras) {
+      respuesta.writeHead(405, { Allow: 'GET, HEAD' })
+      respuesta.end('Sólo GET')
+      return
+    }
+
+    const ruta = decodeURIComponent((pedido.url ?? '/').split('?')[0])
+
+    if (ruta === '/' || ruta === '/index.html') {
+      const cuerpo = paginaDeDescarga(instaladoresGuardados())
+      respuesta.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': String(Buffer.byteLength(cuerpo)),
+      })
+      respuesta.end(soloCabeceras ? undefined : cuerpo)
+      return
+    }
+
+    if (ruta.startsWith('/apk/')) {
+      const pedido_ = ruta.slice('/apk/'.length)
+      // Contra la lista real, no contra una ruta armada: no hay travesía posible.
+      const existe = instaladoresGuardados().some((a) => a.archivo === pedido_)
+      if (!existe) {
+        respuesta.writeHead(404)
+        respuesta.end('No está')
+        return
+      }
+      const completa = path.join(carpetaDeInstaladores(), pedido_)
+      const datos = fs.statSync(completa)
+      respuesta.writeHead(200, {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': String(datos.size),
+        'Content-Disposition': `attachment; filename="${pedido_}"`,
+      })
+      if (soloCabeceras) {
+        respuesta.end()
+        return
+      }
+      fs.createReadStream(completa).pipe(respuesta)
+      return
+    }
+
+    respuesta.writeHead(404)
+    respuesta.end('No está')
+  })
+
+  servidorInstaladores.on('error', (e) => {
+    console.error('[instaladores] no se pudo abrir el puerto', e)
+    servidorInstaladores = null
+  })
+
+  // 0.0.0.0 y no localhost: el que tiene que alcanzarlo es un teléfono, no
+  // esta misma máquina.
+  servidorInstaladores.listen(PUERTO_INSTALADORES, '0.0.0.0')
+}
+
+ipcMain.handle('instaladores', () => {
+  arrancarServidorDeInstaladores()
+  const ip = direccionEnLaRed()
+  return {
+    archivos: instaladoresGuardados(),
+    direccion: ip ? `http://${ip}:${PUERTO_INSTALADORES}` : null,
+    carpeta: carpetaDeInstaladores(),
+    sirviendo: servidorInstaladores !== null,
+  }
+})
+
+/**
+ * Guardar un APK que ya existe, sin recompilar.
+ *
+ * Hace falta para el caso de hoy: el APK 1.0.2 ya está compilado en EAS y
+ * bajado; obligar a recompilarlo veinte minutos para poder repartirlo sería
+ * absurdo.
+ */
+ipcMain.handle('instalador-agregar', async () => {
+  const elegido = await dialog.showOpenDialog({
+    title: 'Elegí el APK para repartir a los teléfonos',
+    filters: [{ name: 'Instalador de Android', extensions: ['apk'] }],
+    properties: ['openFile'],
+  })
+  if (elegido.canceled || elegido.filePaths.length === 0) return { ok: false, motivo: 'cancelado' }
+
+  const origen = elegido.filePaths[0]
+  const destino = path.join(carpetaDeInstaladores(), path.basename(origen))
+  await fs.promises.copyFile(origen, destino)
+  arrancarServidorDeInstaladores()
+  return { ok: true, archivo: path.basename(destino), tamano: fs.statSync(destino).size }
+})
+
+ipcMain.handle('instalador-borrar', (_evento, archivo: unknown) => {
+  if (typeof archivo !== 'string') return false
+  // Igual que al servir: contra la lista real, nunca pegando rutas.
+  if (!instaladoresGuardados().some((a) => a.archivo === archivo)) return false
+  fs.unlinkSync(path.join(carpetaDeInstaladores(), archivo))
+  return true
+})
 
 /**
  * Publicar una actualización por aire para los celulares.
@@ -346,12 +590,15 @@ ipcMain.handle('herramientas-de-compilacion', () => ({
   sdk: buscarSdkAndroid(),
 }))
 
-ipcMain.handle(
-  'compilar-apk',
-  async (
-    evento,
-    datos: { canal: string; token: string; supabaseUrl: string; anonKey: string },
-  ) => {
+/**
+ * Compila el APK en esta máquina.
+ *
+ * Ya NO recibe el token de la sesión ni las claves de Supabase: los recibía
+ * para subir el archivo al bucket, y esa subida se sacó porque nunca pudo
+ * funcionar con 82 MB. Un token que no se usa no tiene por qué cruzar el
+ * puente ni quedar en la memoria del proceso principal.
+ */
+ipcMain.handle('compilar-apk', async (evento, datos: { canal: string }) => {
     const raiz = carpetaDelProyecto()
     if (!raiz) return { ok: false, salida: 'No se encontró la carpeta del proyecto.' }
 
@@ -442,36 +689,31 @@ ipcMain.handle(
     }
 
     /**
-     * Se sube con el token de quien está usando el panel, no con una clave
-     * maestra: así "sólo Administración publica" lo sigue haciendo cumplir la
-     * base y no este archivo.
+     * El APK se queda acá, no se sube.
+     *
+     * Antes esto lo mandaba al bucket `instaladores` de Supabase, y **nunca
+     * pudo terminar**: el plan del proyecto rechaza subidas de más de 50 MB y
+     * el APK pesa 82. El bucket está vacío desde que existe. O sea que este
+     * botón compilaba veinte minutos y fallaba en el último paso, con el
+     * archivo ya hecho en el disco, al lado.
+     *
+     * Ahora se copia a la carpeta de instaladores del panel y se sirve a la red
+     * de la oficina, que es donde están los teléfonos que lo necesitan. Sin
+     * intermediarios y sin límite de tamaño.
      */
     const tamano = fs.statSync(apk).size
     const version = leerVersionDeLaApp(movil)
     const sello = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
-    const destino = `${canal}/woodtools-${canal}-${version}-${sello}.apk`
+    const nombre = `woodtools-${canal}-${version}-${sello}.apk`
 
-    avisar('subiendo', `Subiendo ${(tamano / 1_048_576).toFixed(0)} MB…`)
+    avisar('guardando', `Guardando ${(tamano / 1_048_576).toFixed(0)} MB para repartir…`)
     try {
-      const respuesta = await fetch(
-        `${datos.supabaseUrl}/storage/v1/object/instaladores/${destino}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${datos.token}`,
-            apikey: datos.anonKey,
-            'Content-Type': 'application/vnd.android.package-archive',
-          },
-          body: fs.readFileSync(apk),
-        },
-      )
-      if (!respuesta.ok) {
-        return { ok: false, salida: `No se pudo subir el APK: ${await respuesta.text()}` }
-      }
+      await fs.promises.copyFile(apk, path.join(carpetaDeInstaladores(), nombre))
+      arrancarServidorDeInstaladores()
     } catch (e) {
-      return { ok: false, salida: `No se pudo subir el APK: ${(e as Error).message}` }
+      return { ok: false, salida: `No se pudo guardar el APK: ${(e as Error).message}` }
     }
 
-    return { ok: true, salida: compilacion.salida, archivo: destino, tamano, version }
+    return { ok: true, salida: compilacion.salida, archivo: nombre, tamano, version }
   },
 )
