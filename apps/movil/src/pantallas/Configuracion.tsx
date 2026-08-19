@@ -2,7 +2,7 @@ import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso } from '../componentes/Estado'
@@ -10,6 +10,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
+import { buscarApkNuevo, type ApkDisponible } from '../servicios/actualizacionApk'
 import { obtenerJornadaDeHoy } from '../servicios/jornada'
 import {
   detenerSeguimiento,
@@ -43,18 +44,65 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil?.id])
 
+  /**
+   * Ofrecer bajar la app nueva desde el panel de la oficina.
+   *
+   * Se abre el navegador y no se instala acá: instalar un APK desde adentro de
+   * la app pide un permiso que este proyecto decidió no pedir (ver
+   * `actualizacionApk.ts`). El navegador sí lo tiene.
+   */
+  function ofrecerApk(apk: ApkDisponible) {
+    Alert.alert(
+      `Hay una versión nueva: ${apk.nueva}`,
+      `Tenés la ${apk.actual}. Esta actualización cambia cosas que no viajan por ` +
+        `aire, así que hay que instalarla.\n\n` +
+        `Tenés que estar en el wifi de la oficina, igual que para imprimir.` +
+        (apk.notas ? `\n\nQué trae:\n${apk.notas}` : ''),
+      [
+        { text: 'Ahora no', style: 'cancel' },
+        {
+          text: 'Bajar e instalar',
+          onPress: () => {
+            void Linking.openURL(apk.direccion).catch(() =>
+              Alert.alert(
+                'No pudimos abrir la página',
+                `Probá entrando a mano desde el navegador:\n${apk.direccion}`,
+              ),
+            )
+          },
+        },
+      ],
+    )
+  }
+
   async function buscarActualizacion() {
     setBuscandoUpdate(true)
     try {
       const resultado = await Updates.checkForUpdateAsync()
-      if (!resultado.isAvailable) {
-        Alert.alert('Todo al día', 'Estás usando la última versión de la app.')
+      if (resultado.isAvailable) {
+        await Updates.fetchUpdateAsync()
+        Alert.alert('Actualización lista', 'La app se va a reiniciar para aplicarla.', [
+          { text: 'Reiniciar', onPress: () => void Updates.reloadAsync() },
+        ])
         return
       }
-      await Updates.fetchUpdateAsync()
-      Alert.alert('Actualización lista', 'La app se va a reiniciar para aplicarla.', [
-        { text: 'Reiniciar', onPress: () => void Updates.reloadAsync() },
-      ])
+
+      /**
+       * Sin novedades por aire NO quiere decir que esté todo al día.
+       *
+       * Lo que viaja por aire es JavaScript; un permiso nuevo o una librería
+       * nativa van adentro del APK y no viajan. Antes, en ese caso, el botón
+       * decía "estás usando la última versión" —cierto para lo que miraba— y el
+       * vendedor se quedaba con la app vieja sin enterarse nunca. Es lo que le
+       * pasó a los teléfonos que siguen en 1.0.0.
+       */
+      const apk = await buscarApkNuevo()
+      if (apk) {
+        ofrecerApk(apk)
+        return
+      }
+
+      Alert.alert('Todo al día', 'Estás usando la última versión de la app.')
     } catch {
       Alert.alert(
         'No pudimos buscar actualizaciones',

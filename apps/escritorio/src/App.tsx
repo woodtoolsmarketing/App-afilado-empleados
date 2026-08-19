@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { supabase } from './nucleo/supabase'
+import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
 import { usarSesion } from './nucleo/sesion'
 import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
@@ -16,6 +17,10 @@ import { PaginaUsuarios } from './paginas/Usuarios'
 
 export function App() {
   const sesion = usarSesion()
+
+  // Los teléfonos necesitan saber en qué dirección está esta PC para poder
+  // bajarse la app nueva. Se publica sola: el router puede cambiarla.
+  usarPublicarDireccionDelPanel(sesion.esAdmin)
 
   if (sesion.cargando) {
     return (
