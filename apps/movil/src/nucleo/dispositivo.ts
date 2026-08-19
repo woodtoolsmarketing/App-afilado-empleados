@@ -3,6 +3,11 @@ import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
 
+import {
+  dispositivoRecordado,
+  pareceFaltaDeSenal,
+  recordarDispositivoAutorizado,
+} from './loUltimoQueSupimos'
 import { supabase } from './supabase'
 
 /**
@@ -72,14 +77,32 @@ export async function registrarYVerificarDispositivo(
 ): Promise<EstadoAutorizacion> {
   const datos = await describirDispositivo()
 
-  const { data: existente } = await supabase
+  const { data: existente, error } = await supabase
     .from('dispositivos')
     .select('id, autorizado')
     .eq('perfil_id', perfilId)
     .eq('instalacion_id', datos.instalacion_id)
     .maybeSingle()
 
+  /**
+   * Sin señal vale lo último que se supo, no "no autorizado".
+   *
+   * Acá el error de la consulta se descartaba, así que sin conexión `existente`
+   * quedaba en null, el código seguía de largo hasta el alta, el alta también
+   * fallaba en silencio, y la función devolvía `autorizado: false`. La app
+   * mostraba "este teléfono no está autorizado" a un vendedor cuyo teléfono
+   * está autorizado hace meses — y no había forma de salir de ahí sin señal.
+   *
+   * "El servidor dijo que no" y "no pude preguntarle" no pueden significar lo
+   * mismo cuando lo que está en juego es dejar trabajar a alguien.
+   */
+  if (error && pareceFaltaDeSenal(error)) {
+    const recordado = await dispositivoRecordado()
+    if (recordado !== null) return { autorizado: recordado, recienRegistrado: false }
+  }
+
   if (existente) {
+    await recordarDispositivoAutorizado(existente.autorizado)
     await supabase
       .from('dispositivos')
       .update({

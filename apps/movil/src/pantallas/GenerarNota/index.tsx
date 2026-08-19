@@ -74,6 +74,14 @@ import {
   tendenciaCliente,
   type TendenciaCliente,
 } from '../../servicios/notasPedido'
+import {
+  guardarBorrador,
+  haceCuanto,
+  leerBorrador,
+  olvidarBorrador,
+  valeLaPenaGuardar,
+  type BorradorParaGuardar,
+} from '../../servicios/borradorDeNota'
 import { BuscadorArticulo } from './BuscadorArticulo'
 import { PasoCliente, PasoOperacion } from './Encabezado'
 import { PasoRenglon } from './Renglon'
@@ -161,6 +169,97 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [observaciones, setObservaciones] = useState<string[]>([''])
   /** Las que escribe el servidor ("Va con nota de pedido…"): no se editan. */
   const [observacionesDelSistema, setObservacionesDelSistema] = useState<string[]>([])
+
+  /**
+   * Lo cargado, guardado en el teléfono cada vez que cambia.
+   *
+   * Con medio segundo de espera: escribir una descripción larga dispara un
+   * cambio por tecla, y guardar en cada una es escribir cincuenta veces lo
+   * mismo. Medio segundo es imperceptible para quien carga y suficiente para
+   * que sólo se guarde cuando la mano se detiene.
+   *
+   * No corre mientras se corrige una nota ya creada: ahí lo que está en la
+   * pantalla salió del servidor.
+   */
+  useEffect(() => {
+    if (corrigiendo) return
+
+    const b: BorradorParaGuardar = {
+      encabezado,
+      servicios,
+      tipoNota,
+      condicionVenta,
+      condicionDetalle,
+      fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
+      items,
+      observaciones,
+    }
+
+    if (!valeLaPenaGuardar(b)) return
+
+    const espera = setTimeout(() => void guardarBorrador(b), 500)
+    return () => clearTimeout(espera)
+  }, [
+    corrigiendo,
+    encabezado,
+    servicios,
+    tipoNota,
+    condicionVenta,
+    condicionDetalle,
+    fechaEntrega,
+    items,
+    observaciones,
+  ])
+
+  /**
+   * Al abrir la pantalla, ofrecer lo que quedó de la última vez.
+   *
+   * Se PREGUNTA, no se restaura solo. El vendedor puede estar arrancando una
+   * nota para otro cliente, y encontrarse la pantalla llena con los datos del
+   * anterior sería peor que haber perdido el borrador: lo peligroso no es
+   * perder una carga, es guardar una nota con el cliente equivocado.
+   */
+  useEffect(() => {
+    if (corrigiendo) return
+    let vivo = true
+
+    void leerBorrador().then((b) => {
+      if (!vivo || !b) return
+
+      Alert.alert(
+        'Quedó una nota sin terminar',
+        `La empezaste ${haceCuanto(b.guardadoEn)}` +
+          (b.encabezado.cliente_nombre ? `, para ${b.encabezado.cliente_nombre}` : '') +
+          `. ¿La seguís o arrancás una nueva?`,
+        [
+          {
+            text: 'Arrancar de nuevo',
+            style: 'destructive',
+            onPress: () => void olvidarBorrador(),
+          },
+          {
+            text: 'Seguir con esa',
+            onPress: () => {
+              setEncabezado(b.encabezado)
+              setServicios(b.servicios)
+              setTipoNota(b.tipoNota)
+              setCondicionVenta(b.condicionVenta)
+              setCondicionDetalle(b.condicionDetalle)
+              setFechaEntrega(b.fechaEntrega ? new Date(b.fechaEntrega) : null)
+              setItems(b.items.length > 0 ? b.items : [ITEM_VACIO])
+              setObservaciones(b.observaciones.length > 0 ? b.observaciones : [''])
+            },
+          },
+        ],
+      )
+    })
+
+    return () => {
+      vivo = false
+    }
+    // Sólo al montar: volver a preguntar en cada cambio sería insoportable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── La nota que se está corrigiendo ──────────────────────────────────────
   const {
@@ -772,6 +871,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     },
     onSuccess: async (notas) => {
       setCreadas(notas.map((n) => n.id))
+      // La nota ya existe en el servidor: el borrador dejó de ser una red de
+      // seguridad y pasó a ser una trampa. Si quedara, la próxima vez le
+      // ofrecería al vendedor "seguir" una nota que ya está creada.
+      await olvidarBorrador()
       await cliente.invalidateQueries()
 
       // Puede haber salido más de una: afilado y venta no van en el mismo

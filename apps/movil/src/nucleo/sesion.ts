@@ -5,6 +5,12 @@ import * as SecureStore from 'expo-secure-store'
 import { create } from 'zustand'
 
 import { registrarYVerificarDispositivo } from './dispositivo'
+import {
+  olvidarLoRecordado,
+  pareceFaltaDeSenal,
+  perfilRecordado,
+  recordarPerfil,
+} from './loUltimoQueSupimos'
 import { supabase } from './supabase'
 
 /**
@@ -243,6 +249,9 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
         await SecureStore.setItemAsync(CLAVE_RECORDAR_HASTA, hasta.toISOString())
       } else {
         await SecureStore.deleteItemAsync(CLAVE_RECORDAR_HASTA).catch(() => undefined)
+    // Lo recordado para andar sin señal se va con la sesión: el próximo que
+    // entre en este teléfono arranca preguntándole al servidor.
+    await olvidarLoRecordado()
       }
       await SecureStore.setItemAsync(CLAVE_ULTIMO_USUARIO, usuario.trim())
 
@@ -274,9 +283,33 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
       .maybeSingle<Perfil>()
 
     if (error) {
+      /**
+       * Sin señal se entra con el último perfil conocido.
+       *
+       * Antes acá se mandaba derecho a la pantalla de ingreso, y el vendedor
+       * quedaba afuera de la app en el peor momento: en un galpón, en la ruta,
+       * con dos notas cargadas. Y no sólo no podía cargar — no podía ni mirar
+       * lo que ya tenía.
+       *
+       * Sólo se perdona cuando el error es de red. Si el servidor contestó
+       * —una cuenta dada de baja, un permiso denegado— eso es una respuesta y
+       * se respeta. Ver `pareceFaltaDeSenal`.
+       */
+      const recordado = pareceFaltaDeSenal(error) ? await perfilRecordado<Perfil>() : null
+
+      if (recordado) {
+        const resultado = await evaluarAcceso(recordado)
+        set({ perfil: recordado, estado: resultado.estado, errorAcceso: resultado.error })
+        return
+      }
+
       set({ estado: 'sin_sesion', errorAcceso: 'No pudimos verificar tu cuenta.' })
       return
     }
+
+    // Lo que el servidor acaba de decir es lo que se va a recordar la próxima
+    // vez que no se lo pueda alcanzar.
+    if (perfil) await recordarPerfil(perfil)
 
     const resultado = await evaluarAcceso(perfil)
     set({ perfil, estado: resultado.estado, errorAcceso: resultado.error })

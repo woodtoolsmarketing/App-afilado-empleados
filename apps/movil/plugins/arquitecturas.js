@@ -1,4 +1,4 @@
-const { withGradleProperties } = require('@expo/config-plugins')
+const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins')
 
 /**
  * Qué arquitecturas de procesador lleva el APK.
@@ -26,6 +26,20 @@ const { withGradleProperties } = require('@expo/config-plugins')
  * se puede bajar desde cualquier lado con datos móviles.
  *
  * Y de paso la compilación tarda la mitad: no se compila lo que no se manda.
+ *
+ * ─── Por qué hacen falta DOS perillas, y cuál es la que manda ────────────────
+ *
+ * `reactNativeArchitectures` (en gradle.properties) **no alcanza**. La consume
+ * el plugin de React Native para decidir qué compila desde el código fuente,
+ * pero las bibliotecas nativas vienen ya compiladas adentro de los paquetes:
+ * cambiar esa propiedad no evita que se empaqueten. Está comprobado en papel —
+ * se compiló con la propiedad puesta y el APK salió igual, con las cuatro
+ * arquitecturas y 75,8 MB.
+ *
+ * La que manda es `abiFilters`, de Android: es la que decide qué se mete en el
+ * archivo final, venga de donde venga. Se dejan las dos porque hacen cosas
+ * distintas y las dos suman: una evita compilar de más, la otra evita empaquetar
+ * de más.
  *
  * ─── Por qué un plugin y no editar gradle.properties ─────────────────────────
  *
@@ -55,7 +69,43 @@ const { withGradleProperties } = require('@expo/config-plugins')
  */
 const PARA_TELEFONOS = 'arm64-v8a'
 
+/** La que decide qué entra en el APK. Sin esto, lo demás no cambia nada. */
+function conFiltroDeAbi(config) {
+  return withAppBuildGradle(config, (config) => {
+    const gradle = config.modResults
+
+    if (gradle.language !== 'groovy') {
+      throw new Error(
+        'El build.gradle de la app no es groovy y este plugin no sabe editarlo. ' +
+          'Sin esto el APK sale con las cuatro arquitecturas y pesa el doble.',
+      )
+    }
+
+    if (gradle.contents.includes('abiFilters')) return config
+
+    // Dentro de defaultConfig, que es donde Android lo espera.
+    const ancla = /(defaultConfig\s*\{)/
+    if (!ancla.test(gradle.contents)) {
+      throw new Error('No encontré defaultConfig en build.gradle para poner abiFilters.')
+    }
+
+    gradle.contents = gradle.contents.replace(
+      ancla,
+      `$1
+        // Sólo las arquitecturas de teléfono: ver plugins/arquitecturas.js
+        ndk {
+            abiFilters ${PARA_TELEFONOS.split(',')
+        .map((a) => `"${a.trim()}"`)
+        .join(', ')}
+        }`,
+    )
+
+    return config
+  })
+}
+
 module.exports = function conArquitecturasDeTelefono(config) {
+  config = conFiltroDeAbi(config)
   return withGradleProperties(config, (config) => {
     const propiedades = config.modResults
 
