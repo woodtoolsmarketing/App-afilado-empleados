@@ -183,7 +183,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.0.2',
+  version: '1.0.3',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -253,6 +253,9 @@ const config: ExpoConfig = {
   },
 
   plugins: [
+    // El APK va sólo con las arquitecturas de teléfono: las de emulador eran 32
+    // de los 78 MB. Ver el propio plugin, que explica por qué importa el peso.
+    './plugins/arquitecturas',
     [
       'expo-location',
       {

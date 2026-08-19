@@ -46,8 +46,10 @@ export interface ApkDisponible {
   actual: string
   /** La que hay para bajar. */
   nueva: string
-  /** La dirección del panel, lista para abrir en el navegador. */
+  /** A dónde mandar el navegador. */
   direccion: string
+  /** De dónde sale esa dirección, que cambia lo que hay que decirle al vendedor. */
+  desde: 'panel' | 'internet'
   notas: string | null
 }
 
@@ -81,7 +83,7 @@ export async function buscarApkNuevo(): Promise<ApkDisponible | null> {
   try {
     const { data: fila } = await supabase
       .from('versiones_app')
-      .select('version, notas')
+      .select('version, notas, url_externa')
       .eq('canal', canalDeEsteTelefono())
       .order('publicado_en', { ascending: false })
       .limit(1)
@@ -91,22 +93,71 @@ export async function buscarApkNuevo(): Promise<ApkDisponible | null> {
     // Sólo hacia adelante: una versión igual o más vieja no es una actualización.
     if (compararVersiones(actual, fila.version) >= 0) return null
 
-    const { data: cfg } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'panel_oficina')
-      .maybeSingle()
-
-    const panel = cfg?.valor as PanelEnLaRed | null
-    if (!panel?.ip) return null
-
-    return {
+    const comun = {
       actual,
       nueva: fila.version,
-      direccion: `http://${panel.ip}:${panel.puerto ?? 8756}`,
       notas: (fila.notas as string | null) ?? null,
     }
+
+    /**
+     * El panel de la oficina primero, y el enlace de internet de respaldo.
+     *
+     * El panel gana cuando se lo alcanza: el archivo está a un salto por la red
+     * local, baja en segundos y no caduca nunca. Pero vive en una dirección
+     * privada, así que desde la calle no existe — y el vendedor que quiere
+     * actualizar un martes a la mañana en un galpón no tiene por qué esperar a
+     * pasar por la oficina.
+     *
+     * Por eso, si el panel no contesta, se usa el enlace de afuera que quedó
+     * anotado en la fila. Ese sí funciona con datos móviles.
+     */
+    const panel = await direccionDelPanel()
+    if (panel && (await contesta(panel))) {
+      return { ...comun, direccion: panel, desde: 'panel' }
+    }
+
+    const externa = fila.url_externa as string | null
+    if (externa && /^https?:\/\//.test(externa)) {
+      return { ...comun, direccion: externa, desde: 'internet' }
+    }
+
+    // Hay versión nueva pero no hay de dónde bajarla. Ofrecer un botón que no
+    // lleva a ningún lado es peor que no ofrecer nada.
+    return null
   } catch {
     return null
+  }
+}
+
+/** La dirección del panel, tal como él mismo la publica. */
+async function direccionDelPanel(): Promise<string | null> {
+  const { data } = await supabase
+    .from('configuracion')
+    .select('valor')
+    .eq('clave', 'panel_oficina')
+    .maybeSingle()
+
+  const panel = data?.valor as PanelEnLaRed | null
+  return panel?.ip ? `http://${panel.ip}:${panel.puerto ?? 8756}` : null
+}
+
+/**
+ * ¿Se llega al panel desde acá?
+ *
+ * Con un límite corto a propósito. La dirección es privada: desde afuera de la
+ * oficina no falla rápido, se queda esperando hasta que el sistema se rinde, y
+ * son varios segundos con el vendedor mirando un botón que no responde. Dos
+ * segundos alcanzan de sobra en la red local y no se notan.
+ */
+async function contesta(direccion: string): Promise<boolean> {
+  const corte = new AbortController()
+  const reloj = setTimeout(() => corte.abort(), 2000)
+  try {
+    await fetch(direccion, { method: 'HEAD', signal: corte.signal })
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(reloj)
   }
 }

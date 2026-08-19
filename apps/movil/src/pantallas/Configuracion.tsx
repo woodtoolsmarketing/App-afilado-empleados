@@ -56,7 +56,9 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
       `Hay una versión nueva: ${apk.nueva}`,
       `Tenés la ${apk.actual}. Esta actualización cambia cosas que no viajan por ` +
         `aire, así que hay que instalarla.\n\n` +
-        `Tenés que estar en el wifi de la oficina, igual que para imprimir.` +
+        (apk.desde === 'panel'
+          ? 'La vas a bajar de la PC de la oficina, así que va a ser rápido.'
+          : 'La vas a bajar de internet: con datos móviles puede tardar unos minutos.') +
         (apk.notas ? `\n\nQué trae:\n${apk.notas}` : ''),
       [
         { text: 'Ahora no', style: 'cancel' },
