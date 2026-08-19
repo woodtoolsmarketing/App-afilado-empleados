@@ -22,8 +22,8 @@ const { withGradleProperties } = require('@expo/config-plugins')
  * Con 78 MB el instalador no entra en Supabase, que en este plan rechaza
  * subidas de más de 50 MB. Eso obligaba a repartirlo desde la PC de la oficina,
  * y por lo tanto a que el vendedor pasara por la oficina para actualizar la app.
- * Sacando las dos de emulador el archivo queda cerca de 46 MB, entra, y se puede
- * bajar desde cualquier lado con datos móviles.
+ * Yendo sólo con `arm64-v8a` el archivo queda cerca de 35 MB: entra con holgura y
+ * se puede bajar desde cualquier lado con datos móviles.
  *
  * Y de paso la compilación tarda la mitad: no se compila lo que no se manda.
  *
@@ -34,13 +34,26 @@ const { withGradleProperties } = require('@expo/config-plugins')
  * que cualquier cambio a mano ahí dura hasta la próxima vez y desaparece sin
  * que nada avise. Un plugin corre COMO PARTE de esa regeneración.
  *
+ * ─── Por qué tampoco va `armeabi-v7a` ────────────────────────────────────────
+ *
+ * Son otros 10,6 MB, y dejan el APK cerca de 35: bien lejos del tope, con
+ * lugar para que la app crezca sin volver a chocarlo.
+ *
+ * `armeabi-v7a` es para teléfonos de 32 bits. Cualquier equipo vendido de 2019
+ * en adelante es de 64, así que en la práctica no cambia nada — **pero si algún
+ * teléfono de la empresa fuera de 32 bits, este APK no se le instala.** No falla
+ * en silencio: Android lo rechaza con "aplicación no instalada", y se arregla
+ * volviendo a poner `armeabi-v7a` acá y recompilando.
+ *
+ * Para saberlo antes, en el teléfono:  adb shell getprop ro.product.cpu.abi
+ *
  * ─── Si algún día hace falta un emulador ─────────────────────────────────────
  *
- * Para probar en un emulador de PC hay que volver a agregar `x86_64` acá, o
- * compilar con `-PreactNativeArchitectures=x86_64`. El desarrollo en un teléfono
- * de verdad —que es como se trabajó siempre en este proyecto— no se ve afectado.
+ * Para probar en un emulador de PC hay que agregar `x86_64` acá, o compilar con
+ * `-PreactNativeArchitectures=x86_64`. El desarrollo en un teléfono de verdad
+ * —que es como se trabajó siempre en este proyecto— no se ve afectado.
  */
-const PARA_TELEFONOS = 'armeabi-v7a,arm64-v8a'
+const PARA_TELEFONOS = 'arm64-v8a'
 
 module.exports = function conArquitecturasDeTelefono(config) {
   return withGradleProperties(config, (config) => {
