@@ -30,7 +30,16 @@ const CLAVE_VERSION_MINIMA = 'version_minima_app'
 interface VersionPublicada {
   canal: string
   version: string
-  archivo: string
+  /**
+   * Dónde está el instalador. Uno de los dos, nunca ninguno.
+   *
+   * El bucket no acepta archivos de más de 50 MB —es el tope del plan, medido:
+   * 40 MB entra, 55 devuelve 413— y un APK pesa 78. Así que los APK viven en el
+   * servidor de compilación y la fila guarda el link; `archivo` queda para lo
+   * que sí entre, como el instalador de escritorio.
+   */
+  archivo: string | null
+  url_externa: string | null
   tamano_bytes: number | null
   notas: string | null
   publicado_en: string
@@ -177,7 +186,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     queryFn: async () => {
       const { data, error } = await supabase
         .from('versiones_app')
-        .select('canal, version, archivo, tamano_bytes, notas, publicado_en')
+        .select('canal, version, archivo, url_externa, tamano_bytes, notas, publicado_en')
         .order('publicado_en', { ascending: false })
         .limit(12)
       if (error) throw error
@@ -429,6 +438,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                   <th style={{ textAlign: 'left' }}>Qué trae</th>
                   <th style={{ textAlign: 'right' }}>Tamaño</th>
                   <th style={{ textAlign: 'left' }}>Publicado</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -442,6 +452,22 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                     </td>
                     <td style={{ color: 'var(--tinta-suave)' }}>
                       {new Date(v.publicado_en).toLocaleDateString('es-AR')}
+                    </td>
+                    {/* La tabla listaba los APK publicados sin ninguna forma de
+                        bajarlos, que es como un estante con vitrina cerrada.
+                        Abre en el navegador del sistema: el instalador lo tiene
+                        que recibir el teléfono, no esta ventana. */}
+                    <td>
+                      {v.url_externa ? (
+                        <button
+                          className="chico"
+                          onClick={() => void window.woodtools?.abrirExterno(v.url_externa!)}
+                        >
+                          Bajar APK
+                        </button>
+                      ) : (
+                        <span style={{ color: 'var(--tinta-tenue)' }}>—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

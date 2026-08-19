@@ -59,6 +59,16 @@ const CLAVE_ULTIMA_IP = 'woodtools.impresora.ultima_ip'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ETIQUETA_OPERACION = 0x01
+/**
+ * El grupo de atributos DEL TRABAJO, que hasta ahora no se abría.
+ *
+ * IPP separa lo que describe a la petición —quién la manda, en qué idioma, a
+ * qué impresora— de lo que describe al trabajo: qué papel, si se escala, a
+ * cuántas copias. Van en grupos distintos y no es una formalidad: un `media`
+ * puesto en el grupo de operación la impresora lo descarta sin avisar, y sigue
+ * usando su papel por defecto.
+ */
+const ETIQUETA_TRABAJO = 0x02
 const FIN_ATRIBUTOS = 0x03
 
 const TIPO_CHARSET = 0x47
@@ -66,6 +76,8 @@ const TIPO_IDIOMA = 0x48
 const TIPO_URI = 0x45
 const TIPO_NOMBRE = 0x42
 const TIPO_MIME = 0x49
+/** `keyword`: valores de un vocabulario cerrado, como el nombre de un papel. */
+const TIPO_PALABRA = 0x44
 
 const OPERACION_IMPRIMIR = 0x0002
 const OPERACION_ATRIBUTOS = 0x000b
@@ -89,6 +101,8 @@ function peticion(
   uriImpresora: string,
   extra: number[],
   documento?: Uint8Array,
+  /** Atributos del trabajo. Van en su propio grupo o no se aplican. */
+  trabajo: number[] = [],
 ): Uint8Array {
   const cabecera = [
     0x02, 0x00,                              // IPP 2.0
@@ -102,6 +116,7 @@ function peticion(
     ...atributo(TIPO_IDIOMA, 'attributes-natural-language', 'es-ar'),
     ...atributo(TIPO_URI, 'printer-uri', uriImpresora),
     ...extra,
+    ...(trabajo.length > 0 ? [ETIQUETA_TRABAJO, ...trabajo] : []),
     FIN_ATRIBUTOS,
   ]
 
@@ -112,6 +127,17 @@ function peticion(
   salida.set(cuerpo, cabecera.length + atributos.length)
   return salida
 }
+
+/**
+ * El papel, dicho con el nombre que entiende IPP.
+ *
+ * `iso_a4_210x297mm` es el nombre normalizado por el PWG. No es decorativo: si
+ * el trabajo no lo trae, la impresora usa **el suyo por defecto**, que en la
+ * mayoría viene de fábrica en Carta. Ahí el PDF —que sí es A4— y el papel que
+ * la impresora cree tener dejan de coincidir, y el resultado no es un error
+ * sino una nota corrida: se recorta arriba y sobra blanco abajo.
+ */
+const PAPEL_A4 = 'iso_a4_210x297mm'
 
 export function peticionImprimir(
   uriImpresora: string,
@@ -127,6 +153,22 @@ export function peticionImprimir(
       ...atributo(TIPO_MIME, 'document-format', 'application/pdf'),
     ],
     documento,
+    // ── El papel y la escala, explícitos ────────────────────────────────────
+    //
+    // Hasta acá el trabajo sólo decía "esto es un PDF" y dejaba que la
+    // impresora resolviera el resto por su cuenta. La nota está armada para
+    // entrar exacta en una A4, así que cualquier reencuadre que agregue la
+    // impresora la arruina: si achica, queda chica con una franja blanca; si
+    // la corre, se come el encabezado.
+    //
+    // `print-scaling: none` es "imprimila tal cual, punto por punto". Una
+    // impresora que no lo entienda lo ignora y sigue imprimiendo —IPP manda
+    // reportar el atributo como no soportado, no rechazar el trabajo—, así
+    // que en el peor caso quedamos como estábamos.
+    [
+      ...atributo(TIPO_PALABRA, 'media', PAPEL_A4),
+      ...atributo(TIPO_PALABRA, 'print-scaling', 'none'),
+    ],
   )
 }
 

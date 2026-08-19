@@ -1,4 +1,6 @@
 import {
+  A4_ALTO_PT,
+  A4_ANCHO_PT,
   ESTILOS_NOTA_PEDIDO,
   ETIQUETA_MOTIVO_NO_VISITA,
   formatearFechaCorta,
@@ -362,7 +364,14 @@ export async function imprimirNotas(params: {
     rolDeVisita: rolDeVisita ?? undefined,
     escalaDeLetra: PixelRatio.getFontScale(),
   })
-  const { uri } = await Print.printToFileAsync({ html, base64: false })
+  // El tamaño de hoja va explícito: sin esto `expo-print` arma el PDF en hoja
+  // Carta —su default— y la impresora lo achica para meterlo en una A4.
+  const { uri } = await Print.printToFileAsync({
+    html,
+    base64: false,
+    width: A4_ANCHO_PT,
+    height: A4_ALTO_PT,
+  })
 
   if (params.comoPdf) {
     if (await Sharing.isAvailableAsync()) {

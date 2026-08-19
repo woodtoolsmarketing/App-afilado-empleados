@@ -152,6 +152,30 @@ const FILAS_COMERCIALES = MAXIMO_RENGLONES
 const ALTO_HOJA_MM = 265
 
 /**
+ * Una hoja A4 medida en puntos: 595 × 842.
+ *
+ * ─── Por qué hay que decirlo, y por qué acá ──────────────────────────────────
+ *
+ * El celular arma el PDF con `expo-print`, y `expo-print` genera **hoja Carta**
+ * si no se le dice otra cosa: en su código el tamaño por defecto es 612 × 792
+ * puntos, que son 8,5 × 11 pulgadas. Nadie lo eligió; es el default de una
+ * librería pensada en Estados Unidos.
+ *
+ * El efecto no era un error visible sino una nota encogida. La plantilla pide
+ * A4, el PDF salía Carta, y después la impresora aplicaba "reducir para
+ * ajustar" para meter una Carta en una A4. La nota terminaba dibujada a algo
+ * más del 90 % con una franja blanca abajo, y en el duplicado la palabra
+ * DUPLICADO salía cortada al medio. Se veía como un problema de la plantilla
+ * —que mide 265 mm exactos en un navegador— y era del tamaño de la hoja.
+ *
+ * 210 mm ÷ 25,4 × 72 = 595,3 y 297 mm ÷ 25,4 × 72 = 841,9. Redondeados, 595 y
+ * 842. Con eso el `@page { size: A4 }` del CSS coincide con el papel de verdad
+ * y no queda ninguna escala en el medio.
+ */
+export const A4_ANCHO_PT = 595
+export const A4_ALTO_PT = 842
+
+/**
  * El alto de los dos bloques de texto libre, en milímetros.
  *
  * **Fijo, como en el talonario de papel.** Antes crecían con el texto, y unos
