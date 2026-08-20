@@ -77,39 +77,159 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
     )
   }
 
+  /**
+   * "Hay una versión nueva pero no hay de dónde bajarla."
+   *
+   * Antes este caso salía como "estás usando la última versión", que era falso.
+   * No se puede ofrecer un botón —no hay a dónde mandarlo— pero la noticia se
+   * da igual: el vendedor tiene que poder enterarse de que está atrasado
+   * aunque en ese momento no pueda hacer nada, aunque más no sea para
+   * mencionárselo a la oficina.
+   */
+  function avisarSinDondeBajarlo(nueva: string, actual: string, notas: string | null) {
+    Alert.alert(
+      `Hay una versión nueva: ${nueva}`,
+      [
+        `Tenés la ${actual}, pero desde acá no la podemos bajar.`,
+        'Para que se pueda, tenés que estar en el wifi de la oficina con la PC del panel prendida. Pasá por ahí y volvé a tocar este botón.',
+        'Si no vas a pasar, avisale a la oficina y contale esto.',
+        ...(notas ? [`Qué trae:\n${notas}`] : []),
+      ].join('\n\n'),
+    )
+  }
+
+  /**
+   * Lo que viaja por aire, contestando también cuando no se puede preguntar.
+   *
+   * Se separa del resto porque antes era todo una sola cosa, y eso rompía el
+   * rescate: `checkForUpdateAsync` RECHAZA —no devuelve "no hay"— cuando este
+   * APK se compiló sin actualizaciones por aire, cuando corre en desarrollo, o
+   * cuando no se llega al servidor. Como la consulta del instalador estaba
+   * adentro del mismo `try` y después, ese rechazo se la saltaba entera: el
+   * teléfono que MÁS necesitaba el instalador nuevo era justo el único que no
+   * llegaba nunca a preguntar por él, y encima leía "revisá la conexión" con
+   * la conexión perfecta.
+   */
+  async function buscarPorAire(): Promise<
+    | { estado: 'lista' }
+    | { estado: 'sin-novedades' }
+    | { estado: 'apagado' }
+    | { estado: 'fallo'; motivo: string }
+  > {
+    // La misma guardia que ya usa la pantalla de estado de cuenta. Sin ella el
+    // módulo rechaza y el error queda disfrazado de problema de red.
+    if (!Updates.isEnabled) return { estado: 'apagado' }
+
+    try {
+      const resultado = await Updates.checkForUpdateAsync()
+      if (!resultado.isAvailable) return { estado: 'sin-novedades' }
+      await Updates.fetchUpdateAsync()
+      return { estado: 'lista' }
+    } catch (e) {
+      // Desarrollo y APK sin actualizaciones por aire llegan con este código.
+      // No es una falla: es que este teléfono no las tiene, y eso hay que
+      // decirlo distinto de "no pudimos consultar".
+      const codigo = (e as { code?: string })?.code
+      if (codigo === 'ERR_UPDATES_DISABLED') return { estado: 'apagado' }
+      return { estado: 'fallo', motivo: codigo || (e as Error)?.message || 'error desconocido' }
+    }
+  }
+
+  /**
+   * El botón. Dos preguntas independientes, y un solo cartel al final.
+   *
+   * Las dos vías se consultan SIEMPRE y por separado, porque contestan cosas
+   * distintas: lo que viaja por aire es JavaScript, y un permiso nuevo o una
+   * librería nativa van adentro del APK. Que falle una no puede tapar a la
+   * otra, y "todo al día" se dice únicamente cuando las dos contestaron.
+   */
   async function buscarActualizacion() {
     setBuscandoUpdate(true)
     try {
-      const resultado = await Updates.checkForUpdateAsync()
-      if (resultado.isAvailable) {
-        await Updates.fetchUpdateAsync()
+      const aire = await buscarPorAire()
+
+      if (aire.estado === 'lista') {
         Alert.alert('Actualización lista', 'La app se va a reiniciar para aplicarla.', [
-          { text: 'Reiniciar', onPress: () => void Updates.reloadAsync() },
+          {
+            text: 'Reiniciar',
+            onPress: () => {
+              void Updates.reloadAsync().catch(() =>
+                Alert.alert(
+                  'No se pudo reiniciar sola',
+                  'Cerrá la app del todo y volvé a abrirla: la actualización ya está bajada y se aplica al arrancar.',
+                ),
+              )
+            },
+          },
         ])
         return
       }
 
-      /**
-       * Sin novedades por aire NO quiere decir que esté todo al día.
-       *
-       * Lo que viaja por aire es JavaScript; un permiso nuevo o una librería
-       * nativa van adentro del APK y no viajan. Antes, en ese caso, el botón
-       * decía "estás usando la última versión" —cierto para lo que miraba— y el
-       * vendedor se quedaba con la app vieja sin enterarse nunca. Es lo que le
-       * pasó a los teléfonos que siguen en 1.0.0.
-       */
+      // Y acá el instalador, ande o no ande lo de arriba.
       const apk = await buscarApkNuevo()
-      if (apk) {
-        ofrecerApk(apk)
+
+      if (apk.estado === 'hay') {
+        ofrecerApk(apk.apk)
         return
       }
 
-      Alert.alert('Todo al día', 'Estás usando la última versión de la app.')
-    } catch {
-      Alert.alert(
-        'No pudimos buscar actualizaciones',
-        'Revisá la conexión. Si el problema sigue, avisá a la oficina.',
-      )
+      if (apk.estado === 'sin-donde-bajarlo') {
+        avisarSinDondeBajarlo(apk.nueva, apk.actual, apk.notas)
+        return
+      }
+
+      // No apareció nada nuevo. Lo que se dice depende de qué se pudo mirar de
+      // verdad: decir "todo al día" sobre una consulta que falló es la forma
+      // más segura de que el vendedor se quede con la app vieja tranquilo.
+      const version = Constants.expoConfig?.version ?? apk.actual
+
+      if (aire.estado === 'fallo' && apk.estado === 'no-se-pudo') {
+        Alert.alert(
+          'No pudimos buscar actualizaciones',
+          [
+            'No pudimos consultar ninguna de las dos vías, así que no sabemos si estás al día.',
+            `Revisá la conexión y probá de nuevo. Si sigue igual, avisale a la oficina y decile: ${aire.motivo}.`,
+          ].join('\n\n'),
+        )
+        return
+      }
+
+      if (aire.estado === 'fallo') {
+        Alert.alert(
+          'No pudimos fijarnos del todo',
+          [
+            `Los cambios que viajan por aire no los pudimos consultar (${aire.motivo}).`,
+            `Sí miramos si hay un instalador más nuevo, y no hay: tenés la ${version}.`,
+            'Probá de nuevo con mejor señal. Si sigue igual, avisale a la oficina.',
+          ].join('\n\n'),
+        )
+        return
+      }
+
+      if (apk.estado === 'no-se-pudo') {
+        Alert.alert(
+          'No pudimos fijarnos del todo',
+          [
+            `No hay cambios nuevos por aire, pero no pudimos consultar si hay un instalador más nuevo (${apk.motivo}).`,
+            'Probá de nuevo en un rato. Si sigue igual, avisale a la oficina.',
+          ].join('\n\n'),
+        )
+        return
+      }
+
+      if (aire.estado === 'apagado') {
+        Alert.alert(
+          'Esta app no se actualiza sola',
+          [
+            'Se instaló sin la parte que baja los cambios por aire, así que sólo cambia instalando una versión nueva.',
+            `Nos fijamos igual y no hay ninguna más nueva que la tuya: tenés la ${version}.`,
+            'Mostrale este cartel a la oficina.',
+          ].join('\n\n'),
+        )
+        return
+      }
+
+      Alert.alert('Todo al día', `Estás usando la última versión de la app: la ${version}.`)
     } finally {
       setBuscandoUpdate(false)
     }
@@ -139,6 +259,7 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
             etiqueta="Versión"
             valor={`${Constants.expoConfig?.version ?? '—'} (${Constants.expoConfig?.extra?.variante ?? 'interno'})`}
           />
+          <Dato etiqueta="Actualizaciones" valor={comoSeActualizaEsteTelefono()} />
           <Dato etiqueta="Seguimiento" valor={siguiendo ? 'Activo' : 'Detenido'} />
         </View>
 
@@ -221,6 +342,24 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
       </Panel>
     </Pantalla>
   )
+}
+
+/**
+ * Cómo se actualiza ESTE teléfono, dicho en la pantalla.
+ *
+ * Existe porque no había forma de contestarlo. Un APK compilado sin la URL de
+ * actualizaciones queda sordo de fábrica —ya pasó, seis versiones seguidas— y
+ * desde afuera se ve idéntico a uno sano: la app dice la misma versión, y ni
+ * el vendedor ni la oficina tienen cómo saber que ese teléfono no va a recibir
+ * nunca nada por aire. Con este renglón se mira el teléfono y se sabe.
+ *
+ * "De fábrica" contra "bajada" contesta la otra pregunta que no se podía
+ * contestar: si la actualización que el vendedor dice haber aplicado se aplicó.
+ */
+function comoSeActualizaEsteTelefono(): string {
+  if (!Updates.isEnabled) return 'Sólo instalando'
+  const canal = Updates.channel ?? String(Constants.expoConfig?.extra?.variante ?? '—')
+  return `Por aire · ${canal} · ${Updates.isEmbeddedLaunch ? 'de fábrica' : 'bajada'}`
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {

@@ -64,24 +64,44 @@ function versionDeEsteTelefono(): string {
 }
 
 /**
- * ¿Hay un APK más nuevo, y se puede llegar hasta él?
+ * Qué se averiguó sobre el instalador, que no es lo mismo que "hay o no hay".
  *
- * Devuelve null cuando no hay nada que hacer, y son varios casos distintos que
- * a propósito se tratan igual: no hay versión nueva, la oficina todavía no
- * publicó dónde está el panel, o no se pudo consultar. En los tres el vendedor
- * no puede hacer nada al respecto, así que ofrecerle un botón sería ofrecerle
- * un botón que falla.
+ * Antes esto era un `ApkDisponible | null`, y ese `null` significaba cinco
+ * cosas a la vez: no hay nada nuevo, hay pero no se llega, la oficina nunca
+ * publicó, la consulta falló, o el teléfono está sin señal. La pantalla las
+ * mostraba todas como "Estás usando la última versión", que es verdad en una
+ * sola de las cinco. Es exactamente el modo de fallar que este archivo dice
+ * querer evitar más arriba: el vendedor se queda con la app vieja convencido
+ * de que está al día.
+ */
+export type BusquedaDeApk =
+  /** Hay una versión más nueva y hay de dónde bajarla. */
+  | { estado: 'hay'; apk: ApkDisponible }
+  /**
+   * Hay una versión más nueva pero no se llega hasta ella: el panel de la
+   * oficina no contesta y la fila no trae un enlace de internet. No se puede
+   * ofrecer un botón, pero la noticia se da igual — el vendedor tiene que
+   * poder enterarse de que está atrasado aunque hoy no pueda hacer nada.
+   */
+  | { estado: 'sin-donde-bajarlo'; actual: string; nueva: string; notas: string | null }
+  /** Se consultó y no hay nada más nuevo que lo que tiene puesto. */
+  | { estado: 'al-dia'; actual: string }
+  /** No se pudo consultar. Distinto de "no hay": acá no sabemos. */
+  | { estado: 'no-se-pudo'; actual: string; motivo: string }
+
+/**
+ * ¿Hay un APK más nuevo, y se puede llegar hasta él?
  *
  * Lo que NO hace es fallar ruidosamente: esto se consulta como agregado del
  * botón de siempre, y un problema para averiguar si hay un APK nuevo no puede
- * romper la búsqueda de actualizaciones por aire, que es la que sirve casi
- * siempre.
+ * romper la búsqueda de actualizaciones por aire. Pero tampoco se lo traga:
+ * el problema vuelve como `no-se-pudo` para que la pantalla diga la verdad.
  */
-export async function buscarApkNuevo(): Promise<ApkDisponible | null> {
+export async function buscarApkNuevo(): Promise<BusquedaDeApk> {
   const actual = versionDeEsteTelefono()
 
   try {
-    const { data: fila } = await supabase
+    const { data: fila, error } = await supabase
       .from('versiones_app')
       .select('version, notas, url_externa')
       .eq('canal', canalDeEsteTelefono())
@@ -89,15 +109,17 @@ export async function buscarApkNuevo(): Promise<ApkDisponible | null> {
       .limit(1)
       .maybeSingle()
 
-    if (!fila?.version) return null
-    // Sólo hacia adelante: una versión igual o más vieja no es una actualización.
-    if (compararVersiones(actual, fila.version) >= 0) return null
+    // supabase-js no tira: los problemas vuelven acá adentro. Sin mirar esto,
+    // una consulta que se cayó se lee igual que una que contestó "no hay nada".
+    if (error) return { estado: 'no-se-pudo', actual, motivo: error.message }
 
-    const comun = {
-      actual,
-      nueva: fila.version,
-      notas: (fila.notas as string | null) ?? null,
-    }
+    // Sin fila no hay nada publicado para este canal todavía.
+    if (!fila?.version) return { estado: 'al-dia', actual }
+    // Sólo hacia adelante: una versión igual o más vieja no es una actualización.
+    if (compararVersiones(actual, fila.version) >= 0) return { estado: 'al-dia', actual }
+
+    const nueva = fila.version
+    const notas = (fila.notas as string | null) ?? null
 
     /**
      * El panel de la oficina primero, y el enlace de internet de respaldo.
@@ -113,19 +135,20 @@ export async function buscarApkNuevo(): Promise<ApkDisponible | null> {
      */
     const panel = await direccionDelPanel()
     if (panel && (await contesta(panel))) {
-      return { ...comun, direccion: panel, desde: 'panel' }
+      return { estado: 'hay', apk: { actual, nueva, notas, direccion: panel, desde: 'panel' } }
     }
 
     const externa = fila.url_externa as string | null
     if (externa && /^https?:\/\//.test(externa)) {
-      return { ...comun, direccion: externa, desde: 'internet' }
+      return { estado: 'hay', apk: { actual, nueva, notas, direccion: externa, desde: 'internet' } }
     }
 
     // Hay versión nueva pero no hay de dónde bajarla. Ofrecer un botón que no
-    // lleva a ningún lado es peor que no ofrecer nada.
-    return null
-  } catch {
-    return null
+    // lleva a ningún lado sigue siendo peor que no ofrecer nada — pero callarse
+    // la noticia entera es peor todavía.
+    return { estado: 'sin-donde-bajarlo', actual, nueva, notas }
+  } catch (e) {
+    return { estado: 'no-se-pudo', actual, motivo: (e as Error)?.message ?? 'error desconocido' }
   }
 }
 
@@ -148,13 +171,20 @@ async function direccionDelPanel(): Promise<string | null> {
  * oficina no falla rápido, se queda esperando hasta que el sistema se rinde, y
  * son varios segundos con el vendedor mirando un botón que no responde. Dos
  * segundos alcanzan de sobra en la red local y no se notan.
+ *
+ * Se mira `ok` y no sólo que haya llegado algo. `fetch` sólo tira cuando no
+ * hubo respuesta: un 404 o un 401 llegan como respuesta válida. Y la dirección
+ * es una IP privada de las comunes —192.168.1.x—, así que en la red de la casa
+ * del vendedor ese número puede ser cualquier otro aparato, que contesta
+ * cualquier cosa. Sin mirar `ok`, la app lo daba por el panel y mandaba el
+ * navegador ahí en vez de usar el enlace de internet, que sí funciona.
  */
 async function contesta(direccion: string): Promise<boolean> {
   const corte = new AbortController()
   const reloj = setTimeout(() => corte.abort(), 2000)
   try {
-    await fetch(direccion, { method: 'HEAD', signal: corte.signal })
-    return true
+    const respuesta = await fetch(direccion, { method: 'HEAD', signal: corte.signal })
+    return respuesta.ok
   } catch {
     return false
   } finally {
