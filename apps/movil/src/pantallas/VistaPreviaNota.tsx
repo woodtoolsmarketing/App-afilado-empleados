@@ -66,7 +66,12 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
         usarDialogoDelSistema: opciones.conDialogo,
         alAvisar: setAvance,
       })
-      if (!opciones.comoPdf) await marcarImpresas(notaIds)
+      // Sólo se marca cuando la impresora confirmó el trabajo, igual que en
+      // NOTAS PENDIENTES y en el detalle. El diálogo del sistema vuelve apenas
+      // se abre —no cuando el vendedor imprime o cancela—, así que por esa vía
+      // no sabemos si salió el papel. Marcarlas igual las sacaba de PENDIENTES
+      // para siempre y sin poder corregirlas, con la hoja sin salir.
+      if (!opciones.comoPdf && r.confirmado) await marcarImpresas(notaIds)
       return r
     },
     onSuccess: async (r, opciones) => {

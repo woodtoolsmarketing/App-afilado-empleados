@@ -1,5 +1,6 @@
 import {
   ETIQUETA_ESTADO_PARADA,
+  fechaLocalISO,
   formatearHora,
   type Cliente,
   type Direccion,
@@ -9,9 +10,15 @@ import {
   type RolVisita,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
+
+/** Cuántas filas se traen por consulta. El resto se alcanza buscando. */
+const VENTANA = 200
+
+/** Cuántas se dibujan. Más que esto es scroll, no ayuda para elegir una. */
+const MOSTRAR = 40
 
 /**
  * Armado e impresión del Rol de Visita.
@@ -23,7 +30,10 @@ import { supabase } from '../nucleo/supabase'
 export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
   const [vendedorId, setVendedorId] = useState('')
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  // En el calendario de acá y no en UTC: después de las 21:00 `toISOString()`
+  // devuelve mañana, y la pantalla abría en el día equivocado — decía que el
+  // vendedor no tenía rol y ofrecía crearle uno para el día siguiente.
+  const [fecha, setFecha] = useState(() => fechaLocalISO(new Date()))
   const [busqueda, setBusqueda] = useState('')
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,30 +82,65 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
     enabled: !!vendedorId,
   })
 
+  // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
+  const [termino, setTermino] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setTermino(busqueda.trim()), 300)
+    return () => clearTimeout(t)
+  }, [busqueda])
+
+  /**
+   * Los clientes que se pueden meter en un recorrido.
+   *
+   * Esto bajaba la tabla entera y filtraba en el navegador. PostgREST corta en
+   * 1.000 filas y la cartera son 12.181 desde que se importó el padrón, así que
+   * el buscador sólo encontraba lo que cayera en ese primer millar por orden
+   * alfabético: todo lo que empieza con una letra avanzada era invisible, y sin
+   * ningún cartel que lo dijera. Es el mismo problema que ya estaba corregido
+   * en la pantalla de Clientes.
+   *
+   * `direcciones!inner` reemplaza al filtro en memoria: un cliente sin
+   * coordenadas no entra a un recorrido —la ruta se calcula sobre lat/lng— así
+   * que los descarta la base y no gastan lugar de la ventana.
+   */
   const { data: clientes } = useQuery({
-    queryKey: ['clientes-con-direccion', vendedorId],
+    queryKey: ['clientes-con-direccion', termino],
     queryFn: async () => {
-      const { data, error: err } = await supabase
+      let consulta = supabase
         .from('clientes')
-        .select('*, direcciones ( * )')
+        .select('*, direcciones!inner ( * )')
         .eq('activo', true)
         .order('razon_social')
+        .limit(VENTANA)
+
+      if (termino) {
+        // `or` de PostgREST separa por comas, así que una coma en el término
+        // partiría el filtro en dos condiciones inválidas.
+        const limpio = termino.replace(/[,()]/g, ' ')
+        consulta = consulta.or(
+          [
+            `codigo.ilike.%${limpio}%`,
+            `razon_social.ilike.%${limpio}%`,
+            `nombre_fantasia.ilike.%${limpio}%`,
+          ].join(','),
+        )
+      }
+
+      const { data, error: err } = await consulta
       if (err) throw err
-      return (data as Array<Cliente & { direcciones: Direccion[] }>).filter(
-        (c) => c.direcciones.length > 0,
-      )
+      return data as Array<Cliente & { direcciones: Direccion[] }>
     },
     enabled: !!vendedorId,
   })
 
-  const candidatos = useMemo(() => {
+  const disponibles = useMemo(() => {
     const yaCargados = new Set((jornada?.paradas ?? []).map((p) => p.cliente_id))
-    const t = busqueda.trim().toLowerCase()
-    return (clientes ?? [])
-      .filter((c) => !yaCargados.has(c.id))
-      .filter((c) => !t || `${c.codigo} ${c.razon_social}`.toLowerCase().includes(t))
-      .slice(0, 40)
-  }, [clientes, jornada, busqueda])
+    return (clientes ?? []).filter((c) => !yaCargados.has(c.id))
+  }, [clientes, jornada])
+
+  const candidatos = useMemo(() => disponibles.slice(0, MOSTRAR), [disponibles])
+  /** Cuántos quedaron afuera. Recortar sin decirlo se lee como "no hay más". */
+  const ocultos = disponibles.length - candidatos.length
 
   const crearJornada = useMutation({
     mutationFn: async () => {
@@ -159,6 +204,11 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
 
   const vendedor = vendedores?.find((v) => v.id === vendedorId)
 
+  // Abierto en el navegador no existe el puente con el sistema, así que el
+  // botón no imprimía nada y tampoco lo decía: se tocaba tres veces esperando
+  // que saliera algo. Mismo criterio que la cola de impresión.
+  const puedeImprimir = typeof window.woodtools?.imprimir === 'function'
+
   return (
     <>
       <header className="encabezado-pagina">
@@ -173,7 +223,16 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
           >
             {optimizar.isPending ? 'Ordenando…' : 'Ordenar por cercanía'}
           </button>
-          <button className="rojo" onClick={() => void window.woodtools?.imprimir()} disabled={!jornada}>
+          <button
+            className="rojo"
+            onClick={() => void window.woodtools?.imprimir()}
+            disabled={!jornada || !puedeImprimir}
+            title={
+              puedeImprimir
+                ? undefined
+                : 'Abrí el panel instalado en la PC de la oficina: desde el navegador no se puede imprimir.'
+            }
+          >
             Imprimir
           </button>
         </div>
@@ -314,9 +373,9 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
 
             {candidatos.length === 0 ? (
               <p className="vacio">
-                {clientes && clientes.length === 0
-                  ? 'No hay clientes con dirección cargada. Cargá primero las direcciones desde Clientes.'
-                  : 'Sin resultados.'}
+                {termino
+                  ? `Ningún cliente ubicado en el mapa coincide con "${termino}".`
+                  : 'No hay clientes con dirección cargada. Cargá primero las direcciones desde Clientes.'}
               </p>
             ) : (
               <table>
@@ -360,6 +419,16 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                 </tbody>
               </table>
             )}
+
+            {/* Recortar la lista sin decirlo se lee como "no hay más": el que
+                busca a un cliente que no ve concluye que no está cargado. */}
+            {ocultos > 0 ? (
+              <p style={{ color: 'var(--tinta-suave)', fontSize: 13 }}>
+                Se muestran {candidatos.length} de {disponibles.length}
+                {disponibles.length === VENTANA ? ' o más' : ''}. Escribí el código o el nombre para
+                achicar la lista.
+              </p>
+            ) : null}
           </section>
         </>
       )}

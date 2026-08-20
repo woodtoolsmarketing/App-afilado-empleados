@@ -240,11 +240,26 @@ export function AltaUsuario({
 
         <div className="campo">
           <label htmlFor="rol">Rol</label>
+          {/* Faltaba "Administración", que es el rol que habilita las notas de
+              pedido, los artículos a confirmar y la cola de impresión. Sin él
+              no había forma de crear desde acá a la persona que hace ese
+              trabajo: había que darla de alta como otra cosa, y el rol no se
+              puede cambiar después desde la lista de usuarios. */}
           <select id="rol" value={rol} onChange={(e) => setRol(e.target.value as RolUsuario)}>
             <option value="vendedor">Vendedor</option>
             <option value="supervisor">Supervisor</option>
+            <option value="administracion">Administración</option>
             <option value="admin">Administrador</option>
           </select>
+          <small>
+            {rol === 'administracion'
+              ? 'Ve todas las notas de pedido, asigna los códigos de cliente y completa los precios.'
+              : rol === 'supervisor'
+                ? 'Ve a todos los vendedores en vivo. No resuelve altas ni bajas.'
+                : rol === 'admin'
+                  ? 'Control total, incluidas las altas de usuarios.'
+                  : 'Usa la app del celular y ve sólo lo suyo.'}
+          </small>
         </div>
 
         <div className="campo">

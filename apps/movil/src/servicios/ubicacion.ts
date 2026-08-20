@@ -191,7 +191,9 @@ TaskManager.defineTask(TAREA_UBICACION, async ({ data, error }) => {
 
 async function publicarPunto(punto: PuntoEncolado): Promise<void> {
   // El pin en vivo primero: es lo que le importa al admin en este segundo.
-  const { error: errActual } = await supabase.from('posiciones_actuales').upsert(
+  // Si falla no se reintenta y no se mira el error: el punto siguiente lo pisa,
+  // porque es un upsert de una sola fila por vendedor.
+  await supabase.from('posiciones_actuales').upsert(
     {
       vendedor_id: punto.vendedor_id,
       rol_visita_id: punto.rol_visita_id,
@@ -209,7 +211,12 @@ async function publicarPunto(punto: PuntoEncolado): Promise<void> {
 
   const { error: errHistorico } = await supabase.from('posiciones').insert(punto)
 
-  if (errActual || errHistorico) {
+  // Se encola sólo si falló EL HISTÓRICO. Antes alcanzaba con que fallara
+  // cualquiera de las dos, y cuando la que fallaba era el pin en vivo el punto
+  // ya estaba guardado: al drenar la cola se insertaba una segunda vez y la
+  // traza del recorrido quedaba con puntos repetidos. Que se pierda un pin en
+  // vivo no cuesta nada — el siguiente punto lo pisa, es un upsert.
+  if (errHistorico) {
     await encolar(punto)
     return
   }

@@ -2,14 +2,10 @@ import {
   A4_ALTO_PT,
   A4_ANCHO_PT,
   ESTILOS_NOTA_PEDIDO,
-  ETIQUETA_MOTIVO_NO_VISITA,
-  formatearFechaCorta,
-  formatearHora,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
+  rolImprimibleDesdeFilas,
   type OpcionesImpresion,
-  type ParadaCompleta,
-  type RenglonRolDeVisita,
   type RolDeVisitaParaImprimir,
 } from '@woodtools/compartido'
 import * as FileSystem from 'expo-file-system'
@@ -209,53 +205,6 @@ async function imprimirPorIpp(
 // El rol de visita del día
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Qué se escribe en "RESULTADO (OBSERVACIONES)".
- *
- * Cuando el destino no se visitó, el motivo va adelante: en la planilla de
- * papel un renglón sin ningún tilde de "tipo de visita" y sin explicación no se
- * distingue de uno que quedó sin hacer.
- */
-function resultadoDeParada(p: ParadaCompleta): string {
-  const v = p.visita
-  if (!v) return ''
-  if (v.visitado) return v.observacion
-  const motivo = v.motivo_no_visita ? ETIQUETA_MOTIVO_NO_VISITA[v.motivo_no_visita] : 'Sin visitar'
-  return `NO VISITADO — ${motivo}. ${v.observacion}`
-}
-
-function aRolImprimible(
-  jornada: { observaciones_jornada: string | null; fecha: string },
-  paradas: ParadaCompleta[],
-  vendedor: { nombre: string; codigo: string | null },
-): RolDeVisitaParaImprimir {
-  const renglones: RenglonRolDeVisita[] = paradas.map((p) => ({
-    numero: p.orden,
-    hora: p.llegada_en ? formatearHora(p.llegada_en) : '',
-    cliente_numero: p.cliente?.codigo ?? '',
-    razon_social: p.cliente?.razon_social ?? p.razon_social_snapshot ?? '',
-    direccion: p.direccion?.direccion_formateada ?? p.direccion_snapshot ?? '',
-    vendio: p.visita?.vendio ?? false,
-    cobro: p.visita?.cobro ?? false,
-    retiro_afilado: p.visita?.retiro_afilado ?? false,
-    entrego: p.visita?.entrego ?? false,
-    contacto: p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? '',
-    resultado: resultadoDeParada(p),
-  }))
-
-  return {
-    // La fecha viene como `date` de Postgres: al mediodía para que el huso no
-    // la corra un día para atrás.
-    fecha: formatearFechaCorta(`${jornada.fecha}T12:00:00`),
-    vendedor: vendedor.nombre,
-    vendedor_numero: vendedor.codigo ?? '',
-    paradas: renglones,
-    visitadas: paradas.filter((p) => p.visita?.visitado === true).length,
-    no_visitadas: paradas.filter((p) => p.visita?.visitado === false).length,
-    observaciones_jornada: jornada.observaciones_jornada ?? '',
-  }
-}
-
 /** Devuelve null cuando el vendedor no armó recorrido hoy: no hay nada que sumar. */
 async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImprimir | null> {
   const jornada = await obtenerJornadaDeHoy(vendedorId)
@@ -267,7 +216,7 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
     .eq('id', vendedorId)
     .maybeSingle()
 
-  return aRolImprimible(jornada.jornada, jornada.paradas, {
+  return rolImprimibleDesdeFilas(jornada.jornada, jornada.paradas, {
     nombre: perfil?.nombre_completo ?? '',
     codigo: perfil?.codigo_vendedor ?? null,
   })

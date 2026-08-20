@@ -104,6 +104,21 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
 
   const filtrados = clientes ?? []
 
+  /**
+   * Refresca TODO lo que mira esta pantalla.
+   *
+   * Invalidar sólo `['clientes']` dejaba viejas las otras dos consultas:
+   * react-query compara las claves por prefijo y `['clientes-provisorios']` no
+   * empieza con `'clientes'` —es otra cadena—, así que el cartel de "cargados
+   * desde la calle" seguía nombrando al cliente cuya ficha se acababa de
+   * completar, y el conteo del encabezado no se movía al dar de alta uno nuevo.
+   */
+  function refrescarClientes() {
+    for (const clave of [['clientes'], ['clientes-provisorios'], ['clientes-total']]) {
+      void cliente.invalidateQueries({ queryKey: clave })
+    }
+  }
+
   const alternarActivo = useMutation({
     mutationFn: async (c: Cliente) => {
       const { error } = await supabase.from('clientes').update({ activo: !c.activo }).eq('id', c.id)
@@ -111,7 +126,7 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
     },
     onSuccess: () => {
       setMensaje('Cliente actualizado.')
-      void cliente.invalidateQueries({ queryKey: ['clientes'] })
+      refrescarClientes()
     },
   })
 
@@ -270,7 +285,7 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
           alGuardar={() => {
             setEditando(null)
             setMensaje('Cliente guardado.')
-            void cliente.invalidateQueries({ queryKey: ['clientes'] })
+            refrescarClientes()
           }}
         />
       )}
@@ -291,6 +306,18 @@ function FormularioCliente({
 }) {
   const principal = cliente?.direcciones.find((d) => d.principal) ?? cliente?.direcciones[0]
 
+  /**
+   * El domicilio que trajo el listado del Gestión, cuando todavía no se ubicó.
+   *
+   * Son dos lugares distintos: los clientes importados tienen la calle escrita
+   * en su ficha (`clientes.direccion`) y ninguna fila en `direcciones`, porque
+   * ésa exige lat/lng. El formulario leía sólo la segunda, así que la ficha se
+   * abría con la dirección en blanco — justo la del cliente que la tabla de al
+   * lado estaba mostrando con el cartel "Sin ubicar en el mapa", que es el que
+   * alguien abre para completarlo.
+   */
+  const domicilioDelPadron = [cliente?.direccion, cliente?.localidad].filter(Boolean).join(', ')
+
   const [form, setForm] = useState({
     codigo: cliente?.codigo ?? '',
     razon_social: cliente?.razon_social ?? '',
@@ -301,8 +328,8 @@ function FormularioCliente({
     contacto_nombre: cliente?.contacto_nombre ?? '',
     vendedor_id: cliente?.vendedor_id ?? '',
     notas: cliente?.notas ?? '',
-    direccion: principal?.direccion_formateada ?? '',
-    codigo_postal: principal?.codigo_postal ?? '',
+    direccion: principal?.direccion_formateada ?? domicilioDelPadron,
+    codigo_postal: principal?.codigo_postal ?? cliente?.codigo_postal ?? '',
     lat: principal?.lat?.toString() ?? '',
     lng: principal?.lng?.toString() ?? '',
   })
@@ -311,6 +338,20 @@ function FormularioCliente({
 
   function actualizar(campo: keyof typeof form, valor: string) {
     setForm((f) => ({ ...f, [campo]: valor }))
+  }
+
+  /**
+   * Una coordenada tipeada acá, como número.
+   *
+   * Se acepta la coma: en Argentina el separador decimal es la coma y el
+   * teclado la ofrece primero, así que "-34,6037" es lo que sale naturalmente.
+   * Sin esto `Number()` daba `NaN`, el insert viajaba con la columna en null y
+   * lo que aparecía en pantalla era un error crudo de Postgres sobre una
+   * restricción `not null` — que no le dice a nadie que lo que pasó fue una
+   * coma.
+   */
+  function aCoordenada(texto: string): number {
+    return Number(texto.trim().replace(',', '.'))
   }
 
   async function guardar(e: React.FormEvent) {
@@ -323,9 +364,15 @@ function FormularioCliente({
     }
     // Sin coordenadas el cliente no se puede meter en un recorrido: la ruta se
     // calcula sobre lat/lng, no sobre texto.
-    if (form.direccion.trim() && (!form.lat.trim() || !form.lng.trim())) {
-      setError('Si cargás una dirección, poné también la latitud y la longitud.')
-      return
+    if (form.direccion.trim()) {
+      if (!form.lat.trim() || !form.lng.trim()) {
+        setError('Si cargás una dirección, poné también la latitud y la longitud.')
+        return
+      }
+      if (!Number.isFinite(aCoordenada(form.lat)) || !Number.isFinite(aCoordenada(form.lng))) {
+        setError('La latitud y la longitud tienen que ser números. Ej. -34,6037 y -58,3816.')
+        return
+      }
     }
 
     setGuardando(true)
@@ -357,8 +404,8 @@ function FormularioCliente({
           cliente_id: guardado.id,
           direccion_formateada: form.direccion.trim(),
           codigo_postal: form.codigo_postal.trim() || null,
-          lat: Number(form.lat),
-          lng: Number(form.lng),
+          lat: aCoordenada(form.lat),
+          lng: aCoordenada(form.lng),
           principal: true,
           etiqueta: 'Principal',
         }
@@ -473,11 +520,11 @@ function FormularioCliente({
           </div>
           <div className="campo">
             <label htmlFor="lat">Latitud</label>
-            <input id="lat" value={form.lat} onChange={(e) => actualizar('lat', e.target.value)} placeholder="-34.6037" />
+            <input id="lat" value={form.lat} onChange={(e) => actualizar('lat', e.target.value)} placeholder="-34,6037" />
           </div>
           <div className="campo">
             <label htmlFor="lng">Longitud</label>
-            <input id="lng" value={form.lng} onChange={(e) => actualizar('lng', e.target.value)} placeholder="-58.3816" />
+            <input id="lng" value={form.lng} onChange={(e) => actualizar('lng', e.target.value)} placeholder="-58,3816" />
           </div>
         </div>
 

@@ -1,4 +1,9 @@
-import { formatearDistancia, formatearDuracion, type ResumenJornada } from '@woodtools/compartido'
+import {
+  fechaLocalISO,
+  formatearDistancia,
+  formatearDuracion,
+  type ResumenJornada,
+} from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
@@ -6,7 +11,16 @@ import { supabase } from '../nucleo/supabase'
 
 /** Tablero del día: cómo viene la jornada y quién está usando la app. */
 export function PaginaTablero() {
-  const hoy = new Date().toISOString().slice(0, 10)
+  /**
+   * En el calendario de acá, no en UTC.
+   *
+   * `toISOString()` adelanta el día a partir de las 21:00 en Argentina, así que
+   * a esa hora el tablero pedía las jornadas de MAÑANA y mostraba "todavía no
+   * hay roles de visita para hoy" con la oficina llena de trabajo hecho. El
+   * celular arma la jornada con la fecha local, así que además los dos lados
+   * dejaban de hablar del mismo día.
+   */
+  const hoy = fechaLocalISO(new Date())
 
   const { data: jornadas } = useQuery({
     queryKey: ['jornadas-hoy', hoy],

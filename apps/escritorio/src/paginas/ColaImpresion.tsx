@@ -1,7 +1,11 @@
 import {
+  fechaLocalISO,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
+  rolImprimibleDesdeFilas,
   type OpcionesImpresion,
+  type ParadaCompleta,
+  type RolDeVisitaParaImprimir,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -46,7 +50,7 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
           // toca `perfiles` sólo por `pedida_por`, pero si mañana se agrega
           // otra columna que apunte ahí, pedir "perfiles" a secas rompería la
           // consulta entera y en silencio. Ya pasó con `dispositivos`.
-          'id, estado, con_rol_de_visita, motivo_fallo, creado_en, nota_id,' +
+          'id, estado, con_rol_de_visita, motivo_fallo, creado_en, nota_id, pedida_por,' +
             ' nota:notas_pedido(numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total),' +
             ' pedida:perfiles!ordenes_impresion_pedida_por_fkey(nombre_completo, codigo_vendedor)',
         )
@@ -88,10 +92,24 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
         { copia: 'duplicado', conLogo },
       ]
 
+      // La planilla del día, si el vendedor la pidió al encolar. Que no se
+      // pueda traer no frena la nota: se avisa después de imprimir.
+      let rolDeVisita: RolDeVisitaParaImprimir | null = null
+      let faltoRol = false
+      if (orden.con_rol_de_visita) {
+        try {
+          rolDeVisita = await rolDeVisitaDeLaOrden(orden)
+          faltoRol = rolDeVisita === null
+        } catch {
+          faltoRol = true
+        }
+      }
+
       // Sin `escalaDeLetra`: en la PC el navegador no le aplica al documento el
       // tamaño de letra del sistema, así que no hay nada que descontar.
       const html = generarDocumentoImpresion(
         copias.map((o) => ({ nota: imprimible, opciones: o })),
+        rolDeVisita ? { rolDeVisita } : undefined,
       )
 
       const salida = await window.woodtools.imprimirDocumento(html)
@@ -106,14 +124,20 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
       })
       if (falloResolver) throw falloResolver
 
-      return salida
+      return { ...salida, faltoRol }
     },
     onMutate: (orden) => setTrabajando(orden.id),
     onSettled: () => setTrabajando(null),
     onSuccess: (salida, orden) => {
+      // Que la planilla no haya salido se dice aparte: la nota sí salió, y
+      // callarlo dejaría a la oficina creyendo que mandó las dos cosas.
+      const sinRol = salida.faltoRol
+        ? ` El rol de visita no se pudo sumar: ese día ${orden.pedida?.nombre_completo ?? 'el vendedor'} no tenía recorrido cargado, o no pudimos traerlo.`
+        : ''
+
       setMensaje(
         salida.impreso
-          ? `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.`
+          ? `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.${sinRol}`
           : `No salió: ${salida.motivo ?? 'se canceló'}. La nota sigue pendiente y queda para reintentar.`,
       )
       void cliente.invalidateQueries()
@@ -213,6 +237,8 @@ interface OrdenFila {
   motivo_fallo: string | null
   creado_en: string
   nota_id: string
+  /** De quién es la jornada que hay que imprimir junto con la nota. */
+  pedida_por: string
   nota: {
     numero: number | null
     tipo_nota: string
@@ -222,6 +248,52 @@ interface OrdenFila {
     total: number | null
   } | null
   pedida: { nombre_completo: string; codigo_vendedor: string | null } | null
+}
+
+/**
+ * La planilla del día que acompaña a la nota.
+ *
+ * El vendedor tilda "SUMAR EL ROL DE VISITA DE HOY" antes de encolar, y hasta
+ * ahora esta pantalla mostraba la etiqueta "· con rol de visita" y después
+ * imprimía nada más que la nota: el tilde no llegaba al papel. Cuando imprime
+ * el celular sí se suma —lo hace `imprimirNotas`—, así que la planilla salía o
+ * no salía según quién hubiera apretado el botón.
+ *
+ * La jornada es la del DÍA EN QUE SE PIDIÓ, no la de hoy: si el pedido entró
+ * ayer a la tarde y en la oficina lo imprimen a la mañana siguiente, lo que
+ * corresponde es el recorrido que produjo esa nota.
+ *
+ * Devuelve null cuando no hay recorrido ese día. Que la planilla no salga no
+ * puede frenar la impresión de la nota: se avisa y el trabajo sigue.
+ */
+async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaImprimir | null> {
+  const fecha = fechaLocalISO(new Date(orden.creado_en))
+
+  const { data: jornada } = await supabase
+    .from('roles_visita')
+    .select('id, fecha, observaciones_jornada')
+    .eq('vendedor_id', orden.pedida_por)
+    .eq('fecha', fecha)
+    .maybeSingle<{ id: string; fecha: string; observaciones_jornada: string | null }>()
+  if (!jornada) return null
+
+  const { data: paradas } = await supabase
+    .from('paradas')
+    .select('*, cliente:clientes ( * ), direccion:direcciones ( * ), visita:visitas ( * )')
+    .eq('rol_visita_id', jornada.id)
+    .order('orden')
+  if (!paradas || paradas.length === 0) return null
+
+  // `visita` viene como arreglo por la relación uno-a-uno de PostgREST.
+  const completas = (paradas as Array<Record<string, unknown>>).map((p) => ({
+    ...p,
+    visita: Array.isArray(p.visita) ? (p.visita[0] ?? null) : p.visita,
+  })) as ParadaCompleta[]
+
+  return rolImprimibleDesdeFilas(jornada, completas, {
+    nombre: orden.pedida?.nombre_completo ?? '',
+    codigo: orden.pedida?.codigo_vendedor ?? null,
+  })
 }
 
 /** Una nota sin número todavía no la numeró Administración: se la nombra por el cliente. */

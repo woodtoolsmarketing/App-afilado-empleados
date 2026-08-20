@@ -81,7 +81,12 @@ Deno.serve(async (req) => {
     const dominio = String(cuerpo.dominio ?? 'woodtools.com.ar').trim()
     const email = (String(cuerpo.email ?? '').trim() || `${usuario}@${dominio}`).toLowerCase()
 
-    const rol = ['vendedor', 'supervisor', 'admin'].includes(cuerpo.rol) ? cuerpo.rol : 'vendedor'
+    // `administracion` estaba afuera de esta lista mientras el panel lo iba a
+    // ofrecer: el alta terminaba creando un vendedor, sin error y sin aviso.
+    // Los cuatro son los de `RolUsuario` en el paquete compartido.
+    const rol = ['vendedor', 'supervisor', 'administracion', 'admin'].includes(cuerpo.rol)
+      ? cuerpo.rol
+      : 'vendedor'
     const codigo = String(cuerpo.codigo_vendedor ?? '').trim() || null
     const zonas: string[] = Array.isArray(cuerpo.zonas)
       ? cuerpo.zonas.map((z: unknown) => String(z).trim()).filter(Boolean)

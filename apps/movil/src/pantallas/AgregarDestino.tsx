@@ -174,10 +174,19 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     }
   }, [consulta])
 
+  /**
+   * Sobre el estado anterior, no sobre la copia del render.
+   *
+   * Mismo criterio que en GENERAR NUEVO CLIENTE: entre que se toca una
+   * sugerencia y que Google contesta pasan segundos, y con `{ ...form }` la
+   * respuesta se arma con el formulario de antes de tocarla.
+   */
   function actualizar(cambios: Partial<FormularioDestinoExistente>) {
-    const nuevo = { ...form, ...cambios }
-    setForm(nuevo)
-    if (intentado) setErrores(validarDestinoExistente(nuevo).errores)
+    setForm((previo) => {
+      const nuevo = { ...previo, ...cambios }
+      if (intentado) setErrores(validarDestinoExistente(nuevo).errores)
+      return nuevo
+    })
   }
 
   /** Al tipear en cualquiera de los dos campos se invalida la selección previa. */
@@ -673,10 +682,22 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
     }
   }, [texto, elegida])
 
+  /**
+   * Sobre el estado anterior, no sobre la copia del render.
+   *
+   * Es el mismo error que ya se corrigió en GENERAR NUEVO CLIENTE, y acá pega
+   * en el mismo momento: entre que el vendedor toca una sugerencia de
+   * dirección y que Google contesta pasan segundos, y en esos segundos sigue
+   * tipeando el teléfono, el contacto y la prioridad. Con `{ ...form }` la
+   * respuesta se armaba con el formulario de ANTES de tocar la sugerencia, así
+   * que todo lo escrito en el medio se borraba solo.
+   */
   function actualizar(cambios: Partial<FormularioDestinoNuevo>) {
-    const nuevo = { ...form, ...cambios }
-    setForm(nuevo)
-    if (intentado) setErrores(validarDestinoNuevo(nuevo).errores)
+    setForm((previo) => {
+      const nuevo = { ...previo, ...cambios }
+      if (intentado) setErrores(validarDestinoNuevo(nuevo).errores)
+      return nuevo
+    })
   }
 
   async function elegirSugerencia(s: SugerenciaDireccion) {
