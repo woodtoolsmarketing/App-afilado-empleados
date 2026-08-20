@@ -49,6 +49,22 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
   /** Lo que se está haciendo mientras tanto: buscar la impresora tarda. */
   const [avance, setAvance] = useState<string | null>(null)
 
+  /** El vendedor confirmó que el papel salió: recién ahí se sellan las notas. */
+  const confirmar = useMutation({
+    mutationFn: () => marcarImpresas(notaIds),
+    onSuccess: async () => {
+      await cliente.invalidateQueries()
+      Alert.alert('Listo', 'Las notas quedaron como impresas.', [
+        { text: 'Listo', onPress: () => navigation.goBack() },
+      ])
+    },
+    onError: (e: Error) =>
+      Alert.alert(
+        'No pudimos marcarlas',
+        `${e.message}\n\nEl papel salió igual. Siguen figurando como pendientes: volvé a imprimirlas cuando tengas señal, o avisá a la oficina.`,
+      ),
+  })
+
   // Los genéricos van explícitos porque `onError` vuelve a llamar a
   // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
   // referencia a sí mismo mientras lo está construyendo.
@@ -77,11 +93,31 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
     onSuccess: async (r, opciones) => {
       setAvance(null)
       await cliente.invalidateQueries()
-      Alert.alert(
-        opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora',
-        [r.mensaje, r.advertencia].filter(Boolean).join('\n\n'),
-        [{ text: 'Listo', onPress: () => navigation.goBack() }],
-      )
+      const texto = [r.mensaje, r.advertencia].filter(Boolean).join('\n\n')
+
+      /**
+       * Por el diálogo del sistema hay que PREGUNTAR.
+       *
+       * Es el mismo caso que en NOTAS PENDIENTES: Android cierra el diálogo
+       * apenas se abre, así que no sabemos si salió el papel o si el vendedor
+       * canceló. Marcarlas igual las dejaba impresas y sin poder corregir con
+       * la hoja sin salir.
+       */
+      if (!opciones.comoPdf && r.via === 'sistema') {
+        Alert.alert(
+          '¿Salió el papel?',
+          `${texto}\n\nAndroid no nos avisa si se imprimió o si cancelaste, así que hace falta que lo digas vos.`,
+          [
+            { text: 'No salió', style: 'cancel', onPress: () => navigation.goBack() },
+            { text: 'Sí, salió', onPress: () => confirmar.mutate() },
+          ],
+        )
+        return
+      }
+
+      Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto, [
+        { text: 'Listo', onPress: () => navigation.goBack() },
+      ])
     },
     /**
      * El error se muestra acá y se puede reintentar sin salir de la pantalla.

@@ -57,17 +57,46 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
     })
   }
 
+  /**
+   * El vendedor confirmó que el papel salió: recién ahí se sellan las notas.
+   *
+   * Va aparte de la impresión porque puede fallar sola —se imprimió bien y la
+   * red se cayó al marcarlas— y ahí lo que corresponde es decirlo y dejarlas
+   * pendientes, no dar por perdida la impresión.
+   */
+  const confirmar = useMutation({
+    mutationFn: (ids: string[]) => marcarImpresas(ids),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      Alert.alert('Listo', 'Las notas quedaron como impresas.')
+    },
+    onError: (e: Error) =>
+      Alert.alert(
+        'No pudimos marcarlas',
+        `${e.message}\n\nEl papel salió igual. Siguen figurando como pendientes: volvé a imprimirlas cuando tengas señal, o avisá a la oficina.`,
+      ),
+  })
+
   // Los genéricos van explícitos porque `onError` vuelve a llamar a
   // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
   // referencia a sí mismo mientras lo está construyendo.
   const imprimir = useMutation<
-    ResultadoImpresion,
+    ResultadoImpresion & { ids: string[] },
     Error,
     { comoPdf: boolean; conDialogo?: boolean }
   >({
     mutationFn: async (opciones: { comoPdf: boolean; conDialogo?: boolean }) => {
+      /**
+       * Los ids se congelan ACÁ, antes de imprimir.
+       *
+       * Entre que se manda el trabajo y que el vendedor contesta si salió el
+       * papel pasa un rato, y en el medio puede haber tocado la lista. La
+       * confirmación tiene que sellar lo que se imprimió, no lo que quedó
+       * seleccionado después.
+       */
+      const ids = objetivo.map((n) => n.id)
       const resultado = await imprimirNotas({
-        notaIds: objetivo.map((n) => n.id),
+        notaIds: ids,
         incluirRolDeVisita: conRolDeVisita,
         comoPdf: opciones.comoPdf,
         usarDialogoDelSistema: opciones.conDialogo,
@@ -75,18 +104,39 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       // Idem: sin confirmación de la impresora, las notas siguen pendientes.
       // Marcarlas igual las sacaba de esta lista para siempre aunque el
       // vendedor hubiera cancelado el diálogo de Android.
-      if (resultado.confirmado) await marcarImpresas(objetivo.map((n) => n.id))
-      return resultado
+      if (resultado.confirmado) await marcarImpresas(ids)
+      return { ...resultado, ids }
     },
     onSuccess: (r, opciones) => {
       void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
       const base = opciones.comoPdf ? 'Podés compartirlo o guardarlo.' : r.mensaje
-      Alert.alert(
-        opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora',
-        // Que el rol no saliera no invalida la impresión: se cuenta abajo, sin
-        // convertirlo en un error.
-        r.advertencia ? `${base}\n\n${r.advertencia}` : base,
-      )
+      // Que el rol no saliera no invalida la impresión: se cuenta abajo, sin
+      // convertirlo en un error.
+      const texto = r.advertencia ? `${base}\n\n${r.advertencia}` : base
+
+      /**
+       * Por el diálogo del sistema hay que PREGUNTAR.
+       *
+       * Android lo cierra apenas se abre, así que la app no se entera de si
+       * salió el papel o si el vendedor canceló. Darlo por impreso saca las
+       * notas de esta lista para siempre —y sin poder corregirlas— con la hoja
+       * sin salir; darlo por no impreso deja pendientes notas que el cliente ya
+       * tiene en la mano. Lo sabe una sola persona, y está parada frente a la
+       * impresora.
+       */
+      if (!opciones.comoPdf && r.via === 'sistema') {
+        Alert.alert(
+          '¿Salió el papel?',
+          `${texto}\n\nAndroid no nos avisa si se imprimió o si cancelaste, así que hace falta que lo digas vos.`,
+          [
+            { text: 'No salió', style: 'cancel' },
+            { text: 'Sí, salió', onPress: () => confirmar.mutate(r.ids) },
+          ],
+        )
+        return
+      }
+
+      Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto)
     },
     // Es la pantalla del "llego a la oficina e imprimo todo lo del día": el
     // reintento tiene que estar a un toque, sin volver a armar la selección.

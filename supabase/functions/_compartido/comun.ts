@@ -53,7 +53,12 @@ export const URL_SUPABASE = Deno.env.get('SUPABASE_URL')!
 
 export interface Llamador {
   id: string
-  rol: 'vendedor' | 'supervisor' | 'admin'
+  /**
+   * Los cuatro roles que existen, los mismos de `RolUsuario` en el paquete
+   * compartido. `administracion` faltaba: el valor sale de la base y podía
+   * llegar igual, así que el tipo decía una cosa y la fila decía otra.
+   */
+  rol: 'vendedor' | 'supervisor' | 'administracion' | 'admin'
   estado: string
   token: string
 }
