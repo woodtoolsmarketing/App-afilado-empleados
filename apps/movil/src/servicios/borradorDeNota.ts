@@ -1,5 +1,6 @@
 import type {
   CondicionVenta,
+  SituacionIva,
   FormularioItemNota,
   FormularioNotaEncabezado,
   TipoNotaPedido,
@@ -65,6 +66,8 @@ export interface BorradorDeNota {
   tipoNota: TipoNotaPedido | null
   condicionVenta: CondicionVenta | null
   condicionDetalle: string
+  /** Frente a quién se emite la factura. Null en presupuesto. */
+  situacionIva: SituacionIva | null
   /** ISO, o null si todavía no se eligió. */
   fechaEntrega: string | null
   items: FormularioItemNota[]

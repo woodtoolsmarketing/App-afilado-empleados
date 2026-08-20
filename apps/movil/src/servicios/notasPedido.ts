@@ -7,7 +7,10 @@ import {
   aplicarSinCargo,
   ENCABEZADO_VACIO,
   esObservacionDelSistema,
+  esReparacionParcial,
+  esReparacionTotal,
   FAMILIA_CATALOGO,
+  gradoReparacion,
   ITEM_VACIO,
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
@@ -16,6 +19,7 @@ import {
   totalDelRenglon,
   ZONAS,
   type CondicionVenta,
+  type SituacionIva,
   type CuchillaMaterial,
   type CuchillaTipo,
   type CuchillaTrabajo,
@@ -436,6 +440,40 @@ export async function resolverCodigoDeItem(
 
   // En las mechas la medida es el diámetro; en el resto, un ancho.
   const dimension = item.herramienta === 'mecha' ? 'diametro' : 'ancho_corte'
+
+  /**
+   * Con dientes rotos el renglón deja de buscar un afilado.
+   *
+   * La pieza ya no se afila: se repara. Cuál de las dos reparaciones lo decide
+   * "¿DESEA REPARAR LOS DIENTES?" — sólo los rotos es PARCIAL, la herramienta
+   * entera es TOTAL— y son códigos distintos con precios distintos.
+   *
+   * La base clasifica a los dos como `reparacion` porque todos empiezan con
+   * "REP", así que separarlos hay que hacerlo por la descripción.
+   */
+  const grado = gradoReparacion(item)
+  if (grado && servicio === item.servicio) {
+    const candidatos = await buscarCodigoComputo({
+      herramienta: item.herramienta,
+      medida,
+      dimension,
+      servicio: 'reparacion',
+    })
+    const delGrado = candidatos.filter((c) =>
+      grado === 'total' ? esReparacionTotal(c.descripcion) : esReparacionParcial(c.descripcion),
+    )
+    /**
+     * Si el catálogo no separa parcial de total para esta familia, se ofrece la
+     * reparación que sí tenga.
+     *
+     * Medido: el corte parcial/total sólo existe en sierras (6001-6003 contra
+     * 6106-6108). Una fresa con dientes rotos tiene "REP. DTE. FRESA RECTA" y
+     * nada más, y devolver una lista vacía dejaría el renglón sin código y sin
+     * precio, que es peor que ofrecer el único que hay.
+     */
+    return delGrado.length > 0 ? delGrado : candidatos
+  }
+
   return buscarCodigoComputo({
     herramienta: item.herramienta,
     medida,
@@ -466,6 +504,11 @@ export interface DatosNuevaNota {
   condicionVenta: CondicionVenta
   /** Los días del cheque, o el texto de "Otro". Vacío en el resto. */
   condicionVentaDetalle?: string
+  /**
+   * Frente a quién se emite la factura. Null en los presupuestos: no
+   * discriminan IVA.
+   */
+  situacionIva: SituacionIva | null
 }
 
 export interface NotaCreada {
@@ -552,6 +595,14 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         promocion_detalle: i.promocion_detalle,
         afilado_reparacion: i.afilado_reparacion,
         origen_fresa: i.origen_fresa,
+        // En qué máquina trabaja la pieza. Va guardado porque la descripción
+        // general se rearma al corregir la nota, y sin esto la línea perdería
+        // el "para escuadradora" en cada corrección.
+        maquina: i.maquina,
+        // De qué servicio venía antes de que los dientes rotos lo pasaran a
+        // rectificado: sin esto, al reabrir la nota destildar "dientes rotos"
+        // no sabría a qué servicio volver.
+        servicio_antes_de_rotos: i.servicio_antes_de_rotos,
         // Los dientes rotos y su reparación. La impresión los necesita para
         // separar la línea de afilado de la de reparación.
         dientes_rotos_cantidad: i.dientes_rotos ? aNumero(i.dientes_rotos_cantidad) || null : null,
@@ -662,6 +713,8 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       total: g.total || null,
       observaciones,
       condicion_venta: datos.condicionVenta,
+      // Sólo la factura discrimina IVA: un presupuesto no lo declara.
+      situacion_iva: datos.tipoNota === 'factura' ? datos.situacionIva : null,
       // La base sólo acepta detalle en las dos que lo piden.
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
@@ -752,6 +805,7 @@ export interface BorradorNota {
   fechaEntrega: string | null
   condicionVenta: CondicionVenta | null
   condicionDetalle: string
+  situacionIva: SituacionIva | null
   /** Sólo las del vendedor: las que escribe el servidor van aparte. */
   observaciones: string[]
   /** Las del servidor ("Va con nota de pedido…"), para devolverlas al guardar. */
@@ -815,6 +869,9 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
      */
     precio: comoTexto(fila.precio_unitario),
     origen_fresa: (detalle.origen_fresa as OrigenFresa | null) ?? null,
+    maquina: comoCadena(detalle.maquina),
+    servicio_antes_de_rotos:
+      (detalle.servicio_antes_de_rotos as TipoServicio | null) ?? null,
     moneda: fila.moneda === 'USD' ? 'USD' : 'ARS',
 
     cantidad: esVenta ? '' : comoCadena(fila.cantidad),
@@ -917,6 +974,7 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
     fechaEntrega: nota.fecha_entrega ?? null,
     condicionVenta: (nota.condicion_venta as CondicionVenta | null) ?? null,
     condicionDetalle: comoCadena(nota.condicion_venta_detalle),
+    situacionIva: (nota.situacion_iva as SituacionIva | null) ?? null,
     observaciones: todas.filter((o) => !esObservacionDelSistema(o)),
     observacionesDelSistema: todas.filter(esObservacionDelSistema),
     items,
@@ -985,6 +1043,7 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
         : null,
+      situacion_iva: datos.tipoNota === 'factura' ? datos.situacionIva : null,
     },
     p_items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
   })

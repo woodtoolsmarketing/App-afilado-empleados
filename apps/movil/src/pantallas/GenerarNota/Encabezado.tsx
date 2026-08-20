@@ -181,6 +181,9 @@ export function PasoCliente({
   useEffect(() => {
     if (!ubicacionInicial || !ubicacionClave.replace(/\|/g, '')) return
     asignarZona(ubicacionInicial)
+    // Del cliente recién creado la provincia viene de Google: es la que decide
+    // si un "exento" paga IVA o no.
+    if (ubicacionInicial.provincia) alCambiar({ cliente_provincia: ubicacionInicial.provincia })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ubicacionClave])
 
@@ -198,11 +201,23 @@ export function PasoCliente({
    * Si la zona la cubre más de un vendedor, la base devuelve null y el campo
    * queda vacío a propósito. Es el mismo criterio que el de la zona: preguntar
    * sale más barato que facturar con el número de otro.
+   *
+   * Se pone SOLO UNA VEZ. `form.vendedor_numero` tiene que estar en las
+   * dependencias —el número de la zona llega después, y sin eso el efecto no
+   * vuelve a correr— pero eso hacía que vaciar el campo lo repusiera al
+   * instante: el vendedor borraba el 7 para escribir el número de otro y le
+   * volvía el 7 antes de llegar a tipear, justo debajo de una ayuda que dice
+   * "cambialo si la nota es de otro". Ahora lo que se pone solo se pone una
+   * vez, y lo que el vendedor deja —aunque sea vacío— queda.
    */
+  const numeroYaPuesto = useRef(false)
+
   useEffect(() => {
+    if (numeroYaPuesto.current) return
     if (form.vendedor_numero.trim()) return
 
     if (codigoVendedorUsuario?.trim()) {
+      numeroYaPuesto.current = true
       setOrigenVendedor('usuario')
       alCambiar({ vendedor_numero: codigoVendedorUsuario.trim() })
       return
@@ -214,6 +229,7 @@ export function PasoCliente({
     vendedorDeZona(form.zona)
       .then((codigo) => {
         if (!vigente || !codigo) return
+        numeroYaPuesto.current = true
         setOrigenVendedor('zona')
         alCambiar({ vendedor_numero: codigo })
       })
@@ -247,6 +263,9 @@ export function PasoCliente({
       cliente_nombre: c.razon_social,
       cliente_cuit: c.cuit ?? '',
       cliente_provisorio: c.provisorio,
+      // La provincia no se imprime: la necesita el IVA, porque "exento" sólo
+      // vale en Tierra del Fuego.
+      cliente_provincia: c.provincia ?? '',
       // Sólo se completa si el vendedor todavía no escribió nada: lo suyo manda.
       datos_cliente: form.datos_cliente.trim() ? form.datos_cliente : datos,
       cliente_nuevo: false,

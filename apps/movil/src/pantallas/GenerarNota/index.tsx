@@ -18,6 +18,11 @@ import {
   formatearFechaCorta,
   formatearMoneda,
   fechaLocalISO,
+  ivaDeLaNota,
+  situacionIvaEfectiva,
+  ALICUOTA_IVA,
+  ETIQUETA_SITUACION_IVA,
+  type SituacionIva,
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
@@ -132,6 +137,13 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)
   const [condicionDetalle, setCondicionDetalle] = useState('')
   /**
+   * Frente a quién se emite la factura.
+   *
+   * Sólo se pregunta en FACTURA: un presupuesto no discrimina IVA. De la
+   * respuesta depende el total que se cobra, así que no se supone ninguna.
+   */
+  const [situacionIva, setSituacionIva] = useState<SituacionIva | null>(null)
+  /**
    * Lo que este cliente usa siempre, para dejarlo preseleccionado.
    *
    * Se guarda aparte de los valores elegidos porque la pantalla tiene que poder
@@ -190,6 +202,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       tipoNota,
       condicionVenta,
       condicionDetalle,
+      situacionIva,
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       items,
       observaciones,
@@ -245,6 +258,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               setTipoNota(b.tipoNota)
               setCondicionVenta(b.condicionVenta)
               setCondicionDetalle(b.condicionDetalle)
+              setSituacionIva(b.situacionIva ?? null)
               setFechaEntrega(b.fechaEntrega ? new Date(b.fechaEntrega) : null)
               setItems(b.items.length > 0 ? b.items : [ITEM_VACIO])
               setObservaciones(b.observaciones.length > 0 ? b.observaciones : [''])
@@ -286,6 +300,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setTipoNota(borrador.tipoNota)
     setCondicionVenta(borrador.condicionVenta)
     setCondicionDetalle(borrador.condicionDetalle)
+    setSituacionIva(borrador.situacionIva)
     // La fecha viene como `2026-08-20`; con `new Date` de un ISO corto se lee
     // en UTC y en Argentina eso la corre un día para atrás.
     if (borrador.fechaEntrega) {
@@ -548,6 +563,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
+      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
       partes: partes ?? PARTES_DEL_PASO[paso],
     })
@@ -803,6 +819,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
+      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
       partes: PARTES_DEL_PASO[paso],
     })
@@ -846,6 +863,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       observaciones: observacionesCargadas,
       condicionVenta: condicionVenta!,
       condicionVentaDetalle: condicionDetalle,
+      // La que se guarda es la que se aplicó, no la que se eligió: un exento
+      // fuera de Tierra del Fuego se facturó como consumidor final.
+      situacionIva: situacionIvaEfectiva(situacionIva, encabezado.cliente_provincia),
     }
   }
 
@@ -1002,6 +1022,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
+      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
     })
 
@@ -1033,6 +1054,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   const tipoCambio = cambioEnUso
   const totalNota = totalDeRenglones(items, tipoCambio)
+  /**
+   * El total que se cobra, según la situación de IVA.
+   *
+   * En presupuesto no se aplica nada: `null` deja el neto tal cual. Lo que se
+   * guarda en la nota sigue siendo el NETO —el IVA se deriva de la situación—
+   * así que este número es para mostrar y para imprimir, no para persistir.
+   */
+  const ivaNota = ivaDeLaNota(
+    totalNota,
+    tipoNota === 'factura' ? situacionIva : null,
+    encabezado.cliente_provincia,
+  )
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
   const grupos = agruparParaNotas(items, tipoCambio)
@@ -1594,12 +1627,57 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               </View>
 
               {totalNota > 0 ? (
-                <Aviso
-                  tono="exito"
-                  titulo={items.length > 1 ? `Total de la nota · ${items.length} renglones` : 'Total del renglón'}
-                >
-                  {formatearPesos(totalNota)}
-                </Aviso>
+                <>
+                  <Aviso
+                    tono="exito"
+                    titulo={items.length > 1 ? `Total de la nota · ${items.length} renglones` : 'Total del renglón'}
+                  >
+                    {/* El "+ IVA" del responsable inscripto va pegado al número
+                        y no en una línea aparte: es parte de cuánto se cobra, y
+                        leerlo suelto invita a leer el total como final. */}
+                    {ivaNota.masIva
+                      ? `${formatearPesos(ivaNota.total)}  + IVA`
+                      : formatearPesos(ivaNota.total)}
+                    {ivaNota.iva > 0
+                      ? `\n\nIncluye ${formatearPesos(ivaNota.iva)} de IVA (${Math.round(ALICUOTA_IVA * 100)} %).`
+                      : ''}
+                  </Aviso>
+
+                  {/* Sólo en factura: un presupuesto no discrimina IVA. */}
+                  {tipoNota === 'factura' ? (
+                    <Desplegable<SituacionIva>
+                      etiqueta="SITUACIÓN DE IVA DEL CLIENTE"
+                      obligatorio
+                      marcador="Preguntale al cliente"
+                      valor={situacionIva}
+                      items={(
+                        ['consumidor_final', 'exento', 'responsable_inscripto'] as SituacionIva[]
+                      ).map((s) => ({
+                        valor: s,
+                        etiqueta: ETIQUETA_SITUACION_IVA[s].toUpperCase(),
+                        descripcion:
+                          s === 'consumidor_final'
+                            ? 'El IVA va sumado adentro del total'
+                            : s === 'exento'
+                              ? 'Sin IVA, sólo si está en Tierra del Fuego'
+                              : 'El total va sin IVA y la nota lo aclara',
+                      }))}
+                      alCambiar={setSituacionIva}
+                      error={errores.situacion_iva}
+                    />
+                  ) : null}
+
+                  {/* Un exento fuera de Tierra del Fuego paga IVA igual: la
+                      exención es del territorio, no del cliente. Si no se
+                      dijera, el vendedor vería un total que no entiende. */}
+                  {ivaNota.exentoFueraDeZona ? (
+                    <Aviso tono="atencion" titulo="Exento, pero fuera de Tierra del Fuego">
+                      {encabezado.cliente_provincia
+                        ? `El domicilio del cliente figura en ${encabezado.cliente_provincia}, así que se factura con IVA igual que a un consumidor final.`
+                        : 'El cliente no tiene provincia cargada en su domicilio, así que se factura con IVA. Si está en Tierra del Fuego, cargale la dirección desde el panel.'}
+                    </Aviso>
+                  ) : null}
+                </>
               ) : null}
 
               {intentado && Object.keys(errores).length > 0 ? (

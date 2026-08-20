@@ -21,13 +21,16 @@
 import { formatearMoneda, type Moneda } from './catalogo'
 import { LOGO_WOODTOOLS } from './logo'
 import {
+  ALICUOTA_IVA,
   consolidarLineasDeComputo,
   describirCondicionVenta,
+  ivaDeLaNota,
   lineasDeComputo,
   MAXIMO_RENGLONES,
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   type DatosComputo,
+  type SituacionIva,
 } from './notas-pedido'
 import {
   ESTILOS_ROL_DE_VISITA,
@@ -98,6 +101,13 @@ export interface NotaParaImprimir {
   tecnicos: RenglonTecnico[]
   comerciales: RenglonComercial[]
 
+  /**
+   * Cómo se factura el IVA. Null en presupuesto y en las notas viejas.
+   *
+   * El total impreso ya lo lleva sumado cuando corresponde; esto es para poder
+   * decirlo, que es lo que hace que el número se entienda.
+   */
+  situacion_iva: SituacionIva | null
   /**
    * Los totales ya escritos, uno por moneda: `$ 65.696,40 · U$S 120,00`.
    *
@@ -514,10 +524,31 @@ export function generarHtmlNotaPedido(
    * dejar un recuadro vacío; el alto que libera se lo reparten las filas de las
    * tablas, que es donde en fábrica escriben a mano.
    */
+  /**
+   * Qué dice el total sobre el IVA.
+   *
+   * El responsable inscripto recibe el neto y el comprobante tiene que
+   * aclararlo, o el número se lee como final. Al consumidor final el IVA ya le
+   * va sumado adentro, y decir cuánto es lo que permite controlarlo. El exento
+   * —que a esta altura sólo puede ser uno de Tierra del Fuego, porque el resto
+   * se guarda como consumidor final— no lleva nada.
+   */
+  const leyendaIva =
+    nota.situacion_iva === 'responsable_inscripto'
+      ? ' + IVA'
+      : ''
+  const aclaracionIva =
+    nota.situacion_iva === 'consumidor_final'
+      ? `<span class="iva">IVA ${Math.round(ALICUOTA_IVA * 100)} % incluido</span>`
+      : nota.situacion_iva === 'exento'
+        ? '<span class="iva">Exento de IVA</span>'
+        : ''
+
   const totalVisible = !esDuplicado && !!nota.totales
   const resumen = totalVisible
     ? `<div class="resumen">
-    <span>TOTAL: <strong>${escapar(nota.totales)}</strong></span>
+    ${aclaracionIva}
+    <span>TOTAL: <strong>${escapar(nota.totales)}${leyendaIva}</strong></span>
   </div>`
     : ''
 
@@ -772,6 +803,9 @@ html {
   font-size: 9pt;
 }
 .resumen strong { font-size: 10pt; }
+/* La aclaración del IVA va a la izquierda del total, más chica: explica el
+   número sin competir con él. */
+.resumen .iva { font-size: 8pt; align-self: center; }
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -902,7 +936,25 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         ? [i.codigo_herramienta]
         : [],
     dientesRotos: i.dientes_rotos ? Number(i.detalle?.dientes_rotos_cantidad) || 0 : 0,
-    repararDientes: i.detalle?.reparar_dientes === true,
+    /**
+     * El criterio viejo se respeta en las notas viejas.
+     *
+     * Hasta este cambio, una herramienta con dientes rotos se cobraba como un
+     * afilado MÁS una línea aparte de reparación, con su propio código
+     * guardado en `detalle.codigo_reparacion`. Ahora el renglón entero es la
+     * reparación y esa línea no existe.
+     *
+     * Ese código guardado es lo que distingue una nota de antes de una de
+     * ahora, y las de antes se siguen imprimiendo como se crearon: recalcular
+     * un comprobante ya entregado con un criterio nuevo le cambiaría el total.
+     */
+    gradoReparacion:
+      i.detalle?.codigo_reparacion || !i.dientes_rotos
+        ? null
+        : i.detalle?.reparar_dientes === true
+          ? 'total'
+          : 'parcial',
+    repararDientes: !!i.detalle?.codigo_reparacion && i.detalle?.reparar_dientes === true,
     codigoReparacion: d(i, 'codigo_reparacion'),
     precioReparacionPorDiente: Number(i.detalle?.precio_reparacion_unitario) || 0,
     // En venta el unitario ya está guardado, así que no hay total directo que
@@ -936,6 +988,22 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
   for (const l of lineas) {
     porMoneda.set(l.moneda, (porMoneda.get(l.moneda) ?? 0) + l.total)
   }
+
+  /**
+   * El IVA se suma sobre los PESOS.
+   *
+   * El afilado se cobra siempre en pesos y la venta puede ir en dólares, con el
+   * tipo de cambio impreso al lado para convertir. Sumarle el IVA a la columna
+   * en dólares daría un número que no es ni el de lista ni el que se cobra.
+   *
+   * Al responsable inscripto no se le suma nada: recibe el neto y el
+   * comprobante lo aclara con un "+ IVA".
+   */
+  const situacionIva = (nota.situacion_iva as SituacionIva | null) ?? null
+  const enPesos = porMoneda.get('ARS')
+  if (enPesos !== undefined && situacionIva !== null) {
+    porMoneda.set('ARS', ivaDeLaNota(enPesos, situacionIva, null).total)
+  }
   const totales = Array.from(porMoneda.entries())
     .filter(([, valor]) => valor > 0)
     // Los pesos primero: es la moneda en la que se cobra.
@@ -945,6 +1013,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
 
   return {
     totales,
+    situacion_iva: (nota.situacion_iva as SituacionIva | null) ?? null,
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],

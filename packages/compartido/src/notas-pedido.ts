@@ -287,6 +287,52 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
   ],
 }
 
+/**
+ * En qué máquina trabaja la herramienta.
+ *
+ * La lista sale de la que usa la página pública para clasificar el catálogo
+ * (`ruta-productos/JS/filtros.js`), abierta en máquinas sueltas: allá una regla
+ * devuelve "Tupí, machimbradora o moldurera" porque describe a qué sirve un
+ * artículo, y acá hay que elegir UNA, que es la que el cliente tiene en el
+ * taller.
+ */
+export const MAQUINAS: string[] = [
+  'Escuadradora',
+  'Mesa de banco',
+  'Seccionadora',
+  'Tupí',
+  'Machimbradora',
+  'Moldurera',
+  'Cepilladora',
+  'Centro de perforado',
+  'Agujereadora múltiple',
+  'Barreno',
+  'Pantógrafo o CNC',
+  'Ingletadora',
+  'Máquina de mano',
+  'Trituradora',
+  'Máquina múltiple',
+]
+
+/**
+ * La máquina que se propone según la herramienta.
+ *
+ * Es el mismo criterio que el `switch (categoria)` con el que cierra
+ * `maquinaDeProducto` en la página: cuando no se sabe el modelo exacto, la
+ * familia de la herramienta ya dice cuál es la máquina habitual. El vendedor la
+ * puede cambiar; la sierra sin fin no propone ninguna porque va en su propia
+ * máquina y no hay nada que adivinar.
+ */
+export const MAQUINA_SUGERIDA: Record<Herramienta, string> = {
+  sierra: 'Escuadradora',
+  fresa: 'Tupí',
+  cabezal: 'Machimbradora',
+  incisor: 'Escuadradora',
+  mecha: 'Centro de perforado',
+  cuchilla: 'Cepilladora',
+  sierra_sin_fin: '',
+}
+
 /** Contra qué medida se busca el código de cómputo en cada herramienta. */
 export const MEDIDA_PARA_CODIGO: Record<Herramienta, CampoItem | null> = {
   sierra: 'ancho_corte',
@@ -353,6 +399,98 @@ export function describirCondicionVenta(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Encabezado de la nota: los datos del cliente. */
+/**
+ * Frente a quién se emite la factura, que es lo que decide el IVA.
+ *
+ *  · **consumidor_final**       — el IVA va sumado adentro del total.
+ *  · **exento**                 — sólo si el cliente está en Tierra del Fuego,
+ *    que no tiene IVA. Fuera de la provincia un "exento" se factura igual que
+ *    un consumidor final: la exención es del territorio, no del cliente.
+ *  · **responsable_inscripto**  — el total va sin IVA y el comprobante lo
+ *    aclara con un "+ IVA" al lado.
+ */
+export type SituacionIva = 'consumidor_final' | 'exento' | 'responsable_inscripto'
+
+export const ETIQUETA_SITUACION_IVA: Record<SituacionIva, string> = {
+  consumidor_final: 'Consumidor final',
+  exento: 'Exento',
+  responsable_inscripto: 'Responsable inscripto',
+}
+
+/** La alícuota general. Un solo número: no hay artículos con alícuota reducida. */
+export const ALICUOTA_IVA = 0.21
+
+/** La única provincia sin IVA. Se compara sin acentos ni mayúsculas. */
+const PROVINCIA_SIN_IVA = 'tierra del fuego'
+
+function esTierraDelFuego(provincia: string | null | undefined): boolean {
+  if (!provincia) return false
+  const limpia = provincia
+    .normalize('NFD')
+    .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+    .toLowerCase()
+    .trim()
+  return limpia.includes(PROVINCIA_SIN_IVA)
+}
+
+/**
+ * La situación que REALMENTE se aplica, que es la que se guarda.
+ *
+ * Un "exento" fuera de Tierra del Fuego se factura igual que un consumidor
+ * final, y eso es lo que hay que dejar anotado: es lo que se cobró. Guardar la
+ * declarada obligaría a guardar además la provincia para poder reconstruir la
+ * cuenta, y a que el papel dijera "exento" arriba de un total con IVA adentro.
+ */
+export function situacionIvaEfectiva(
+  situacion: SituacionIva | null,
+  provinciaDelCliente: string | null | undefined,
+): SituacionIva | null {
+  if (situacion !== 'exento') return situacion
+  return esTierraDelFuego(provinciaDelCliente) ? 'exento' : 'consumidor_final'
+}
+
+export interface IvaDeLaNota {
+  /** Lo que se cobra, con IVA adentro cuando corresponde. */
+  total: number
+  /** Cuánto de ese total es IVA. Cero cuando no lleva. */
+  iva: number
+  /** El comprobante tiene que decir "+ IVA" al lado del total. */
+  masIva: boolean
+  /** Por qué un exento terminó pagando IVA: para poder decirlo en pantalla. */
+  exentoFueraDeZona: boolean
+}
+
+/**
+ * El total de la nota según la situación de IVA del cliente.
+ *
+ * Sólo se aplica en FACTURA: un presupuesto no discrimina IVA.
+ */
+export function ivaDeLaNota(
+  neto: number,
+  situacion: SituacionIva | null,
+  provinciaDelCliente: string | null | undefined,
+): IvaDeLaNota {
+  if (!situacion) return { total: neto, iva: 0, masIva: false, exentoFueraDeZona: false }
+
+  if (situacion === 'responsable_inscripto') {
+    return { total: neto, iva: 0, masIva: true, exentoFueraDeZona: false }
+  }
+
+  // Un exento fuera de Tierra del Fuego se factura como consumidor final.
+  const exentoDeVerdad = situacion === 'exento' && esTierraDelFuego(provinciaDelCliente)
+  if (exentoDeVerdad) {
+    return { total: neto, iva: 0, masIva: false, exentoFueraDeZona: false }
+  }
+
+  const iva = redondear(neto * ALICUOTA_IVA)
+  return {
+    total: redondear(neto + iva),
+    iva,
+    masIva: false,
+    exentoFueraDeZona: situacion === 'exento',
+  }
+}
+
 export interface FormularioNotaEncabezado {
   cliente_id: string | null
   cliente_codigo: string
@@ -386,6 +524,14 @@ export interface FormularioNotaEncabezado {
    * blanco.
    */
   cliente_provisorio: boolean
+  /**
+   * La provincia del domicilio del cliente.
+   *
+   * No se imprime: la necesita el cálculo del IVA, porque "exento" sólo vale en
+   * Tierra del Fuego. Sale de la dirección principal cuando el cliente se elige
+   * del buscador, y de Google cuando se lo acaba de crear.
+   */
+  cliente_provincia: string
 }
 
 export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
@@ -403,6 +549,7 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   descripcion_herramienta_origen: 'texto',
   cliente_nuevo: false,
   cliente_provisorio: false,
+  cliente_provincia: '',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -559,6 +706,25 @@ export const ETIQUETA_ORIGEN_FRESA: Record<OrigenFresa, string> = {
 export interface FormularioItemNota {
   servicio: TipoServicio
   /**
+   * El servicio que tenía el renglón antes de que los dientes rotos lo pasaran
+   * a RECTIFICADO.
+   *
+   * Existe para poder volver atrás: si el vendedor destilda "tiene dientes
+   * rotos", el renglón recupera el servicio que había elegido. Sin esto no
+   * habría forma de distinguir un rectificado que puso la app de uno que el
+   * vendedor eligió a propósito, y destildar lo dejaría rectificado para
+   * siempre.
+   */
+  servicio_antes_de_rotos: TipoServicio | null
+  /**
+   * En qué máquina trabaja la herramienta.
+   *
+   * Va en la descripción general de la nota —"AFILADO de SIERRAS para
+   * ESCUADRADORA"— porque es lo que le dice al taller de qué pieza se trata
+   * cuando dos herramientas comparten medidas.
+   */
+  maquina: string
+  /**
    * ¿La operación de este renglón la eligió el vendedor?
    *
    * Cuando la nota lleva una sola operación no hay nada que elegir y esto no se
@@ -683,6 +849,8 @@ export interface FormularioItemNota {
 
 export const ITEM_VACIO: FormularioItemNota = {
   servicio: 'afilado',
+  servicio_antes_de_rotos: null,
+  maquina: '',
   servicio_elegido: false,
   herramienta: null,
   codigo_herramienta: '',
@@ -1099,6 +1267,7 @@ export type CampoEncabezado =
   | 'fecha_entrega'
   | 'condicion_venta'
   | 'condicion_venta_detalle'
+  | 'situacion_iva'
 
 /**
  * Las tres páginas en que se carga la nota.
@@ -1121,7 +1290,7 @@ const CAMPOS_DE_LA_PARTE: Record<ParteDeLaNota, CampoEncabezado[]> = {
     'fecha_entrega',
   ],
   operacion: ['servicios'],
-  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
+  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle', 'situacion_iva'],
 }
 
 export function validarEncabezadoNota(
@@ -1132,6 +1301,8 @@ export function validarEncabezadoNota(
     fechaEntrega: string | null
     condicionVenta?: CondicionVenta | null
     condicionVentaDetalle?: string
+    /** Frente a quién se emite. Sólo se exige en factura. */
+    situacionIva?: SituacionIva | null
     /**
      * La versión de prueba carga el cliente a mano, sin buscarlo en la base.
      * Ahí no se puede exigir un `cliente_id` que no va a existir nunca.
@@ -1145,6 +1316,18 @@ export function validarEncabezadoNota(
   },
 ): ResultadoValidacion<CampoEncabezado> {
   const errores: Partial<Record<CampoEncabezado, string>> = {}
+
+  /**
+   * La situación de IVA sólo se exige en FACTURA.
+   *
+   * De ella depende el total que se cobra —con el IVA adentro, sin IVA, o con
+   * un "+ IVA" al lado— así que una factura sin contestar sale con un importe
+   * que no es el que corresponde. El presupuesto no discrimina IVA y no la
+   * pide.
+   */
+  if (extra.tipoNota === 'factura' && !extra.situacionIva) {
+    errores.situacion_iva = 'Preguntale al cliente su situación de IVA'
+  }
 
   // La condición de venta es cómo se cobra: sin eso la nota no se puede pasar
   // a cobranzas. Las dos que piden detalle lo exigen.
@@ -1346,6 +1529,20 @@ export interface DatosComputo {
   precioUnitario: number
   codigos: string[]
   dientesRotos: number
+  /**
+   * Qué reparación se está cobrando, si es que se cobra una.
+   *
+   * Cambia QUÉ se multiplica por el precio, no sólo el código:
+   *
+   *  · **parcial** — se reparan los dientes rotos y nada más, así que se cobran
+   *    ésos: el resto de la herramienta no se toca.
+   *  · **total**   — se rehace la herramienta entera, así que se cobran todos
+   *    sus dientes, rotos incluidos.
+   *
+   * Null es el afilado de siempre: dientes totales menos los rotos, que no se
+   * afilan porque están rotos.
+   */
+  gradoReparacion?: GradoReparacion | null
   repararDientes: boolean
   codigoReparacion: string
   precioReparacionPorDiente: number
@@ -1404,13 +1601,27 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
   const rotos = Math.min(Math.max(0, d.dientesRotos), dientesTotales)
   const aAfilar = dientesTotales - rotos
 
+  /**
+   * Cuántos dientes se cobran.
+   *
+   * La reparación parcial se cobra por los dientes rotos —son los únicos que se
+   * tocan— y la total por todos, porque se rehace la herramienta entera. El
+   * afilado común cobra los que quedan sanos: un diente roto no se afila.
+   */
+  const cobrados =
+    d.gradoReparacion === 'parcial'
+      ? rotos
+      : d.gradoReparacion === 'total'
+        ? dientesTotales
+        : aAfilar
+
   const lineas: LineaComputo[] = [
     {
       concepto: d.concepto,
       codigo,
-      cantidad: aAfilar,
+      cantidad: cobrados,
       precioUnitario: sinCargo ? 0 : d.precioUnitario,
-      total: sinCargo ? totalSinCargo() : redondear(aAfilar * d.precioUnitario),
+      total: sinCargo ? totalSinCargo() : redondear(cobrados * d.precioUnitario),
       moneda: sinCargo ? 'ARS' : d.moneda,
       sinCargo,
     },
@@ -1497,7 +1708,15 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
         : []
       : item.codigos_computo,
     dientesRotos: item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
-    repararDientes: item.reparar_dientes === true,
+    gradoReparacion: gradoReparacion(item),
+    /**
+     * Con dientes rotos el renglón ENTERO ya es la reparación.
+     *
+     * El código de cómputo del renglón pasa a ser REP.PARCIAL o REP.TOTAL, así
+     * que la línea aparte que antes se sumaba por los rotos cobraría el mismo
+     * trabajo dos veces y saldría impreso el código de reparación repetido.
+     */
+    repararDientes: gradoReparacion(item) === null && item.reparar_dientes === true,
     codigoReparacion: item.codigo_reparacion,
     precioReparacionPorDiente: aNumero(item.precio_reparacion_por_diente),
     // En venta el precio tipeado es UNITARIO, así que no hay total directo:
@@ -1538,6 +1757,42 @@ export function totalDelRenglonEnPesos(item: FormularioItemNota, tipoCambio: num
 /** ¿Hay algún renglón cotizado en dólares? */
 export function tieneRenglonesEnDolares(items: FormularioItemNota[]): boolean {
   return items.some((i) => lineasDelRenglon(i).some((l) => l.moneda === 'USD'))
+}
+
+/**
+ * Cuánto se repara cuando el renglón trae dientes rotos.
+ *
+ * Son dos trabajos distintos y dos códigos distintos de la lista de precios:
+ *
+ *  · **parcial** — se reparan los dientes que están rotos y nada más.
+ *    `REP.PARCIAL DTE. S.C.` (6001 a 6003, por rango de ancho de diente).
+ *  · **total**   — se rehace la herramienta entera.
+ *    `REP.TOTAL DE S.C.` (6106 a 6108).
+ *
+ * Cuál de los dos lo decide la respuesta a "¿DESEA REPARAR LOS DIENTES?": si
+ * pidió repararlos, el trabajo es total; si no, se reparan sólo los rotos.
+ */
+export type GradoReparacion = 'parcial' | 'total'
+
+export function gradoReparacion(item: FormularioItemNota): GradoReparacion | null {
+  if (!item.dientes_rotos) return null
+  return item.reparar_dientes === true ? 'total' : 'parcial'
+}
+
+/**
+ * Reconocer el grado en la descripción de la lista.
+ *
+ * La base clasifica a los dos como `servicio_sugerido = 'reparacion'` —todos
+ * empiezan con "REP"— así que la única forma de separarlos es el texto. Se
+ * acepta con punto y sin punto, y con o sin espacio, porque la lista los
+ * escribe de las dos maneras: "REP.PARCIAL DTE. S.C." y "REP. DTE. CONCAVO".
+ */
+export function esReparacionParcial(descripcion: string): boolean {
+  return /REP\.?\s*PARCIAL/i.test(descripcion)
+}
+
+export function esReparacionTotal(descripcion: string): boolean {
+  return /REP\.?\s*TOTAL/i.test(descripcion)
 }
 
 /** Dientes que quedan para afilar, ya descontados los rotos. */
@@ -1697,24 +1952,29 @@ const LARGO_MAXIMO_LINEA = 120
  * peor que ninguna.
  */
 export function lineaDeServicio(items: FormularioItemNota[]): string {
-  const porServicio = new Map<TipoServicio, Herramienta[]>()
+  const porServicio = new Map<TipoServicio, { herramientas: Herramienta[]; maquinas: string[] }>()
 
   for (const item of items) {
     if (!item.herramienta) continue
-    const suyas = porServicio.get(item.servicio) ?? []
-    if (!suyas.includes(item.herramienta)) suyas.push(item.herramienta)
-    porServicio.set(item.servicio, suyas)
+    const grupo = porServicio.get(item.servicio) ?? { herramientas: [], maquinas: [] }
+    if (!grupo.herramientas.includes(item.herramienta)) grupo.herramientas.push(item.herramienta)
+    // En minúscula, como las herramientas: la línea es una frase, no un rótulo.
+    const maquina = (item.maquina || '').trim().toLowerCase()
+    if (maquina && !grupo.maquinas.includes(maquina)) grupo.maquinas.push(maquina)
+    porServicio.set(item.servicio, grupo)
   }
 
   if (porServicio.size === 0) return ''
 
   const completa = [...porServicio]
-    .map(
-      ([servicio, herramientas]) =>
-        `${ETIQUETA_TIPO_SERVICIO[servicio]} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
-          herramientas.map((h) => EN_LA_DESCRIPCION[h]),
-        )}`,
-    )
+    .map(([servicio, { herramientas, maquinas }]) => {
+      const trabajo = `${ETIQUETA_TIPO_SERVICIO[servicio]} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
+        herramientas.map((h) => EN_LA_DESCRIPCION[h]),
+      )}`
+      // La máquina es un agregado: mientras no la elijan, la línea dice lo
+      // esencial igual y no queda un "para" colgado.
+      return maquinas.length > 0 ? `${trabajo} para ${enumerar(maquinas)}` : trabajo
+    })
     .join(' · ')
 
   if (completa.length <= LARGO_MAXIMO_LINEA) return completa
@@ -1744,7 +2004,11 @@ const LINEA_DE_SERVICIO = (() => {
   const servicios = Object.values(ETIQUETA_TIPO_SERVICIO).map(escaparRegex).join('|')
   const herramientas = Object.values(EN_LA_DESCRIPCION).map(escaparRegex).join('|')
   const lista = `(?:${herramientas})(?:, (?:${herramientas}))*(?: y (?:${herramientas}))?`
-  const parte = `(?:${servicios}) (?:de|por) ${lista}`
+  // La máquina también sale de su tabla de verdad, así que sumar una máquina
+  // nueva no puede dejar el reconocedor atrás.
+  const maquinas = MAQUINAS.map((m) => escaparRegex(m.toLowerCase())).join('|')
+  const listaMaquinas = `(?:${maquinas})(?:, (?:${maquinas}))*(?: y (?:${maquinas}))?`
+  const parte = `(?:${servicios}) (?:de|por) ${lista}(?: para ${listaMaquinas})?`
   // La segunda forma es la corta, la que sale cuando la completa no entra en un
   // renglón: los servicios solos.
   const corta = `(?:${servicios})`
