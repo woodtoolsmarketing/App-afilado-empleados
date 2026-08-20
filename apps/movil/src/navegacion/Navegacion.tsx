@@ -25,6 +25,7 @@ import { PantallaVistaPreviaNota } from '../pantallas/VistaPreviaNota'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
+import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
@@ -56,6 +57,16 @@ const tema: Theme = {
  */
 export function Navegacion() {
   const estado = usarSesion((s) => s.estado)
+
+  /**
+   * Fijarse solo si hay un instalador nuevo.
+   *
+   * Va acá y no en una pantalla porque no pertenece a ninguna: es de la app
+   * entera, tiene que pasar entre en la pantalla que entre, y tiene que pasar
+   * una sola vez y no cada vez que el vendedor vuelve al menú. Va antes del
+   * corte de arriba porque un hook no puede quedar del otro lado de un return.
+   */
+  usarAvisoDeApkAlEntrar(estado === 'habilitado')
 
   if (estado === 'cargando') {
     return (

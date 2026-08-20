@@ -2,7 +2,7 @@ import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native'
+import { Alert, StyleSheet, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso } from '../componentes/Estado'
@@ -10,7 +10,8 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
-import { buscarApkNuevo, type ApkDisponible } from '../servicios/actualizacionApk'
+import { buscarApkNuevo } from '../servicios/actualizacionApk'
+import { ofrecerApk } from '../servicios/avisoDeApk'
 import { obtenerJornadaDeHoy } from '../servicios/jornada'
 import {
   detenerSeguimiento,
@@ -43,39 +44,6 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil?.id])
-
-  /**
-   * Ofrecer bajar la app nueva desde el panel de la oficina.
-   *
-   * Se abre el navegador y no se instala acá: instalar un APK desde adentro de
-   * la app pide un permiso que este proyecto decidió no pedir (ver
-   * `actualizacionApk.ts`). El navegador sí lo tiene.
-   */
-  function ofrecerApk(apk: ApkDisponible) {
-    Alert.alert(
-      `Hay una versión nueva: ${apk.nueva}`,
-      `Tenés la ${apk.actual}. Esta actualización cambia cosas que no viajan por ` +
-        `aire, así que hay que instalarla.\n\n` +
-        (apk.desde === 'panel'
-          ? 'La vas a bajar de la PC de la oficina, así que va a ser rápido.'
-          : 'La vas a bajar de internet: con datos móviles puede tardar unos minutos.') +
-        (apk.notas ? `\n\nQué trae:\n${apk.notas}` : ''),
-      [
-        { text: 'Ahora no', style: 'cancel' },
-        {
-          text: 'Bajar e instalar',
-          onPress: () => {
-            void Linking.openURL(apk.direccion).catch(() =>
-              Alert.alert(
-                'No pudimos abrir la página',
-                `Probá entrando a mano desde el navegador:\n${apk.direccion}`,
-              ),
-            )
-          },
-        },
-      ],
-    )
-  }
 
   /**
    * "Hay una versión nueva pero no hay de dónde bajarla."
@@ -146,7 +114,36 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
   async function buscarActualizacion() {
     setBuscandoUpdate(true)
     try {
+      /**
+       * Las dos, siempre, antes de contestar nada.
+       *
+       * Esto decía consultarlas por separado y no lo hacía: si lo de aire volvía
+       * con algo, salía el cartel de reiniciar y se volvía sin haber mirado
+       * nunca el instalador. Y las dos aparecen juntas justo en el caso que más
+       * importa —el teléfono atrasado de APK, al que igual se le publica código
+       * para su versión vieja para no dejarlo afuera—, así que el cartel de
+       * reiniciar tapaba al instalador todas las veces.
+       */
       const aire = await buscarPorAire()
+      const apk = await buscarApkNuevo()
+
+      /**
+       * El instalador va primero, aunque haya algo por aire.
+       *
+       * Reiniciar deja el teléfono andando pero atrasado igual; instalar lo pone
+       * al día del todo, incluido lo que se acaba de bajar por aire. Y lo bajado
+       * no se pierde por no reiniciar ahora: se aplica solo la próxima vez que
+       * la app arranque de cero.
+       */
+      if (apk.estado === 'hay') {
+        ofrecerApk(apk.apk)
+        return
+      }
+
+      if (apk.estado === 'sin-donde-bajarlo') {
+        avisarSinDondeBajarlo(apk.nueva, apk.actual, apk.notas)
+        return
+      }
 
       if (aire.estado === 'lista') {
         Alert.alert('Actualización lista', 'La app se va a reiniciar para aplicarla.', [
@@ -162,19 +159,6 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
             },
           },
         ])
-        return
-      }
-
-      // Y acá el instalador, ande o no ande lo de arriba.
-      const apk = await buscarApkNuevo()
-
-      if (apk.estado === 'hay') {
-        ofrecerApk(apk.apk)
-        return
-      }
-
-      if (apk.estado === 'sin-donde-bajarlo') {
-        avisarSinDondeBajarlo(apk.nueva, apk.actual, apk.notas)
         return
       }
 
