@@ -402,12 +402,14 @@ export function describirCondicionVenta(
 /**
  * Frente a quién se emite la factura, que es lo que decide el IVA.
  *
- *  · **consumidor_final**       — el IVA va sumado adentro del total.
- *  · **exento**                 — sólo si el cliente está en Tierra del Fuego,
- *    que no tiene IVA. Fuera de la provincia un "exento" se factura igual que
- *    un consumidor final: la exención es del territorio, no del cliente.
- *  · **responsable_inscripto**  — el total va sin IVA y el comprobante lo
- *    aclara con un "+ IVA" al lado.
+ *  · **consumidor_final**       — paga IVA.
+ *  · **exento**                 — no paga, pero sólo si está en Tierra del
+ *    Fuego. Fuera de la provincia un "exento" paga igual que un consumidor
+ *    final: la exención es del territorio, no del cliente.
+ *  · **responsable_inscripto**  — paga IVA.
+ *
+ * Lo que decide es si el comprobante lleva el "+ IVA", NO los importes: la
+ * nota de pedido cotiza siempre en neto. Ver `ivaDeLaNota`.
  */
 export type SituacionIva = 'consumidor_final' | 'exento' | 'responsable_inscripto'
 
@@ -450,18 +452,30 @@ export function situacionIvaEfectiva(
 }
 
 export interface IvaDeLaNota {
-  /** Lo que se cobra, con IVA adentro cuando corresponde. */
+  /**
+   * Lo que va impreso: el NETO.
+   *
+   * Ni el precio unitario, ni el del renglón, ni el total llevan IVA sumado.
+   * La nota de pedido cotiza el trabajo; el IVA lo agrega la factura, y
+   * mezclarlo acá obliga a descontarlo a mano para saber qué se cotizó.
+   */
   total: number
-  /** Cuánto de ese total es IVA. Cero cuando no lleva. */
+  /** Cuánto IVA le corresponde a ese neto. Cero cuando el cliente no paga. */
   iva: number
+  /** El neto más el IVA. Se muestra como referencia, no es lo que se cotiza. */
+  conIva: number
   /** El comprobante tiene que decir "+ IVA" al lado del total. */
   masIva: boolean
-  /** Por qué un exento terminó pagando IVA: para poder decirlo en pantalla. */
+  /** Por qué un exento igual paga IVA: para poder decirlo en pantalla. */
   exentoFueraDeZona: boolean
 }
 
 /**
- * El total de la nota según la situación de IVA del cliente.
+ * Qué IVA le corresponde a la nota, sin tocarle los importes.
+ *
+ * El total que devuelve es SIEMPRE el neto. Lo que cambia con la situación del
+ * cliente es si el comprobante lleva el "+ IVA" al lado y cuánto sería ese
+ * IVA, no el número que se cotiza.
  *
  * Sólo se aplica en FACTURA: un presupuesto no discrimina IVA.
  */
@@ -470,23 +484,26 @@ export function ivaDeLaNota(
   situacion: SituacionIva | null,
   provinciaDelCliente: string | null | undefined,
 ): IvaDeLaNota {
-  if (!situacion) return { total: neto, iva: 0, masIva: false, exentoFueraDeZona: false }
-
-  if (situacion === 'responsable_inscripto') {
-    return { total: neto, iva: 0, masIva: true, exentoFueraDeZona: false }
+  const sinIva: IvaDeLaNota = {
+    total: neto,
+    iva: 0,
+    conIva: neto,
+    masIva: false,
+    exentoFueraDeZona: false,
   }
 
-  // Un exento fuera de Tierra del Fuego se factura como consumidor final.
-  const exentoDeVerdad = situacion === 'exento' && esTierraDelFuego(provinciaDelCliente)
-  if (exentoDeVerdad) {
-    return { total: neto, iva: 0, masIva: false, exentoFueraDeZona: false }
-  }
+  if (!situacion) return sinIva
+
+  // El único que no paga: un exento con domicilio en Tierra del Fuego. Fuera
+  // de la provincia la exención no corre.
+  if (situacion === 'exento' && esTierraDelFuego(provinciaDelCliente)) return sinIva
 
   const iva = redondear(neto * ALICUOTA_IVA)
   return {
-    total: redondear(neto + iva),
+    total: neto,
     iva,
-    masIva: false,
+    conIva: redondear(neto + iva),
+    masIva: true,
     exentoFueraDeZona: situacion === 'exento',
   }
 }

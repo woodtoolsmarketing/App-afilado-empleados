@@ -1638,8 +1638,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     {ivaNota.masIva
                       ? `${formatearPesos(ivaNota.total)}  + IVA`
                       : formatearPesos(ivaNota.total)}
-                    {ivaNota.iva > 0
-                      ? `\n\nIncluye ${formatearPesos(ivaNota.iva)} de IVA (${Math.round(ALICUOTA_IVA * 100)} %).`
+                    {ivaNota.masIva
+                      ? `\n\nEl total va sin IVA, igual que los precios de la nota. Con el ${Math.round(ALICUOTA_IVA * 100)} % serían ${formatearPesos(ivaNota.conIva)}.`
                       : ''}
                   </Aviso>
 
@@ -1657,10 +1657,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                         etiqueta: ETIQUETA_SITUACION_IVA[s].toUpperCase(),
                         descripcion:
                           s === 'consumidor_final'
-                            ? 'El IVA va sumado adentro del total'
+                            ? 'Paga IVA: la nota sale con "+ IVA"'
                             : s === 'exento'
-                              ? 'Sin IVA, sólo si está en Tierra del Fuego'
-                              : 'El total va sin IVA y la nota lo aclara',
+                              ? 'No paga, sólo si está en Tierra del Fuego'
+                              : 'Paga IVA: la nota sale con "+ IVA"',
                       }))}
                       alCambiar={setSituacionIva}
                       error={errores.situacion_iva}
@@ -1673,8 +1673,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   {ivaNota.exentoFueraDeZona ? (
                     <Aviso tono="atencion" titulo="Exento, pero fuera de Tierra del Fuego">
                       {encabezado.cliente_provincia
-                        ? `El domicilio del cliente figura en ${encabezado.cliente_provincia}, así que se factura con IVA igual que a un consumidor final.`
-                        : 'El cliente no tiene provincia cargada en su domicilio, así que se factura con IVA. Si está en Tierra del Fuego, cargale la dirección desde el panel.'}
+                        ? `El domicilio del cliente figura en ${encabezado.cliente_provincia}, así que paga IVA igual que un consumidor final.`
+                        : 'El cliente no tiene provincia cargada en su domicilio, así que paga IVA. Si está en Tierra del Fuego, cargale la dirección desde el panel.'}
                     </Aviso>
                   ) : null}
                 </>

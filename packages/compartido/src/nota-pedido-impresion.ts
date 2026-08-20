@@ -24,7 +24,6 @@ import {
   ALICUOTA_IVA,
   consolidarLineasDeComputo,
   describirCondicionVenta,
-  ivaDeLaNota,
   lineasDeComputo,
   MAXIMO_RENGLONES,
   numeroDeVendedorImpreso,
@@ -449,8 +448,8 @@ export function generarHtmlNotaPedido(
     : `<tr>
         <th>Código de Cómputo</th>
         <th>Cantidad</th>
-        <th>Precio<br>unitario</th>
-        <th>Precio<br>total</th>
+        <th>Precio<br>unitario<br><span class="sin-iva">sin IVA</span></th>
+        <th>Precio<br>total<br><span class="sin-iva">sin IVA</span></th>
         <th>Condicion de Venta</th>
         <th>Anticipo</th>
         <th>Observaciones</th>
@@ -527,22 +526,19 @@ export function generarHtmlNotaPedido(
   /**
    * Qué dice el total sobre el IVA.
    *
-   * El responsable inscripto recibe el neto y el comprobante tiene que
-   * aclararlo, o el número se lee como final. Al consumidor final el IVA ya le
-   * va sumado adentro, y decir cuánto es lo que permite controlarlo. El exento
-   * —que a esta altura sólo puede ser uno de Tierra del Fuego, porque el resto
-   * se guarda como consumidor final— no lleva nada.
+   * Los importes van netos, así que el que paga IVA lleva el "+ IVA" al lado
+   * del total: sin eso el número se lee como final y no lo es. El exento —que
+   * a esta altura sólo puede ser uno de Tierra del Fuego, porque el resto se
+   * guarda como consumidor final— no lleva nada que sumar, y decirlo evita la
+   * pregunta.
    */
-  const leyendaIva =
+  const paga =
+    nota.situacion_iva === 'consumidor_final' ||
     nota.situacion_iva === 'responsable_inscripto'
-      ? ' + IVA'
-      : ''
+
+  const leyendaIva = paga ? ` + IVA ${Math.round(ALICUOTA_IVA * 100)} %` : ''
   const aclaracionIva =
-    nota.situacion_iva === 'consumidor_final'
-      ? `<span class="iva">IVA ${Math.round(ALICUOTA_IVA * 100)} % incluido</span>`
-      : nota.situacion_iva === 'exento'
-        ? '<span class="iva">Exento de IVA</span>'
-        : ''
+    nota.situacion_iva === 'exento' ? '<span class="iva">Exento de IVA</span>' : ''
 
   const totalVisible = !esDuplicado && !!nota.totales
   const resumen = totalVisible
@@ -806,6 +802,9 @@ html {
 /* La aclaración del IVA va a la izquierda del total, más chica: explica el
    número sin competir con él. */
 .resumen .iva { font-size: 8pt; align-self: center; }
+/* Debajo del rótulo de la columna, chico: aclara sin robarle lugar al ancho
+   de la columna, que es lo que decidía que el rótulo fuera en dos renglones. */
+.sin-iva { font-size: 6.5pt; font-weight: normal; }
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -989,21 +988,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     porMoneda.set(l.moneda, (porMoneda.get(l.moneda) ?? 0) + l.total)
   }
 
-  /**
-   * El IVA se suma sobre los PESOS.
-   *
-   * El afilado se cobra siempre en pesos y la venta puede ir en dólares, con el
-   * tipo de cambio impreso al lado para convertir. Sumarle el IVA a la columna
-   * en dólares daría un número que no es ni el de lista ni el que se cobra.
-   *
-   * Al responsable inscripto no se le suma nada: recibe el neto y el
-   * comprobante lo aclara con un "+ IVA".
-   */
-  const situacionIva = (nota.situacion_iva as SituacionIva | null) ?? null
-  const enPesos = porMoneda.get('ARS')
-  if (enPesos !== undefined && situacionIva !== null) {
-    porMoneda.set('ARS', ivaDeLaNota(enPesos, situacionIva, null).total)
-  }
+  // El IVA no se suma a ningún importe: la nota cotiza en neto y lo dice en
+  // las columnas de precio. Lo único que cambia con la situación del cliente
+  // es el "+ IVA" al lado del total.
   const totales = Array.from(porMoneda.entries())
     .filter(([, valor]) => valor > 0)
     // Los pesos primero: es la moneda en la que se cobra.
