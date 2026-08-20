@@ -1065,7 +1065,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         style={estilos.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Panel contentStyle={estilos.contenido}>
+        {/*
+          `subirAlTopeCuando` es lo que hace que cada paso empiece arriba.
+
+          El CONTINUAR está al pie de cada página, así que sin esto el paso
+          siguiente aparecía mostrando su propio final: el vendedor tocaba y
+          quedaba parado en el mismo píxel, sin ver ni el título ni la pastilla
+          del paso nuevo. Cubre los cuatro lugares donde cambia `paso` —el
+          CONTINUAR, el "Atrás", y los dos rescates de `alCrear` que mandan a
+          buscar un campo en rojo que justamente está arriba—.
+        */}
+        <Panel contentStyle={estilos.contenido} subirAlTopeCuando={paso}>
           <BarraPanel
             alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
           />

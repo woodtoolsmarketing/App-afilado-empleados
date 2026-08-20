@@ -1,7 +1,8 @@
 import { colores, espaciado, radios, sombras, tipografia } from '@woodtools/compartido'
 import { formatearFechaCorta } from '@woodtools/compartido'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import {
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -44,12 +45,65 @@ export function Panel({
   desplazable = true,
   style,
   contentStyle,
+  subirAlTopeCuando,
 }: {
   children: ReactNode
   desplazable?: boolean
   style?: StyleProp<ViewStyle>
   contentStyle?: StyleProp<ViewStyle>
+  /**
+   * Cada vez que este valor cambia, el panel vuelve arriba de todo.
+   *
+   * ─── De dónde salió ───────────────────────────────────────────────────
+   *
+   * Casi todas las pantallas cambian de contenido cambiando de `Panel`, y ahí
+   * el ScrollView es otro y arranca arriba de casualidad. La nota de pedido es
+   * la excepción: deja el mismo `Panel` montado y le intercambia los hijos
+   * según el paso. Como el ScrollView sobrevive, sobrevive también dónde
+   * estaba parado — y el botón CONTINUAR está al pie, así que el vendedor
+   * tocaba y se quedaba mirando el final de un formulario que ni sabía que
+   * había cambiado.
+   *
+   * ─── Por qué acá adentro y no un ref hacia afuera ─────────────────────
+   *
+   * El ScrollView es de este componente. Si cada pantalla tuviera que pedirlo
+   * y acordarse de moverlo, la que se olvide vuelve a tener el problema y no
+   * se entera nadie hasta que lo reporta el que está en la calle. Además, la
+   * nota de pedido cambia de paso en cuatro lugares distintos —el CONTINUAR,
+   * el "Atrás", y dos rescates al intentar guardar— y así los cubre a los
+   * cuatro con una sola línea.
+   *
+   * Se pide un valor simple a propósito: con un objeto o un arreglo, cada
+   * dibujado trae una referencia nueva y el panel saltaría al tope todo el
+   * tiempo, incluso mientras el vendedor está leyendo.
+   */
+  subirAlTopeCuando?: string | number | boolean | null
 }) {
+  // Los hooks van antes del atajo de `desplazable`: si quedaran después,
+  // cambiar esa prop en caliente cambiaría cuántos hooks tiene el componente y
+  // React se queja.
+  const scroll = useRef<ScrollView>(null)
+  const yaSeDibujo = useRef(false)
+
+  useEffect(() => {
+    // En el primer dibujado no hay nada que subir —el panel ya está arriba— y
+    // cerrarle el teclado al vendedor apenas entra sería gratuito.
+    if (!yaSeDibujo.current) {
+      yaSeDibujo.current = true
+      return
+    }
+
+    // Si venía escribiendo en el último campo, el teclado sigue abierto sobre
+    // una página que ya no es la suya: le tapa media pantalla nueva.
+    Keyboard.dismiss()
+
+    // Sin animación. Lo que cambió no es la posición dentro de la misma hoja,
+    // es la hoja entera: animar el desplazamiento haría parecer que la página
+    // nueva se mueve sola. El salto seco se lee como "esto es otra cosa,
+    // empezá de arriba".
+    scroll.current?.scrollTo({ y: 0, animated: false })
+  }, [subirAlTopeCuando])
+
   if (!desplazable) {
     return <View style={[estilos.panel, style, contentStyle]}>{children}</View>
   }
@@ -57,6 +111,7 @@ export function Panel({
   return (
     <View style={[estilos.panel, style]}>
       <ScrollView
+        ref={scroll}
         contentContainerStyle={[estilos.panelContenido, contentStyle]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
