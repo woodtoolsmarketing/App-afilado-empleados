@@ -179,8 +179,22 @@ celulares se pongan al día solos— hay que habilitarlas una vez:
 npm run eas:actualizaciones
 ```
 
-Eso deja un `EAS_UPDATE_URL` que va al `.env` de la raíz. Sin esa variable la
-app compila y anda igual, pero cada cambio exige reinstalar el APK.
+Eso deja un `EAS_UPDATE_URL` que va al `.env` de la raíz. **Es obligatoria**:
+sin ella el APK sale sordo —no se enlaza `expo-updates`— y ese teléfono no
+recibe nunca nada por aire, aunque por fuera se vea igual que uno sano. Estuvo
+así seis versiones seguidas, así que ahora el build se corta antes de salir.
+
+Para publicar desde la terminal, el canal se pide y no se adivina, porque una
+actualización sólo le llega a los teléfonos cuyo APK se compiló para ese canal:
+
+```bash
+npm run publicar:ota              # interno
+npm run publicar:ota:beta
+npm run publicar:ota:produccion
+```
+
+Cada uno se corresponde con su `npm run instalador:apk...`. El botón del panel
+hace lo mismo con el canal que se elija en pantalla.
 
 Lo que **no** viaja por aire: permisos nuevos, librerías nativas, cambios de la
 versión de Android. Eso necesita un APK nuevo sí o sí. Para esos casos está la

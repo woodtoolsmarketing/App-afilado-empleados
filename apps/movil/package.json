@@ -12,7 +12,6 @@
     "eas:actualizaciones": "eas update:configure",
     "compilar:interno": "eas build --profile interno --platform android",
     "compilar:produccion": "eas build --profile produccion --platform android",
-    "publicar:ota": "eas update --branch produccion",
     "ios": "expo run:ios"
   },
   "dependencies": {

@@ -59,8 +59,22 @@ function correrEas(argumentos) {
   })
 }
 
-/** Sin éstas no hay login: el APK se instala y no sirve para nada. */
-const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
+/**
+ * Sin éstas el APK se instala y no sirve.
+ *
+ * Las dos de Supabase porque sin ellas no hay login. `EAS_UPDATE_URL` porque
+ * sin ella el APK sale **sordo**: no se enlaza `expo-updates` y ese teléfono no
+ * puede recibir nunca nada por aire, aunque por fuera se vea igual que uno
+ * sano.
+ *
+ * Estaba abajo, entre las opcionales, y ahí está el eslabón que faltaba: las
+ * opcionales se filtran por `env[v]`, así que una línea vacía en el `.env`
+ * —que es lo que había— la descartaba en silencio y este comando terminaba
+ * bien dejando el proyecto de EAS sin ella. Después el build salía bien
+ * también, porque `app.config.ts` tampoco la exigía. Nadie se enteró durante
+ * seis versiones. Ahora corta acá y corta allá.
+ */
+const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'EAS_UPDATE_URL']
 
 /**
  * Sin ésta el mapa se ve gris, pero el resto de la app anda. Se avisa y se
@@ -69,7 +83,7 @@ const OBLIGATORIAS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
  */
 const RECOMENDADAS = ['GOOGLE_MAPS_ANDROID_KEY']
 
-const OPCIONALES = ['DOMINIO_USUARIO', 'EAS_UPDATE_URL', 'EAS_PROJECT_ID']
+const OPCIONALES = ['DOMINIO_USUARIO', 'EAS_PROJECT_ID']
 
 /** Los que usan los tres perfiles de eas.json: desarrollo, interno, produccion. */
 const ENTORNOS = ['production', 'preview', 'development']

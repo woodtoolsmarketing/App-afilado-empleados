@@ -75,6 +75,15 @@ const PAQUETE: Record<Variante, string> = {
  * En EAS Build el `.env` no viaja (está en .gitignore, y así tiene que ser),
  * así que allá tienen que estar cargadas como variables del proyecto de EAS.
  *
+ * `EAS_UPDATE_URL` está en la lista por lo que pasa cuando falta, que no es
+ * "una función de menos": el APK sale **sordo de fábrica**. Sin ella no se
+ * enlaza `expo-updates` y el bloque `updates` queda apagado, así que ese
+ * teléfono no puede recibir nunca nada por aire — y por fuera se ve idéntico a
+ * uno sano, con el mismo número de versión en la pantalla. Ya pasó seis
+ * versiones seguidas: la línea existía en el `.env` pero vacía, que para el
+ * código es lo mismo que no estar. Vale para las tres variantes, porque las
+ * tres se reparten a teléfonos de verdad.
+ *
  * `GOOGLE_MAPS_ANDROID_KEY` está sólo en producción, y la diferencia importa:
  * sin ella el mapa se ve gris, pero TODO lo demás anda —notas de pedido, rol de
  * visita, clientes, impresión—. Exigirla siempre significaba no poder probar
@@ -85,6 +94,7 @@ const PAQUETE: Record<Variante, string> = {
 const OBLIGATORIAS = [
   'SUPABASE_URL',
   'SUPABASE_ANON_KEY',
+  'EAS_UPDATE_URL',
   ...(esProduccion ? (['GOOGLE_MAPS_ANDROID_KEY'] as const) : []),
 ] as const
 
@@ -135,7 +145,9 @@ if (faltantes.length > 0) {
   )
 }
 
-const easUpdateUrl = process.env.EAS_UPDATE_URL
+// Está en OBLIGATORIAS, así que si el build llegó hasta acá, está cargada: el
+// corte de más arriba es lo que sostiene este `as string`.
+const easUpdateUrl = process.env.EAS_UPDATE_URL as string
 const easProjectId = process.env.EAS_PROJECT_ID
 
 const config: ExpoConfig = {
@@ -349,31 +361,31 @@ const config: ExpoConfig = {
     ],
     'expo-secure-store',
     'expo-font',
-    // Las actualizaciones por aire son opcionales: sin EAS_UPDATE_URL la app
-    // anda igual, sólo hay que reinstalar el APK para actualizarla.
-    ...(easUpdateUrl ? ['expo-updates'] : []),
+    // Va siempre. Antes se enlazaba sólo si había EAS_UPDATE_URL, y ese "sólo
+    // si" era el que dejaba salir APK sordos sin que nadie se enterara; ahora
+    // la variable es obligatoria y esto no tiene por qué preguntar nada.
+    'expo-updates',
   ],
 
   /**
    * Actualizaciones por aire.
    *
-   * Cuando no hay URL, `enabled: false` **explícito**. `expo-updates` está en
-   * las dependencias, así que el módulo nativo se enlaza igual y queda activo
-   * por defecto: la app arranca buscando un manifiesto contra una URL que no
-   * existe, y ese es tiempo que el vendedor mira una pantalla quieta.
+   * Acá había un `enabled: false` para cuando faltaba la URL, y hacía falta:
+   * `expo-updates` está en las dependencias, así que el módulo nativo se
+   * enlazaba igual y quedaba activo por defecto, buscando un manifiesto contra
+   * una URL que no existe — tiempo que el vendedor mira una pantalla quieta.
    *
-   * Antes acá no había nada, que no es lo mismo que apagarlo.
+   * Esa rama ya no existe porque `EAS_UPDATE_URL` es obligatoria: el build se
+   * corta antes de llegar hasta acá. Apagarlas prolijamente era el remiendo
+   * correcto mientras se podía compilar sin ellas, y lo que no arreglaba es
+   * que se pudiera compilar sin ellas.
    */
-  ...(easUpdateUrl
-    ? {
-        updates: {
-          url: easUpdateUrl,
-          fallbackToCacheTimeout: 0,
-          checkAutomatically: 'ON_LOAD' as const,
-        },
-        runtimeVersion: { policy: 'appVersion' as const },
-      }
-    : { updates: { enabled: false } }),
+  updates: {
+    url: easUpdateUrl,
+    fallbackToCacheTimeout: 0,
+    checkAutomatically: 'ON_LOAD' as const,
+  },
+  runtimeVersion: { policy: 'appVersion' as const },
 
   extra: {
     supabaseUrl: process.env.SUPABASE_URL,

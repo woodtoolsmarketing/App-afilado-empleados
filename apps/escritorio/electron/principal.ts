@@ -477,10 +477,33 @@ ipcMain.handle('publicar-actualizacion', async (_evento, canalPedido: string) =>
       [eas, 'update', '--branch', canal, '--message', `Actualización desde el panel (${canal})`],
       {
         cwd: path.join(raiz, 'apps', 'movil'),
-        // ELECTRON_RUN_AS_NODE hace que este mismo ejecutable se comporte como
-        // Node a secas. Sin eso, `process.execPath` levantaría otra ventana de
-        // Electron en vez de correr el script.
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        env: {
+          ...process.env,
+          // ELECTRON_RUN_AS_NODE hace que este mismo ejecutable se comporte
+          // como Node a secas. Sin eso, `process.execPath` levantaría otra
+          // ventana de Electron en vez de correr el script.
+          ELECTRON_RUN_AS_NODE: '1',
+          /**
+           * La variante tiene que acompañar al canal, y son dos cosas.
+           *
+           * `--branch` decide a QUIÉN le llega el bundle. `APP_VARIANTE` decide
+           * QUÉ dice el bundle de sí mismo: `app.config.ts` la escribe en
+           * `extra.variante`, y eso viaja adentro del manifiesto.
+           *
+           * Faltaba, y el panel empaquetado no la trae en su entorno, así que
+           * `app.config.ts` caía a su default `interno` publicara al canal que
+           * publicara. Un teléfono de producción que recibía ese bundle quedaba
+           * con `extra.variante: 'interno'` escrito encima — y
+           * `canalDeEsteTelefono()`, en `apps/movil/src/servicios/actualizacionApk.ts`,
+           * lee justamente eso para preguntar por el instalador nuevo. O sea
+           * que el botón "Buscar actualizaciones" pasaba a contestar sobre el
+           * canal equivocado. Se arregla solo al publicar bien, pero mientras
+           * tanto no hay nada que lo delate.
+           *
+           * El handler de compilar ya la fijaba; éste no. Ahora los dos.
+           */
+          APP_VARIANTE: canal,
+        },
       },
     )
 
