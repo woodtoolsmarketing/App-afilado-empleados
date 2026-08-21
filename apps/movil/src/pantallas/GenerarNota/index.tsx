@@ -1076,6 +1076,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * el vendedor vería un desglose que en el papel no está.
    */
   const desglosaIva = tipoNota === 'factura' && situacionIva === 'responsable_inscripto'
+  /**
+   * ¿El total ya lleva el IVA adentro, sin decirlo?
+   *
+   * El consumidor final sí: el número que ve es lo que paga, y discriminarle el
+   * impuesto no le sirve de nada porque no lo descuenta. También el exento que
+   * está fuera de Tierra del Fuego, que se guarda como consumidor final.
+   *
+   * El de Tierra del Fuego no —`masIva` viene en false— y el presupuesto
+   * tampoco. La pantalla muestra el mismo número que va a salir impreso: si
+   * mostrara otro, el vendedor cantaría un precio y el papel diría otro.
+   */
+  const ivaAdentro = tipoNota === 'factura' && !desglosaIva && ivaNota.masIva
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
   const grupos = agruparParaNotas(items, tipoCambio)
@@ -1649,12 +1661,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                         como final— y la cuenta queda hecha debajo. */}
                     {desglosaIva
                       ? `Subtotal:  ${formatearPesos(ivaNota.total)}\nTotal + IVA:  ${formatearPesos(ivaNota.conIva)}`
-                      : ivaNota.masIva
-                        ? `${formatearPesos(ivaNota.total)}  + IVA`
-                        : formatearPesos(ivaNota.total)}
-                    {ivaNota.masIva && !desglosaIva
-                      ? `\n\nEl total va sin IVA, igual que los precios de la nota. Con el ${Math.round(ALICUOTA_IVA * 100)} % serían ${formatearPesos(ivaNota.conIva)}.`
-                      : ''}
+                      : formatearPesos(ivaAdentro ? ivaNota.conIva : ivaNota.total)}
                   </Aviso>
 
                   {/* Sólo en factura: un presupuesto no discrimina IVA. */}

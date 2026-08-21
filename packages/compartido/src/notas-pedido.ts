@@ -2086,34 +2086,52 @@ export function lineaDeServicio(items: FormularioItemNota[]): string {
    */
   const porTrabajo = new Map<
     string,
-    { servicio: TipoServicio; herramientas: Herramienta[]; maquinas: string[] }
+    { servicio: TipoServicio; destinos: Map<string, Herramienta[]> }
   >()
 
   for (const item of items) {
     if (!item.herramienta) continue
     const etiqueta = etiquetaDelTrabajo(item)
-    const grupo = porTrabajo.get(etiqueta) ?? {
-      servicio: item.servicio,
-      herramientas: [],
-      maquinas: [],
-    }
-    if (!grupo.herramientas.includes(item.herramienta)) grupo.herramientas.push(item.herramienta)
+    const grupo = porTrabajo.get(etiqueta) ?? { servicio: item.servicio, destinos: new Map() }
     // En minúscula, como las herramientas: la línea es una frase, no un rótulo.
     const maquina = (item.maquina || '').trim().toLowerCase()
-    if (maquina && !grupo.maquinas.includes(maquina)) grupo.maquinas.push(maquina)
+    const suyas = grupo.destinos.get(maquina) ?? []
+    if (!suyas.includes(item.herramienta)) suyas.push(item.herramienta)
+    grupo.destinos.set(maquina, suyas)
     porTrabajo.set(etiqueta, grupo)
   }
 
   if (porTrabajo.size === 0) return ''
 
   const completa = [...porTrabajo]
-    .map(([etiqueta, { servicio, herramientas, maquinas }]) => {
-      const trabajo = `${etiqueta} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
-        herramientas.map((h) => EN_LA_DESCRIPCION[h]),
-      )}`
-      // La máquina es un agregado: mientras no la elijan, la línea dice lo
-      // esencial igual y no queda un "para" colgado.
-      return maquinas.length > 0 ? `${trabajo} para ${enumerar(maquinas)}` : trabajo
+    .map(([etiqueta, { servicio, destinos }]) => {
+      /**
+       * Cada herramienta con su destino, no todas las máquinas al final.
+       *
+       * "sierras circulares para escuadradora y máquina múltiple" se lee como
+       * una sierra que sirve para las dos, y son dos sierras distintas que van
+       * a máquinas distintas. Emparejadas queda dicho cuál va a dónde, que es
+       * lo que en fábrica hay que saber para repartirlas.
+       *
+       * Cuando el destino cambia pero la herramienta es la misma no se repite
+       * —"para escuadradora y para máquina múltiple"—: nombrarla dos veces no
+       * agrega nada y come el renglón, que es corto.
+       */
+      const partes: string[] = []
+      let anterior = ''
+      for (const [maquina, herramientas] of destinos) {
+        const nombres = enumerar(herramientas.map((h) => EN_LA_DESCRIPCION[h]))
+        const mismas = nombres === anterior
+        anterior = nombres
+        // La máquina es un agregado: mientras no la elijan, la línea dice lo
+        // esencial igual y no queda un "para" colgado.
+        partes.push(
+          maquina ? `${mismas ? '' : nombres + ' '}para ${maquina}` : nombres,
+        )
+      }
+      // Con `enumerar` y no con " y " suelto: tres destinos daban "y ... y ..."
+      // y se lee como una lista mal escrita.
+      return `${etiqueta} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(partes)}`
     })
     .join(' · ')
 
@@ -2160,7 +2178,16 @@ const LINEA_DE_SERVICIO = (() => {
   // nueva no puede dejar el reconocedor atrás.
   const maquinas = MAQUINAS.map((m) => escaparRegex(m.toLowerCase())).join('|')
   const listaMaquinas = `(?:${maquinas})(?:, (?:${maquinas}))*(?: y (?:${maquinas}))?`
-  const parte = `(?:${servicios}) (?:de|por) ${lista}(?: para ${listaMaquinas})?`
+  /**
+   * La forma emparejada: "... para escuadradora y para máquina múltiple", y
+   * también "... para escuadradora y fresas para tupí".
+   *
+   * El `(?:${lista} )?` de la repetición es el que hace las dos: con la
+   * herramienta cuando cambia, sin ella cuando se repite.
+   */
+  const parte =
+    `(?:${servicios}) (?:de|por) ${lista}(?: para ${listaMaquinas})?` +
+    `(?:(?:, | y )(?:${lista} )?para ${listaMaquinas})*`
   // La segunda forma es la corta, la que sale cuando la completa no entra en un
   // renglón: los servicios solos.
   const corta = `(?:${servicios})`

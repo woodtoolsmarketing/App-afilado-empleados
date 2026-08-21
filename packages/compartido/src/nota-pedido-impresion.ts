@@ -553,21 +553,22 @@ export function generarHtmlNotaPedido(
    * tablas, que es donde en fábrica escriben a mano.
    */
   /**
-   * Qué dice el total sobre el IVA.
+   * Qué total se imprime, y qué NO se dice sobre el IVA.
    *
-   * Los importes van netos, así que el que paga IVA lleva el "+ IVA" al lado
-   * del total: sin eso el número se lee como final y no lo es. El exento —que
-   * a esta altura sólo puede ser uno de Tierra del Fuego, porque el resto se
-   * guarda como consumidor final— no lleva nada que sumar, y decirlo evita la
-   * pregunta.
+   * El consumidor final lo lleva sumado adentro del total, sin leyenda: el
+   * número que ve es lo que paga, y para él discriminar el impuesto no cambia
+   * nada porque no lo descuenta. No se menciona la alícuota en ningún lado.
+   *
+   * El exento no lleva nada sumado. A esta altura sólo puede ser uno de Tierra
+   * del Fuego —el de cualquier otra provincia se guarda como consumidor final,
+   * ver `situacionIvaEfectiva`— así que su total ES el neto. Tampoco se lo
+   * anuncia: la nota no aclara más su condición fiscal.
+   *
+   * El responsable inscripto es el único que ve los dos números, porque es el
+   * único que descuenta el impuesto y necesita el neto por separado.
    */
-  const paga =
-    nota.situacion_iva === 'consumidor_final' ||
-    nota.situacion_iva === 'responsable_inscripto'
-
-  const leyendaIva = paga ? ` + IVA ${Math.round(ALICUOTA_IVA * 100)} %` : ''
-  const aclaracionIva =
-    nota.situacion_iva === 'exento' ? '<span class="iva">Exento de IVA</span>' : ''
+  const desglosaIva = nota.situacion_iva === 'responsable_inscripto' && !!nota.totales_con_iva
+  const ivaAdentro = nota.situacion_iva === 'consumidor_final' && !!nota.totales_con_iva
 
   /**
    * El responsable inscripto ve los dos números, no uno con una leyenda.
@@ -581,17 +582,14 @@ export function generarHtmlNotaPedido(
    * El subtotal no se aclara como "sin IVA": las columnas de precio de arriba
    * ya lo dicen, y acá lo que lo define es el renglón que tiene debajo.
    */
-  const desglosaIva = nota.situacion_iva === 'responsable_inscripto' && !!nota.totales_con_iva
-
   const cuerpoTotal = desglosaIva
     ? `<span>Subtotal: <strong>${escapar(nota.totales)}</strong></span>
     <span>Total + IVA: <strong>${escapar(nota.totales_con_iva)}</strong></span>`
-    : `<span>TOTAL: <strong>${escapar(nota.totales)}${leyendaIva}</strong></span>`
+    : `<span>TOTAL: <strong>${escapar(ivaAdentro ? nota.totales_con_iva : nota.totales)}</strong></span>`
 
   const totalVisible = !esDuplicado && !!nota.totales
   const resumen = totalVisible
     ? `<div class="resumen${desglosaIva ? ' apilado' : ''}">
-    ${aclaracionIva}
     ${cuerpoTotal}
   </div>`
     : ''
