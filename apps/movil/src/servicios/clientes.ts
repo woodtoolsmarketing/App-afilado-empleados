@@ -60,7 +60,23 @@ export async function ubicarCliente(params: {
     throw error
   }
 
-  const fila = data as { id: string; lat: number; lng: number; localidad: string | null }
+  /**
+   * Que haya venido `data` no quiere decir que se haya guardado.
+   *
+   * La RPC devuelve una fila de `direcciones`. Si adentro no pudo escribir,
+   * devuelve un composite NULL, y PostgREST no lo traduce a "nada": lo traduce
+   * a UNA fila con todas las columnas en NULL, con `error` en null. Confiar en
+   * `error` solo dejó al vendedor mirando un cartel verde mientras el cliente
+   * seguía sin ubicar — y sin ubicar no entra al recorrido.
+   *
+   * La función ya levanta excepción en ese caso (migración 20260821192454),
+   * así que esto es el segundo cerrojo: cubre cualquier vía que la esquive.
+   */
+  const fila = data as { id: string | null; lat: number | null; lng: number | null; localidad: string | null } | null
+  if (!fila || fila.id === null || fila.lat === null || fila.lng === null) {
+    throw new Error('No pudimos guardar la ubicación del cliente. Avisá a la oficina.')
+  }
+
   return { direccion_id: fila.id, lat: fila.lat, lng: fila.lng, localidad: fila.localidad }
 }
 

@@ -93,10 +93,45 @@ export async function permisoDeUbicacionPuntual(): Promise<boolean> {
 // Arranque y parada
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Cuánto se espera un punto nuevo antes de conformarse con el último conocido.
+ *
+ * `getCurrentPositionAsync` no trae timeout propio: adentro de un galpón, en un
+ * subsuelo o con el GPS frío puede no resolver NUNCA. Y un `await` que no
+ * resuelve no lo salva un try/catch — deja la mutación colgada, el botón
+ * girando y al vendedor sin saber si guardó o no.
+ *
+ * Doce segundos es lo que tarda un teléfono con cielo a la vista en dar un
+ * punto bueno. Pasado eso, el último punto conocido dice más que nada.
+ */
+const ESPERA_MAXIMA_MS = 12_000
+
+/** Cuán viejo puede ser el último punto conocido y todavía servir. */
+const ANTIGUEDAD_ACEPTABLE_MS = 5 * 60_000
+
 export async function ubicacionActual(): Promise<{ lat: number; lng: number; precision: number | null }> {
-  const pos = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.High,
-  })
+  // Se queda pidiendo `High`: el desvío de la visita se mide contra esto, y
+  // cien metros de error alcanzan para marcar como "lejos" a alguien que está
+  // parado en la puerta. El que afloja es el reloj, no la precisión.
+  const pos = await Promise.race([
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+    new Promise<Location.LocationObject | null>((resolver) => {
+      setTimeout(() => {
+        // El pedido de arriba sigue vivo: si contesta antes que esto, gana él.
+        Location.getLastKnownPositionAsync({ maxAge: ANTIGUEDAD_ACEPTABLE_MS })
+          .then(resolver)
+          .catch(() => resolver(null))
+      }, ESPERA_MAXIMA_MS)
+    }),
+  ])
+
+  // Fallar acá es aceptable y está previsto: quien registra una visita lo hace
+  // dentro de un try/catch y la guarda sin coordenadas. Lo que no se podía
+  // seguir haciendo era colgarse en silencio.
+  if (!pos) {
+    throw new Error('No pudimos leer tu ubicación. Probá a cielo abierto o reintentá en un momento.')
+  }
+
   return {
     lat: pos.coords.latitude,
     lng: pos.coords.longitude,
