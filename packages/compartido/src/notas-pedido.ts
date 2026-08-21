@@ -1035,6 +1035,13 @@ export function validarItemNota(
     if (item.reparar_dientes === null) {
       errores.reparar_dientes = 'Contestá si querés reparar los dientes'
     }
+    /**
+     * Reparar los dientes es un trabajo aparte, y sin su código no se puede
+     * cobrar: la línea saldría con cantidad y sin precio.
+     *
+     * Se busca solo apenas contestan que sí; este error es para el caso en que
+     * el catálogo no tenga ninguno para esa medida.
+     */
     if (item.reparar_dientes === true && !item.codigo_reparacion.trim()) {
       errores.codigo_reparacion =
         'Falta el código de cómputo de la reparación. Completá el ancho de corte para que se busque solo.'
@@ -1512,7 +1519,15 @@ export function calcularTotalPorDientes(
 // una vez que una copia se quedara atrás y cotizara la mitad.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ConceptoComputo = 'afilado' | 'reparacion' | 'venta'
+/**
+ * Qué trabajo es cada línea de cómputo.
+ *
+ * El rectificado va aparte del afilado aunque los dos se cobren por diente:
+ * son casillas distintas en la tabla técnica y rótulos distintos en la
+ * comercial. Un renglón puede tener dos —los dientes sanos rectificados y los
+ * rotos reparados— y en fábrica hay que poder ver cuál es cuál.
+ */
+export type ConceptoComputo = 'afilado' | 'rectificado' | 'reparacion' | 'venta'
 
 export interface LineaComputo {
   concepto: ConceptoComputo
@@ -1547,19 +1562,11 @@ export interface DatosComputo {
   codigos: string[]
   dientesRotos: number
   /**
-   * Qué reparación se está cobrando, si es que se cobra una.
+   * Si los dientes rotos se reparan, y por lo tanto llevan su propia línea.
    *
-   * Cambia QUÉ se multiplica por el precio, no sólo el código:
-   *
-   *  · **parcial** — se reparan los dientes rotos y nada más, así que se cobran
-   *    ésos: el resto de la herramienta no se toca.
-   *  · **total**   — se rehace la herramienta entera, así que se cobran todos
-   *    sus dientes, rotos incluidos.
-   *
-   * Null es el afilado de siempre: dientes totales menos los rotos, que no se
-   * afilan porque están rotos.
+   * La reparación es un trabajo aparte sobre los mismos dientes que la línea
+   * principal deja afuera: otro código, otro precio y otra cantidad.
    */
-  gradoReparacion?: GradoReparacion | null
   repararDientes: boolean
   codigoReparacion: string
   precioReparacionPorDiente: number
@@ -1619,18 +1626,16 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
   const aAfilar = dientesTotales - rotos
 
   /**
-   * Cuántos dientes se cobran.
+   * La línea principal se cobra por los dientes SANOS.
    *
-   * La reparación parcial se cobra por los dientes rotos —son los únicos que se
-   * tocan— y la total por todos, porque se rehace la herramienta entera. El
-   * afilado común cobra los que quedan sanos: un diente roto no se afila.
+   * Un diente roto no se afila ni se rectifica: se repara, y eso es la segunda
+   * línea, con su propio código y su propio precio. Cobrarlo en las dos sería
+   * cobrar dos veces el mismo diente.
+   *
+   * Una sierra de 96 con 6 rotos se afila por 90. Si además piden repararlos,
+   * esos 90 pasan a rectificado y los 6 van aparte.
    */
-  const cobrados =
-    d.gradoReparacion === 'parcial'
-      ? rotos
-      : d.gradoReparacion === 'total'
-        ? dientesTotales
-        : aAfilar
+  const cobrados = aAfilar
 
   const lineas: LineaComputo[] = [
     {
@@ -1715,7 +1720,13 @@ export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[
 export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
   const esVenta = item.servicio === 'venta'
   return {
-    concepto: esVenta ? 'venta' : item.servicio === 'reparacion' ? 'reparacion' : 'afilado',
+    concepto: esVenta
+      ? 'venta'
+      : item.servicio === 'reparacion'
+        ? 'reparacion'
+        : item.servicio === 'rectificado'
+          ? 'rectificado'
+          : 'afilado',
     cantidad: Math.max(1, Math.round(aNumero(esVenta ? item.unidades : item.cantidad)) || 1),
     dientesPorHerramienta: esVenta ? 0 : aNumero(item.cantidad_dientes),
     precioUnitario: aNumero(esVenta ? item.precio : item.precio_por_diente),
@@ -1725,7 +1736,6 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
         : []
       : item.codigos_computo,
     dientesRotos: item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
-    gradoReparacion: gradoReparacion(item),
     /**
      * Con dientes rotos el renglón ENTERO ya es la reparación.
      *
@@ -1733,7 +1743,7 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
      * que la línea aparte que antes se sumaba por los rotos cobraría el mismo
      * trabajo dos veces y saldría impreso el código de reparación repetido.
      */
-    repararDientes: gradoReparacion(item) === null && item.reparar_dientes === true,
+    repararDientes: item.reparar_dientes === true,
     codigoReparacion: item.codigo_reparacion,
     precioReparacionPorDiente: aNumero(item.precio_reparacion_por_diente),
     // En venta el precio tipeado es UNITARIO, así que no hay total directo:
@@ -1774,42 +1784,6 @@ export function totalDelRenglonEnPesos(item: FormularioItemNota, tipoCambio: num
 /** ¿Hay algún renglón cotizado en dólares? */
 export function tieneRenglonesEnDolares(items: FormularioItemNota[]): boolean {
   return items.some((i) => lineasDelRenglon(i).some((l) => l.moneda === 'USD'))
-}
-
-/**
- * Cuánto se repara cuando el renglón trae dientes rotos.
- *
- * Son dos trabajos distintos y dos códigos distintos de la lista de precios:
- *
- *  · **parcial** — se reparan los dientes que están rotos y nada más.
- *    `REP.PARCIAL DTE. S.C.` (6001 a 6003, por rango de ancho de diente).
- *  · **total**   — se rehace la herramienta entera.
- *    `REP.TOTAL DE S.C.` (6106 a 6108).
- *
- * Cuál de los dos lo decide la respuesta a "¿DESEA REPARAR LOS DIENTES?": si
- * pidió repararlos, el trabajo es total; si no, se reparan sólo los rotos.
- */
-export type GradoReparacion = 'parcial' | 'total'
-
-export function gradoReparacion(item: FormularioItemNota): GradoReparacion | null {
-  if (!item.dientes_rotos) return null
-  return item.reparar_dientes === true ? 'total' : 'parcial'
-}
-
-/**
- * Reconocer el grado en la descripción de la lista.
- *
- * La base clasifica a los dos como `servicio_sugerido = 'reparacion'` —todos
- * empiezan con "REP"— así que la única forma de separarlos es el texto. Se
- * acepta con punto y sin punto, y con o sin espacio, porque la lista los
- * escribe de las dos maneras: "REP.PARCIAL DTE. S.C." y "REP. DTE. CONCAVO".
- */
-export function esReparacionParcial(descripcion: string): boolean {
-  return /REP\.?\s*PARCIAL/i.test(descripcion)
-}
-
-export function esReparacionTotal(descripcion: string): boolean {
-  return /REP\.?\s*TOTAL/i.test(descripcion)
 }
 
 /** Dientes que quedan para afilar, ya descontados los rotos. */

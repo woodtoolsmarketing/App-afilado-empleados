@@ -22,7 +22,6 @@ import {
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
   formatearPesos,
-  gradoReparacion,
   HERRAMIENTAS_POR_SERVICIO,
   lineasDelRenglon,
   MAQUINAS,
@@ -412,13 +411,50 @@ export function PasoRenglon({
     item.precio_reparacion_por_diente,
   ])
 
-  // El código de la reparación ya NO se busca aparte.
+  // ── El código de cómputo de la reparación de los dientes rotos ───────────
   //
-  // Antes los dientes rotos eran un trabajo extra sobre un afilado: el renglón
-  // llevaba el código del afilado y se le sumaba una segunda línea con el de
-  // reparación. Ahora la pieza con dientes rotos no se afila —se repara— y el
-  // código del renglón ES el de la reparación, parcial o total. Buscar otro
-  // aparte cobraría dos veces el mismo trabajo.
+  // Es OTRO código y OTRO precio que el de la línea principal: mismo ancho de
+  // corte, pero servicio "reparación". Se busca solo apenas contestan que sí,
+  // para que el vendedor no tenga que salir a buscarlo a mano.
+  const [buscandoReparacion, setBuscandoReparacion] = useState(false)
+  const [sinCodigoReparacion, setSinCodigoReparacion] = useState(false)
+
+  useEffect(() => {
+    if (item.reparar_dientes !== true || !item.dientes_rotos) {
+      setSinCodigoReparacion(false)
+      return
+    }
+    let cancelado = false
+    setBuscandoReparacion(true)
+    setSinCodigoReparacion(false)
+
+    void resolverCodigoDeItem(item, 'reparacion')
+      .then((encontrados) => {
+        if (cancelado) return
+        if (!encontrados || encontrados.length === 0) {
+          setSinCodigoReparacion(encontrados !== null)
+          return
+        }
+        const mejor = encontrados[0]
+        if (mejor.codigo === item.codigo_reparacion) return
+        alCambiar({
+          codigo_reparacion: mejor.codigo,
+          precio_reparacion_por_diente:
+            mejor.precio_pesos !== null ? String(mejor.precio_pesos) : '',
+        })
+      })
+      .catch(() => {
+        if (!cancelado) setSinCodigoReparacion(true)
+      })
+      .finally(() => {
+        if (!cancelado) setBuscandoReparacion(false)
+      })
+
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.reparar_dientes, item.dientes_rotos, medidaClave, item.herramienta])
 
   // ── El agujero de fábrica ────────────────────────────────────────────────
   //
@@ -800,7 +836,6 @@ export function PasoRenglon({
           const totalDientes = porHerramienta * unidades
           const rotos = item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0
           const aAfilar = dientesAAfilar(item)
-          const grado = gradoReparacion(item)
 
           return (
             <View key={campo}>
@@ -810,17 +845,17 @@ export function PasoRenglon({
                   {`${unidades} × ${porHerramienta} = ${totalDientes} dientes en total`}
                 </Text>
               ) : null}
-              {/* Qué dientes se cobran, que no son los mismos en cada caso: la
-                  reparación parcial toca sólo los rotos, la total rehace la
-                  herramienta entera, y el afilado deja afuera a los rotos
-                  porque un diente roto no se afila. */}
+              {/* Los rotos no entran en la línea principal: un diente roto no
+                  se afila ni se rectifica. Si además los reparan, van aparte y
+                  se dice acá, que es donde el vendedor está mirando la cuenta. */}
               {rotos > 0 && totalDientes > 0 ? (
                 <Text style={estilos.totalDientes}>
-                  {grado === 'parcial'
-                    ? `Se cobran los ${rotos} dientes rotos (reparación parcial)`
-                    : grado === 'total'
-                      ? `Se cobran los ${totalDientes} dientes (reparación total)`
-                      : `${totalDientes} − ${rotos} rotos = ${aAfilar} dientes a afilar`}
+                  {`${totalDientes} − ${rotos} rotos = ${aAfilar} dientes ${
+                    item.reparar_dientes === true ? 'a rectificar' : 'a afilar'
+                  }`}
+                  {item.reparar_dientes === true
+                    ? `, y los ${rotos} rotos aparte con el código de reparación`
+                    : ''}
                 </Text>
               ) : null}
             </View>
@@ -952,28 +987,19 @@ export function PasoRenglon({
               alCambiar={(v) =>
                 alCambiar(
                   /**
-                   * Una pieza con dientes rotos no se afila: se rectifica.
+                   * Marcar los dientes rotos no cambia la operación: la pieza
+                   * se sigue afilando, con menos dientes. Un diente roto no se
+                   * afila, así que sale de la cuenta y nada más.
                    *
-                   * El renglón cambia de operación —y con eso cambia lo que
-                   * dice la nota y el código que se cobra, que pasa a ser el de
-                   * REP.PARCIAL—. Se recuerda de qué servicio venía para poder
-                   * volver si destildan.
+                   * Lo que sí cambia el trabajo es querer repararlos, y eso se
+                   * decide en la pregunta de abajo.
                    *
-                   * Destildar borra además todo lo que colgaba de los rotos:
-                   * dejar una cantidad escondida descontaría dientes que nadie
-                   * volvió a mirar.
+                   * Destildar borra todo lo que colgaba de los rotos: dejar una
+                   * cantidad escondida descontaría dientes que nadie volvió a
+                   * mirar.
                    */
                   v
-                    ? {
-                        dientes_rotos: true,
-                        codigos_computo: [],
-                        ...(item.servicio === 'afilado'
-                          ? {
-                              servicio: 'rectificado' as const,
-                              servicio_antes_de_rotos: 'afilado' as const,
-                            }
-                          : {}),
-                      }
+                    ? { dientes_rotos: true }
                     : {
                         dientes_rotos: false,
                         dientes_rotos_cantidad: '',
@@ -1015,6 +1041,11 @@ export function PasoRenglon({
         if (campo === 'reparar_dientes') {
           if (!item.dientes_rotos) return null
 
+          // La segunda línea, la de los rotos, sale de la misma cuenta que va a
+          // salir impresa: mostrar acá otra cosa sería mostrar un número que la
+          // nota no tiene.
+          const lineaReparacion = lineasDelRenglon(item).find((l) => l.concepto === 'reparacion')
+
           return (
             <View key={campo} style={estilos.bloqueRotos}>
               {/*
@@ -1031,7 +1062,7 @@ export function PasoRenglon({
                   {
                     valor: 'si',
                     etiqueta: 'SÍ, REPARARLOS',
-                    descripcion: 'Se cobra aparte, con el código de reparación',
+                    descripcion: 'Los rotos se reparan y los sanos se rectifican',
                   },
                   {
                     valor: 'no',
@@ -1039,33 +1070,81 @@ export function PasoRenglon({
                     descripcion: 'Sólo se descuentan de los dientes a afilar',
                   },
                 ]}
-                // De la respuesta depende CUÁL reparación se cobra: sólo los
-                // rotos es parcial, la herramienta entera es total. Se limpia
-                // el código para que se vuelva a buscar el que corresponde.
+                /**
+                 * La respuesta parte el renglón en dos trabajos, o en ninguno.
+                 *
+                 * Sin reparar hay un solo trabajo: se AFILAN los dientes sanos y
+                 * los rotos quedan afuera de la cuenta.
+                 *
+                 * Reparándolos hay dos, sobre la misma pieza y con precios
+                 * distintos: los rotos se REPARAN, con su código, y los sanos ya
+                 * no se afilan sino que se RECTIFICAN. Son dos líneas de la misma
+                 * nota, cada una con su código y su cantidad.
+                 *
+                 * La operación se toca únicamente si la puso la app —eso es lo
+                 * que recuerda `servicio_antes_de_rotos`—. Un rectificado que
+                 * eligió el vendedor a propósito se respeta: después no hay forma
+                 * de distinguirlo, y pisarlo sería decidir por él.
+                 */
                 alCambiar={(v) =>
                   alCambiar(
                     v === 'si'
-                      ? { reparar_dientes: true, codigos_computo: [] }
+                      ? {
+                          reparar_dientes: true,
+                          codigos_computo: [],
+                          ...(item.servicio === 'afilado'
+                            ? {
+                                servicio: 'rectificado' as const,
+                                servicio_antes_de_rotos: 'afilado' as const,
+                              }
+                            : {}),
+                        }
                       : {
                           reparar_dientes: false,
                           codigo_reparacion: '',
                           precio_reparacion_por_diente: '',
                           codigos_computo: [],
+                          ...(item.servicio_antes_de_rotos
+                            ? {
+                                servicio: item.servicio_antes_de_rotos,
+                                servicio_antes_de_rotos: null,
+                              }
+                            : {}),
                         },
                   )
                 }
                 error={errores.reparar_dientes}
               />
 
-              {/* Qué se va a cobrar, dicho con todas las letras: la respuesta
-                  cambia el código del renglón y con él el precio. */}
-              <Aviso tono="info">
-                {item.reparar_dientes === true
-                  ? 'Se cobra la REPARACIÓN TOTAL de la herramienta.'
-                  : item.reparar_dientes === false
-                    ? 'Se cobra la REPARACIÓN PARCIAL: sólo los dientes rotos.'
-                    : 'Según la respuesta, el renglón se cobra como reparación parcial o total.'}
-              </Aviso>
+              {buscandoReparacion ? (
+                <View style={estilos.buscando}>
+                  <ActivityIndicator size="small" color={colores.rojo} />
+                  <Text style={estilos.buscandoTexto}>Buscando el código de reparación…</Text>
+                </View>
+              ) : null}
+
+              {/* El importe de los rotos, con su código: es plata aparte de la
+                  del renglón y tiene que poder mirarse antes de firmar. */}
+              {lineaReparacion ? (
+                <View style={estilos.lineaRotos}>
+                  <Pastilla
+                    texto={lineaReparacion.codigo || 'sin código'}
+                    color={colores.ambarOscuro}
+                  />
+                  <Text style={estilos.lineaRotosTexto}>
+                    {`${lineaReparacion.cantidad} × ${formatearPesos(lineaReparacion.precioUnitario)} = ${formatearPesos(lineaReparacion.total)}`}
+                  </Text>
+                </View>
+              ) : null}
+
+              {sinCodigoReparacion ? (
+                <Aviso tono="atencion" titulo="Sin código de reparación">
+                  El catálogo no tiene un código de reparación para esa medida. Cargalo a mano o
+                  consultá con Administración.
+                </Aviso>
+              ) : null}
+
+              <MensajeError>{errores.codigo_reparacion}</MensajeError>
             </View>
           )
         }

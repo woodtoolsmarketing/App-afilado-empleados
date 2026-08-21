@@ -1066,6 +1066,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     tipoNota === 'factura' ? situacionIva : null,
     encabezado.cliente_provincia,
   )
+  /**
+   * ¿Van los dos importes por separado, subtotal y total con IVA?
+   *
+   * Sólo para el responsable inscripto, que es el único que descuenta el IVA y
+   * necesita los dos números: el neto va a su cuenta de compras y el otro es lo
+   * que paga. Se decide acá y no en la pantalla para que sea la misma condición
+   * que usa la nota impresa: si cada lado la escribiera por su cuenta, un día
+   * el vendedor vería un desglose que en el papel no está.
+   */
+  const desglosaIva = tipoNota === 'factura' && situacionIva === 'responsable_inscripto'
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
   const grupos = agruparParaNotas(items, tipoCambio)
@@ -1632,13 +1642,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     tono="exito"
                     titulo={items.length > 1 ? `Total de la nota · ${items.length} renglones` : 'Total del renglón'}
                   >
-                    {/* El "+ IVA" del responsable inscripto va pegado al número
-                        y no en una línea aparte: es parte de cuánto se cobra, y
-                        leerlo suelto invita a leer el total como final. */}
-                    {ivaNota.masIva
-                      ? `${formatearPesos(ivaNota.total)}  + IVA`
-                      : formatearPesos(ivaNota.total)}
-                    {ivaNota.masIva
+                    {/* El responsable inscripto ve los dos importes separados y
+                        con la misma forma que van a salir impresos: subtotal
+                        arriba, total con IVA abajo. Para el resto el "+ IVA" va
+                        pegado al número —leerlo suelto invita a tomar el total
+                        como final— y la cuenta queda hecha debajo. */}
+                    {desglosaIva
+                      ? `Subtotal:  ${formatearPesos(ivaNota.total)}\nTotal + IVA:  ${formatearPesos(ivaNota.conIva)}`
+                      : ivaNota.masIva
+                        ? `${formatearPesos(ivaNota.total)}  + IVA`
+                        : formatearPesos(ivaNota.total)}
+                    {ivaNota.masIva && !desglosaIva
                       ? `\n\nEl total va sin IVA, igual que los precios de la nota. Con el ${Math.round(ALICUOTA_IVA * 100)} % serían ${formatearPesos(ivaNota.conIva)}.`
                       : ''}
                   </Aviso>
@@ -1660,7 +1674,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                             ? 'Paga IVA: la nota sale con "+ IVA"'
                             : s === 'exento'
                               ? 'No paga, sólo si está en Tierra del Fuego'
-                              : 'Paga IVA: la nota sale con "+ IVA"',
+                              : 'Paga IVA: la nota sale con subtotal y total con IVA',
                       }))}
                       alCambiar={setSituacionIva}
                       error={errores.situacion_iva}

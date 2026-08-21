@@ -114,6 +114,15 @@ export interface NotaParaImprimir {
    * puede diferir de los renglones que la componen.
    */
   totales: string
+  /**
+   * Los mismos totales con el IVA ya sumado, uno por moneda.
+   *
+   * Se escribe siempre y lo usa el que lo necesita: hoy, el responsable
+   * inscripto, que ve el subtotal y el total con IVA uno debajo del otro. Se
+   * calcula del mismo mapa por moneda que `totales`, así que los dos números
+   * salen de las mismas líneas y no pueden discrepar.
+   */
+  totales_con_iva: string
 
   tipo_cambio: string
   /** Ya escrita: "Contado", "Cheque a 30 días", el texto libre de "Otro". */
@@ -540,11 +549,30 @@ export function generarHtmlNotaPedido(
   const aclaracionIva =
     nota.situacion_iva === 'exento' ? '<span class="iva">Exento de IVA</span>' : ''
 
+  /**
+   * El responsable inscripto ve los dos números, no uno con una leyenda.
+   *
+   * Es el único que descuenta el IVA, así que necesita el neto y el final como
+   * dos importes distintos: el subtotal es lo que va a su cuenta de compras y
+   * el total con IVA es lo que paga. Un solo número con "+ IVA" al lado lo
+   * obliga a sacar la cuenta a mano sobre un comprobante, que es justo donde no
+   * se saca ninguna cuenta a mano.
+   *
+   * El subtotal no se aclara como "sin IVA": las columnas de precio de arriba
+   * ya lo dicen, y acá lo que lo define es el renglón que tiene debajo.
+   */
+  const desglosaIva = nota.situacion_iva === 'responsable_inscripto' && !!nota.totales_con_iva
+
+  const cuerpoTotal = desglosaIva
+    ? `<span>Subtotal: <strong>${escapar(nota.totales)}</strong></span>
+    <span>Total + IVA: <strong>${escapar(nota.totales_con_iva)}</strong></span>`
+    : `<span>TOTAL: <strong>${escapar(nota.totales)}${leyendaIva}</strong></span>`
+
   const totalVisible = !esDuplicado && !!nota.totales
   const resumen = totalVisible
-    ? `<div class="resumen">
+    ? `<div class="resumen${desglosaIva ? ' apilado' : ''}">
     ${aclaracionIva}
-    <span>TOTAL: <strong>${escapar(nota.totales)}${leyendaIva}</strong></span>
+    ${cuerpoTotal}
   </div>`
     : ''
 
@@ -799,6 +827,10 @@ html {
   font-size: 9pt;
 }
 .resumen strong { font-size: 10pt; }
+/* Cuando van los dos importes —subtotal y total con IVA— se apilan, uno debajo
+   del otro. En la misma línea, el segundo número se lee como otra moneda o como
+   un descuento, y no como la suma del primero. */
+.resumen.apilado { flex-direction: column; align-items: flex-end; gap: 1px; }
 /* La aclaración del IVA va a la izquierda del total, más chica: explica el
    número sin competir con él. */
 .resumen .iva { font-size: 8pt; align-self: center; }
@@ -916,7 +948,14 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
    * para que lo que se imprime no pueda diferir de lo que el vendedor vio.
    */
   const computoDeFila = (i: Record<string, any>): DatosComputo => ({
-    concepto: i.servicio === 'venta' ? 'venta' : i.servicio === 'reparacion' ? 'reparacion' : 'afilado',
+    concepto:
+      i.servicio === 'venta'
+        ? 'venta'
+        : i.servicio === 'reparacion'
+          ? 'reparacion'
+          : i.servicio === 'rectificado'
+            ? 'rectificado'
+            : 'afilado',
     cantidad: Math.max(1, Number(i.cantidad) || 1),
     // En una VENTA los dientes son una característica de la herramienta que se
     // vende, no algo que se cobre por unidad: lo que se computa son las
@@ -936,24 +975,13 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         : [],
     dientesRotos: i.dientes_rotos ? Number(i.detalle?.dientes_rotos_cantidad) || 0 : 0,
     /**
-     * El criterio viejo se respeta en las notas viejas.
+     * Reparar los dientes agrega una línea, no cambia la principal.
      *
-     * Hasta este cambio, una herramienta con dientes rotos se cobraba como un
-     * afilado MÁS una línea aparte de reparación, con su propio código
-     * guardado en `detalle.codigo_reparacion`. Ahora el renglón entero es la
-     * reparación y esa línea no existe.
-     *
-     * Ese código guardado es lo que distingue una nota de antes de una de
-     * ahora, y las de antes se siguen imprimiendo como se crearon: recalcular
-     * un comprobante ya entregado con un criterio nuevo le cambiaría el total.
+     * La principal cobra los dientes sanos —los rotos no se afilan— y la
+     * reparación va aparte con su código. Es el mismo criterio para todas las
+     * notas, así que una nota vieja se vuelve a imprimir igual que como salió.
      */
-    gradoReparacion:
-      i.detalle?.codigo_reparacion || !i.dientes_rotos
-        ? null
-        : i.detalle?.reparar_dientes === true
-          ? 'total'
-          : 'parcial',
-    repararDientes: !!i.detalle?.codigo_reparacion && i.detalle?.reparar_dientes === true,
+    repararDientes: i.detalle?.reparar_dientes === true,
     codigoReparacion: d(i, 'codigo_reparacion'),
     precioReparacionPorDiente: Number(i.detalle?.precio_reparacion_unitario) || 0,
     // En venta el unitario ya está guardado, así que no hay total directo que
@@ -988,18 +1016,28 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     porMoneda.set(l.moneda, (porMoneda.get(l.moneda) ?? 0) + l.total)
   }
 
-  // El IVA no se suma a ningún importe: la nota cotiza en neto y lo dice en
-  // las columnas de precio. Lo único que cambia con la situación del cliente
-  // es el "+ IVA" al lado del total.
-  const totales = Array.from(porMoneda.entries())
-    .filter(([, valor]) => valor > 0)
-    // Los pesos primero: es la moneda en la que se cobra.
-    .sort(([a], [b]) => (a === b ? 0 : a === 'ARS' ? -1 : 1))
-    .map(([moneda, valor]) => formatearMoneda(Math.round(valor * 100) / 100, moneda))
-    .join('  ·  ')
+  /**
+   * Los totales escritos, con o sin IVA según quién los pida.
+   *
+   * Los renglones y sus precios van SIEMPRE en neto: la nota lo dice en las
+   * columnas. Lo único que cambia con la situación del cliente es qué se
+   * muestra abajo de todo, y las dos versiones salen de este mismo mapa por
+   * moneda para que no puedan discrepar entre ellas ni con la tabla de arriba.
+   */
+  const escribirTotales = (factor: number) =>
+    Array.from(porMoneda.entries())
+      .filter(([, valor]) => valor > 0)
+      // Los pesos primero: es la moneda en la que se cobra.
+      .sort(([a], [b]) => (a === b ? 0 : a === 'ARS' ? -1 : 1))
+      .map(([moneda, valor]) => formatearMoneda(Math.round(valor * factor * 100) / 100, moneda))
+      .join('  ·  ')
+
+  const totales = escribirTotales(1)
+  const totalesConIva = escribirTotales(1 + ALICUOTA_IVA)
 
   return {
     totales,
+    totales_con_iva: totalesConIva,
     situacion_iva: (nota.situacion_iva as SituacionIva | null) ?? null,
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
@@ -1018,10 +1056,13 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       // es el mismo número que se computa del otro lado de la hoja, y así el
       // taller no tiene que cruzar las dos tablas para saber cuántos son.
       const lineas = lineasDeComputo(computoDeFila(i))
-      const dientesDe = (concepto: 'afilado' | 'reparacion') =>
+      const dientesDe = (concepto: 'afilado' | 'rectificado' | 'reparacion') =>
         lineas.find((l) => l.concepto === concepto)?.cantidad ?? 0
 
-      const trabajo = (aplica: boolean, concepto: 'afilado' | 'reparacion'): CasillaOperacion => {
+      const trabajo = (
+        aplica: boolean,
+        concepto: 'afilado' | 'rectificado' | 'reparacion',
+      ): CasillaOperacion => {
         if (!aplica) return false
         const n = dientesDe(concepto)
         // Sin dientes —una mecha, una cuchilla— la casilla vuelve a ser un tilde.
@@ -1031,13 +1072,16 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       return {
         descripcion: i.descripcion ?? i.codigo_herramienta ?? '',
         afilado: trabajo(i.servicio === 'afilado', 'afilado'),
-        rectificado: trabajo(i.servicio === 'rectificado', 'afilado'),
+        rectificado: trabajo(i.servicio === 'rectificado', 'rectificado'),
         // También cuando se reparan los dientes rotos de una herramienta que
         // vino a afilar: sobre esa pieza se hacen las dos operaciones, y la
         // casilla de reparación lleva sólo los dientes rotos.
+        // Siempre la línea de reparación, venga de un renglón que ES una
+        // reparación o de uno que además repara sus dientes rotos: en los dos
+        // casos esa línea lleva el concepto `reparacion`.
         reparacion: trabajo(
           i.servicio === 'reparacion' || i.detalle?.reparar_dientes === true,
-          i.servicio === 'reparacion' ? 'afilado' : 'reparacion',
+          'reparacion',
         ),
         tensado: false,
         rellenado: false,
@@ -1084,11 +1128,16 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         // la primera fila. La reparación de dientes rotos se aclara en su
         // propia fila, que es donde está su código, y lo que no se cobra se
         // dice con todas las letras.
+        // Cuando un renglón se parte en dos —los sanos rectificados, los rotos
+        // reparados— cada fila dice cuál es: el código solo no alcanza para
+        // saberlo de un vistazo, y las dos comparten herramienta y medida.
         condicion_venta: l.sinCargo
           ? 'SIN CARGO'
           : l.concepto === 'reparacion'
             ? 'Reparación dientes'
-            : '',
+            : l.concepto === 'rectificado'
+              ? 'Rectificado'
+              : '',
         anticipo: '',
         observaciones: '',
       })),

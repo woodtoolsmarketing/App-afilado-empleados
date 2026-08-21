@@ -7,10 +7,7 @@ import {
   aplicarSinCargo,
   ENCABEZADO_VACIO,
   esObservacionDelSistema,
-  esReparacionParcial,
-  esReparacionTotal,
   FAMILIA_CATALOGO,
-  gradoReparacion,
   ITEM_VACIO,
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
@@ -441,45 +438,31 @@ export async function resolverCodigoDeItem(
   // En las mechas la medida es el diámetro; en el resto, un ancho.
   const dimension = item.herramienta === 'mecha' ? 'diametro' : 'ancho_corte'
 
-  /**
-   * Con dientes rotos el renglón deja de buscar un afilado.
-   *
-   * La pieza ya no se afila: se repara. Cuál de las dos reparaciones lo decide
-   * "¿DESEA REPARAR LOS DIENTES?" — sólo los rotos es PARCIAL, la herramienta
-   * entera es TOTAL— y son códigos distintos con precios distintos.
-   *
-   * La base clasifica a los dos como `reparacion` porque todos empiezan con
-   * "REP", así que separarlos hay que hacerlo por la descripción.
-   */
-  const grado = gradoReparacion(item)
-  if (grado && servicio === item.servicio) {
-    const candidatos = await buscarCodigoComputo({
-      herramienta: item.herramienta,
-      medida,
-      dimension,
-      servicio: 'reparacion',
-    })
-    const delGrado = candidatos.filter((c) =>
-      grado === 'total' ? esReparacionTotal(c.descripcion) : esReparacionParcial(c.descripcion),
-    )
-    /**
-     * Si el catálogo no separa parcial de total para esta familia, se ofrece la
-     * reparación que sí tenga.
-     *
-     * Medido: el corte parcial/total sólo existe en sierras (6001-6003 contra
-     * 6106-6108). Una fresa con dientes rotos tiene "REP. DTE. FRESA RECTA" y
-     * nada más, y devolver una lista vacía dejaría el renglón sin código y sin
-     * precio, que es peor que ofrecer el único que hay.
-     */
-    return delGrado.length > 0 ? delGrado : candidatos
-  }
-
-  return buscarCodigoComputo({
+  const porMedida = await buscarCodigoComputo({
     herramienta: item.herramienta,
     medida,
     dimension,
     servicio,
   })
+  if (porMedida.length > 0 || servicio !== 'rectificado') return porMedida
+
+  /**
+   * El rectificado no se cotiza por medida.
+   *
+   * Medido contra el catálogo: de 55 códigos de afilado, 27 tienen rango de
+   * ancho de corte; de rectificado hay UNO solo —8025, RECTIFICADO DE LATERAL
+   * S.C.— y no tiene rango ninguno. Buscarlo por medida no devuelve nada y
+   * nunca va a devolver nada.
+   *
+   * Sin este respaldo, contestar "sí, repararlos" dejaba el renglón sin código
+   * y sin precio, con el vendedor mirando "no hay código para esa medida" sobre
+   * una medida que está perfecta.
+   *
+   * Va sólo para el rectificado y no para todos: en el afilado, que sí se
+   * cotiza por rango, una medida que no cae en ninguno es un dato para revisar
+   * —y la pantalla lo dice—, no algo para tapar con un código cualquiera.
+   */
+  return medidasDisponibles(item.herramienta, servicio)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
