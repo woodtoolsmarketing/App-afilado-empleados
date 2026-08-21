@@ -92,6 +92,15 @@ export interface NotaParaImprimir {
 
   vendedor_numero: string
   cliente_numero: string | null
+  /**
+   * El nombre solo, sin la ficha entera.
+   *
+   * Es lo único del cliente que lleva el duplicado. Puede venir vacío —cuando
+   * los datos se tipearon a mano en vez de salir del padrón— y ahí el duplicado
+   * cae a la ficha completa: es fea, pero decir de quién es la herramienta
+   * importa más que la prolijidad.
+   */
+  cliente_nombre: string | null
   zona: string
 
   datos_cliente: string
@@ -202,6 +211,17 @@ export const A4_ALTO_PT = 842
  * papel ese recuadro tampoco crece: lo que no entra, no entra.
  */
 const ALTO_DATOS_CLIENTE_MM = 17
+/**
+ * Lo mismo, pero cuando el pie lleva subtotal Y total con IVA.
+ *
+ * Ese desglose agrega un renglón abajo de todo, y en esta hoja no hay lugar de
+ * sobra: las dos tablas tienen `flex-basis: 0` y no devuelven nada, así que un
+ * milímetro de más empuja la nota a una segunda hoja. Los cuatro milímetros
+ * salen de acá porque es el recuadro que mejor los banca: son cinco líneas de
+ * ficha del padrón y con cuatro se sigue sabiendo quién es el cliente y dónde
+ * está. Sacárselos a la descripción, en cambio, taparía lo que hay que hacer.
+ */
+const ALTO_DATOS_CLIENTE_DESGLOSE_MM = 13
 /**
  * El recuadro de la descripción general: cuatro renglones.
  *
@@ -576,7 +596,7 @@ export function generarHtmlNotaPedido(
   </div>`
     : ''
 
-  return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}">
+  return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}${desglosaIva ? ' desglosa' : ''}">
   <table class="encabezado">
     <tr>
       <td class="celda-logo">${celdaLogo}</td>
@@ -609,7 +629,17 @@ export function generarHtmlNotaPedido(
 
   <div class="bloque-cliente">
     <div class="rotulo">DATOS DEL CLIENTE:</div>
-    <div class="texto-libre">${escapar(nota.datos_cliente)}</div>
+    <!--
+      El duplicado lleva sólo el nombre.
+
+      Es la copia que se queda en el taller, con la herramienta: lo que hace
+      falta ahí es saber de quién es la pieza, no cómo llegarle. La direccion,
+      el teléfono y el mail son para el original, que es el que va al cliente y
+      a administración. Y de paso libera renglones en la copia más apretada.
+    -->
+    <div class="texto-libre">${escapar(
+      esDuplicado ? nota.cliente_nombre || nota.datos_cliente : nota.datos_cliente,
+    )}</div>
   </div>
 
   <div class="bloque-titulo">DESCRIPCION GENERAL DE LAS HERRAMIENTAS</div>
@@ -748,6 +778,14 @@ html {
   font-size: 8pt;
   line-height: 1.15;
 }
+/* Con el desglose de IVA la ficha del cliente cede lo que el pie necesita.
+   Ver ALTO_DATOS_CLIENTE_DESGLOSE_MM.
+
+   Va acotada al ORIGINAL a propósito. Sin ese .original, estos tres nombres de
+   clase le ganaban en especificidad a .duplicado .texto-libre —que son dos— y
+   le AGRANDABAN la ficha de 10 a 13 mm justo a la copia más apretada de las
+   dos. El duplicado ya no la necesita: lleva sólo el nombre. */
+.nota.original.desglosa .texto-libre { height: ${ALTO_DATOS_CLIENTE_DESGLOSE_MM}mm; }
 .texto-libre.alto-2 {
   height: ${ALTO_DESCRIPCION_MM}mm;
   border: 1px solid #000;
@@ -982,6 +1020,11 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
      * notas, así que una nota vieja se vuelve a imprimir igual que como salió.
      */
     repararDientes: i.detalle?.reparar_dientes === true,
+    // Los rascadores son por herramienta, igual que los dientes.
+    rascadores:
+      (Number(i.detalle?.rascadores) || 0) * Math.max(1, Number(i.cantidad) || 1),
+    codigoRascador: d(i, 'codigo_rascador'),
+    precioRascadorUnitario: Number(i.detalle?.precio_rascador_unitario) || 0,
     codigoReparacion: d(i, 'codigo_reparacion'),
     precioReparacionPorDiente: Number(i.detalle?.precio_reparacion_unitario) || 0,
     // En venta el unitario ya está guardado, así que no hay total directo que
@@ -1048,6 +1091,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       VENDEDORES_CON_CERO,
     ),
     cliente_numero: nota.cliente_codigo,
+    cliente_nombre: nota.cliente_nombre ?? null,
     zona: nota.zona ?? '',
     datos_cliente: nota.datos_cliente ?? '',
     descripcion_herramientas: nota.descripcion_herramienta ?? '',
@@ -1095,7 +1139,20 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         diametro_interior:
           d(i, 'diametro_interior') || d(i, 'ancho') || d(i, 'largo_util'),
         ancho_corte: d(i, 'ancho_corte') || d(i, 'espesor'),
-        z_paso: i.cantidad_dientes ? String(i.cantidad_dientes) : d(i, 'paso'),
+        /**
+         * "18+4", como lo escribe la lista de Franzoi.
+         *
+         * Los dientes y los rascadores son dos números distintos y se afilan
+         * con códigos distintos, pero en la pieza son una sola cosa: quien la
+         * mira en fábrica cuenta 22 filos. Escribirlos sumados escondería que
+         * cuatro de ellos son rascadores; escribir sólo los dientes haría
+         * pensar que faltan.
+         */
+        z_paso: i.cantidad_dientes
+          ? Number(i.detalle?.rascadores) > 0
+            ? `${i.cantidad_dientes}+${Number(i.detalle?.rascadores)}`
+            : String(i.cantidad_dientes)
+          : d(i, 'paso'),
       }
     }),
     // Un renglón puede dar más de una línea: cuando hay dientes rotos que se
@@ -1128,16 +1185,16 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         // la primera fila. La reparación de dientes rotos se aclara en su
         // propia fila, que es donde está su código, y lo que no se cobra se
         // dice con todas las letras.
-        // Cuando un renglón se parte en dos —los sanos rectificados, los rotos
-        // reparados— cada fila dice cuál es: el código solo no alcanza para
-        // saberlo de un vistazo, y las dos comparten herramienta y medida.
-        condicion_venta: l.sinCargo
-          ? 'SIN CARGO'
-          : l.concepto === 'reparacion'
-            ? 'Reparación dientes'
-            : l.concepto === 'rectificado'
-              ? 'Rectificado'
-              : '',
+        /**
+         * Qué trabajo es cada fila NO va acá.
+         *
+         * Esta columna es "Condición de Venta" y lo que le corresponde es la de
+         * la nota. Nombrar el servicio acá lo decía dos veces —ya está en la
+         * descripción general, que es donde se lee— y encima en la casilla
+         * equivocada. Lo único propio de la fila que sobrevive es lo que no se
+         * cobra, que no es un servicio sino una condición.
+         */
+        condicion_venta: l.sinCargo ? 'SIN CARGO' : '',
         anticipo: '',
         observaciones: '',
       })),

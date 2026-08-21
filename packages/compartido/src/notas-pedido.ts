@@ -230,6 +230,7 @@ export type CampoItem =
   | 'dientes_rotos'
   | 'dientes_rotos_cantidad'
   | 'reparar_dientes'
+  | 'rascadores'
   | 'afilado_reparacion'
   | 'codigos_computo'
   | 'precio_por_diente'
@@ -252,7 +253,7 @@ export type CampoItem =
 export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
   sierra: [
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
-    'diametro_interior', 'descripcion', 'cantidad_dientes',
+    'diametro_interior', 'descripcion', 'cantidad_dientes', 'rascadores',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
@@ -331,6 +332,57 @@ export const MAQUINA_SUGERIDA: Record<Herramienta, string> = {
   mecha: 'Centro de perforado',
   cuchilla: 'Cepilladora',
   sierra_sin_fin: '',
+}
+
+/**
+ * Las máquinas donde puede ir cada herramienta.
+ *
+ * Sale de las mismas reglas de `maquinaDeProducto` en la página pública, leídas
+ * al revés: si ninguna regla de sierras devuelve nunca un tupí, entonces una
+ * sierra no va en un tupí y ofrecerlo es ofrecer un error. Antes el desplegable
+ * mostraba las quince máquinas para cualquier herramienta, y una sierra de 300
+ * con 96 dientes se podía mandar a una tupí sin que nada dijera nada.
+ *
+ * Cada lista abre en máquinas sueltas lo que allá es una frase: "Escuadradora,
+ * mesa de banco o seccionadora horizontal" son tres opciones acá, porque el
+ * cliente tiene una sola en el taller y hay que elegirla.
+ *
+ * Las de la sierra sin fin quedan todas: va en su propia máquina, que no está
+ * en esta lista, así que no hay contra qué filtrar y esconder opciones sería
+ * peor que mostrarlas.
+ */
+export const MAQUINAS_POR_HERRAMIENTA: Record<Herramienta, string[]> = {
+  // Escuadradora / mesa de banco / seccionadora es el destino de casi todas.
+  // Se suman la múltiple —ahí van las Franzoi y las S.C. de múltiple—, la
+  // ingletadora y la máquina de mano, y la trituradora, que también usa discos.
+  sierra: [
+    'Escuadradora',
+    'Mesa de banco',
+    'Seccionadora',
+    'Máquina múltiple',
+    'Ingletadora',
+    'Máquina de mano',
+    'Trituradora',
+  ],
+  // El incisor es el disco chico que va DELANTE de la sierra principal, así que
+  // vive en las mismas dos máquinas que la acompañan.
+  incisor: ['Escuadradora', 'Seccionadora'],
+  fresa: ['Tupí', 'Machimbradora', 'Moldurera', 'Pantógrafo o CNC', 'Ingletadora', 'Máquina de mano'],
+  cabezal: ['Machimbradora', 'Moldurera', 'Cepilladora', 'Tupí'],
+  cuchilla: ['Cepilladora', 'Moldurera', 'Machimbradora', 'Trituradora'],
+  mecha: ['Centro de perforado', 'Agujereadora múltiple', 'Barreno', 'Pantógrafo o CNC'],
+  sierra_sin_fin: MAQUINAS,
+}
+
+/**
+ * Las máquinas que se le ofrecen a esta herramienta.
+ *
+ * Sin herramienta elegida todavía no hay con qué filtrar, y la lista completa
+ * es la respuesta honesta.
+ */
+export function maquinasDeLaHerramienta(herramienta: Herramienta | ''): string[] {
+  if (!herramienta) return MAQUINAS
+  return MAQUINAS_POR_HERRAMIENTA[herramienta] ?? MAQUINAS
 }
 
 /** Contra qué medida se busca el código de cómputo en cada herramienta. */
@@ -842,6 +894,22 @@ export interface FormularioItemNota {
   codigo_reparacion: string
   precio_reparacion_por_diente: string
 
+  // ── Rascadores ────────────────────────────────────────────────────────────
+  //
+  // Las sierras de máquina múltiple —las Franzoi entre ellas— llevan, además de
+  // los dientes, unos rascadores, y la lista los anuncia juntos: "Z=18+4" son
+  // 18 dientes y 4 rascadores. Se afilan los dos pero NO valen lo mismo: el
+  // diente sale $ 248,85 y el rascador $ 319,95, cada uno con su código. Meter
+  // los 22 al precio del diente cobraría de menos todas las veces.
+  //
+  // Van en un campo aparte y no adentro del de dientes: "18+4" habría que
+  // interpretarlo, y un dedo de más en el signo cambia la cuenta sin avisar.
+  /** Cuántos rascadores tiene la pieza. Vacío en las que no llevan. */
+  rascadores: string
+  /** Código de cómputo del afilado del rascador. Se busca solo. */
+  codigo_rascador: string
+  precio_rascador_unitario: string
+
   // ── Trabajos que no se cobran ─────────────────────────────────────────────
   //
   // Se marcan al elegir el código: la lista de precios lo dice en la
@@ -902,6 +970,9 @@ export const ITEM_VACIO: FormularioItemNota = {
   reparar_dientes: null,
   codigo_reparacion: '',
   precio_reparacion_por_diente: '',
+  rascadores: '',
+  codigo_rascador: '',
+  precio_rascador_unitario: '',
   cuchilla_tipo: null,
   cuchilla_material: null,
   cuchilla_trabajo: null,
@@ -931,6 +1002,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   dientes_rotos: '',
   dientes_rotos_cantidad: 'cuántos dientes están rotos',
   reparar_dientes: 'si querés reparar los dientes',
+  rascadores: 'cuántos rascadores tiene',
   afilado_reparacion: '',
   codigos_computo: 'el código de cómputo',
   precio_por_diente: 'el precio por diente',
@@ -945,6 +1017,9 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
  * vendedor marcó que hay dientes rotos— y esa regla está escrita aparte.
  */
 const NO_OBLIGATORIOS: CampoItem[] = [
+  // La mayoría de las sierras no lleva rascadores: se pregunta por si acaso y
+  // vacío quiere decir que no tiene, que es el caso normal.
+  'rascadores',
   'dientes_rotos',
   'afilado_reparacion',
   'dientes_rotos_cantidad',
@@ -1527,7 +1602,12 @@ export function calcularTotalPorDientes(
  * comercial. Un renglón puede tener dos —los dientes sanos rectificados y los
  * rotos reparados— y en fábrica hay que poder ver cuál es cuál.
  */
-export type ConceptoComputo = 'afilado' | 'rectificado' | 'reparacion' | 'venta'
+export type ConceptoComputo =
+  | 'afilado'
+  | 'rectificado'
+  | 'reparacion'
+  | 'rascador'
+  | 'venta'
 
 export interface LineaComputo {
   concepto: ConceptoComputo
@@ -1568,6 +1648,16 @@ export interface DatosComputo {
    * principal deja afuera: otro código, otro precio y otra cantidad.
    */
   repararDientes: boolean
+  /**
+   * Los rascadores de la pieza, que se afilan aparte de los dientes.
+   *
+   * Otro código y otro precio sobre la misma herramienta, igual que la
+   * reparación: por eso son su propia línea y no un número que se suma a los
+   * dientes.
+   */
+  rascadores: number
+  codigoRascador: string
+  precioRascadorUnitario: number
   codigoReparacion: string
   precioReparacionPorDiente: number
   /**
@@ -1648,6 +1738,26 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
       sinCargo,
     },
   ]
+
+  /**
+   * Los rascadores, si los tiene.
+   *
+   * Van antes de la reparación porque son parte del trabajo normal de la pieza
+   * —se afilan siempre que estén—, y la reparación es lo excepcional.
+   */
+  const rascadores = Math.max(0, d.rascadores || 0)
+  if (rascadores > 0) {
+    lineas.push({
+      concepto: 'rascador',
+      codigo: d.codigoRascador,
+      cantidad: rascadores,
+      precioUnitario: sinCargo ? 0 : d.precioRascadorUnitario,
+      total: sinCargo ? totalSinCargo() : redondear(rascadores * d.precioRascadorUnitario),
+      // El afilado del rascador se cobra en pesos, como el del diente.
+      moneda: 'ARS',
+      sinCargo,
+    })
+  }
 
   if (rotos > 0 && d.repararDientes) {
     // La reparación puede ir sin cargo aunque el afilado se cobre: es
@@ -1746,6 +1856,11 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
     repararDientes: item.reparar_dientes === true,
     codigoReparacion: item.codigo_reparacion,
     precioReparacionPorDiente: aNumero(item.precio_reparacion_por_diente),
+    // Los rascadores son POR HERRAMIENTA, como los dientes: cuatro sierras de
+    // 18+4 llevan 16 rascadores.
+    rascadores: aNumero(item.rascadores) * Math.max(1, aNumero(item.cantidad) || 1),
+    codigoRascador: item.codigo_rascador,
+    precioRascadorUnitario: aNumero(item.precio_rascador_unitario),
     // En venta el precio tipeado es UNITARIO, así que no hay total directo:
     // dejarlo acá haría que 3 unidades a $100 se facturaran $100.
     precioTotalDirecto: esVenta ? 0 : aNumero(item.precio_total),
@@ -1942,24 +2057,58 @@ const LARGO_MAXIMO_LINEA = 120
  * principio de la carga no hay nada que anunciar, y una línea a medio armar es
  * peor que ninguna.
  */
+/**
+ * Cómo se anuncia el trabajo de un renglón.
+ *
+ * Casi siempre es su operación a secas. La excepción es el renglón que además
+ * repara sus dientes rotos: ahí son DOS trabajos sobre la misma pieza —los
+ * rotos se reparan, los sanos se rectifican— y los dos tienen que estar en la
+ * descripción. Es lo primero que se lee en fábrica, y leer sólo RECTIFICADO
+ * manda a hacer la mitad del trabajo.
+ *
+ * Un renglón que ya ES una reparación no se duplica: diría REPARACIÓN Y
+ * REPARACIÓN.
+ */
+function etiquetaDelTrabajo(item: FormularioItemNota): string {
+  const propia = ETIQUETA_TIPO_SERVICIO[item.servicio]
+  const reparaAparte =
+    item.dientes_rotos && item.reparar_dientes === true && item.servicio !== 'reparacion'
+  return reparaAparte ? `${ETIQUETA_TIPO_SERVICIO.reparacion} Y ${propia}` : propia
+}
+
 export function lineaDeServicio(items: FormularioItemNota[]): string {
-  const porServicio = new Map<TipoServicio, { herramientas: Herramienta[]; maquinas: string[] }>()
+  /**
+   * Agrupado por lo que ANUNCIA cada renglón, no por su operación.
+   *
+   * Dos rectificados se juntan en una sola frase, como antes. Pero uno que
+   * además repara anuncia otra cosa, así que va en su propio grupo: mezclarlos
+   * pondría los dos bajo el mismo rótulo y uno de los dos quedaría mal dicho.
+   */
+  const porTrabajo = new Map<
+    string,
+    { servicio: TipoServicio; herramientas: Herramienta[]; maquinas: string[] }
+  >()
 
   for (const item of items) {
     if (!item.herramienta) continue
-    const grupo = porServicio.get(item.servicio) ?? { herramientas: [], maquinas: [] }
+    const etiqueta = etiquetaDelTrabajo(item)
+    const grupo = porTrabajo.get(etiqueta) ?? {
+      servicio: item.servicio,
+      herramientas: [],
+      maquinas: [],
+    }
     if (!grupo.herramientas.includes(item.herramienta)) grupo.herramientas.push(item.herramienta)
     // En minúscula, como las herramientas: la línea es una frase, no un rótulo.
     const maquina = (item.maquina || '').trim().toLowerCase()
     if (maquina && !grupo.maquinas.includes(maquina)) grupo.maquinas.push(maquina)
-    porServicio.set(item.servicio, grupo)
+    porTrabajo.set(etiqueta, grupo)
   }
 
-  if (porServicio.size === 0) return ''
+  if (porTrabajo.size === 0) return ''
 
-  const completa = [...porServicio]
-    .map(([servicio, { herramientas, maquinas }]) => {
-      const trabajo = `${ETIQUETA_TIPO_SERVICIO[servicio]} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
+  const completa = [...porTrabajo]
+    .map(([etiqueta, { servicio, herramientas, maquinas }]) => {
+      const trabajo = `${etiqueta} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(
         herramientas.map((h) => EN_LA_DESCRIPCION[h]),
       )}`
       // La máquina es un agregado: mientras no la elijan, la línea dice lo
@@ -1971,10 +2120,10 @@ export function lineaDeServicio(items: FormularioItemNota[]): string {
   if (completa.length <= LARGO_MAXIMO_LINEA) return completa
 
   // Tres servicios con dos herramientas cada uno no entran en un renglón, y el
-  // recuadro no avisa: recorta. Se dejan los servicios solos, que es el dato
+  // recuadro no avisa: recorta. Se dejan los trabajos solos, que es el dato
   // que hay que leer de lejos; qué herramienta es cada uno ya está renglón por
   // renglón en la tabla de abajo.
-  return [...porServicio.keys()].map((s) => ETIQUETA_TIPO_SERVICIO[s]).join(' · ')
+  return [...porTrabajo.keys()].join(' · ')
 }
 
 const escaparRegex = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1992,7 +2141,19 @@ const escaparRegex = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * es, y así no matchea.
  */
 const LINEA_DE_SERVICIO = (() => {
-  const servicios = Object.values(ETIQUETA_TIPO_SERVICIO).map(escaparRegex).join('|')
+  const etiquetas = Object.values(ETIQUETA_TIPO_SERVICIO).map(escaparRegex)
+  /**
+   * También la forma compuesta, "REPARACIÓN Y RECTIFICADO".
+   *
+   * Va PRIMERO en la alternancia: si "RECTIFICADO" se probara antes, matchearía
+   * la mitad de la frase y el reconocedor —que exige la línea entera— diría que
+   * no es suya. Esa línea volvería al campo del vendedor y cada corrección de
+   * la nota agregaría una copia.
+   */
+  const compuestas = etiquetas.map(
+    (e) => `${escaparRegex(ETIQUETA_TIPO_SERVICIO.reparacion)} Y ${e}`,
+  )
+  const servicios = [...compuestas, ...etiquetas].join('|')
   const herramientas = Object.values(EN_LA_DESCRIPCION).map(escaparRegex).join('|')
   const lista = `(?:${herramientas})(?:, (?:${herramientas}))*(?: y (?:${herramientas}))?`
   // La máquina también sale de su tabla de verdad, así que sumar una máquina

@@ -1394,6 +1394,7 @@ const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
   dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
   reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
+  rascadores: '¿CUÁNTOS RASCADORES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO/S DE CÓMPUTO',
   precio_por_diente: 'PRECIO POR DIENTE',

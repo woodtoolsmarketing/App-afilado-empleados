@@ -592,6 +592,12 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         reparar_dientes: i.dientes_rotos ? i.reparar_dientes : null,
         codigo_reparacion: i.codigo_reparacion,
         precio_reparacion_unitario: aNumero(i.precio_reparacion_por_diente) || null,
+        // Los rascadores: cuántos, con qué código y a qué precio. Sin esto la
+        // nota impresa no puede rehacer su línea, que es plata aparte de la de
+        // los dientes.
+        rascadores: aNumero(i.rascadores) || null,
+        codigo_rascador: i.codigo_rascador,
+        precio_rascador_unitario: aNumero(i.precio_rascador_unitario) || null,
         // Sólo se guardan cuando son ciertas: `null` lo descarta el filtro de
         // abajo, y así el detalle no se llena de "sin_cargo: false".
         sin_cargo: i.sin_cargo ? true : null,
@@ -887,6 +893,9 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
         : detalle.reparar_dientes === true,
     codigo_reparacion: comoCadena(detalle.codigo_reparacion),
     precio_reparacion_por_diente: comoTexto(detalle.precio_reparacion_unitario),
+    rascadores: comoTexto(detalle.rascadores),
+    codigo_rascador: comoCadena(detalle.codigo_rascador),
+    precio_rascador_unitario: comoTexto(detalle.precio_rascador_unitario),
 
     // Sólo en el afilado de cuchillas: son las tres respuestas que eligen el
     // código. En las notas viejas no están guardadas y el selector va a

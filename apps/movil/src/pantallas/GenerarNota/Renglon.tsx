@@ -24,7 +24,7 @@ import {
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
   lineasDelRenglon,
-  MAQUINAS,
+  maquinasDeLaHerramienta,
   MAQUINA_SUGERIDA,
   MECHAS_CON_MANO,
   MEDIDA_PARA_CODIGO,
@@ -96,6 +96,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
   dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
   reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
+  rascadores: '¿CUÁNTOS RASCADORES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO DE CÓMPUTO',
   precio_por_diente: 'PRECIO POR DIENTE',
@@ -409,7 +410,62 @@ export function PasoRenglon({
     item.dientes_rotos_cantidad,
     item.reparar_dientes,
     item.precio_reparacion_por_diente,
+    item.rascadores,
+    item.precio_rascador_unitario,
   ])
+
+  // ── El código de cómputo del afilado de los rascadores ───────────────────
+  //
+  // El rascador se afila con su propio código y a su propio precio: $ 319,95 el
+  // de 30mm contra $ 248,85 el diente. Se busca solo apenas ponen cuántos hay.
+  //
+  // Se propone el de 30mm porque es el que llevan casi todas; el de 60mm es de
+  // metal duro y va en las que lo tienen. El vendedor corrige el precio si la
+  // pieza es de las otras.
+  const [buscandoRascador, setBuscandoRascador] = useState(false)
+  const [sinCodigoRascador, setSinCodigoRascador] = useState(false)
+
+  useEffect(() => {
+    if (aNumero(item.rascadores) <= 0 || !item.herramienta) {
+      setSinCodigoRascador(false)
+      return
+    }
+    let cancelado = false
+    setBuscandoRascador(true)
+    setSinCodigoRascador(false)
+
+    // No se busca por medida: el afilado del rascador no tiene rango, se
+    // cotiza por largo. Se listan los de la herramienta y se elige el suyo.
+    void medidasDisponibles(item.herramienta, 'afilado')
+      .then((todos) => {
+        if (cancelado) return
+        const rascadores = todos.filter((c) => /RASCADOR/i.test(c.descripcion))
+        // El corto primero: es el que llevan casi todas.
+        const mejor =
+          rascadores.find((c) => /30\s*mm/i.test(c.descripcion)) ?? rascadores[0]
+        if (!mejor) {
+          setSinCodigoRascador(true)
+          return
+        }
+        if (mejor.codigo === item.codigo_rascador) return
+        alCambiar({
+          codigo_rascador: mejor.codigo,
+          precio_rascador_unitario:
+            mejor.precio_pesos !== null ? String(mejor.precio_pesos) : '',
+        })
+      })
+      .catch(() => {
+        if (!cancelado) setSinCodigoRascador(true)
+      })
+      .finally(() => {
+        if (!cancelado) setBuscandoRascador(false)
+      })
+
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.rascadores, item.herramienta])
 
   // ── El código de cómputo de la reparación de los dientes rotos ───────────
   //
@@ -685,7 +741,21 @@ export function PasoRenglon({
           marcador="Elegí la herramienta"
           valor={item.herramienta}
           items={herramientas.map((h) => ({ valor: h, etiqueta: ETIQUETA_HERRAMIENTA[h] }))}
-          alCambiar={(h) => alCambiar({ herramienta: h, codigos_computo: [] })}
+          /**
+           * Cambiar de herramienta puede dejar la máquina en una que no existe
+           * para la nueva —una fresa en una escuadradora—, y el desplegable la
+           * mostraría igual porque ya está elegida. Se limpia, y el efecto de
+           * más arriba propone la que corresponde.
+           */
+          alCambiar={(h) =>
+            alCambiar({
+              herramienta: h,
+              codigos_computo: [],
+              ...(item.maquina && !maquinasDeLaHerramienta(h).includes(item.maquina)
+                ? { maquina: '' }
+                : {}),
+            })
+          }
           error={errores.herramienta}
         />
       ) : item.herramienta ? (
@@ -708,7 +778,10 @@ export function PasoRenglon({
           etiqueta="¿EN QUÉ MÁQUINA LA USA?"
           marcador="Elegí la máquina"
           valor={item.maquina || null}
-          items={MAQUINAS.map((m) => ({ valor: m, etiqueta: m.toUpperCase() }))}
+          items={maquinasDeLaHerramienta(item.herramienta).map((m) => ({
+            valor: m,
+            etiqueta: m.toUpperCase(),
+          }))}
           alCambiar={(m) => alCambiar({ maquina: m })}
         />
       ) : null}
@@ -1017,6 +1090,51 @@ export function PasoRenglon({
                 )
               }
             />
+          )
+        }
+
+        if (campo === 'rascadores') {
+          const cuantos = aNumero(item.rascadores)
+          const linea = lineasDelRenglon(item).find((l) => l.concepto === 'rascador')
+          return (
+            <View key={campo}>
+              <Campo
+                etiqueta={ETIQUETAS[campo]}
+                value={item.rascadores}
+                // Enteros: medio rascador no existe, igual que medio diente.
+                onChangeText={(t) => alCambiar({ rascadores: t.replace(/\D/g, '') })}
+                keyboardType="number-pad"
+                contenedorStyle={estilos.mitad}
+                error={errores.rascadores}
+                ayuda="Dejalo vacío si la sierra no lleva. En la lista van pegados a los dientes: Z=18+4 son 18 dientes y 4 rascadores."
+              />
+
+              {buscandoRascador ? (
+                <View style={estilos.buscando}>
+                  <ActivityIndicator size="small" color={colores.rojo} />
+                  <Text style={estilos.buscandoTexto}>Buscando el código del rascador…</Text>
+                </View>
+              ) : null}
+
+              {/* Su importe, aparte: el rascador se afila con otro código y a
+                  otro precio que el diente, así que es plata que se suma y
+                  tiene que poder mirarse antes de firmar. */}
+              {linea ? (
+                <View style={estilos.lineaRotos}>
+                  <Pastilla texto={linea.codigo || 'sin código'} color={colores.ambarOscuro} />
+                  <Text style={estilos.lineaRotosTexto}>
+                    {`${linea.cantidad} × ${formatearPesos(linea.precioUnitario)} = ${formatearPesos(linea.total)}`}
+                  </Text>
+                </View>
+              ) : null}
+
+              {cuantos > 0 && sinCodigoRascador ? (
+                <Aviso tono="atencion" titulo="Sin código de rascador">
+                  El catálogo no tiene el afilado de rascador cargado. Ponelo a mano o consultá con
+                  Administración.
+                </Aviso>
+              ) : null}
+            </View>
           )
         }
 
