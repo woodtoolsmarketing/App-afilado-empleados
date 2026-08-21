@@ -56,6 +56,7 @@ import {
   agujeroDeFabrica,
   codigosAfiladoCuchilla,
   mechasDelTipo,
+  codigosSinRango,
   medidasDisponibles,
   medidasEnCascada,
   type ArticuloConMedidas,
@@ -435,12 +436,23 @@ export function PasoRenglon({
     setSinCodigoRascador(false)
 
     // No se busca por medida: el afilado del rascador no tiene rango, se
-    // cotiza por largo. Se listan los de la herramienta y se elige el suyo.
-    void medidasDisponibles(item.herramienta, 'afilado')
+    // cotiza por largo. Por eso se piden los SIN rango y no `medidasDisponibles`,
+    // que devuelve los que sí lo tienen y nunca llega hasta éste.
+    void codigosSinRango(item.herramienta, 'afilado')
       .then((todos) => {
         if (cancelado) return
-        const rascadores = todos.filter((c) => /RASCADOR/i.test(c.descripcion))
-        // El corto primero: es el que llevan casi todas.
+        /**
+         * AFILADO de rascador, no cualquier cosa que diga "rascador".
+         *
+         * Con el mismo filtro salen también los AGREGADO RASCADOR —6005 y
+         * 6006—, que son para PONERLE un rascador a la pieza y valen $ 92.153 y
+         * $ 122.998. Si el de 30mm no apareciera y se cayera al primero de la
+         * lista, cuatro rascadores se cobrarían $ 368.614 en vez de $ 1.279.
+         * Ese error no lo ve nadie hasta que el cliente mira la factura.
+         */
+        const rascadores = todos.filter((c) => /AFILADO.*RASCADOR/i.test(c.descripcion))
+        // El de 30mm primero: es el que llevan casi todas. El otro es de metal
+        // duro y va en las que lo tienen.
         const mejor =
           rascadores.find((c) => /30\s*mm/i.test(c.descripcion)) ?? rascadores[0]
         if (!mejor) {

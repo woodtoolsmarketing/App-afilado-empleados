@@ -210,6 +210,22 @@ export async function medidasDisponibles(
   return codigosDeLaHerramienta(herramienta, servicio, false)
 }
 
+/**
+ * Los códigos de esa herramienta y servicio que NO se cotizan por medida.
+ *
+ * `medidasDisponibles` no sirve para esto: devuelve los que tienen rango y sólo
+ * cae a los otros si no encontró ninguno. En el afilado de sierra hay 27 con
+ * rango, así que nunca llegaba al del rascador —que no tiene, porque se cotiza
+ * por largo— y el renglón quedaba con "sin código de rascador" sobre un
+ * catálogo que lo tiene cargado.
+ */
+export async function codigosSinRango(
+  herramienta: Herramienta,
+  servicio?: TipoServicio,
+): Promise<CodigoComputo[]> {
+  return codigosDeLaHerramienta(herramienta, servicio, false)
+}
+
 async function codigosDeLaHerramienta(
   herramienta: Herramienta,
   servicio: TipoServicio | undefined,
