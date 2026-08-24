@@ -2,6 +2,10 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // Metro empaqueta con módulos ES y resuelve `import()` en diferido. Sin
+    // esto TypeScript rechaza el import diferido de la biométrica, que es lo
+    // que evita que un teléfono sin el APK nuevo reviente al cargar el bundle.
+    "module": "esnext",
     "noUncheckedIndexedAccess": false,
     "baseUrl": ".",
     "paths": {

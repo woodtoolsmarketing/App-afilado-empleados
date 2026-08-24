@@ -1,4 +1,3 @@
-import * as LocalAuthentication from 'expo-local-authentication'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 
@@ -24,12 +23,40 @@ import { ubicacionActual } from './ubicacion'
 /** Cuánto puede estar la app en segundo plano antes de volver a pedir la llave. */
 const MINUTOS_HASTA_BLOQUEAR = 15
 
+/**
+ * El módulo de biometría se carga en diferido, y esto NO es una optimización.
+ *
+ * `expo-local-authentication` hace `requireNativeModule('ExpoLocalAuthentication')`
+ * en el cuerpo del módulo, no adentro de una función. Importado arriba, un
+ * teléfono que todavía no tiene el APK nuevo revienta al CARGAR el bundle —no al
+ * usar la huella— y la app queda inutilizable hasta reinstalarla.
+ *
+ * Y ese teléfono existe: el OTA viaja por runtime, pero basta con que alguien
+ * publique a un runtime viejo para bloquear a toda la calle de una. Con la carga
+ * diferida el peor caso es que la biométrica no esté disponible y no se pida,
+ * que es exactamente lo que ya pasa en un equipo sin huella configurada.
+ */
+type ModuloBiometria = typeof import('expo-local-authentication')
+let biometria: ModuloBiometria | null | undefined
+
+async function moduloBiometria(): Promise<ModuloBiometria | null> {
+  if (biometria !== undefined) return biometria
+  try {
+    biometria = await import('expo-local-authentication')
+  } catch {
+    biometria = null
+  }
+  return biometria
+}
+
 /** Si este teléfono puede pedir huella, cara o PIN. */
 export async function puedeDesbloquear(): Promise<boolean> {
   try {
+    const modulo = await moduloBiometria()
+    if (!modulo) return false
     const [hardware, registrado] = await Promise.all([
-      LocalAuthentication.hasHardwareAsync(),
-      LocalAuthentication.isEnrolledAsync(),
+      modulo.hasHardwareAsync(),
+      modulo.isEnrolledAsync(),
     ])
     return hardware && registrado
   } catch {
@@ -46,7 +73,9 @@ export async function puedeDesbloquear(): Promise<boolean> {
  */
 export async function pedirDesbloqueo(): Promise<boolean> {
   try {
-    const r = await LocalAuthentication.authenticateAsync({
+    const modulo = await moduloBiometria()
+    if (!modulo) return false
+    const r = await modulo.authenticateAsync({
       promptMessage: 'Desbloqueá para entrar a WoodTools',
       cancelLabel: 'Cancelar',
       disableDeviceFallback: false,
