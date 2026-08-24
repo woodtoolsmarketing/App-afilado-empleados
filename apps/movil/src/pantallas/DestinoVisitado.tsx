@@ -10,6 +10,7 @@ import {
   type CampoVisita,
   type FormularioVisita,
   type MotivoNoVisita,
+  todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -96,7 +97,22 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       ),
     [data, paradaId],
   )
-  const esUltima = restantes.length === 0
+  /**
+   * ¿Es el último destino del día?
+   *
+   * No alcanza con que no queden otros: si a ESTE lo estamos difiriendo, va a
+   * volver a la cola en un rato, así que el día no se termina acá.
+   *
+   * Sin esta condición la app hacía algo peor que equivocarse en un rótulo.
+   * Justo después de que el vendedor cargara "vuelvo a las 16:30" le decía
+   * "Era tu último destino del día. ¿Cerramos la jornada?", y cerrar la
+   * jornada pasa a 'omitida' todas las paradas pendientes —incluida la que se
+   * acababa de comprometer—. El cliente quedaba como "Sin visitar" y el
+   * compromiso se perdía sin que nada lo avisara.
+   */
+  const esUltima =
+    restantes.length === 0 &&
+    !(form.visitado === false && form.motivo_no_visita === 'visitar_mas_tarde')
 
   /**
    * Qué se vendió o se mandó a taller en esta visita, a grandes rasgos.
@@ -110,7 +126,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     queryFn: () => resumenDeNotasDeLaParada(paradaId),
     enabled: !!paradaId,
   })
-  const siguiente = restantes[0]
+  /**
+   * A dónde se va después de cerrar ésta.
+   *
+   * `restantes` cuenta todas —una diferida sigue siendo trabajo del día, así
+   * que el "Quedan N destinos" tiene que incluirla—, pero como PRÓXIMO va la
+   * primera que ya venció. Sin esto, cerrar un destino a las 14:00 mandaba al
+   * que el vendedor había prometido visitar a las 16:30.
+   */
+  const siguiente = restantes.find((p) => !todaviaNoLeToca(p)) ?? restantes[0]
 
   /**
    * Sobre el estado anterior, no sobre la copia del render.

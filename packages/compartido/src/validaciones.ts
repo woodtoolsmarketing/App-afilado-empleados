@@ -370,3 +370,24 @@ export function fechaLocalISO(fecha: Date): string {
   const desfase = fecha.getTimezoneOffset() * 60_000
   return new Date(fecha.getTime() - desfase).toISOString().slice(0, 10)
 }
+
+/**
+ * ¿Esta parada todavía está esperando su hora?
+ *
+ * Una parada diferida con "visitar más tarde" vuelve a la cola con la hora que
+ * el vendedor le prometió al cliente. Hasta que esa hora llegue no es candidata
+ * a ser el próximo destino, aunque por orden le tocara.
+ *
+ * Existe en el paquete compartido porque la regla vive en dos lados: la RPC
+ * `registrar_visita` decide a quién promueve a 'en_camino', y las pantallas
+ * deciden a quién muestran como próximo destino. Si las dos no dicen lo mismo,
+ * la app manda a navegar a un cliente que el servidor no considera en curso.
+ */
+export function todaviaNoLeToca(
+  parada: { hora_estimada?: string | null },
+  ahora: Date = new Date(),
+): boolean {
+  if (!parada.hora_estimada) return false
+  const cuando = new Date(parada.hora_estimada)
+  return Number.isFinite(cuando.getTime()) && cuando.getTime() > ahora.getTime()
+}

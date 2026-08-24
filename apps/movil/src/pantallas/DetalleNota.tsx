@@ -8,6 +8,7 @@ import {
   ETIQUETA_TIPO_SERVICIO,
   formatearFechaCorta,
   formatearHora,
+  formatearMoneda,
   formatearPesos,
   radios,
   tipografia,
@@ -73,6 +74,18 @@ interface ItemNota {
   cantidad_dientes: number | null
   precio_unitario: number | null
   precio_total: number | null
+  /**
+   * En qué moneda está cotizado el renglón.
+   *
+   * La columna siempre vino en la consulta —`select '*, items:...(*)'`— pero
+   * esta interfaz no la declaraba y la pantalla imprimía todo con el signo de
+   * pesos. Media lista de precios está en dólares, así que un renglón de venta
+   * mostraba "Precio unitario $ 258,42" sobre un total de la misma pantalla
+   * que decía "$ 391.506,30": el mismo cartel, mil quinientas veces menos
+   * plata, y son los números que el vendedor le canta al cliente cuando abre
+   * la nota para consultarla.
+   */
+  moneda: 'ARS' | 'USD' | null
   codigos_computo: string[]
   promocion: boolean
   descuento_porcentaje: number | null
@@ -413,7 +426,10 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
       ) : null}
 
       {item.precio_unitario ? (
-        <Dato etiqueta="Precio unitario" valor={formatearPesos(Number(item.precio_unitario))} />
+        <Dato
+          etiqueta="Precio unitario"
+          valor={formatearMoneda(Number(item.precio_unitario), monedaDelItem(item))}
+        />
       ) : null}
       {item.precio_total ? (
         <View style={estilos.renglonTotal}>
@@ -422,12 +438,13 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
               arriba tachado sin el de abajo se lee como el importe a cobrar. */}
           {descuentoDelItem(item) > 0 ? (
             <Text style={estilos.renglonTotalLista}>
-              {formatearPesos(Number(item.precio_total))}
+              {formatearMoneda(Number(item.precio_total), monedaDelItem(item))}
             </Text>
           ) : null}
           <Text style={estilos.renglonTotalValor}>
-            {formatearPesos(
+            {formatearMoneda(
               Number(item.precio_total) * (1 - descuentoDelItem(item) / 100),
+              monedaDelItem(item),
             )}
           </Text>
         </View>
@@ -437,6 +454,18 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
 }
 
 /** El descuento del renglon, acotado: la base admite hasta 100. */
+/**
+ * En qué moneda se lee el importe de un renglón.
+ *
+ * Sólo la venta puede ir en dólares. En un renglón de servicio la moneda es
+ * siempre pesos aunque la columna diga otra cosa: queda en dólares de cuando
+ * ese renglón era una venta, y el precio guardado ya está en pesos. Es el
+ * mismo criterio que usa la pantalla de carga.
+ */
+function monedaDelItem(item: ItemNota): 'ARS' | 'USD' {
+  return item.servicio === 'venta' && item.moneda === 'USD' ? 'USD' : 'ARS'
+}
+
 function descuentoDelItem(item: ItemNota): number {
   const n = Number(item.descuento_porcentaje)
   if (!item.promocion || !Number.isFinite(n) || n <= 0) return 0

@@ -211,8 +211,27 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * No corre mientras se corrige una nota ya creada: ahí lo que está en la
    * pantalla salió del servidor.
    */
+  /**
+   * Bandera sincrónica de "ya se disparó la creación".
+   *
+   * No alcanza con mirar `creadas`, que es estado y llega un render después:
+   * el autoguardado agenda su escritura a 500 ms, y una que quedó agendada
+   * antes de tocar CREAR se ejecuta después de que `onSuccess` borró el
+   * borrador. Un ref se marca en el mismo tick en que arranca la mutación, así
+   * que el temporizador ya agendado también lo ve.
+   *
+   * Además vive todo el ciclo del componente: una vez creada la nota, esta
+   * pantalla no vuelve a escribir el borrador ni aunque cambie algo después.
+   */
+  const yaSeCreo = useRef(false)
+
   useEffect(() => {
-    if (corrigiendo) return
+    // Creada la nota, el borrador NO se vuelve a escribir. Si se reescribiera,
+    // la próxima vez que se abriera la pantalla se recuperaría una nota que ya
+    // tiene número: `creadas` arranca vacío, la guarda de "esta nota ya se
+    // creó" no salta, y `crear_notas_pedido` —que no tiene idempotencia—
+    // emitiría un segundo comprobante por el mismo trabajo.
+    if (corrigiendo || yaSeCreo.current) return
 
     const b: BorradorParaGuardar = {
       encabezado,
@@ -227,7 +246,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
     if (!valeLaPenaGuardar(b)) return
 
-    const espera = setTimeout(() => void guardarBorrador(b), 500)
+    const espera = setTimeout(() => {
+      if (yaSeCreo.current) return
+      void guardarBorrador(b)
+    }, 500)
     return () => clearTimeout(espera)
   }, [
     corrigiendo,
@@ -920,6 +942,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   }
 
   const guardar = useMutation({
+    // Se marca acá y no en `onSuccess`: desde este momento el borrador ya no
+    // tiene que volver a escribirse, aunque la creación tarde o falle a mitad.
+    onMutate: () => {
+      yaSeCreo.current = true
+    },
     mutationFn: async () => {
       exigirCotizacion()
       return crearNotaPedido(datosDeLaNota())

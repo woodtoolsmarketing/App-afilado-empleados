@@ -10,6 +10,7 @@ import {
   tipografia,
   type EstadoParada,
   type ParadaCompleta,
+  todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -70,8 +71,30 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   })
   const finalizada = jornada?.estado === 'finalizado'
 
+  /**
+   * El próximo destino: el primero sin resolver, por orden de recorrido.
+   *
+   * Antes buscaba primero el que estuviera 'en_camino' y recién después el
+   * primer 'pendiente'. Eso rompía la prioridad por cercanía: un destino
+   * agregado estando cerca entra con orden 1 y corre a los demás, pero nace
+   * 'pendiente', así que "PRÓXIMO DESTINO", "Navegar" y "LLEGUÉ" seguían
+   * apuntando al que ya estaba 'en_camino'. La lista mostraba al nuevo como
+   * Nº 1 y al viejo como Nº 2 con la pastilla "En camino" —los dos números
+   * contradiciéndose— y el mapa mandaba al cliente lejano en vez de al que
+   * estaba a tres cuadras, que es justo lo que la prioridad alta prometía.
+   *
+   * `paradas` ya viene ordenado por `orden` desde el servicio, así que el
+   * primero sin resolver es el que corresponde.
+   */
   const proxima = useMemo(
-    () => paradas.find((p) => p.estado === 'en_camino') ?? paradas.find((p) => p.estado === 'pendiente'),
+    () =>
+      // Las diferidas que todavía no vencieron quedan afuera: si el vendedor
+      // dijo "vuelvo a las 16:30", a las 14:00 no es el próximo destino. Es la
+      // misma regla que aplica `registrar_visita` para promover a 'en_camino'.
+      paradas.find(
+        (p) =>
+          (p.estado === 'en_camino' || p.estado === 'pendiente') && !todaviaNoLeToca(p),
+      ) ?? paradas.find((p) => p.estado === 'en_camino'),
     [paradas],
   )
 
@@ -149,7 +172,22 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 
       const pos = await ubicacionActual()
 
-      // Se optimiza con la ubicación real de arranque antes de largar.
+      /**
+       * Primero se larga, y RECIÉN DESPUÉS se optimiza.
+       *
+       * El orden importa porque las dos cosas escriben `orden`:
+       * `iniciar_recorrido` reordena por cercanía en línea recta, y
+       * `optimizar_recorrido` por lo que dice Google mirando el tránsito. Al
+       * revés, la optimización se perdía sin que nadie la viera: la lista
+       * "DESTINOS DEL DÍA" quedaba numerada por cercanía mientras la
+       * polilínea azul del mapa y el resumen de km y minutos eran de la
+       * secuencia de Google. Dos rutas distintas en la misma pantalla, y las
+       * paradas de prioridad media perdían su adelanto.
+       *
+       * Es el mismo orden que ya usa CLIENTES DE HOY.
+       */
+      await iniciarRecorrido(jornada.id, pos.lat, pos.lng)
+
       try {
         await optimizarRecorrido(jornada.id, { lat: pos.lat, lng: pos.lng })
       } catch {
@@ -157,8 +195,6 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
           'No pudimos consultar el tránsito de Google. El recorrido queda ordenado por cercanía.',
         )
       }
-
-      await iniciarRecorrido(jornada.id, pos.lat, pos.lng)
       await iniciarSeguimiento({ vendedorId: perfil.id, rolVisitaId: jornada.id })
 
       if (!permiso.segundoPlano) {
