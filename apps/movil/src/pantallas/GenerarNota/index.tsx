@@ -8,7 +8,11 @@ import {
   esDescripcionSugerida,
   ENCABEZADO_VACIO,
   espaciado,
+  CONDICIONES_CON_PLAZO,
   ETIQUETA_CONDICION_VENTA,
+  plazoDePago,
+  PLAZO_DESDE_DIAS,
+  PLAZO_HASTA_DIAS,
   ETIQUETA_GRUPO_NOTA,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_ORIGEN_FRESA,
@@ -59,7 +63,7 @@ import {
   View,
 } from 'react-native'
 
-import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
+import { BotonMenu, BotonesSiNo, BotonSecundario } from '../../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Cargando, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
@@ -132,6 +136,25 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   /** Cómo se cobra. Va a la columna "Condicion de Venta" del talonario. */
   const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)
   const [condicionDetalle, setCondicionDetalle] = useState('')
+
+  // El plazo se guarda como un solo texto "15-45"; acá se lo lee partido.
+  const plazoElegido = plazoDePago(condicionDetalle)
+
+  /**
+   * Cambia una punta del plazo sin perder la otra.
+   *
+   * Si eligen primero el "hasta", el "de" arranca en 0 —es el caso normal, un
+   * cheque que se puede cobrar en cualquier momento hasta esa fecha—. Y si el
+   * "de" queda por encima del "hasta", se corrige el "hasta" en el momento en
+   * vez de dejar que el validador lo rechace después: nadie quiere elegir un
+   * plazo imposible y enterarse tres pantallas más tarde.
+   */
+  function cambiarPlazo(desde: number | undefined, hasta: number | undefined) {
+    const d = desde ?? 0
+    const h = Math.max(hasta ?? PLAZO_HASTA_DIAS[0], d)
+    setCondicionDetalle(`${d}-${h}`)
+    if (intentado) revalidarEncabezado(encabezado, servicios)
+  }
   /**
    * Frente a quién se emite la factura.
    *
@@ -443,6 +466,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * separador decimal en cuanto se borra un dígito.
    */
   const [cambioPropio, setCambioPropio] = useState('')
+  /**
+   * ¿Se cobra en el momento?
+   *
+   * Sólo importa en las notas que llevan dólares. Si se cobra ahora, el tipo de
+   * cambio de la nota es el de hoy y sale impreso. Si no —el cliente paga
+   * cuando retira, o a fin de mes— el de hoy ya no va a ser el de ese día, así
+   * que imprimirlo sería cotizarle un número que no se le va a cobrar. En ese
+   * caso el papel sale con el renglón en blanco, para completarlo a mano.
+   */
+  const [cobraEnElMomento, setCobraEnElMomento] = useState<boolean | null>(null)
   const [editandoCambio, setEditandoCambio] = useState(false)
 
   /**
@@ -843,7 +876,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // pantalla le seguía mostrando la correcta.
       fechaEntrega: fechaLocalISO(fechaEntrega!),
       items,
-      tipoCambio: cambioEnUso,
+      // Sin cobro en el momento la nota va SIN cotización: el papel deja el
+      // renglón en blanco y se completa a mano el día que se cobre.
+      tipoCambio: cobraEnElMomento === false ? 0 : cambioEnUso,
       // La fecha es la del dólar oficial. Si el vendedor puso otro
       // cambio, esa fecha ya no describe de dónde salió el número: se deja
       // en null en vez de atribuirle al oficial un valor que no es suyo.
@@ -866,6 +901,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
      * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
      * no había cotización.
      */
+    if (hayDolares && cobraEnElMomento === false) return
+
     if (hayDolares && cambioEnUso <= 0) {
       throw new Error(
         'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
@@ -1412,22 +1449,44 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 <Text style={estilos.porTendencia}>{explicarTendencia(tendencia, 'condicion')}</Text>
               ) : null}
 
-              {condicionVenta === 'cheque' ? (
-                <Campo
-                  etiqueta="¿A CUÁNTOS DÍAS?"
-                  obligatorio
-                  value={condicionDetalle}
-                  // Sólo números: es una cantidad de días, no un texto.
-                  onChangeText={(t) => {
-                    setCondicionDetalle(t.replace(/\D/g, '').slice(0, 2))
-                    if (intentado) revalidarEncabezado(encabezado, servicios)
-                  }}
-                  keyboardType="number-pad"
-                  contenedorStyle={estilos.corto}
-                  placeholder="30"
-                  ayuda={`De 0 a ${DIAS_CHEQUE_MAXIMO} días.`}
-                  error={errores.condicion_venta_detalle}
-                />
+              {/* El plazo del cheque y de la cuenta corriente.
+                  Son dos desplegables en paralelo y no un número suelto porque
+                  lo que se negocia es la ventana —"de 15 a 45"—, no una fecha.
+                  Se guardan juntos como "15-45", que es un solo dato: partirlo
+                  en dos columnas obligaría a mantener sincronizados dos
+                  formularios, dos validaciones y dos CHECK. */}
+              {condicionVenta && CONDICIONES_CON_PLAZO.includes(condicionVenta) ? (
+                <>
+                  <View style={estilos.parDePlazos}>
+                    <View style={estilos.flex}>
+                    <Desplegable<string>
+                      etiqueta="DE"
+                      obligatorio
+                      marcador="Desde"
+                      valor={plazoElegido?.desde !== undefined ? String(plazoElegido.desde) : null}
+                      items={PLAZO_DESDE_DIAS.map((d) => ({
+                        valor: String(d),
+                        etiqueta: `${d} días`,
+                      }))}
+                      alCambiar={(v) => cambiarPlazo(Number(v), plazoElegido?.hasta)}
+                    />
+                    </View>
+                    <View style={estilos.flex}>
+                    <Desplegable<string>
+                      etiqueta="HASTA"
+                      obligatorio
+                      marcador="Hasta"
+                      valor={plazoElegido?.hasta !== undefined ? String(plazoElegido.hasta) : null}
+                      items={PLAZO_HASTA_DIAS.map((d) => ({
+                        valor: String(d),
+                        etiqueta: `${d} días`,
+                      }))}
+                      alCambiar={(v) => cambiarPlazo(plazoElegido?.desde, Number(v))}
+                    />
+                    </View>
+                  </View>
+                  <MensajeError>{errores.condicion_venta_detalle}</MensajeError>
+                </>
               ) : null}
 
               {condicionVenta === 'otro' ? (
@@ -1482,6 +1541,22 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   recuadro ahí no decía nada, y un número grande en otra moneda
                   al lado del total es una invitación a leerlo mal. */}
               {hayDolares ? (
+                <View style={estilos.cambio}>
+                  {/* Primero la pregunta: de la respuesta depende si el número
+                      de abajo va a salir impreso o va a quedar en blanco. */}
+                  <Text style={estilos.cambioRotulo}>¿SE COBRA EN EL MOMENTO?</Text>
+                  <BotonesSiNo valor={cobraEnElMomento} alCambiar={setCobraEnElMomento} />
+
+                  {cobraEnElMomento === false ? (
+                    <Text style={estilos.cambioNota}>
+                      La nota sale con el tipo de cambio en blanco, para completarlo a mano el día
+                      que se cobre.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {hayDolares && cobraEnElMomento === true ? (
                 <View style={estilos.cambio}>
                   <Text style={estilos.cambioRotulo}>TIPO DE CAMBIO</Text>
                   {cargandoCotizacion ? (
@@ -1927,6 +2002,9 @@ function explicarTendencia(t: TendenciaCliente, cual: 'tipo' | 'condicion'): str
 const estilos = StyleSheet.create({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
+  // Los dos plazos, lado a lado: es un solo dato con dos puntas, y verlos en
+  // renglones distintos invita a completar uno y olvidarse del otro.
+  parDePlazos: { flexDirection: 'row', gap: espaciado.sm },
   corto: { maxWidth: 160 },
   medio: { maxWidth: 220 },
 

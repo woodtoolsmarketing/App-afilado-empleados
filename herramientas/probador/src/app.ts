@@ -28,7 +28,10 @@ import {
   esDescripcionSugerida,
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
-  DIAS_CHEQUE_MAXIMO,
+  CONDICIONES_CON_PLAZO,
+  plazoDePago,
+  PLAZO_DESDE_DIAS,
+  PLAZO_HASTA_DIAS,
   etiquetaZona,
   ETIQUETA_CONDICION_VENTA,
   formatearMedida,
@@ -1324,16 +1327,33 @@ function pasoEncabezado(): HTMLElement {
     }),
     err.condicion_venta ? h('span.campo-error-texto', { texto: err.condicion_venta }) : null,
 
-    borrador.condicionVenta === 'cheque'
-      ? campo('¿A CUÁNTOS DÍAS?', {
-          valor: borrador.condicionDetalle,
-          marcador: '30',
-          ayuda: `De 0 a ${DIAS_CHEQUE_MAXIMO} días.`,
-          error: err.condicion_venta_detalle,
-          // Sólo números: es una cantidad de días, no un texto.
-          alCambiar: (v) => (borrador.condicionDetalle = v.replace(/\D/g, '').slice(0, 2)),
-        })
-      : null,
+    // El plazo del cheque y de la cuenta corriente: desde y hasta, en paralelo.
+    ...(borrador.condicionVenta && CONDICIONES_CON_PLAZO.includes(borrador.condicionVenta)
+      ? (() => {
+          const plazo = plazoDePago(borrador.condicionDetalle)
+          const fijar = (desde: number | undefined, hasta: number | undefined) => {
+            const d = desde ?? 0
+            const h = Math.max(hasta ?? PLAZO_HASTA_DIAS[0], d)
+            borrador.condicionDetalle = `${d}-${h}`
+            refrescar()
+          }
+          return [
+            desplegable('DE', {
+              valor: plazo ? String(plazo.desde) : null,
+              items: PLAZO_DESDE_DIAS.map((d) => ({ valor: String(d), etiqueta: `${d} días` })),
+              alCambiar: (v) => fijar(Number(v), plazo?.hasta),
+            }),
+            desplegable('HASTA', {
+              valor: plazo ? String(plazo.hasta) : null,
+              items: PLAZO_HASTA_DIAS.map((d) => ({ valor: String(d), etiqueta: `${d} días` })),
+              alCambiar: (v) => fijar(plazo?.desde, Number(v)),
+            }),
+            err.condicion_venta_detalle
+              ? h('span.campo-error-texto', { texto: err.condicion_venta_detalle })
+              : null,
+          ]
+        })()
+      : []),
 
     borrador.condicionVenta === 'otro'
       ? campo('¿CUÁL ES LA CONDICIÓN?', {

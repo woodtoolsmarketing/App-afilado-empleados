@@ -420,20 +420,54 @@ export const ETIQUETA_CONDICION_VENTA: Record<CondicionVenta, string> = {
   contado: 'Contado',
   transferencia: 'Transferencia bancaria',
   link_de_pago: 'Link de pago',
-  cheque: 'Cheque de 0 a 60 días',
+  cheque: 'Cheque',
   cuenta_corriente: 'Cuenta corriente',
   otro: 'Otro',
 }
 
-/** Las dos que piden algo más: los días del cheque y el texto de "Otro". */
-export const CONDICIONES_CON_DETALLE: CondicionVenta[] = ['cheque', 'otro']
+/** Las que piden algo más: el plazo del cheque y de la cuenta corriente, y el texto de "Otro". */
+export const CONDICIONES_CON_DETALLE: CondicionVenta[] = ['cheque', 'cuenta_corriente', 'otro']
 
-/** Tope de días del cheque. Sale del nombre de la opción. */
+/** Las que llevan plazo de pago: un rango de días. */
+export const CONDICIONES_CON_PLAZO: CondicionVenta[] = ['cheque', 'cuenta_corriente']
+
+/** Tope de días. Sale de lo que se negocia en la calle. */
 export const DIAS_CHEQUE_MAXIMO = 60
 
 /**
+ * Desde cuándo puede empezar el plazo, y hasta cuándo puede llegar.
+ *
+ * Dos listas cerradas y distintas a propósito: el "desde" arranca en 0 —hay
+ * cheques que se cobran al día— y el "hasta" no, porque un plazo que termina el
+ * mismo día en que empieza no es un plazo.
+ */
+export const PLAZO_DESDE_DIAS: number[] = [0, 15, 30]
+export const PLAZO_HASTA_DIAS: number[] = [15, 30, 45, 60]
+
+/** El plazo guardado, "15-45", partido en sus dos números. */
+export function plazoDePago(detalle?: string | null): { desde: number; hasta: number } | null {
+  const texto = String(detalle ?? '').trim()
+  if (!texto) return null
+
+  const rango = /^(\d{1,2})-(\d{1,2})$/.exec(texto)
+  if (rango) {
+    const desde = Number(rango[1])
+    const hasta = Number(rango[2])
+    return desde <= hasta ? { desde, hasta } : null
+  }
+
+  // Formato viejo: un número suelto de días de cheque. Se lee como "hasta".
+  const suelto = /^(\d{1,2})$/.exec(texto)
+  if (suelto) return { desde: 0, hasta: Number(suelto[1]) }
+
+  return null
+}
+
+/**
  * Cómo se escribe la condición en la nota impresa.
- * `Cheque a 30 días`, `Otro: retira y paga en fábrica`, `Contado`.
+ *
+ * `Cheque de 15 a 45 días`, `Cuenta corriente de 0 a 30 días`,
+ * `Otro: retira y paga en fábrica`, `Contado`.
  */
 export function describirCondicionVenta(
   condicion: CondicionVenta | null,
@@ -441,8 +475,15 @@ export function describirCondicionVenta(
 ): string {
   if (!condicion) return ''
   const texto = String(detalle ?? '').trim()
-  if (condicion === 'cheque') return texto ? `Cheque a ${texto} días` : 'Cheque'
+
   if (condicion === 'otro') return texto || 'Otro'
+
+  if (CONDICIONES_CON_PLAZO.includes(condicion)) {
+    const plazo = plazoDePago(texto)
+    const nombre = ETIQUETA_CONDICION_VENTA[condicion]
+    return plazo ? `${nombre} de ${plazo.desde} a ${plazo.hasta} días` : nombre
+  }
+
   return ETIQUETA_CONDICION_VENTA[condicion]
 }
 
@@ -1379,12 +1420,16 @@ export function validarEncabezadoNota(
   const detalle = String(extra.condicionVentaDetalle ?? '').trim()
   if (!extra.condicionVenta) {
     errores.condicion_venta = 'Elegí la condición de venta'
-  } else if (extra.condicionVenta === 'cheque') {
-    const dias = Number(detalle)
-    if (!detalle || !/^\d+$/.test(detalle)) {
-      errores.condicion_venta_detalle = 'Indicá a cuántos días es el cheque'
-    } else if (dias > DIAS_CHEQUE_MAXIMO) {
-      errores.condicion_venta_detalle = `El cheque va de 0 a ${DIAS_CHEQUE_MAXIMO} días`
+  } else if (CONDICIONES_CON_PLAZO.includes(extra.condicionVenta)) {
+    // El cheque y la cuenta corriente llevan plazo: desde cuándo y hasta
+    // cuándo. Un solo número no alcanza — lo que se negocia es la ventana.
+    const plazo = plazoDePago(detalle)
+    if (!plazo) {
+      errores.condicion_venta_detalle = 'Elegí desde y hasta cuántos días'
+    } else if (plazo.hasta > DIAS_CHEQUE_MAXIMO) {
+      errores.condicion_venta_detalle = `El plazo llega hasta ${DIAS_CHEQUE_MAXIMO} días`
+    } else if (plazo.desde > plazo.hasta) {
+      errores.condicion_venta_detalle = 'El "hasta" no puede ser menor que el "de"'
     }
   } else if (extra.condicionVenta === 'otro' && !detalle) {
     errores.condicion_venta_detalle = 'Contá cuál es la condición'
