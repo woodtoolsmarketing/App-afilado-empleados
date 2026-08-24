@@ -316,7 +316,11 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
           <View key={i} style={estilos.filaTabla}>
             <Text style={[estilos.celda, estilos.colCodigo]}>{c.codigo_computo || '—'}</Text>
             <Text style={[estilos.celda, estilos.colNum]}>{c.cantidad}</Text>
-            <Text style={[estilos.celda, estilos.colPrecio]}>{c.precio_unitario || '—'}</Text>
+            <View style={estilos.colPrecio}>
+              <Text style={estilos.celda}>{c.precio_unitario || '—'}</Text>
+              {/* La misma cuenta que va en el papel, debajo del unitario. */}
+              {c.importe ? <Text style={estilos.celdaCuenta}>{c.importe}</Text> : null}
+            </View>
             <Text style={[estilos.celda, estilos.colPrecio, estilos.celdaFuerte]}>
               {c.descuento || '—'}
             </Text>
@@ -481,6 +485,12 @@ const estilos = StyleSheet.create({
     fontFamily: tipografia.familia.subtitulo,
     fontSize: tipografia.tamano.micro,
     color: colores.tintaSuave,
+  },
+  celdaCuenta: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: 9,
+    color: colores.tintaSuave,
+    textAlign: 'right',
   },
   celda: {
     fontFamily: tipografia.familia.cuerpo,

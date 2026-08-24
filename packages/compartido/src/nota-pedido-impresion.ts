@@ -82,6 +82,19 @@ export interface RenglonComercial {
    */
   precio_unitario: string
   /**
+   * La cuenta de la fila, ya escrita: "192 × = $ 47.779,20".
+   *
+   * Va DEBAJO del precio unitario, en la misma casilla, y sólo en las facturas.
+   * Es a precio de lista: el descuento se muestra al lado y se aplica sobre
+   * esto, así la hoja tiene los tres números y la cuenta se puede rehacer a
+   * mano —unitario por cantidad, menos el porcentaje, contra el SUBTOTAL—.
+   *
+   * En la misma casilla y no en columna propia porque no hay columna libre: las
+   * siete suman 100 y sacarle ancho a cualquiera para meter un importe deja
+   * peor a la que se lo cedió.
+   */
+  importe: string
+  /**
    * El descuento de la fila, ya escrito: "10 %". Vacío si no lleva.
    *
    * Ocupa el lugar donde antes iba el importe de la fila. El importe de cada
@@ -377,6 +390,7 @@ const COMERCIAL_VACIO = (): RenglonComercial => ({
   codigo_computo: '',
   cantidad: '',
   precio_unitario: '',
+  importe: '',
   descuento: '',
   condicion_venta: '',
   anticipo: '',
@@ -454,7 +468,9 @@ export function generarHtmlNotaPedido(
       return `<tr>
         <td>${escapar(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
-        <td class="num">${escapar(c.precio_unitario)}</td>
+        <td class="num">${escapar(c.precio_unitario)}${
+          c.importe ? `<br><span class="cuenta">${escapar(c.importe)}</span>` : ''
+        }</td>
         <td class="num">${escapar(c.descuento)}</td>
         <td>${condicion}</td>
         <td class="num">${escapar(c.anticipo)}</td>
@@ -829,6 +845,9 @@ html {
   font-size: 9pt;
 }
 .resumen strong { font-size: 10pt; }
+/* La cuenta de la fila, debajo del unitario y más chica: acompaña al precio sin
+   competir con él, que es el número que el cliente busca primero. */
+.cuenta { font-size: 6.5pt; color: #333; }
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -1139,6 +1158,21 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           ? ''
           : l.precioUnitario
             ? formatearMoneda(l.precioUnitario, l.moneda)
+            : '',
+        /**
+         * La multiplicación escrita, sólo en la factura.
+         *
+         * El presupuesto no la lleva: es una cotización, y lo que se mira ahí es
+         * cuánto sale la unidad. La factura sí, porque es el comprobante contra
+         * el que el cliente controla lo que le cobraron.
+         *
+         * A precio de lista. El descuento va en su columna y se aplica sobre
+         * este número; poner acá el importe ya descontado dejaría dos rebajas
+         * escritas para una sola.
+         */
+        importe:
+          nota.tipo_nota === 'factura' && !l.sinCargo && l.precioUnitario && l.cantidad
+            ? `${l.cantidad} × = ${formatearMoneda(redondear(l.cantidad * l.precioUnitario), l.moneda)}`
             : '',
         // El porcentaje, no el importe: es lo que se pidió que se viera, y el
         // dinero ya lo dice el total de abajo.
