@@ -73,12 +73,33 @@ Deno.serve(async (req) => {
     if (!rol_visita_id) throw new RespuestaError('Falta rol_visita_id', 400)
 
     // ── Autorización: el vendedor sólo optimiza su propia jornada ────────────
-    const { data: jornada } = await admin
+    /**
+     * El embed va con la FK nombrada, y el error NO se descarta.
+     *
+     * `roles_visita` tiene DOS claves foráneas a `perfiles` —`vendedor_id` y
+     * `creado_por`— así que pedir `perfiles(...)` a secas es ambiguo y
+     * PostgREST devuelve PGRST201, "Could not embed because more than one
+     * relationship was found". Nunca resolvió.
+     *
+     * Y como el error se tiraba a la basura, `jornada` quedaba en null y la
+     * función respondía 404 "No existe esa jornada": un mensaje que manda a
+     * buscar el problema exactamente donde no está. La optimización de ruta no
+     * funcionó JAMÁS —ni una sola de las jornadas creadas tiene `optimizado_en`,
+     * incluida una de siete destinos— y nadie se enteró porque la app degrada
+     * bien: ordena por cercanía y sigue andando.
+     */
+    const { data: jornada, error: errorJornada } = await admin
       .from('roles_visita')
-      .select('id, vendedor_id, origen_lat, origen_lng, perfiles(origen_lat, origen_lng)')
+      .select(
+        'id, vendedor_id, origen_lat, origen_lng, perfiles!roles_visita_vendedor_id_fkey(origen_lat, origen_lng)',
+      )
       .eq('id', rol_visita_id)
       .maybeSingle()
 
+    if (errorJornada) {
+      console.error('[optimizar-ruta] leyendo la jornada', errorJornada)
+      throw new RespuestaError('No pudimos leer la jornada', 500)
+    }
     if (!jornada) throw new RespuestaError('No existe esa jornada', 404)
     if (jornada.vendedor_id !== llamador.id && llamador.rol === 'vendedor') {
       throw new RespuestaError('Esa jornada no es tuya', 403)
