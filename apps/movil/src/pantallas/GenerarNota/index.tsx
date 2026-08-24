@@ -63,7 +63,7 @@ import {
   View,
 } from 'react-native'
 
-import { BotonMenu, BotonesSiNo, BotonSecundario } from '../../componentes/Botones'
+import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Cargando, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
@@ -466,16 +466,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * separador decimal en cuanto se borra un dígito.
    */
   const [cambioPropio, setCambioPropio] = useState('')
-  /**
-   * ¿Se cobra en el momento?
-   *
-   * Sólo importa en las notas que llevan dólares. Si se cobra ahora, el tipo de
-   * cambio de la nota es el de hoy y sale impreso. Si no —el cliente paga
-   * cuando retira, o a fin de mes— el de hoy ya no va a ser el de ese día, así
-   * que imprimirlo sería cotizarle un número que no se le va a cobrar. En ese
-   * caso el papel sale con el renglón en blanco, para completarlo a mano.
-   */
-  const [cobraEnElMomento, setCobraEnElMomento] = useState<boolean | null>(null)
   const [editandoCambio, setEditandoCambio] = useState(false)
 
   /**
@@ -876,9 +866,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // pantalla le seguía mostrando la correcta.
       fechaEntrega: fechaLocalISO(fechaEntrega!),
       items,
-      // Sin cobro en el momento la nota va SIN cotización: el papel deja el
-      // renglón en blanco y se completa a mano el día que se cobre.
-      tipoCambio: cobraEnElMomento === false ? 0 : cambioEnUso,
+      tipoCambio: cambioEnUso,
       // La fecha es la del dólar oficial. Si el vendedor puso otro
       // cambio, esa fecha ya no describe de dónde salió el número: se deja
       // en null en vez de atribuirle al oficial un valor que no es suyo.
@@ -901,8 +889,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
      * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
      * no había cotización.
      */
-    if (hayDolares && cobraEnElMomento === false) return
-
     if (hayDolares && cambioEnUso <= 0) {
       throw new Error(
         'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
@@ -1544,22 +1530,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   recuadro ahí no decía nada, y un número grande en otra moneda
                   al lado del total es una invitación a leerlo mal. */}
               {hayDolares ? (
-                <View style={estilos.cambio}>
-                  {/* Primero la pregunta: de la respuesta depende si el número
-                      de abajo va a salir impreso o va a quedar en blanco. */}
-                  <Text style={estilos.cambioRotulo}>¿SE COBRA EN EL MOMENTO?</Text>
-                  <BotonesSiNo valor={cobraEnElMomento} alCambiar={setCobraEnElMomento} />
-
-                  {cobraEnElMomento === false ? (
-                    <Text style={estilos.cambioNota}>
-                      La nota sale con el tipo de cambio en blanco, para completarlo a mano el día
-                      que se cobre.
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {hayDolares && cobraEnElMomento === true ? (
                 <View style={estilos.cambio}>
                   <Text style={estilos.cambioRotulo}>TIPO DE CAMBIO</Text>
                   {cargandoCotizacion ? (

@@ -1196,23 +1196,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       })),
       nota.observaciones ?? [],
     ),
-    /**
-     * El tipo de cambio impreso, o el renglón en blanco para completarlo.
-     *
-     * Tres casos y no dos:
-     *
-     *  · Nota de afilado, todo en pesos: va VACÍO. Una cotización ahí sólo hace
-     *    dudar de en qué moneda está el total.
-     *  · Se cobró en el momento: va el número del día.
-     *  · Hay dólares pero no se cobra ahora: va "$ ______". El cambio de hoy no
-     *    va a ser el del día que se cobre, así que imprimirlo sería cotizar un
-     *    número que no se le va a cobrar al cliente. Se completa a mano.
-     */
-    tipo_cambio: nota.tipo_cambio
-      ? monto(Number(nota.tipo_cambio))
-      : (porMoneda.get('USD') ?? 0) > 0
-        ? '$ __________'
-        : '',
+    // Vacío en las notas de afilado: se cobra en pesos y una cotización ahí
+    // sólo hace dudar de en qué moneda está el total.
+    tipo_cambio: nota.tipo_cambio ? monto(Number(nota.tipo_cambio)) : '',
     condicion_venta: describirCondicionVenta(
       nota.condicion_venta ?? null,
       nota.condicion_venta_detalle,
