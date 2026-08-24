@@ -331,7 +331,7 @@ const COLUMNAS_TECNICAS = [
  *   Descuento     "65 %"                      31 px →  5 % =  36 px
  *   Condición     "Cta. cte. 15-45 días"     124 px → 18 % = 129 px
  *   Anticipo      siempre vacía                 —   →  5 %
- *   Observaciones hasta 60 caracteres        346 px → 37 % = 266 px
+ *   Observaciones hasta 46 caracteres        262 px → 37 % = 266 px
  *
  * La condición entra ahora porque el texto se acortó para el papel —ver
  * `describirCondicionVenta` con `compacto`—: el nombre largo pedía 29 % y no
@@ -339,10 +339,15 @@ const COLUMNAS_TECNICAS = [
  *
  * ── Lo que NO entra, y se sabe ──────────────────────────────────────────────
  *
- * Observaciones: 60 caracteres piden 48 % y tiene 37, así que se corta cerca de
- * los 46. Es de antes de este paquete y se deja: darle más significa sacárselo
- * a un código o a un importe, y un importe cortado es un error comercial;
- * una observación cortada, una molestia.
+ * Observaciones ya no se corta: el límite del campo bajó de 60 a 46, que es lo
+ * que de verdad entra acá (ver OBSERVACION_MAXIMO_CARACTERES). Los 60 nunca
+ * entraron; lo que sobraba se perdía en silencio.
+ *
+ * Queda un caso: en MAYÚSCULA entran unos 40, así que una observación gritada
+ * todavía puede recortarse. Y el texto automático de notas hermanas se escribe
+ * en el servidor y no pasa por ese límite: con dos hermanas mide 36 caracteres
+ * y entra; con tres —que nunca pasó, pero es posible— se cortaría el último
+ * número.
  *
  * Anticipo se imprime SIEMPRE vacía —es un casillero para completar a mano— así
  * que su 5 % no se mide contra ningún texto.
