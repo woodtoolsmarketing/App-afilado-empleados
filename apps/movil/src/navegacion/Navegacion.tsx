@@ -6,6 +6,7 @@ import { Cargando } from '../componentes/Estado'
 import { Pantalla } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
+import { PantallaCobranzas } from '../pantallas/Cobranzas'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
 import { PantallaDetalleNota } from '../pantallas/DetalleNota'
@@ -100,6 +101,7 @@ export function Navegacion() {
             <Pila.Screen name="GenerarNota" component={PantallaGenerarNota} />
             <Pila.Screen name="NuevoCliente" component={PantallaNuevoCliente} />
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
+            <Pila.Screen name="Cobranzas" component={PantallaCobranzas} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />

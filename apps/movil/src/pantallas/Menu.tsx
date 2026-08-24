@@ -96,6 +96,12 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         />
 
         <BotonMenu
+          titulo="COBRANZAS DEL DÍA"
+          subtitulo="Lo que cobraste hoy, y la planilla para rendir"
+          alTocar={() => navigation.navigate('Cobranzas')}
+        />
+
+        <BotonMenu
           titulo="COMUNICACIÓN INTERNA"
           subtitulo="Se habilita en el próximo paso"
           alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Comunicación interna' })}

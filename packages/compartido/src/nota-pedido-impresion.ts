@@ -30,6 +30,11 @@ import {
   type DatosComputo,
 } from './notas-pedido'
 import {
+  ESTILOS_PLANILLA_COBRANZAS,
+  generarHtmlPlanillaCobranzas,
+  type PlanillaCobranzasParaImprimir,
+} from './planilla-cobranzas-impresion'
+import {
   ESTILOS_ROL_DE_VISITA,
   generarHtmlRolDeVisita,
   type RolDeVisitaParaImprimir,
@@ -1295,6 +1300,8 @@ export function generarDocumentoImpresion(
   notas: Array<{ nota: NotaParaImprimir; opciones: OpcionesImpresion }>,
   extras?: {
     rolDeVisita?: RolDeVisitaParaImprimir
+    /** La rendición de cobranzas del día. Va en su propia hoja, adelante. */
+    planillaCobranzas?: PlanillaCobranzasParaImprimir
     /**
      * Cuánto agranda la letra el sistema donde se va a generar el PDF.
      *
@@ -1317,15 +1324,23 @@ export function generarDocumentoImpresion(
   // acaba de sacar de la nota. Con la letra del sistema en grande el rol sale
   // más grande y puede pasar a una hoja más, pero no pierde nada.
   if (extras?.rolDeVisita) paginas.unshift(generarHtmlRolDeVisita(extras.rolDeVisita))
+  // La planilla de cobranzas va PRIMERA de todo: es la rendición del día, y en
+  // la oficina se separa de las notas apenas sale del cajón.
+  if (extras?.planillaCobranzas) {
+    paginas.unshift(generarHtmlPlanillaCobranzas(extras.planillaCobranzas))
+  }
 
-  const titulo = extras?.rolDeVisita
-    ? 'Rol de visita y notas de pedido · WoodTools'
-    : 'Notas de pedido · WoodTools'
+  const titulo = extras?.planillaCobranzas
+    ? 'Planilla de cobranzas · WoodTools'
+    : extras?.rolDeVisita
+      ? 'Rol de visita y notas de pedido · WoodTools'
+      : 'Notas de pedido · WoodTools'
 
   const estilos = [
     ESTILOS_PAGINA,
     conMedidasEscaladas(ESTILOS_NOTA_PEDIDO, extras?.escalaDeLetra),
     ESTILOS_ROL_DE_VISITA,
+    ESTILOS_PLANILLA_COBRANZAS,
     estilosDeEscala(extras?.escalaDeLetra),
   ].join('\n')
 

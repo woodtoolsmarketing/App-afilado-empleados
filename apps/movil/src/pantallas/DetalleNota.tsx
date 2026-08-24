@@ -298,6 +298,24 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
           alTocar={() => navigation.navigate('VistaPrevia', { notaIds: [notaId] })}
         />
 
+        {/* El cobro va acá y no adentro del botón de imprimir: se cobra sin
+            imprimir nada —una factura de la semana pasada— y se imprime sin
+            cobrar. Atarlos obligaba a una de las dos cosas para hacer la otra.
+            El comprobante y el cliente viajan puestos: es lo que el vendedor
+            tiene delante cuando cobra. */}
+        <BotonSecundario
+          titulo="💵  COBRÉ ESTA NOTA"
+          alTocar={() =>
+            navigation.navigate('Cobranzas', {
+              notaId,
+              clienteId: n.cliente_id ?? null,
+              clienteCodigo: n.cliente_codigo ?? null,
+              clienteNombre: n.cliente_nombre ?? '',
+              tipoComprobante: n.tipo_nota === 'factura' ? 'factura' : 'presupuesto',
+            })
+          }
+        />
+
         <BotonMenu
           titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
           subtitulo="Original y duplicado"

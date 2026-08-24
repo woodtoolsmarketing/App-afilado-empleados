@@ -14,6 +14,7 @@ import * as Sharing from 'expo-sharing'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
+import { cobranzasDelDia, hoyLocal, planillaDesdeCobranzas } from './cobranzas'
 import {
   buscarEnLaRed,
   contestaIpp,
@@ -375,21 +376,57 @@ export async function imprimirNotas(params: {
     rolDeVisita: rolDeVisita ?? undefined,
     escalaDeLetra,
   })
-  const { uri } = await armarPdf(html)
-
-  if (params.comoPdf) {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' })
-    }
-    // Un PDF guardado no es una nota impresa: no se marca nada.
-    return { mensaje: 'PDF generado', uri, via: 'pdf', advertencia, confirmado: false }
-  }
-
   const cuantas = `${notas.length} nota${notas.length === 1 ? '' : 's'}`
   const conRol = rolDeVisita ? ' y el rol de visita' : ''
 
+  return entregarDocumento(html, {
+    queSalio: `${cuantas}${conRol}`,
+    plural: notas.length !== 1,
+    nombreDelArchivo: 'notas-de-pedido',
+    comoPdf: params.comoPdf,
+    alAvisar: params.alAvisar,
+    usarDialogoDelSistema: params.usarDialogoDelSistema,
+    advertencia,
+  })
+}
+
+/**
+ * El camino por el que sale cualquier papel de esta app.
+ *
+ * Vive separado porque lo usan la nota de pedido y la planilla de cobranzas, y
+ * porque el orden importa: se intenta la impresora de la oficina, y sólo si
+ * falla —y sólo si lo pidieron— se abre el diálogo de Android. Escrito dos
+ * veces, la segunda copia terminaría con otro orden o con otro mensaje de
+ * error, que es exactamente lo que ya pasó con la lógica de qué páginas lleva
+ * un trabajo.
+ */
+async function entregarDocumento(
+  html: string,
+  opciones: {
+    /** Qué salió, para el mensaje: "2 notas y el rol de visita". */
+    queSalio: string
+    plural: boolean
+    nombreDelArchivo: string
+    comoPdf?: boolean
+    alAvisar?: (mensaje: string) => void
+    usarDialogoDelSistema?: boolean
+    advertencia?: string
+  },
+): Promise<ResultadoImpresion> {
+  const { data: sesionActual } = await supabase.auth.getSession()
+  const advertencia = opciones.advertencia
+  const { uri } = await armarPdf(html)
+
+  if (opciones.comoPdf) {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' })
+    }
+    // Un PDF guardado no es papel impreso: no se marca nada.
+    return { mensaje: 'PDF generado', uri, via: 'pdf', advertencia, confirmado: false }
+  }
+
   const configurada = await obtenerImpresora()
-  const ubicada = await ubicarImpresora(configurada, params.alAvisar)
+  const ubicada = await ubicarImpresora(configurada, opciones.alAvisar)
 
   if (ubicada) {
     try {
@@ -402,7 +439,7 @@ export async function imprimirNotas(params: {
         ? `la impresora, que hoy está en ${ubicada.impresora.ip}`
         : `la impresora ${ubicada.impresora.ip}`
       return {
-        mensaje: `Se ${notas.length === 1 ? 'envió' : 'enviaron'} ${cuantas}${conRol} a ${donde}.`,
+        mensaje: `Se ${opciones.plural ? 'enviaron' : 'envió'} ${opciones.queSalio} a ${donde}.`,
         uri,
         via: 'ipp',
         confirmado: true,
@@ -417,7 +454,7 @@ export async function imprimirNotas(params: {
       // con la bandeja abierta. Ese mensaje es más útil que cualquier cosa que
       // podamos deducir después, así que sube tal cual.
       console.warn('[impresion] la impresora rechazó el trabajo', e)
-      if (!params.usarDialogoDelSistema) {
+      if (!opciones.usarDialogoDelSistema) {
         throw new Error(
           e instanceof Error && e.message
             ? `${e.message} (${ubicada.impresora.ip})`
@@ -439,7 +476,7 @@ export async function imprimirNotas(params: {
   // pantalla lo ofrece como un botón aparte.
   const red = await estadoDeRed()
 
-  if (!params.usarDialogoDelSistema) {
+  if (!opciones.usarDialogoDelSistema) {
     const donde = configurada ? ` en ${configurada.ip}` : ''
     throw new Error(
       !red.conectado
@@ -464,3 +501,62 @@ export async function imprimirNotas(params: {
 }
 
 export { ESTILOS_NOTA_PEDIDO }
+
+/**
+ * Imprime la planilla de cobranzas del día.
+ *
+ * Sale sola, sin notas: es la rendición que la oficina separa apenas la recibe.
+ * Usa el mismo camino que todo lo demás —impresora de la oficina, y si no
+ * responde, el diálogo del sistema— para no tener un cuarto modo de imprimir
+ * que se rompa por su cuenta.
+ */
+export async function imprimirPlanillaCobranzas(params?: {
+  fecha?: string
+  alAvisar?: (mensaje: string) => void
+  comoPdf?: boolean
+  usarDialogoDelSistema?: boolean
+}): Promise<ResultadoImpresion> {
+  const { data: sesionActual } = await supabase.auth.getSession()
+  const vendedorId = sesionActual.session?.user.id
+  if (!vendedorId) throw new Error('No hay sesión')
+
+  const fecha = params?.fecha ?? hoyLocal()
+  const cobros = await cobranzasDelDia(fecha)
+  if (cobros.length === 0) {
+    throw new Error('Todavía no cargaste ningún cobro hoy. La planilla saldría vacía.')
+  }
+
+  const { data: perfil } = await supabase
+    .from('perfiles')
+    .select('nombre_completo, codigo_vendedor, zonas')
+    .eq('id', vendedorId)
+    .maybeSingle()
+
+  const zonas = (perfil as { zonas?: string[] } | null)?.zonas ?? []
+
+  const planilla = planillaDesdeCobranzas(
+    cobros,
+    {
+      nombre: perfil?.nombre_completo ?? '',
+      codigo: perfil?.codigo_vendedor ?? null,
+      // "GIRA ZONA" en la planilla de papel. Si el vendedor cubre varias, van
+      // todas: la hoja es de la gira, no de una zona.
+      zona: zonas.length > 0 ? zonas.join(', ') : null,
+    },
+    fecha,
+  )
+
+  const html = generarDocumentoImpresion([], {
+    planillaCobranzas: planilla,
+    escalaDeLetra: escalaDeLetraDelSistema(),
+  })
+
+  return entregarDocumento(html, {
+    queSalio: 'la planilla de cobranzas',
+    plural: false,
+    nombreDelArchivo: `planilla-cobranzas-${fecha}`,
+    comoPdf: params?.comoPdf,
+    alAvisar: params?.alAvisar,
+    usarDialogoDelSistema: params?.usarDialogoDelSistema,
+  })
+}

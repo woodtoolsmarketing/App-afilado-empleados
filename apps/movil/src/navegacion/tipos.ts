@@ -47,6 +47,22 @@ export type ParametrosApp = {
     | undefined
   NuevoCliente: { nombreInicial?: string; documentoInicial?: string } | undefined
   NotasPendientes: undefined
+  /**
+   * La rendición de cobranzas del día.
+   *
+   * Los parámetros llegan cuando se entra desde una nota: el formulario abre
+   * con el cliente y el comprobante ya puestos, que es lo que el vendedor tiene
+   * delante cuando cobra.
+   */
+  Cobranzas:
+    | {
+        notaId?: string
+        clienteId?: string | null
+        clienteCodigo?: string | null
+        clienteNombre?: string
+        tipoComprobante?: 'factura' | 'presupuesto'
+      }
+    | undefined
   /** Las que ya salieron en papel. Se miran y se reimprimen; no se editan. */
   NotasImpresas: undefined
   HistorialNotas: undefined
