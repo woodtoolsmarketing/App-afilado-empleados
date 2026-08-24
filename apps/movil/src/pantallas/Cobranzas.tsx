@@ -1,4 +1,12 @@
-import { colores, espaciado, formatearPesos, radios, soloNumeros, tipografia } from '@woodtools/compartido'
+import {
+  aNumero,
+  colores,
+  espaciado,
+  formatearPesos,
+  radios,
+  soloNumeros,
+  tipografia,
+} from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
@@ -266,10 +274,26 @@ function FormularioCobro({
   )
 }
 
-/** "1.234,50" → 1234.5. Lo que tipea el vendedor viene a la argentina. */
+/**
+ * "1.234,50" → 1234.5, y también "1234.50" → 1234.5.
+ *
+ * La cuenta la hace `aNumero`, del paquete compartido, y no una copia local.
+ * Acá había una: borraba TODOS los puntos sin mirar qué separaban, así que un
+ * vendedor que tipeara `1500.50` —con el punto decimal del teclado numérico,
+ * que es lo que ese teclado ofrece— registraba un cobro de $ 150.050. Cien
+ * veces de más, y en la planilla que la oficina compara contra la plata que él
+ * entrega.
+ *
+ * `aNumero` ya resuelve esto: si hay coma, la coma manda y los puntos son de
+ * miles; si no hay coma, un único punto seguido de una o dos cifras es
+ * decimal. El proyecto tuvo este mismo error una vez en los precios y lo
+ * arregló ahí; esta pantalla lo reintrodujo escribiendo el parser de nuevo.
+ *
+ * Lo único propio que queda es descartar lo que no sea positivo: un cobro de
+ * cero o negativo no es un cobro.
+ */
 function aPesos(texto: string): number {
-  const limpio = texto.replace(/\./g, '').replace(',', '.')
-  const n = Number(limpio)
+  const n = aNumero(texto)
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 

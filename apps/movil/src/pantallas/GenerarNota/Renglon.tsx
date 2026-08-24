@@ -207,7 +207,18 @@ export function PasoRenglon({
    * cliente en el medio de la carga es normal —se empieza la nota y después se
    * lo elige— y el precio tiene que seguirlo.
    */
-  const [precioAcordado, setPrecioAcordado] = useState<number | null>(null)
+  /**
+   * El precio acordado, y PARA QUÉ CÓDIGO se acordó.
+   *
+   * El código no es un adorno: la búsqueda de código vuelve a correr cada vez
+   * que cambia una medida y reescribe el precio con el de lista. Si el código
+   * que resuelve es el mismo, hay que volver a imponer el acordado, y para
+   * saber que es el mismo hace falta tenerlo guardado al lado del importe.
+   */
+  const [precioAcordado, setPrecioAcordado] = useState<{
+    codigo: string
+    precio: number
+  } | null>(null)
 
   useEffect(() => {
     const codigos = item.codigos_computo.filter(Boolean)
@@ -220,7 +231,7 @@ export function PasoRenglon({
       .then((acordados) => {
         if (cancelado) return
         const suyo = acordados.find((a) => a.codigo === codigos[0])
-        setPrecioAcordado(suyo ? suyo.precio : null)
+        setPrecioAcordado(suyo ? { codigo: suyo.codigo, precio: suyo.precio } : null)
         if (suyo && Math.abs(aNumero(item.precio_por_diente) - suyo.precio) > 0.005) {
           alCambiar({ precio_por_diente: String(suyo.precio) })
         }
@@ -404,15 +415,38 @@ export function PasoRenglon({
 
         const mejor = encontrados[0]
         propuesto.current = mejor.codigo
+
+        /**
+         * El precio que se escribe: el acordado con este cliente si lo hay,
+         * y si no el de lista.
+         *
+         * Esto NO es una comodidad. Esta búsqueda se vuelve a disparar con
+         * cada medida que se corrige, y muchas veces resuelve el mismo código
+         * —cambiar el ancho de 2,5 a 2,6 no sale del rango 1,5–3,5—. Cuando
+         * eso pasa, `item.codigos_computo` no cambia, así que el efecto que
+         * trae el precio acordado NO vuelve a correr: se quedaba el de lista
+         * escrito y el cartel verde de abajo seguía diciendo "se está usando
+         * $ 190,51" sobre un renglón cotizado a $ 248,85. La nota se emitía
+         * con un 30 % de más y nadie lo veía.
+         *
+         * Se compara el código porque el acordado es de un código, no del
+         * cliente: si la medida nueva resuelve OTRO código, el acordado que
+         * está en memoria no es suyo y manda la lista.
+         */
+        const acordadoDeEsteCodigo =
+          precioAcordado && precioAcordado.codigo === mejor.codigo ? precioAcordado.precio : null
+
         alCambiar({
           codigos_computo: [mejor.codigo],
           // Un código a cotizar no trae importe: el campo queda para que lo
           // ponga el vendedor, en vez de heredar el precio de otro código.
           ...(mejor.a_cotizar
             ? { precio_por_diente: '' }
-            : mejor.precio_pesos !== null
-              ? { precio_por_diente: String(mejor.precio_pesos) }
-              : {}),
+            : acordadoDeEsteCodigo !== null
+              ? { precio_por_diente: String(acordadoDeEsteCodigo) }
+              : mejor.precio_pesos !== null
+                ? { precio_por_diente: String(mejor.precio_pesos) }
+                : {}),
           sin_cargo: esSinCargo(mejor.descripcion),
         })
       } catch {
@@ -432,7 +466,9 @@ export function PasoRenglon({
     // sólo su precio. Sin esto, contestar "sí, repararlos" dejaba puesto el
     // código de la reparación parcial.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [medidaClave, item.herramienta, item.dientes_rotos, item.reparar_dientes])
+    // `precioAcordado` entra en las dependencias: sin él, el efecto se queda
+    // con el valor del render en que se armó y vuelve a escribir la lista.
+  }, [medidaClave, item.herramienta, item.dientes_rotos, item.reparar_dientes, precioAcordado])
 
   // ── Precio total ─────────────────────────────────────────────────────────
   //
@@ -1510,7 +1546,7 @@ export function PasoRenglon({
           qué le dio distinto que al cliente de al lado. */}
       {precioAcordado !== null ? (
         <Aviso tono="info" titulo="Precio acordado con este cliente">
-          {`Se está usando ${formatearPesos(precioAcordado)} en vez del precio de lista.`}
+          {`Se está usando ${formatearPesos(precioAcordado.precio)} en vez del precio de lista.`}
         </Aviso>
       ) : null}
 

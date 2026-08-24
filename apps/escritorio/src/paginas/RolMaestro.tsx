@@ -76,8 +76,36 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
-  const validas = filas.filter((f) => !f.problema)
-  const conProblema = filas.filter((f) => f.problema)
+  /**
+   * Las filas que se van a cargar, con los clientes repetidos marcados.
+   *
+   * Un mismo código de cliente en dos filas es lo típico de una planilla que
+   * se fue armando por zonas, y las dos cruzan bien contra el padrón: sin esto
+   * las dos salían "Listo" y ninguna aparecía en la lista de problemas.
+   *
+   * El upsert las manda juntas en un solo comando y Postgres lo aborta con
+   * 21000, "ON CONFLICT DO UPDATE command cannot affect row a second time".
+   * Eso sería un error y nada más si el guardado fuera una sola transacción,
+   * pero son dos requests: el primero —desactivar el plan entero— ya
+   * commiteó. El vendedor se quedaba sin plan y sin reemplazo, y a la mañana
+   * siguiente abría CLIENTES DE HOY y no le tocaba nadie.
+   *
+   * Se queda la primera aparición, que es la que la oficina escribió primero,
+   * y la repetida pasa a la lista de problemas para que se vea ANTES de
+   * cargar.
+   */
+  const vistos = new Set<string>()
+  const revisadas = filas.map((f) => {
+    if (f.problema || !f.clienteId) return f
+    if (vistos.has(f.clienteId)) {
+      return { ...f, problema: `El cliente ${f.codigo} ya está en otra fila` }
+    }
+    vistos.add(f.clienteId)
+    return f
+  })
+
+  const validas = revisadas.filter((f) => !f.problema)
+  const conProblema = revisadas.filter((f) => f.problema)
 
   async function alElegirArchivo(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -223,7 +251,10 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {filas.map((f) => (
+              {/* `revisadas` y no `filas`: es la lista que ya tiene marcados los
+                  clientes repetidos, que es justamente lo que hay que ver acá
+                  antes de cargar. */}
+              {revisadas.map((f) => (
                 <tr key={f.linea} style={f.problema ? { opacity: 0.6 } : undefined}>
                   <td>{f.linea}</td>
                   <td>

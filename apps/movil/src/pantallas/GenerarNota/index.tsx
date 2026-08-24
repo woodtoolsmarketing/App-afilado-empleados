@@ -754,6 +754,29 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       codigos_computo: [],
       precio_por_diente: '',
       precio_total: '',
+      /**
+       * Los dientes rotos también se limpian, y no por prolijidad.
+       *
+       * `dientes_rotos_cantidad` es el total del RENGLÓN, no de cada
+       * herramienta: `computoDeRenglon` lo usa tal cual, sin multiplicarlo por
+       * la cantidad —al revés que los rascadores, que sí van por unidad—.
+       * Copiado a los dos grupos se contaba dos veces: separar 3 sierras con 6
+       * rotos dejaba 6 en un grupo y 6 en el otro, y la nota reparaba 12.
+       *
+       * Ninguna validación lo frenaba, porque 6 entra holgado en los dos
+       * grupos por separado. Y el primero no se vuelve a abrir —la pantalla
+       * salta al nuevo—, así que el número duplicado no se le ponía delante a
+       * nadie. Con precios de reparación de seis cifras por diente, eso es
+       * mucha plata mal cobrada sin una sola señal.
+       *
+       * El grupo que se queda conserva lo declarado; el que se separa arranca
+       * limpio, para que el vendedor diga cuántos tiene ESA herramienta.
+       */
+      dientes_rotos: false,
+      dientes_rotos_cantidad: '',
+      reparar_dientes: null,
+      codigo_reparacion: '',
+      precio_reparacion_por_diente: '',
     }
 
     const nuevos = [...items]
