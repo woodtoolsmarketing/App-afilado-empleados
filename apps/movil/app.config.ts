@@ -195,7 +195,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.0.7',
+  version: '1.0.8',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -237,6 +237,9 @@ const config: ExpoConfig = {
       'ACCESS_BACKGROUND_LOCATION',
       'FOREGROUND_SERVICE',
       'FOREGROUND_SERVICE_LOCATION',
+      // Para entrar con huella o cara. El PIN y el patrón no piden permiso:
+      // son el desbloqueo del sistema y no un dato biométrico de la app.
+      'USE_BIOMETRIC',
       'RECORD_AUDIO',
       /**
        * Sin esto, dictar mientras hay un recorrido en curso no funciona.
@@ -271,10 +274,21 @@ const config: ExpoConfig = {
     [
       'expo-location',
       {
+        /*
+         * Los textos dicen TODO lo que se hace con la ubicación.
+         *
+         * Antes decían que la oficina ve al vendedor "mientras el recorrido
+         * está en curso", y eso dejó de ser toda la verdad cuando se agregó el
+         * fichaje: al entrar y al salir se guarda dónde estaba, haya recorrido
+         * o no. Es un dato por día y por evento, no seguimiento — pero es
+         * ubicación fuera del recorrido, y el permiso que la persona acepta
+         * tiene que decirlo. Un texto que promete menos de lo que se hace no es
+         * un descuido de redacción.
+         */
         locationAlwaysAndWhenInUsePermission:
-          'WoodTools Visitas usa tu ubicación para armar el recorrido más corto y para que la oficina sepa dónde estás mientras el recorrido está en curso.',
+          'WoodTools Visitas usa tu ubicación para armar el recorrido más corto, para que la oficina sepa dónde estás mientras el recorrido está en curso, y para registrar desde dónde marcás tu entrada y tu salida.',
         locationWhenInUsePermission:
-          'WoodTools Visitas usa tu ubicación para ordenar los destinos del día por cercanía.',
+          'WoodTools Visitas usa tu ubicación para ordenar los destinos del día por cercanía y para registrar desde dónde marcás tu entrada y tu salida.',
         locationAlwaysPermission:
           'Permitir "siempre" hace que el seguimiento no se corte cuando apagás la pantalla durante el recorrido.',
         isAndroidBackgroundLocationEnabled: true,

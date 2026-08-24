@@ -321,7 +321,8 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
 
         <Text style={estilos.pie}>
           WoodTools S.R.L. · Aplicación de uso interno.{'\n'}
-          Tu ubicación se registra únicamente mientras el recorrido está en curso.
+          Tu ubicación se registra mientras el recorrido está en curso, y una vez al marcar tu
+          entrada y otra al marcar tu salida. Fuera de eso, no.
         </Text>
       </Panel>
     </Pantalla>

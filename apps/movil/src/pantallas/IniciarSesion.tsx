@@ -43,7 +43,6 @@ export function PantallaIniciarSesion() {
 
   const [usuario, setUsuario] = useState('')
   const [contrasena, setContrasena] = useState('')
-  const [recordar, setRecordar] = useState(true)
   const [verContrasena, setVerContrasena] = useState(false)
   const [errores, setErrores] = useState<Partial<Record<CampoLogin, string>>>({})
   const [intentado, setIntentado] = useState(false)
@@ -72,7 +71,7 @@ export function PantallaIniciarSesion() {
       return
     }
 
-    await iniciarSesion(usuario, contrasena, recordar)
+    await iniciarSesion(usuario, contrasena)
   }
 
   /**
@@ -181,19 +180,10 @@ export function PantallaIniciarSesion() {
             <Text style={estilos.olvideTexto}>Olvidé mi contraseña</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => setRecordar((r) => !r)}
-            style={estilos.recordarFila}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: recordar }}
-            accessibilityLabel="Recordar mi cuenta por 30 días"
-            hitSlop={8}
-          >
-            <View style={[estilos.recordarCaja, recordar && estilos.recordarMarcada]}>
-              {recordar ? <Text style={estilos.recordarTilde}>✓</Text> : null}
-            </View>
-            <Text style={estilos.recordarTexto}>Recordar mi cuenta por 30 días</Text>
-          </Pressable>
+          {/* Acá estaba "Recordar mi cuenta por 30 días". La sesión ya no
+              vence: lo que protege la app es el desbloqueo del teléfono, que es
+              más seguro que una contraseña que hay que tipear seguido en la
+              calle —esas terminan escritas en un papel adentro de la funda—. */}
 
           <BotonPrincipal
             titulo="INICIAR SESIÓN"

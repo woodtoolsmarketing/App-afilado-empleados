@@ -21,14 +21,20 @@ import { supabase } from './supabase'
  *   2. El alta del usuario tiene que estar APROBADA por un administrador.
  *   3. El teléfono tiene que estar habilitado.
  *
- * Y encima la regla de "Recordar mi cuenta por 30 días": si la tildan, no se
- * vuelve a pedir el login durante 30 días; si no, se pide en cada arranque.
+ * ── La sesión ya no vence a los 30 días ────────────────────────────────────
+ *
+ * Antes había una casilla "Recordar mi cuenta por 30 días", y sin tildarla la
+ * sesión no sobrevivía al cierre de la app. Cada 30 días —o cada arranque— el
+ * vendedor tenía que escribir usuario y contraseña en la calle, con una mano,
+ * en un teléfono con el teclado a mitad de pantalla.
+ *
+ * Ahora la sesión persiste y lo que la protege es el desbloqueo del teléfono:
+ * huella, cara o PIN, lo que ese equipo tenga configurado. Es más seguro que la
+ * contraseña, no menos: una contraseña que hay que tipear seguido termina
+ * escrita en un papel adentro de la funda.
  */
 
-const CLAVE_RECORDAR_HASTA = 'woodtools.recordar_hasta'
 const CLAVE_ULTIMO_USUARIO = 'woodtools.ultimo_usuario'
-
-const DIAS_RECORDAR = 30
 
 /** Dominio que se le agrega al usuario cuando escriben sólo el nombre. */
 const DOMINIO_USUARIO: string =
@@ -96,18 +102,11 @@ interface EstadoSesion {
   procesando: boolean
 
   arrancar: () => Promise<void>
-  iniciarSesion: (usuario: string, contrasena: string, recordar: boolean) => Promise<void>
+  iniciarSesion: (usuario: string, contrasena: string) => Promise<void>
   cerrarSesion: () => Promise<void>
   refrescarPerfil: () => Promise<void>
   recuperarContrasena: (usuario: string) => Promise<void>
   cambiarContrasena: (nueva: string) => Promise<void>
-}
-
-async function leerRecordarHasta(): Promise<Date | null> {
-  const guardado = await SecureStore.getItemAsync(CLAVE_RECORDAR_HASTA)
-  if (!guardado) return null
-  const fecha = new Date(guardado)
-  return Number.isNaN(fecha.getTime()) ? null : fecha
 }
 
 /**
@@ -199,28 +198,11 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
       return
     }
 
-    // ── Regla de los 30 días ────────────────────────────────────────────────
-    const recordarHasta = await leerRecordarHasta()
-
-    if (!recordarHasta) {
-      // No tildaron "recordarme": la sesión no sobrevive al cierre de la app.
-      await get().cerrarSesion()
-      return
-    }
-
-    if (recordarHasta.getTime() < Date.now()) {
-      // Se cumplieron los 30 días: vuelve a pedir usuario y contraseña.
-      await get().cerrarSesion()
-      set({
-        errorAcceso: 'Pasaron 30 días desde tu último inicio de sesión. Ingresá de nuevo.',
-      })
-      return
-    }
-
+    // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
     await get().refrescarPerfil()
   },
 
-  async iniciarSesion(usuario, contrasena, recordar) {
+  async iniciarSesion(usuario, contrasena) {
     set({ procesando: true, errorAcceso: null })
 
     try {
@@ -243,15 +225,21 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
         return
       }
 
-      // Guardamos el vencimiento del "recordarme" recién ahora, con el login OK.
-      if (recordar) {
-        const hasta = new Date(Date.now() + DIAS_RECORDAR * 24 * 60 * 60 * 1000)
-        await SecureStore.setItemAsync(CLAVE_RECORDAR_HASTA, hasta.toISOString())
-      } else {
-        await SecureStore.deleteItemAsync(CLAVE_RECORDAR_HASTA).catch(() => undefined)
-    // Lo recordado para andar sin señal se va con la sesión: el próximo que
-    // entre en este teléfono arranca preguntándole al servidor.
-    await olvidarLoRecordado()
+      /**
+       * Si entró OTRA persona, se tira lo que quedó guardado del anterior.
+       *
+       * Esta limpieza vivía en la rama "no me recuerdes" de la casilla que se
+       * acaba de sacar, y sacarla sin reubicarla dejaba un agujero silencioso:
+       * dos vendedores que comparten un teléfono, sin señal, entrando cada uno
+       * con el perfil cacheado del otro.
+       *
+       * Colgada del cambio de usuario funciona mejor que antes, además: el que
+       * entra siempre es el que era, tildara lo que tildara.
+       */
+      const anterior = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
+      if (anterior && anterior !== usuario.trim()) {
+        await olvidarLoRecordado()
+        await olvidarFotos()
       }
       await SecureStore.setItemAsync(CLAVE_ULTIMO_USUARIO, usuario.trim())
 
@@ -317,7 +305,9 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 
   async cerrarSesion() {
     await supabase.auth.signOut().catch(() => undefined)
-    await SecureStore.deleteItemAsync(CLAVE_RECORDAR_HASTA).catch(() => undefined)
+    // Cerrar sesión a mano SÍ tira lo cacheado: es el gesto de "este teléfono
+    // deja de ser mío". Lo que ya no pasa es que se caiga sola a los 30 días.
+    await olvidarLoRecordado()
     // Las URL firmadas de las fotos se emitieron contra la sesión que se va.
     olvidarFotos()
     set({ estado: 'sin_sesion', perfil: null, errorAcceso: null })

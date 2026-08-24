@@ -2,8 +2,9 @@ import { colores } from '@woodtools/compartido'
 import { NavigationContainer, type Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 
-import { Cargando } from '../componentes/Estado'
-import { Pantalla } from '../componentes/Pantalla'
+import { BotonMenu } from '../componentes/Botones'
+import { Aviso, Cargando } from '../componentes/Estado'
+import { Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaCalendarioEnvios } from '../pantallas/CalendarioEnvios'
@@ -29,6 +30,7 @@ import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
+import { usarCandado } from '../servicios/presencia'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
@@ -71,10 +73,45 @@ export function Navegacion() {
    */
   usarAvisoDeApkAlEntrar(estado === 'habilitado')
 
+  /**
+   * El candado del teléfono.
+   *
+   * Va acá por lo mismo que el aviso de la app nueva: es de la app entera y no
+   * de una pantalla. Y va ANTES del corte de abajo porque un hook no puede
+   * quedar del otro lado de un return.
+   */
+  const candado = usarCandado(estado === 'habilitado')
+
   if (estado === 'cargando') {
     return (
       <Pantalla>
         <Cargando texto="Verificando tu cuenta…" />
+      </Pantalla>
+    )
+  }
+
+  /*
+   * Con el candado puesto no se dibuja la app.
+   *
+   * Se devuelve otra cosa en vez de tapar con un modal: un modal encima del
+   * navegador deja las pantallas montadas y sus datos en memoria, y lo que hay
+   * que cerrar es el acceso a lo que se ve, no sólo a lo que se toca.
+   */
+  if (candado.bloqueado) {
+    return (
+      <Pantalla>
+        <Panel>
+          <TituloPanel>WOODTOOLS</TituloPanel>
+          <Aviso tono="info" titulo="Desbloqueá para entrar">
+            Usá la huella, la cara o el PIN del teléfono. Es la misma llave con la que abrís el
+            resto del equipo.
+          </Aviso>
+          <BotonMenu
+            titulo="DESBLOQUEAR"
+            alTocar={() => void candado.desbloquear()}
+            cargando={candado.verificando}
+          />
+        </Panel>
       </Pantalla>
     )
   }
