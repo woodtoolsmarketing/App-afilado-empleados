@@ -23,7 +23,6 @@ export interface RenglonRolDeVisita {
   hora: string
   cliente_numero: string
   razon_social: string
-  direccion: string
 
   // "TIPO DE VISITA"
   vendio: boolean
@@ -45,8 +44,14 @@ export interface RolDeVisitaParaImprimir {
   paradas: RenglonRolDeVisita[]
 
   visitadas: number
+  /**
+   * Cuántas quedaron sin visitar, contando las que nunca se resolvieron.
+   *
+   * La plantilla no la usa —la recalcula como destinos menos visitados, para
+   * que la resta cierre— pero se sigue pidiendo porque es el dato que el
+   * llamador ya tiene a mano y sirve para contrastarlo.
+   */
   no_visitadas: number
-  observaciones_jornada: string
 }
 
 /**
@@ -72,7 +77,6 @@ const RENGLON_VACIO = (): RenglonRolDeVisita => ({
   hora: '',
   cliente_numero: '',
   razon_social: '',
-  direccion: '',
   vendio: false,
   cobro: false,
   retiro_afilado: false,
@@ -105,7 +109,7 @@ function resultadoDeParada(p: ParadaCompleta): string {
  * recorrido sale distinto según quién apretó el botón.
  */
 export function rolImprimibleDesdeFilas(
-  jornada: { fecha: string; observaciones_jornada: string | null },
+  jornada: { fecha: string },
   paradas: ParadaCompleta[],
   vendedor: { nombre: string; codigo: string | null },
 ): RolDeVisitaParaImprimir {
@@ -114,7 +118,6 @@ export function rolImprimibleDesdeFilas(
     hora: p.llegada_en ? formatearHora(p.llegada_en) : '',
     cliente_numero: p.cliente?.codigo ?? '',
     razon_social: p.cliente?.razon_social ?? p.razon_social_snapshot ?? '',
-    direccion: p.direccion?.direccion_formateada ?? p.direccion_snapshot ?? '',
     vendio: p.visita?.vendio ?? false,
     cobro: p.visita?.cobro ?? false,
     retiro_afilado: p.visita?.retiro_afilado ?? false,
@@ -132,7 +135,6 @@ export function rolImprimibleDesdeFilas(
     paradas: renglones,
     visitadas: paradas.filter((p) => p.visita?.visitado === true).length,
     no_visitadas: paradas.filter((p) => p.visita?.visitado === false).length,
-    observaciones_jornada: jornada.observaciones_jornada ?? '',
   }
 }
 
@@ -147,7 +149,6 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
       <td class="c">${escapar(p.hora)}</td>
       <td class="c">${escapar(p.cliente_numero)}</td>
       <td>${escapar(p.razon_social)}</td>
-      <td>${escapar(p.direccion)}</td>
       <td class="tick">${tilde(p.vendio)}</td>
       <td class="tick">${tilde(p.cobro)}</td>
       <td class="tick">${tilde(p.retiro_afilado)}</td>
@@ -158,7 +159,16 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
     )
     .join('')
 
-  const sinResolver = Math.max(0, rol.paradas.length - rol.visitadas - rol.no_visitadas)
+  /**
+   * Todo lo que no se visitó es "no visitado".
+   *
+   * Antes había una tercera categoría, "Sin resolver", para las paradas que
+   * quedaron pendientes, en camino u omitidas. En el papel esa distinción no le
+   * servía a nadie: quien lee el rol quiere saber a cuántos se llegó y a
+   * cuántos no. Y peor, dejaba a la suma sin cerrar contra el total de
+   * destinos, que es lo primero que se mira.
+   */
+  const noVisitados = Math.max(0, rol.paradas.length - rol.visitadas)
 
   return `<div class="rol">
   <div class="rol-cabecera">
@@ -177,7 +187,6 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
         <th rowspan="2" class="w-hora">Hora</th>
         <th rowspan="2" class="w-cli">Cliente Nº</th>
         <th rowspan="2" class="w-razon">Razón social o nombre</th>
-        <th rowspan="2" class="w-dir">Dirección</th>
         <th colspan="4" class="grupo w-ticks">Tipo de visita</th>
         <th rowspan="2" class="w-contacto">Atendido / Contacto</th>
         <th rowspan="2" class="w-resultado">Resultado (observaciones)</th>
@@ -196,12 +205,7 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
     <div class="rol-resumen">
       <span>Destinos: <strong>${rol.paradas.length}</strong></span>
       <span>Visitados: <strong>${rol.visitadas}</strong></span>
-      <span>No visitados: <strong>${rol.no_visitadas}</strong></span>
-      ${sinResolver > 0 ? `<span>Sin resolver: <strong>${sinResolver}</strong></span>` : ''}
-    </div>
-    <div class="rol-observaciones">
-      <div class="rol-rotulo">OBSERVACIONES DE LA JORNADA:</div>
-      <div class="rol-texto">${escapar(rol.observaciones_jornada)}</div>
+      <span>No visitados: <strong>${noVisitados}</strong></span>
     </div>
     <div class="rol-firma">
       <div class="linea"></div>
@@ -256,10 +260,20 @@ export const ESTILOS_ROL_DE_VISITA = `
 /* Con table-layout:fixed las columnas salen de la PRIMERA fila del thead, así
    que el grupo "Tipo de visita" necesita su propio ancho: sin él las cuatro
    columnas de tilde se reparten la sobra y los rótulos se parten al medio. */
-.w-nro { width: 4%; } .w-hora { width: 6%; } .w-cli { width: 7%; }
-.w-razon { width: 17%; } .w-dir { width: 18%; }
+/* Tienen que sumar 100. La tabla es table-layout:fixed y los anchos salen de la
+   primera fila del thead: si no suman, el navegador reparte la sobra a su
+   criterio y la maqueta se desarma — y esto se imprime desde el teléfono, donde
+   nadie lo mira antes de que salga la hoja.
+
+   La dirección se fue entera (eran 18) y el número, la hora y el cliente se
+   achicaron a lo que de verdad ocupan: un número de dos cifras, un "14:35" y un
+   código de cliente. Los 22 puntos que quedaron libres se los lleva casi todos
+   el resultado, que es la columna donde se escribe a mano y la que se quedaba
+   corta. */
+.w-nro { width: 3%; } .w-hora { width: 5%; } .w-cli { width: 5%; }
+.w-razon { width: 18%; }
 .w-ticks { width: 18%; } .w-tick { width: 4.5%; }
-.w-contacto { width: 11%; } .w-resultado { width: 19%; }
+.w-contacto { width: 11%; } .w-resultado { width: 40%; }
 
 .rol-pie { margin-top: 3mm; }
 .rol-resumen { display: flex; gap: 10mm; font-size: 9pt; margin-bottom: 2mm; }

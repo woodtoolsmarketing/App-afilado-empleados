@@ -303,11 +303,15 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 28 }}>Nº</th>
-                  <th style={{ width: 50 }}>Hora</th>
-                  <th style={{ width: 60 }}>Cliente Nº</th>
-                  <th>Razón social o nombre</th>
-                  <th>Dirección</th>
+                  {/* Los mismos anchos y las mismas columnas que la planilla
+                      compartida. Vive escrita dos veces —acá y en
+                      `rol-de-visita-impresion.ts`— y ya se desalinearon una vez:
+                      tocar una sola deja el mismo recorrido saliendo distinto
+                      según quién apretó imprimir. */}
+                  <th style={{ width: 24 }}>Nº</th>
+                  <th style={{ width: 42 }}>Hora</th>
+                  <th style={{ width: 48 }}>Cliente Nº</th>
+                  <th style={{ width: 180 }}>Razón social o nombre</th>
                   <th style={{ width: 34 }}>Ven.</th>
                   <th style={{ width: 34 }}>Cob.</th>
                   <th style={{ width: 34 }}>Afil.</th>
@@ -320,7 +324,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
               <tbody>
                 {jornada.paradas.length === 0 ? (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: 24 }}>
+                    <td colSpan={11} style={{ textAlign: 'center', padding: 24 }}>
                       Todavía no hay destinos cargados.
                     </td>
                   </tr>
@@ -331,7 +335,6 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                       <td>{p.llegada_en ? formatearHora(p.llegada_en) : ''}</td>
                       <td>{p.cliente?.codigo ?? ''}</td>
                       <td>{p.cliente?.razon_social ?? p.razon_social_snapshot ?? '—'}</td>
-                      <td>{p.direccion?.direccion_formateada ?? p.direccion_snapshot ?? ''}</td>
                       <td style={{ textAlign: 'center' }}>{p.visita?.vendio ? 'X' : ''}</td>
                       <td style={{ textAlign: 'center' }}>{p.visita?.cobro ? 'X' : ''}</td>
                       <td style={{ textAlign: 'center' }}>{p.visita?.retiro_afilado ? 'X' : ''}</td>

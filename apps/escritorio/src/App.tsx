@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { supabase } from './nucleo/supabase'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
+import { ProveedorConsola } from './nucleo/consola'
 import { usarSesion } from './nucleo/sesion'
 import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
@@ -17,6 +18,9 @@ import { PaginaUsuarios } from './paginas/Usuarios'
 
 export function App() {
   const sesion = usarSesion()
+  // La ruta entra al proveedor porque cambiar de página borra lo que la consola
+  // haya destrabado: es la mitad de "cada vez hay que volver a escribirlo".
+  const ubicacion = useLocation()
 
   // Los teléfonos necesitan saber en qué dirección está esta PC para poder
   // bajarse la app nueva. Se publica sola: el router puede cambiarla.
@@ -35,6 +39,7 @@ export function App() {
   }
 
   return (
+    <ProveedorConsola rutaActual={ubicacion.pathname}>
     <div className="marco">
       <BarraLateral nombre={sesion.perfil.nombre_completo} rol={sesion.perfil.rol} alSalir={sesion.salir} />
 
@@ -65,6 +70,7 @@ export function App() {
         </Routes>
       </main>
     </div>
+    </ProveedorConsola>
   )
 }
 

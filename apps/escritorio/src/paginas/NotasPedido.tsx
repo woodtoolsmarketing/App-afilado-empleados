@@ -10,6 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
+import { usarConsola } from '../nucleo/consola'
 import { supabase } from '../nucleo/supabase'
 
 /**
@@ -37,7 +38,42 @@ interface NotaFila {
   vendedor: { nombre_completo: string; codigo_vendedor: string | null } | null
 }
 
+/**
+ * Dónde se emitió la nota. Sólo aparece si la consola lo destrabó.
+ *
+ * La consulta se hace por nota y recién cuando hace falta, no en la lista: si
+ * viajara con las notas, el dato estaría en el navegador de cualquiera que abra
+ * la página, y esconderlo en pantalla no lo escondería.
+ *
+ * Del otro lado hay una función que exige un permiso por usuario. Si el que
+ * mira no lo tiene, contesta 42501 y acá no se muestra nada — el desbloqueo de
+ * la consola no alcanza por sí solo, y es a propósito.
+ */
+function DondeSeHizo({ notaId }: { notaId: string }) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: ['donde-se-hizo', notaId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('ubicacion_de_nota', { p_nota_id: notaId })
+      if (error) throw error
+      const fila = (data ?? [])[0] as { veredicto: string; metros: number | null } | undefined
+      return fila ?? null
+    },
+    retry: false,
+  })
+
+  if (isPending) return <div className="donde-se-hizo">Consultando…</div>
+  if (isError || !data) return null
+
+  return (
+    <div className="donde-se-hizo">
+      <strong>{data.veredicto}</strong>
+      {data.metros !== null ? ` · a ${data.metros} m del cliente` : ''}
+    </div>
+  )
+}
+
 export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
+  const consola = usarConsola()
   const cliente = useQueryClient()
   const [filtro, setFiltro] = useState<'todas' | 'sin_cliente' | 'pendientes'>('sin_cliente')
   const [busqueda, setBusqueda] = useState('')
@@ -209,6 +245,7 @@ export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
                         </small>
                       </>
                     )}
+                    {consola.destrabado('ubicacion-de-notas') ? <DondeSeHizo notaId={n.id} /> : null}
                     {n.cliente_cuit && !n.cliente_codigo && (
                       <>
                         <br />

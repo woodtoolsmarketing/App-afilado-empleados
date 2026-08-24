@@ -34,6 +34,7 @@ import {
 } from '@woodtools/compartido'
 
 import { supabase } from '../nucleo/supabase'
+import { ubicacionActual } from './ubicacion'
 import { CLIENTE_A_MANO, VARIANTE } from '../nucleo/variante'
 
 /**
@@ -746,6 +747,34 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       `El servidor guardó ${filas.length} de ${grupos.length} notas. Revisá la lista de pendientes antes de volver a cargarla.`,
     )
   }
+
+  /**
+   * Dónde estaba el vendedor al emitir la nota.
+   *
+   * Va después de crear y no adentro de `crear_notas_pedido` por dos motivos.
+   * Uno: leer el GPS puede tardar, y una nota cargada no puede quedarse sin
+   * mandar esperando un satélite. Dos: si esto falla —sin señal, permiso
+   * denegado, adentro de un galpón— la nota TIENE que existir igual. El dato es
+   * para saber dónde se hizo, no un requisito para hacerla.
+   *
+   * Por eso todo el bloque está tragado a propósito: nunca puede voltear una
+   * nota que el servidor ya aceptó.
+   */
+  void (async () => {
+    try {
+      const pos = await ubicacionActual()
+      await supabase.from('notas_pedido_ubicacion').insert(
+        filas.map((f) => ({
+          nota_id: f.nota_id,
+          lat: pos.lat,
+          lng: pos.lng,
+          precision_m: pos.precision,
+        })),
+      )
+    } catch {
+      // Sin ubicación la nota queda igual; el veredicto dirá "sin dato".
+    }
+  })()
 
   // `orden_nota` es la posición en la que se mandó cada nota, así que vuelve a
   // aparearse con su grupo. El grupo y el total los sabe la app: son los que

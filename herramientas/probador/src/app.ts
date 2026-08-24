@@ -800,7 +800,6 @@ async function construirDocumento(ids: string[], incluirRolDeVisita: boolean): P
           hora: p.llegada_en ? formatearHora(p.llegada_en) : '',
           cliente_numero: p.cliente?.codigo ?? '',
           razon_social: p.cliente?.razon_social ?? p.razon_social_snapshot ?? '',
-          direccion: p.direccion?.direccion_formateada ?? p.direccion_snapshot ?? '',
           vendio: p.visita?.vendio ?? false,
           cobro: p.visita?.cobro ?? false,
           retiro_afilado: p.visita?.retiro_afilado ?? false,
@@ -814,7 +813,6 @@ async function construirDocumento(ids: string[], incluirRolDeVisita: boolean): P
         })),
         visitadas: jornada.paradas.filter((p: Record<string, any>) => p.visita?.visitado === true).length,
         no_visitadas: jornada.paradas.filter((p: Record<string, any>) => p.visita?.visitado === false).length,
-        observaciones_jornada: jornada.jornada.observaciones_jornada ?? '',
       }
       /* eslint-enable @typescript-eslint/no-unnecessary-condition */
     } else {
