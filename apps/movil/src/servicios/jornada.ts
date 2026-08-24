@@ -396,3 +396,90 @@ export async function diasAgendados(vendedorId: string, desde: string): Promise<
     // Un día que quedó creado y vacío no es una agenda: es ruido.
     .filter((d) => d.destinos > 0)
 }
+
+/** Un cliente al que toca visitar hoy, según el rol maestro. */
+export interface CandidatoDelDia {
+  cliente_id: string
+  codigo: string | null
+  razon_social: string
+  direccion: string | null
+  lat: number | null
+  lng: number | null
+  cada_cuantos_dias: number
+  ultima_visita: string | null
+  dias_desde: number | null
+  orden: number | null
+}
+
+/**
+ * A quién toca visitar hoy según el plan que cargó la oficina.
+ *
+ * No son paradas: son candidatos. El vendedor los ve todos deseleccionados y
+ * elige cuáles hace; recién ahí se crean las paradas de su jornada.
+ */
+export async function candidatosDelDia(): Promise<CandidatoDelDia[]> {
+  const { data, error } = await supabase.rpc('candidatos_del_dia', { p_vendedor_id: null })
+  if (error) throw error
+  return (data ?? []) as CandidatoDelDia[]
+}
+
+/**
+ * Convierte en paradas los candidatos que el vendedor eligió.
+ *
+ * Devuelve cuántos entraron y cuántos no se pudieron agregar. Los que fallan no
+ * frenan a los demás: si de doce clientes uno no está geolocalizado, los once
+ * restantes tienen que entrar igual — el vendedor está por salir.
+ */
+export async function armarRecorridoCon(
+  vendedorId: string,
+  candidatos: CandidatoDelDia[],
+): Promise<{ agregados: number; fallaron: Array<{ razon_social: string; motivo: string }> }> {
+  const jornada = await asegurarJornadaDeHoy(vendedorId)
+  const fallaron: Array<{ razon_social: string; motivo: string }> = []
+  let agregados = 0
+
+  for (const c of candidatos) {
+    if (c.lat === null || c.lng === null) {
+      fallaron.push({
+        razon_social: c.razon_social,
+        motivo: 'No está ubicado en el mapa',
+      })
+      continue
+    }
+    try {
+      const { data, error } = await supabase.rpc('agregar_parada', {
+        p_rol_visita_id: jornada.id,
+        p_direccion_id: await direccionPrincipalDe(c.cliente_id),
+        // El plan del día no se desvía por nadie: la ruta la ordena la
+        // optimización. La prioridad alta es para lo que aparece en el camino.
+        p_prioridad: 'baja',
+        p_cliente_id: c.cliente_id,
+      })
+      if (error) throw error
+      if (data) agregados++
+    } catch (e) {
+      fallaron.push({
+        razon_social: c.razon_social,
+        motivo: e instanceof Error ? e.message : 'No se pudo agregar',
+      })
+    }
+  }
+
+  return { agregados, fallaron }
+}
+
+/** La dirección principal de un cliente. Es lo que `agregar_parada` necesita. */
+async function direccionPrincipalDe(clienteId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('direcciones')
+    .select('id')
+    .eq('cliente_id', clienteId)
+    .order('principal', { ascending: false })
+    .order('creado_en', { ascending: true })
+    .limit(1)
+    .maybeSingle<{ id: string }>()
+
+  if (error) throw error
+  if (!data) throw new Error('El cliente no tiene dirección cargada')
+  return data.id
+}

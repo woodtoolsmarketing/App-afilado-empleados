@@ -7,6 +7,7 @@ import { Pantalla } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaCalendarioEnvios } from '../pantallas/CalendarioEnvios'
+import { PantallaClientesDelDia } from '../pantallas/ClientesDelDia'
 import { PantallaCobranzas } from '../pantallas/Cobranzas'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
@@ -104,6 +105,7 @@ export function Navegacion() {
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
             <Pila.Screen name="Cobranzas" component={PantallaCobranzas} />
             <Pila.Screen name="CalendarioEnvios" component={PantallaCalendarioEnvios} />
+            <Pila.Screen name="ClientesDelDia" component={PantallaClientesDelDia} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />

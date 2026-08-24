@@ -22,6 +22,8 @@ export type ParametrosApp = {
   }
   /** La agenda: qué hay comprometido para los próximos días. */
   CalendarioEnvios: undefined
+  /** A quién toca visitar hoy según el rol maestro, para armar el recorrido. */
+  ClientesDelDia: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   Configuracion: undefined
