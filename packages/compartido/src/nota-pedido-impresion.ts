@@ -318,12 +318,12 @@ const COLUMNAS_TECNICAS = [
  *
  *                   celda                        encabezado
  *   Código          "CLGNMFS3940MCAJA" a 6pt 86  "Cómputo"   51  → 13 % = 93 px
- *   Cantidad        "1.240"                  33  "Cantidad"  50  →  7 % = 50 px
+ *   Cantidad        "1.240"                  33  "Cantidad"  50  →  8 % = 57 px
  *   Unitario        "$ 2.971.600,00"         88  "unitario"  78  → 13 % = 93 px
  *   Dto.            "65 %"                   31  "Dto."      24  →  5 % = 36 px
  *   Condición       "Cta. cte. 15-45 días"  124  "Condicion" 55  → 18 % = 129 px
  *   Anticipo        vacía                     —  "Anticipo"  45  →  7 % = 50 px
- *   Observaciones   hasta 46 caracteres     259  "Observ…"   83  → 37 % = 266 px
+ *   Observaciones   hasta 46 caracteres     259  "Observ…"   83  → 36 % = 258 px
  *
  * El unitario bajó de 17 % a 12 % porque ya no lleva debajo la multiplicación
  * escrita: se sacó por pedido, la cuenta se rehace con la cantidad y el
@@ -348,12 +348,12 @@ const COLUMNAS_TECNICAS = [
  */
 const COLUMNAS_COMERCIALES = [
   13, // Código de Cómputo — hasta 16 caracteres, ver `celdaCodigo`
-  7, // Cantidad — la manda su encabezado, no el número
+  8, // Cantidad — la manda su encabezado, no el número
   13, // Precio unitario — el artículo más caro del catálogo son 7 cifras
   5, // Dto. — con el título abreviado lo manda la celda, "65 %"
   18, // Condición de Venta — con el plazo, ya en su forma compacta
   7, // Anticipo — se imprime vacía; la manda su encabezado
-  37, // Observaciones — se queda con lo que sobra
+  36, // Observaciones — se queda con lo que sobra
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -867,11 +867,14 @@ html {
    dependen de lo que se cargue. */
 .nota .tabla { table-layout: fixed; }
 .nota .tabla td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Los encabezados tambien se recortan. Sin esto un titulo que no entra se
-   derrama sobre la columna vecina y las letras se montan: pasaba con
-   "Descuento" sobre "Condicion de Venta". Los anchos ya estan calculados para
-   que ninguno lo necesite; esto es la red por si manana cambia un titulo. */
-.nota .tabla th { overflow: hidden; text-overflow: ellipsis; }
+/* Los encabezados de la tabla COMERCIAL tambien se recortan. Sin esto un
+   titulo que no entra se derrama sobre la columna vecina y las letras se
+   montan: pasaba con "Descuento" sobre "Condicion de Venta". Los anchos ya
+   estan calculados para que ninguno lo necesite; esto es la red por si manana
+   cambia un titulo.
+   Solo la comercial: en la tecnica los titulos nunca se pisaron, y ponerles
+   el recorte les comia letras que hasta ahora se leian enteras. */
+.nota .comercial th { overflow: hidden; text-overflow: ellipsis; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
 /* Los anchos de columna ya no se declaran acá: viven en los <colgroup> que
