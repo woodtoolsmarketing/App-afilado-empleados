@@ -1312,3 +1312,35 @@ export async function resumenDeNotasDeLaParada(paradaId: string): Promise<string
     return `${servicio} de ${enumeradas}`
   })
 }
+
+/** Un precio acordado con el cliente, que pisa el de la lista. */
+export interface PrecioEspecial {
+  codigo: string
+  precio: number
+  moneda: string
+}
+
+/**
+ * Los precios que este cliente tiene acordados para estos códigos.
+ *
+ * Se preguntan sólo los códigos que el renglón tiene en la mano, no la tabla
+ * entera: son datos comerciales sensibles y no hay motivo para que el teléfono
+ * se baje lo que le cobramos a los demás.
+ *
+ * Devuelve vacío cuando no hay cliente todavía —una nota se empieza a cargar
+ * antes de elegirlo— o cuando ese cliente no tiene ninguno, que es el caso de
+ * casi todos.
+ */
+export async function preciosEspecialesDe(
+  clienteId: string | null,
+  codigos: string[],
+): Promise<PrecioEspecial[]> {
+  if (!clienteId || codigos.length === 0) return []
+
+  const { data, error } = await supabase.rpc('precios_especiales_de', {
+    p_cliente_id: clienteId,
+    p_codigos: codigos,
+  })
+  if (error) throw error
+  return (data ?? []) as PrecioEspecial[]
+}

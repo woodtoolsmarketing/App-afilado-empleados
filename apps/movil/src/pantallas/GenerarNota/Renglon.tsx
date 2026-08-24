@@ -53,6 +53,7 @@ import {
   MensajeError,
 } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { preciosEspecialesDe } from '../../servicios/notasPedido'
 import { CampoDescuento } from './Descuento'
 import {
   agujeroDeFabrica,
@@ -188,11 +189,53 @@ export function PasoRenglon({
   item,
   alCambiar,
   errores,
+  clienteId,
 }: {
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
   errores: Record<string, string | undefined>
+  /** Para pisar el precio de lista con el acordado con este cliente. */
+  clienteId?: string | null
 }) {
+  /**
+   * El precio acordado con el cliente, si tiene uno para este código.
+   *
+   * Se aplica DESPUÉS de que el código fija el precio de lista, no en su lugar.
+   * Así el renglón nunca queda sin precio si la consulta falla: en el peor caso
+   * cobra la lista, que es lo que hacía hasta ayer, y no cero.
+   *
+   * Se vuelve a mirar cada vez que cambia el código o el cliente. Cambiar el
+   * cliente en el medio de la carga es normal —se empieza la nota y después se
+   * lo elige— y el precio tiene que seguirlo.
+   */
+  const [precioAcordado, setPrecioAcordado] = useState<number | null>(null)
+
+  useEffect(() => {
+    const codigos = item.codigos_computo.filter(Boolean)
+    if (!clienteId || codigos.length === 0) {
+      setPrecioAcordado(null)
+      return
+    }
+    let cancelado = false
+    void preciosEspecialesDe(clienteId, codigos)
+      .then((acordados) => {
+        if (cancelado) return
+        const suyo = acordados.find((a) => a.codigo === codigos[0])
+        setPrecioAcordado(suyo ? suyo.precio : null)
+        if (suyo && Math.abs(aNumero(item.precio_por_diente) - suyo.precio) > 0.005) {
+          alCambiar({ precio_por_diente: String(suyo.precio) })
+        }
+      })
+      .catch(() => {
+        // Sin respuesta se cobra la lista. Callado: el vendedor está en la
+        // calle y un cartel de error acá no le da nada que hacer.
+        if (!cancelado) setPrecioAcordado(null)
+      })
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId, item.codigos_computo.join(',')])
   const [codigos, setCodigos] = useState<CodigoComputo[]>([])
   const [buscando, setBuscando] = useState(false)
   const [sinCodigo, setSinCodigo] = useState(false)
@@ -1464,6 +1507,14 @@ export function PasoRenglon({
           repetirlo siete veces para que aparezca siempre. Y al final porque se
           acuerda sobre un precio que ya está cargado — antes, la cuenta se
           mostraría sobre un renglón todavía vacío. */}
+      {/* Que se vea. El precio cambia solo y sin esto el vendedor no sabe por
+          qué le dio distinto que al cliente de al lado. */}
+      {precioAcordado !== null ? (
+        <Aviso tono="info" titulo="Precio acordado con este cliente">
+          {`Se está usando ${formatearPesos(precioAcordado)} en vez del precio de lista.`}
+        </Aviso>
+      ) : null}
+
       {item.herramienta ? (
         <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
       ) : null}

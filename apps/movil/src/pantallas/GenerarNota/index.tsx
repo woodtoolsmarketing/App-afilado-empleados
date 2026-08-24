@@ -1296,6 +1296,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                           item={renglon}
                           alCambiar={cambiarItem}
                           errores={errores}
+                          // Para poder pisar el precio de lista con el que se
+                          // le acordó a este cliente, si tiene alguno.
+                          clienteId={encabezado.cliente_id}
                         />
                       )}
 
