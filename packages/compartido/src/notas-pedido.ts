@@ -2013,7 +2013,7 @@ export function agujeroDelRenglon(item: FormularioItemNota): AgujeroDelRenglon {
  * En minúscula porque es dato cargado, no rótulo del formulario: en el
  * talonario la mayúscula sostenida es de la hoja preimpresa.
  */
-const EN_LA_DESCRIPCION: Record<Herramienta, string> = {
+export const EN_LA_DESCRIPCION: Record<Herramienta, string> = {
   sierra: 'sierras circulares',
   fresa: 'fresas',
   cabezal: 'cabezales',

@@ -29,6 +29,14 @@ export type ParametrosApp = {
          * imprimió, para corregirla, en vez de empezar una nueva.
          */
         notaId?: string
+        /**
+         * Desde qué parada del rol de visita se está generando.
+         *
+         * Queda guardado en la nota: es lo que permite después contar en la
+         * observación de la visita qué se vendió, y saber si la nota se hizo
+         * en el lugar.
+         */
+        paradaId?: string
         clienteCreadoId?: string
         clienteCreadoNombre?: string
         clienteCreadoCuit?: string

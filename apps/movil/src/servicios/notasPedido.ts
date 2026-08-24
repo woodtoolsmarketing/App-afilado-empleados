@@ -14,6 +14,8 @@ import {
   sinAvisosDeAgujero,
   sinLineaDeServicio,
   descuentoDelRenglon,
+  EN_LA_DESCRIPCION,
+  ETIQUETA_TIPO_SERVICIO,
   totalDeListaDelRenglon,
   totalDelRenglon,
   ZONAS,
@@ -505,6 +507,8 @@ export interface DatosNuevaNota {
   condicionVenta: CondicionVenta
   /** Los días del cheque, o el texto de "Otro". Vacío en el resto. */
   condicionVentaDetalle?: string
+  /** La parada del rol de visita desde la que se generó, si fue desde una. */
+  paradaId?: string | null
 }
 
 export interface NotaCreada {
@@ -731,6 +735,7 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
         : null,
+      parada_id: datos.paradaId ?? null,
     },
     items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
   }))
@@ -1258,4 +1263,52 @@ export async function encolarImpresion(
     return { encolada: false, motivo: 'Esta nota ya está en la cola de la oficina.' }
   }
   throw error
+}
+
+/**
+ * Qué se vendió o se mandó a taller en una parada, a grandes rasgos.
+ *
+ * Devuelve frases cortas como "Venta de sierras" o "Afilado de fresas", que son
+ * las que la observación de la visita usa para contar qué pasó sin obligar al
+ * vendedor a redactarlo.
+ *
+ * Agrupa por servicio y herramienta a propósito: la observación del rol de
+ * visita se lee de un vistazo, y "afilado de 4 sierras de 96 dientes, 2 fresas
+ * de 8 filos y 1 mecha pasante" no es un vistazo. El detalle fino ya está en la
+ * nota de pedido, que es donde corresponde buscarlo.
+ */
+export async function resumenDeNotasDeLaParada(paradaId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('notas_pedido')
+    .select('items:notas_pedido_items(servicio, herramienta)')
+    .eq('parada_id', paradaId)
+
+  if (error) throw error
+
+  type Renglon = { servicio: string | null; herramienta: string | null }
+  const filas = (data ?? []) as Array<{ items: Renglon[] | null }>
+
+  // servicio → herramientas, sin repetir.
+  const porServicio = new Map<string, Set<string>>()
+  for (const nota of filas) {
+    for (const i of nota.items ?? []) {
+      if (!i.servicio) continue
+      const etiqueta = ETIQUETA_TIPO_SERVICIO[i.servicio as TipoServicio] ?? i.servicio
+      const herramientas = porServicio.get(etiqueta) ?? new Set<string>()
+      if (i.herramienta) {
+        herramientas.add(EN_LA_DESCRIPCION[i.herramienta as Herramienta] ?? i.herramienta)
+      }
+      porServicio.set(etiqueta, herramientas)
+    }
+  }
+
+  return [...porServicio].map(([servicio, herramientas]) => {
+    const lista = [...herramientas]
+    if (lista.length === 0) return servicio
+    const enumeradas =
+      lista.length === 1
+        ? lista[0]
+        : `${lista.slice(0, -1).join(', ')} y ${lista[lista.length - 1]}`
+    return `${servicio} de ${enumeradas}`
+  })
 }

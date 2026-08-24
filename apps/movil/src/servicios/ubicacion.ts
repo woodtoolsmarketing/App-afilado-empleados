@@ -314,3 +314,25 @@ async function parametros(): Promise<{ intervaloSeg: number; distanciaMin: numbe
     return { intervaloSeg: 20, distanciaMin: 30 }
   }
 }
+
+/**
+ * A partir de cuántos metros se considera que el vendedor llegó al destino.
+ *
+ * Sale de la base y no de una constante para que la oficina lo pueda mover sin
+ * recompilar nada. Es el mismo valor con el que el servidor decide si una nota
+ * de pedido se hizo en el lugar: si cada lado usara el suyo, la app podría
+ * decirle "llegaste" a alguien de quien el panel dice que no estuvo ahí.
+ */
+export async function radioDeLlegadaM(): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'llegada_radio_m')
+      .maybeSingle()
+    const n = Number((data as { valor: unknown } | null)?.valor)
+    return Number.isFinite(n) && n > 0 ? n : 150
+  } catch {
+    return 150
+  }
+}

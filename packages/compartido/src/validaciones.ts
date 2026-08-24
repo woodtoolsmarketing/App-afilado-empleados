@@ -8,6 +8,7 @@
  * botón. Si cambiás una, cambiá la otra.
  */
 
+import { ETIQUETA_MOTIVO_NO_VISITA } from './tipos'
 import type {
   FormularioDestinoExistente,
   FormularioDestinoNuevo,
@@ -78,10 +79,87 @@ export function validarLogin(usuario: string, contrasena: string): ResultadoVali
 // Formulario "¿DESTINO VISITADO?"
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** "16:30". Acepta de 00:00 a 23:59 y nada más. */
+export const HORA_DEL_DIA = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/**
+ * La observación escrita sola, a partir de lo que el vendedor marcó.
+ *
+ * ── Por qué se genera y no se deja en blanco ────────────────────────────────
+ *
+ * La observación es obligatoria por partida doble —el validador de acá y un
+ * CHECK en la base— y eso está bien: un parte sin contar qué pasó no sirve para
+ * nada. Pero obligar a redactar cuando el vendedor ya tildó "vendió" y "retiró
+ * afilado" es pedirle que escriba dos veces lo mismo, en la calle y con una
+ * mano. Lo que se escribe solo es lo que ya se dijo; lo que hay que agregar es
+ * lo que no cabía en un tilde.
+ *
+ * ── El piso que hay que pasar ───────────────────────────────────────────────
+ *
+ * `interno.observacion_valida` exige 12 caracteres alfanuméricos y 3 palabras
+ * de dos letras o más. Un "Cobró." no pasa, y el error que devuelve la base
+ * —"la observación es obligatoria"— sobre un campo que la app acaba de
+ * completar sola sería incomprensible. Por eso todas las frases de acá
+ * arrancan con el sujeto completo ("Se visitó al cliente…"): puestas así, la
+ * más corta posible ya pasa el filtro con margen.
+ */
+export function observacionSugerida(
+  form: Pick<
+    FormularioVisita,
+    'visitado' | 'vendio' | 'cobro' | 'retiro_afilado' | 'entrego' | 'motivo_no_visita' | 'volver_a_las' | 'contacto_nombre'
+  >,
+  /** Qué se vendió o se mandó a taller, a grandes rasgos: "Venta de sierras". */
+  resumenDeNotas: string[] = [],
+): string {
+  const partes: string[] = []
+
+  if (form.visitado === false) {
+    if (form.motivo_no_visita === 'visitar_mas_tarde') {
+      const hora = form.volver_a_las.trim()
+      partes.push(
+        hora ? `No se pudo visitar ahora: vuelvo a pasar a las ${hora}.` : 'No se pudo visitar ahora: vuelvo a pasar más tarde.',
+      )
+    } else if (form.motivo_no_visita) {
+      partes.push(`No se pudo visitar: ${ETIQUETA_MOTIVO_NO_VISITA[form.motivo_no_visita].toLowerCase()}.`)
+    } else {
+      partes.push('No se pudo visitar al cliente.')
+    }
+    return partes.join(' ')
+  }
+
+  if (form.visitado === true) {
+    const hizo: string[] = []
+    if (form.vendio) hizo.push('vendió')
+    if (form.cobro) hizo.push('cobró')
+    if (form.retiro_afilado) hizo.push('retiró afilado')
+    if (form.entrego) hizo.push('entregó')
+
+    partes.push(hizo.length > 0 ? `Se visitó al cliente: ${enumerarEs(hizo)}.` : 'Se visitó al cliente.')
+
+    const quien = form.contacto_nombre.trim()
+    if (quien) partes.push(`Atendió ${quien}.`)
+
+    // Lo que se llevó, en grueso. Sale de las notas hechas en esta visita.
+    const resumen = resumenDeNotas.map((r) => r.trim()).filter(Boolean)
+    if (resumen.length > 0) partes.push(`${enumerarEs(resumen)}.`)
+  }
+
+  return partes.join(' ')
+}
+
+/** "a", "a y b", "a, b y c". */
+function enumerarEs(cosas: string[]): string {
+  if (cosas.length === 0) return ''
+  if (cosas.length === 1) return cosas[0]
+  return `${cosas.slice(0, -1).join(', ')} y ${cosas[cosas.length - 1]}`
+}
+
+
 export type CampoVisita =
   | 'visitado'
   | 'tipo_visita'
   | 'motivo_no_visita'
+  | 'volver_a_las'
   | 'contacto_nombre'
   | 'observacion'
 
@@ -107,6 +185,14 @@ export function validarFormularioVisita(
 
   if (form.visitado === false && !form.motivo_no_visita) {
     errores.motivo_no_visita = 'Elegí el motivo por el que no se concretó la visita'
+  }
+
+  // Sin hora, "visitar más tarde" no se distingue de "no lo visité": la parada
+  // tiene que volver a la cola en algún momento concreto o no vuelve nunca.
+  if (form.visitado === false && form.motivo_no_visita === 'visitar_mas_tarde') {
+    if (!HORA_DEL_DIA.test(form.volver_a_las.trim())) {
+      errores.volver_a_las = 'Decí a qué hora volvés (por ejemplo 16:30)'
+    }
   }
 
   const errObs = errorObservacion(form.observacion)
@@ -189,6 +275,31 @@ export function validarDestinoNuevo(
 // ─────────────────────────────────────────────────────────────────────────────
 // Utilidades varias
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cuántos metros hay entre dos puntos, en línea recta.
+ *
+ * Fórmula del haversine sobre una Tierra esférica. El error contra el elipsoide
+ * real ronda el 0,3 %, que en las distancias que se miden acá —"¿está en la
+ * puerta del cliente?", 150 metros— son centímetros. Postgres tiene PostGIS y
+ * lo hace mejor, pero esto tiene que poder contestarse en el teléfono, sin
+ * señal y en el momento.
+ */
+export function distanciaEnMetros(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const RADIO_TIERRA_M = 6_371_000
+  const aRad = (g: number) => (g * Math.PI) / 180
+
+  const dLat = aRad(b.lat - a.lat)
+  const dLng = aRad(b.lng - a.lng)
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(aRad(a.lat)) * Math.cos(aRad(b.lat)) * Math.sin(dLng / 2) ** 2
+
+  return Math.round(2 * RADIO_TIERRA_M * Math.asin(Math.min(1, Math.sqrt(h))))
+}
 
 /** Formatea metros como "850 m" o "12,4 km". */
 export function formatearDistancia(metros: number | null | undefined): string {

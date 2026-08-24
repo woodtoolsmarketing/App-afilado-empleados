@@ -2,6 +2,7 @@ import {
   colores,
   espaciado,
   ETIQUETA_MOTIVO_NO_VISITA,
+  observacionSugerida,
   FORMULARIO_VISITA_VACIO,
   radios,
   tipografia,
@@ -11,7 +12,7 @@ import {
   type MotivoNoVisita,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -23,13 +24,19 @@ import {
   View,
 } from 'react-native'
 
-import { BotonMenu, BotonesSiNo } from '../componentes/Botones'
+import { BotonMenu, BotonesSiNo, BotonSecundario } from '../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { finalizarRecorrido, obtenerJornadaDeHoy, registrarVisita } from '../servicios/jornada'
+import {
+  guardarBorradorDeVisita,
+  olvidarBorradorDeVisita,
+  tomarBorradorDeVisita,
+} from '../servicios/borradorDeVisita'
+import { resumenDeNotasDeLaParada } from '../servicios/notasPedido'
 import { navegarHacia } from '../servicios/mapas'
 import { detenerSeguimiento, ubicacionActual } from '../servicios/ubicacion'
 import { usarDictado, DURACION_MAXIMA_MS } from '../servicios/transcripcion'
@@ -50,13 +57,28 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * El botón de abajo cambia según si quedan destinos: "PRÓXIMO DESTINO" o
  * "FINALIZAR RECORRIDO".
  */
+/**
+ * Deja el campo de hora en "HH:MM" mientras se tipea.
+ *
+ * Se pone solo el dos puntos y se cortan los dígitos de más: en el teclado
+ * numérico del teléfono no hay dos puntos a mano, y pedirle al vendedor que lo
+ * busque en la calle es pedirle que no lo complete.
+ */
+function soloHora(texto: string): string {
+  const d = texto.replace(/\D/g, '').slice(0, 4)
+  if (d.length <= 2) return d
+  return `${d.slice(0, 2)}:${d.slice(2)}`
+}
+
 export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'DestinoVisitado'>) {
   const { paradaId } = route.params
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
   const dictado = usarDictado()
 
-  const [form, setForm] = useState<FormularioVisita>(FORMULARIO_VISITA_VACIO)
+  // Si se fue a hacer la nota de pedido y volvió, lo cargado sigue estando.
+  const recuperado = useRef(tomarBorradorDeVisita(paradaId)).current
+  const [form, setForm] = useState<FormularioVisita>(recuperado?.form ?? FORMULARIO_VISITA_VACIO)
   const [errores, setErrores] = useState<Partial<Record<CampoVisita, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
@@ -75,6 +97,19 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     [data, paradaId],
   )
   const esUltima = restantes.length === 0
+
+  /**
+   * Qué se vendió o se mandó a taller en esta visita, a grandes rasgos.
+   *
+   * Sale de las notas de pedido que se generaron DESDE esta parada — el vínculo
+   * `notas_pedido.parada_id`, que existe justamente para esto. Una nota cargada
+   * en otro momento del día no cuenta: no pasó en esta visita.
+   */
+  const { data: resumenDeNotas = [] } = useQuery({
+    queryKey: ['resumen-notas-parada', paradaId],
+    queryFn: () => resumenDeNotasDeLaParada(paradaId),
+    enabled: !!paradaId,
+  })
   const siguiente = restantes[0]
 
   /**
@@ -93,6 +128,46 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       return nuevo
     })
   }
+
+  /**
+   * Si el vendedor ya escribió, la app no vuelve a tocar la observación.
+   *
+   * Va en un ref y no en el estado a propósito: cambiarlo no tiene que
+   * redibujar nada, y sobre todo no tiene que entrar en las dependencias del
+   * efecto de abajo, que si no se volvería a disparar justo cuando se acaba de
+   * decidir que no debe.
+   */
+  const escritaAMano = useRef(recuperado?.escritaAMano ?? false)
+
+  /**
+   * La observación se escribe sola con lo que el vendedor marcó.
+   *
+   * Es lo mismo que ya tildó, puesto en palabras: "Se visitó al cliente:
+   * vendió y retiró afilado". Sirve porque la observación es obligatoria por
+   * partida doble —el validador y un CHECK en la base— y redactar en la calle,
+   * con una mano, lo que ya se dijo con tildes es trabajo repetido.
+   *
+   * Se pisa mientras nadie la haya tocado. Al primer tecleo o al primer
+   * dictado, esto se calla para siempre.
+   */
+  useEffect(() => {
+    if (escritaAMano.current) return
+    const sugerida = observacionSugerida(form, resumenDeNotas)
+    if (sugerida && sugerida !== form.observacion) {
+      setForm((previo) => ({ ...previo, observacion: sugerida }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.visitado,
+    form.vendio,
+    form.cobro,
+    form.retiro_afilado,
+    form.entrego,
+    form.motivo_no_visita,
+    form.volver_a_las,
+    form.contacto_nombre,
+    resumenDeNotas,
+  ])
 
   const guardar = useMutation({
     mutationFn: async () => {
@@ -119,6 +194,8 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       // forma. Ahora se pregunta.
     },
     onSuccess: async () => {
+      // Guardada de verdad: el borrador ya no tiene nada que recuperar.
+      olvidarBorradorDeVisita(paradaId)
       await cliente.invalidateQueries()
 
       if (esUltima) {
@@ -205,6 +282,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     if (dictado.grabando || dictado.audioPendiente) {
       const texto = await dictado.detenerYTranscribir()
       if (texto) {
+        escritaAMano.current = true
         // Se pega al final de lo que HAY cuando vuelve la transcripción, no de
         // lo que había cuando se tocó el botón.
         setForm((previo) => {
@@ -322,11 +400,46 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 items={[
                   { valor: 'cliente_ausente', etiqueta: ETIQUETA_MOTIVO_NO_VISITA.cliente_ausente },
                   { valor: 'direccion_erronea', etiqueta: ETIQUETA_MOTIVO_NO_VISITA.direccion_erronea },
+                  {
+                    valor: 'visitar_mas_tarde',
+                    etiqueta: ETIQUETA_MOTIVO_NO_VISITA.visitar_mas_tarde,
+                    descripcion: 'El destino vuelve al recorrido a la hora que digas',
+                  },
                 ]}
                 alCambiar={(v) => actualizar({ motivo_no_visita: v })}
                 error={errores.motivo_no_visita}
               />
+
+              {/* Sin hora, "visitar más tarde" no se distingue de "no lo
+                  visité": la parada tiene que volver a la cola en algún momento
+                  concreto o no vuelve nunca. */}
+              {form.motivo_no_visita === 'visitar_mas_tarde' ? (
+                <Campo
+                  etiqueta="¿A QUÉ HORA VOLVÉS?"
+                  obligatorio
+                  value={form.volver_a_las}
+                  onChangeText={(v) => actualizar({ volver_a_las: soloHora(v) })}
+                  placeholder="16:30"
+                  keyboardType="number-pad"
+                  error={errores.volver_a_las}
+                  ayuda="Vuelve a aparecer en el recorrido a esa hora, hoy mismo."
+                />
+              ) : null}
             </View>
+          ) : null}
+
+          {/* Hacer la nota desde acá, sin perder lo cargado. La visita queda
+              guardada en memoria y vuelve completa al regresar; la nota queda
+              atada a esta parada, que es lo que después alimenta la
+              observación y el "la hizo en el lugar". */}
+          {form.visitado === true ? (
+            <BotonSecundario
+              titulo="📝 HACER LA NOTA DE PEDIDO"
+              alTocar={() => {
+                guardarBorradorDeVisita(paradaId, form, escritaAMano.current)
+                navigation.navigate('GenerarNota', { paradaId })
+              }}
+            />
           ) : null}
 
           {/* ── Observación ────────────────────────────────────────────────── */}
@@ -335,7 +448,12 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
             <Campo
               value={form.observacion}
-              onChangeText={(t) => actualizar({ observacion: t })}
+              onChangeText={(t) => {
+                // A partir del primer tecleo la app deja de escribirla: lo que
+                // el vendedor puso no se pisa nunca.
+                escritaAMano.current = true
+                actualizar({ observacion: t })
+              }}
               placeholder="Contá qué pasó en la visita: qué se habló, qué quedó pendiente, cuándo volver…"
               multiline
               numberOfLines={6}

@@ -42,7 +42,7 @@ export type EstadoParada =
 
 export type OrigenParada = 'planificada' | 'agregada_en_ruta'
 
-export type MotivoNoVisita = 'cliente_ausente' | 'direccion_erronea'
+export type MotivoNoVisita = 'cliente_ausente' | 'direccion_erronea' | 'visitar_mas_tarde'
 
 export type OrigenObservacion = 'texto' | 'voz'
 
@@ -100,6 +100,8 @@ export const ETIQUETA_ESTADO_NOTA: Record<EstadoNotaPedido, string> = {
 export const ETIQUETA_MOTIVO_NO_VISITA: Record<MotivoNoVisita, string> = {
   cliente_ausente: 'El cliente no estaba',
   direccion_erronea: 'Dirección errónea',
+  // El único que no cierra la parada: la devuelve a la cola con su hora.
+  visitar_mas_tarde: 'Visitar más tarde',
 }
 
 export const ETIQUETA_PRIORIDAD: Record<PrioridadParada, string> = {
@@ -352,6 +354,13 @@ export interface FormularioVisita {
   retiro_afilado: boolean
   entrego: boolean
   motivo_no_visita: MotivoNoVisita | null
+  /**
+   * A qué hora vuelve, en formato "HH:MM". Sólo con motivo "visitar más tarde".
+   *
+   * Se guarda como hora y no como fecha completa porque siempre es hoy: es el
+   * mismo recorrido, más tarde. La fecha la pone la app al mandarlo.
+   */
+  volver_a_las: string
   contacto_nombre: string
   observacion: string
   observacion_origen: OrigenObservacion
@@ -364,6 +373,7 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
   retiro_afilado: false,
   entrego: false,
   motivo_no_visita: null,
+  volver_a_las: '',
   contacto_nombre: '',
   observacion: '',
   observacion_origen: 'texto',

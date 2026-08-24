@@ -157,6 +157,22 @@ export interface DatosRegistroVisita extends FormularioVisita {
   precision_m?: number | null
 }
 
+/**
+ * "16:30" convertido a una marca de tiempo de HOY, en la zona del teléfono.
+ *
+ * Se arma acá y no en Postgres porque el servidor corre en UTC: un "16:30"
+ * mandado como texto se guardaría tres horas corrido, y la parada volvería a
+ * aparecer a las 13:30.
+ */
+function horaDeHoy(hhmm: string | null | undefined): string | null {
+  const limpio = (hhmm ?? '').trim()
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(limpio)
+  if (!m) return null
+  const cuando = new Date()
+  cuando.setHours(Number(m[1]), Number(m[2]), 0, 0)
+  return cuando.toISOString()
+}
+
 export async function registrarVisita(datos: DatosRegistroVisita): Promise<Visita> {
   const { data, error } = await supabase.rpc('registrar_visita', {
     p_parada_id: datos.parada_id,
@@ -173,6 +189,10 @@ export async function registrarVisita(datos: DatosRegistroVisita): Promise<Visit
     p_lat: datos.lat ?? null,
     p_lng: datos.lng ?? null,
     p_precision_m: datos.precision_m ?? null,
+    // La hora viaja como marca de tiempo completa: la parte de la fecha es
+    // siempre hoy, porque es el mismo recorrido más tarde. Armarla acá y no en
+    // la base evita que el huso del servidor la corra un día.
+    p_volver_a_las: horaDeHoy(datos.volver_a_las),
   })
 
   if (error) {

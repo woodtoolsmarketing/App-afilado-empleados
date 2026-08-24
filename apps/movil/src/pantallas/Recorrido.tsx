@@ -3,6 +3,7 @@ import {
   espaciado,
   ETIQUETA_ESTADO_PARADA,
   ETIQUETA_PRIORIDAD,
+  distanciaEnMetros,
   formatearDistancia,
   formatearDuracion,
   radios,
@@ -12,7 +13,7 @@ import {
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -30,6 +31,7 @@ import {
   detenerSeguimiento,
   iniciarSeguimiento,
   pedirPermisosUbicacion,
+  radioDeLlegadaM,
   ubicacionActual,
 } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -57,12 +59,80 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const jornada = data?.jornada
   const paradas = useMemo(() => data?.paradas ?? [], [data])
   const enCurso = jornada?.estado === 'en_curso'
+
+  // El radio lo decide la oficina, no la app. Se cachea todo el día: no cambia
+  // en el medio de un recorrido y no vale una consulta por cada vez que el
+  // teléfono vuelve del bolsillo.
+  const { data: radioDeLlegada = 150 } = useQuery({
+    queryKey: ['radio-de-llegada'],
+    queryFn: radioDeLlegadaM,
+    staleTime: 12 * 60 * 60 * 1000,
+  })
   const finalizada = jornada?.estado === 'finalizado'
 
   const proxima = useMemo(
     () => paradas.find((p) => p.estado === 'en_camino') ?? paradas.find((p) => p.estado === 'pendiente'),
     [paradas],
   )
+
+  /**
+   * Llegó al cliente: se le ofrece cargar el parte sin que lo busque.
+   *
+   * ── Cuándo se fija ────────────────────────────────────────────────────────
+   *
+   * Al entrar a esta pantalla y cada vez que la app vuelve al frente. NO con la
+   * app cerrada: eso sería una geocerca en segundo plano, con permiso nuevo,
+   * notificación permanente y batería, y para un vendedor que abre la app al
+   * bajarse del auto no cambia nada.
+   *
+   * ── Por qué pregunta en vez de saltar ─────────────────────────────────────
+   *
+   * Porque el radio es de 150 metros y en una cuadra entran varios clientes.
+   * Saltar solo a un formulario de otro cliente, en el medio de la calle, es
+   * peor que no saltar: se completa sin mirar y queda un parte cargado al que
+   * no era. Se pregunta una vez por destino y no se vuelve a insistir.
+   */
+  const yaPreguntado = useRef<string | null>(null)
+
+  const ofrecerCargarLaVisita = useCallback(async () => {
+    if (!proxima?.direccion || !enCurso) return
+    if (yaPreguntado.current === proxima.id) return
+
+    let donde: { lat: number; lng: number } | null = null
+    try {
+      donde = await ubicacionActual()
+    } catch {
+      // Sin señal no se ofrece nada y no se avisa: el vendedor está trabajando.
+      return
+    }
+
+    const metros = distanciaEnMetros(donde, {
+      lat: proxima.direccion.lat,
+      lng: proxima.direccion.lng,
+    })
+    if (metros > radioDeLlegada) return
+
+    yaPreguntado.current = proxima.id
+    Alert.alert(
+      'Llegaste',
+      `Estás a ${formatearDistancia(metros)} de ${proxima.cliente?.razon_social ?? 'este destino'}. ¿Cargamos la visita?`,
+      [
+        { text: 'Todavía no', style: 'cancel' },
+        {
+          text: 'Cargar la visita',
+          onPress: () => navigation.navigate('DestinoVisitado', { paradaId: proxima.id }),
+        },
+      ],
+    )
+  }, [proxima, enCurso, radioDeLlegada, navigation])
+
+  useEffect(() => {
+    void ofrecerCargarLaVisita()
+    const sub = AppState.addEventListener('change', (estado) => {
+      if (estado === 'active') void ofrecerCargarLaVisita()
+    })
+    return () => sub.remove()
+  }, [ofrecerCargarLaVisita])
 
   const trazado = useMemo(
     () => (jornada?.polilinea ? decodificarPolilinea(jornada.polilinea) : []),

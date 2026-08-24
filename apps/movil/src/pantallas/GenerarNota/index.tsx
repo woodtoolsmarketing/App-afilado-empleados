@@ -851,8 +851,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       observaciones: observacionesCargadas,
       condicionVenta: condicionVenta!,
       condicionVentaDetalle: condicionDetalle,
-      // La que se guarda es la que se aplicó, no la que se eligió: un exento
-      // fuera de Tierra del Fuego se facturó como consumidor final.
+      // De qué parada del rol de visita salió, si salió de una. Es lo que
+      // después deja contar en la observación de la visita qué se vendió, y
+      // saber si la nota se hizo en el lugar.
+      paradaId: route.params?.paradaId ?? null,
     }
   }
 
