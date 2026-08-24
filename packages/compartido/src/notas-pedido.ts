@@ -2390,18 +2390,24 @@ export const DESCRIPCION_GRUPO_NOTA: Record<GrupoNota, string> = {
   servicio: 'Se cobra en pesos. La nota sale sin tipo de cambio.',
   venta_general: 'Productos cotizados en dólares. La nota lleva el tipo de cambio.',
   venta_sierra_sin_fin: 'Van en su propia nota. Cotizadas en dólares.',
-  venta_fresa_nacional: 'Van en su propia nota y se facturan en pesos.',
+  venta_fresa_nacional: 'Van en su propia nota. Se facturan en pesos, con el tipo de cambio del día.',
 }
 
 /**
  * ¿La nota lleva el tipo de cambio impreso?
  *
- * El afilado se cobra en pesos, así que poner una cotización sólo confunde: el
- * recuadro va vacío. Las fresas de producción nacional también se facturan en
- * pesos, por definición.
+ * Toda venta lo lleva, esté cotizada en dólares o en pesos. La lista de
+ * productos se arma en dólares, así que el número con el que se hizo la cuenta
+ * tiene que estar en el papel aunque el renglón termine facturado en pesos —el
+ * caso de las fresas nacionales, que antes salían sin cotización y dejaban al
+ * cliente sin saber contra qué valor se le cobró—.
+ *
+ * El afilado no lo lleva: se cobra en pesos y no hay ninguna conversión
+ * detrás, así que una cotización ahí sólo hace dudar de en qué moneda está el
+ * total.
  */
 export function grupoLlevaTipoDeCambio(grupo: GrupoNota): boolean {
-  return grupo === 'venta_general' || grupo === 'venta_sierra_sin_fin'
+  return grupo !== 'servicio'
 }
 
 export function grupoDeFacturacion(item: FormularioItemNota): GrupoNota {

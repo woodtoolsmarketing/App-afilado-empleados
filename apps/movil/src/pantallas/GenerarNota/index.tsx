@@ -14,6 +14,8 @@ import {
   PLAZO_DESDE_DIAS,
   PLAZO_HASTA_DIAS,
   ETIQUETA_GRUPO_NOTA,
+  grupoDeFacturacion,
+  grupoLlevaTipoDeCambio,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_ORIGEN_FRESA,
   ETIQUETA_TIPO_NOTA,
@@ -483,16 +485,27 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   /**
    * ¿Hay algo cotizado en dólares en esta nota?
    *
-   * De eso depende que el recuadro del tipo de cambio exista siquiera. El
-   * afilado se cobra en pesos y la nota sale sin cotización impresa, así que el
-   * recuadro no decía nada: era un número grande al lado del total, en otra
-   * moneda, en una pantalla donde todo lo demás está en pesos.
+   * Es lo que obliga a convertir para llegar al total en pesos.
    *
    * Se mira sobre las líneas de cómputo y no sobre el campo `moneda` del
    * renglón: en un renglón de servicio la moneda es siempre pesos, aunque el
    * campo haya quedado en dólares de cuando ese renglón era una venta.
    */
   const hayDolares = tieneRenglonesEnDolares(items)
+
+  /**
+   * ¿Alguna de las notas que salgan de acá va a llevar el tipo de cambio?
+   *
+   * Toda venta lo lleva, tenga renglones en dólares o no: la lista se arma en
+   * dólares y el número con el que se hizo la cuenta va en el papel. Sólo el
+   * afilado queda afuera, que se cobra en pesos sin conversión detrás.
+   *
+   * De esto dependen dos cosas: que el recuadro exista en pantalla, y que la
+   * cotización se exija antes de guardar. Sin lo segundo una venta facturada
+   * en pesos se guardaba con el renglón del cambio en blanco.
+   */
+  const llevaTipoDeCambio =
+    hayDolares || items.some((i) => grupoLlevaTipoDeCambio(grupoDeFacturacion(i)))
 
   /**
    * Aplica los cambios SOBRE EL ESTADO ANTERIOR, no sobre la copia del render.
@@ -883,15 +896,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   function exigirCotizacion() {
     /**
-     * La cotización sólo hace falta si hay algo cotizado en dólares.
+     * La cotización hace falta si alguna de las notas la va a llevar impresa.
      *
-     * Antes se exigía siempre, así que una nota de afilado —que va toda en
-     * pesos y ni siquiera guarda el tipo de cambio— no se podía crear porque
-     * no había cotización.
+     * Al principio se exigía siempre, así que una nota de afilado —que va toda
+     * en pesos y ni siquiera guarda el tipo de cambio— no se podía crear
+     * porque no había cotización. Después se exigió sólo con dólares, y ahí se
+     * coló el agujero contrario: una venta facturada en pesos se guardaba con
+     * un cero, que en el papel sale como un renglón vacío.
      */
-    if (hayDolares && cambioEnUso <= 0) {
+    if (llevaTipoDeCambio && cambioEnUso <= 0) {
       throw new Error(
-        'Esta nota tiene renglones cotizados en dólares y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
+        'Esta nota lleva el tipo de cambio impreso y todavía no pudimos traer la cotización. Revisá la señal y tocá "Reintentar" arriba.',
       )
     }
   }
@@ -1525,11 +1540,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               ) : null}
 
               {/* ── Tipo de cambio ──────────────────────────────────────────
-                  Aparece SÓLO cuando hay algo cotizado en dólares. El afilado
-                  se cobra en pesos y la nota sale sin cotización impresa: el
-                  recuadro ahí no decía nada, y un número grande en otra moneda
-                  al lado del total es una invitación a leerlo mal. */}
-              {hayDolares ? (
+                  Aparece en toda venta, y en cualquier nota con renglones en
+                  dólares. Queda afuera sólo el afilado: se cobra en pesos, sin
+                  conversión detrás, y un número grande en otra moneda al lado
+                  del total es una invitación a leerlo mal. */}
+              {llevaTipoDeCambio ? (
                 <View style={estilos.cambio}>
                   <Text style={estilos.cambioRotulo}>TIPO DE CAMBIO</Text>
                   {cargandoCotizacion ? (
@@ -1581,11 +1596,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   ) : (
                     <>
                       <Text style={estilos.cambioError}>
-                        No pudimos traer la cotización, y esta nota tiene renglones en dólares.
-                        Reintentá, o poné el tipo de cambio a mano para poder guardarla.
+                        No pudimos traer la cotización, y esta nota la lleva impresa. Reintentá, o
+                        poné el tipo de cambio a mano para poder guardarla.
                       </Text>
                       {/* Sin señal, tipearlo es la única salida: sin esto la nota
-                          con dólares quedaba trabada hasta volver a tener red. */}
+                          quedaba trabada hasta volver a tener red. */}
                       <Campo
                         etiqueta="TIPO DE CAMBIO A USAR"
                         value={cambioPropio}
