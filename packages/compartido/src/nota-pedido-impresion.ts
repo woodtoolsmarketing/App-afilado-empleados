@@ -318,32 +318,42 @@ const COLUMNAS_TECNICAS = [
  *
  *                   celda                        encabezado
  *   Código          "CLGNMFS3940MCAJA" a 6pt 86  "Cómputo"   51  → 13 % = 93 px
- *   Cantidad        "1.240"                  33  "Cantidad"  50  →  8 % = 57 px
+ *   Cantidad        "1.240"                  33  "Cantidad"  50  →  7 % = 50 px
  *   Unitario        "$ 2.971.600,00"         88  "unitario"  78  → 13 % = 93 px
- *   Descuento       "65 %"                   31  "Descuento" 60  →  9 % = 65 px
+ *   Dto.            "65 %"                   31  "Dto."      24  →  5 % = 36 px
  *   Condición       "Cta. cte. 15-45 días"  124  "Condicion" 55  → 18 % = 129 px
  *   Anticipo        vacía                     —  "Anticipo"  45  →  7 % = 50 px
- *   Observaciones   hasta 40 caracteres     226  "Observ…"   83  → 32 % = 230 px
+ *   Observaciones   hasta 46 caracteres     259  "Observ…"   83  → 37 % = 266 px
  *
  * El unitario bajó de 17 % a 12 % porque ya no lleva debajo la multiplicación
  * escrita: se sacó por pedido, la cuenta se rehace con la cantidad y el
  * unitario, que están en la misma fila.
  *
- * Lo que se liberó ahí se fue en los encabezados, que hasta ahora se derramaban
- * en tres columnas. Observaciones quedó en 32 %, y su límite bajó a 40 —ver
- * OBSERVACION_MAXIMO_CARACTERES—. Si se prefiere escribir más largo, la forma
- * de recuperar 4 % es abreviar "Descuento" a "Dto." (24 px en vez de 60). No se
- * hizo porque en la misma hoja hay una columna "Descripción" y "Desc." se
- * presta a confusión.
+ * El encabezado del descuento dice "Dto." y no "Descuento": la palabra entera
+ * pedía 60 px —más que el "65 %" que va debajo— y se llevaba 4 % que le hacen
+ * más falta a las observaciones, que es texto de verdad. "Dto." es corriente en
+ * una factura y no se confunde con nada; "Desc." sí, porque la tabla técnica de
+ * arriba tiene una columna "Descripción".
+ *
+ * ── Sobre cuánto margen dejar ───────────────────────────────────────────────
+ *
+ * Verdana resultó ser un techo exagerado: mide 14 % más que Arial para la misma
+ * frase. La evidencia de la nota 000060 impresa acota mejor el error real: esa
+ * cuenta media 82 px en Arial y se cortó contra una casilla de 85, así que la
+ * letra del teléfono es del orden de un 4 % más ancha que Arial, no un 14 %.
+ *
+ * Por eso las columnas se dimensionan contra Verdana donde eso sale gratis, y
+ * donde cuesta ancho útil —observaciones— se acepta que en Verdana se recorte
+ * algún carácter. En la letra que el teléfono usa de verdad, entra.
  */
 const COLUMNAS_COMERCIALES = [
   13, // Código de Cómputo — hasta 16 caracteres, ver `celdaCodigo`
-  8, // Cantidad — la manda su encabezado, no el número
+  7, // Cantidad — la manda su encabezado, no el número
   13, // Precio unitario — el artículo más caro del catálogo son 7 cifras
-  9, // Descuento — la manda su encabezado: "65 %" ocuparía la mitad
+  5, // Dto. — con el título abreviado lo manda la celda, "65 %"
   18, // Condición de Venta — con el plazo, ya en su forma compacta
   7, // Anticipo — se imprime vacía; la manda su encabezado
-  32, // Observaciones — se queda con lo que sobra
+  37, // Observaciones — se queda con lo que sobra
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -534,7 +544,7 @@ export function generarHtmlNotaPedido(
         <th>Código de Cómputo</th>
         <th>Cantidad</th>
         <th>Precio<br>unitario</th>
-        <th>Descuento</th>
+        <th>Dto.</th>
         <th>Condicion de Venta</th>
         <th>Anticipo</th>
         <th>Observaciones</th>
