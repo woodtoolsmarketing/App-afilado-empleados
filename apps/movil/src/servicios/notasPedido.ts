@@ -13,10 +13,11 @@ import {
   MEDIDA_PARA_CODIGO,
   sinAvisosDeAgujero,
   sinLineaDeServicio,
+  descuentoDelRenglon,
+  totalDeListaDelRenglon,
   totalDelRenglon,
   ZONAS,
   type CondicionVenta,
-  type SituacionIva,
   type CuchillaMaterial,
   type CuchillaTipo,
   type CuchillaTrabajo,
@@ -503,11 +504,6 @@ export interface DatosNuevaNota {
   condicionVenta: CondicionVenta
   /** Los días del cheque, o el texto de "Otro". Vacío en el resto. */
   condicionVentaDetalle?: string
-  /**
-   * Frente a quién se emite la factura. Null en los presupuestos: no
-   * discriminan IVA.
-   */
-  situacionIva: SituacionIva | null
 }
 
 export interface NotaCreada {
@@ -559,12 +555,25 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
     // El unitario es lo que sale de la lista de precios —por diente en el
     // afilado, por unidad en la venta— y el total es la multiplicación.
     precio_unitario: unitario || null,
-    precio_total: totalDelRenglon(i) || null,
+    // A precio de LISTA, igual que el unitario. Lo que se cobra de verdad sale
+    // de aplicarle `descuento_porcentaje`, y el total ya descontado de la nota
+    // entera esta en `notas_pedido.total`.
+    //
+    // Guardarlo ya descontado rompia la reimpresion: al volver a imprimir, esta
+    // columna alimenta `precioTotalDirecto` en las herramientas que no se
+    // cobran por diente, y el descuento se habria aplicado dos veces.
+    precio_total: totalDeListaDelRenglon(i) || null,
     // En qué moneda están esos dos. El afilado siempre en pesos; la venta,
     // en la de la lista de precios de la que salió el artículo.
     moneda: i.servicio === 'venta' ? i.moneda : 'ARS',
     codigos_computo: i.codigos_computo,
     promocion: i.promocion,
+    // El porcentaje va a su propia columna: es plata, y la oficina tiene que
+    // poder preguntar cuanto se desconto sin abrir el jsonb renglon por
+    // renglon. `precio_unitario` y `precio_total` se quedan en precio de
+    // lista: son los que se imprimen, y son los que hacen que la cuenta de la
+    // hoja cierre contra el porcentaje.
+    descuento_porcentaje: descuentoDelRenglon(i) || null,
     dientes_rotos: i.dientes_rotos,
     // Las medidas propias de cada herramienta. Se guardan sólo las que tienen
     // valor, para que el detalle no se llene de campos vacíos.
@@ -591,7 +600,6 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         cuchilla_tipo: i.cuchilla_tipo,
         cuchilla_material: i.cuchilla_material,
         cuchilla_trabajo: i.cuchilla_trabajo,
-        promocion_detalle: i.promocion_detalle,
         afilado_reparacion: i.afilado_reparacion,
         origen_fresa: i.origen_fresa,
         // En qué máquina trabaja la pieza. Va guardado porque la descripción
@@ -718,8 +726,6 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       total: g.total || null,
       observaciones,
       condicion_venta: datos.condicionVenta,
-      // Sólo la factura discrimina IVA: un presupuesto no lo declara.
-      situacion_iva: datos.tipoNota === 'factura' ? datos.situacionIva : null,
       // La base sólo acepta detalle en las dos que lo piden.
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
@@ -810,7 +816,6 @@ export interface BorradorNota {
   fechaEntrega: string | null
   condicionVenta: CondicionVenta | null
   condicionDetalle: string
-  situacionIva: SituacionIva | null
   /** Sólo las del vendedor: las que escribe el servidor van aparte. */
   observaciones: string[]
   /** Las del servidor ("Va con nota de pedido…"), para devolverlas al guardar. */
@@ -861,7 +866,9 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     codigo_herramienta: comoCadena(fila.codigo_herramienta),
     unidades: esVenta ? comoCadena(fila.cantidad) : '',
     promocion: fila.promocion === true,
-    promocion_detalle: comoCadena(detalle.promocion_detalle),
+    // `numeric` vuelve como '10.00'; el desplegable trabaja con '10'.
+    descuento:
+      fila.descuento_porcentaje == null ? '' : String(Number(fila.descuento_porcentaje)),
     /**
      * El unitario va a los dos campos a propósito.
      *
@@ -982,7 +989,6 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
     fechaEntrega: nota.fecha_entrega ?? null,
     condicionVenta: (nota.condicion_venta as CondicionVenta | null) ?? null,
     condicionDetalle: comoCadena(nota.condicion_venta_detalle),
-    situacionIva: (nota.situacion_iva as SituacionIva | null) ?? null,
     observaciones: todas.filter((o) => !esObservacionDelSistema(o)),
     observacionesDelSistema: todas.filter(esObservacionDelSistema),
     items,
@@ -1051,7 +1057,6 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
         : null,
-      situacion_iva: datos.tipoNota === 'factura' ? datos.situacionIva : null,
     },
     p_items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
   })

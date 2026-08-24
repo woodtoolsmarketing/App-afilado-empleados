@@ -52,6 +52,13 @@ const ETIQUETA_MEDIDA: Record<string, string> = {
   espesor: 'Espesor',
   paso: 'Paso',
   mano: 'Mano',
+  /**
+   * El texto libre de la promoción, que ya no se carga.
+   *
+   * Se queda para las notas emitidas antes de que la promoción pasara a ser un
+   * porcentaje: siguen teniendo su "llevando 3" adentro de `detalle`, y sin
+   * esta etiqueta el detalle lo mostraría con el nombre crudo de la clave.
+   */
   promocion_detalle: 'Promoción',
 }
 
@@ -68,6 +75,7 @@ interface ItemNota {
   precio_total: number | null
   codigos_computo: string[]
   promocion: boolean
+  descuento_porcentaje: number | null
   dientes_rotos: boolean
   detalle: Record<string, unknown>
 }
@@ -373,20 +381,48 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
       {item.dientes_rotos ? (
         <Pastilla texto="CON DIENTES ROTOS" color={colores.ambarOscuro} />
       ) : null}
-      {item.promocion ? <Pastilla texto="CON PROMOCIÓN" color={colores.azul} /> : null}
+      {/* Cuanto, no solo que si. Una pastilla que dice "CON PROMOCION" obliga a
+          abrir la nota impresa para saber si fue un 5 o un 65. */}
+      {item.promocion ? (
+        <Pastilla
+          texto={
+            item.descuento_porcentaje
+              ? `${Number(item.descuento_porcentaje)} % DE DESCUENTO`
+              : 'CON PROMOCIÓN'
+          }
+          color={colores.azul}
+        />
+      ) : null}
 
       {item.precio_unitario ? (
         <Dato etiqueta="Precio unitario" valor={formatearPesos(Number(item.precio_unitario))} />
       ) : null}
       {item.precio_total ? (
         <View style={estilos.renglonTotal}>
+          {/* `precio_total` esta en precio de LISTA: el descuento se aplica
+              despues. Con descuento se muestran los dos numeros, porque el de
+              arriba tachado sin el de abajo se lee como el importe a cobrar. */}
+          {descuentoDelItem(item) > 0 ? (
+            <Text style={estilos.renglonTotalLista}>
+              {formatearPesos(Number(item.precio_total))}
+            </Text>
+          ) : null}
           <Text style={estilos.renglonTotalValor}>
-            {formatearPesos(Number(item.precio_total))}
+            {formatearPesos(
+              Number(item.precio_total) * (1 - descuentoDelItem(item) / 100),
+            )}
           </Text>
         </View>
       ) : null}
     </View>
   )
+}
+
+/** El descuento del renglon, acotado: la base admite hasta 100. */
+function descuentoDelItem(item: ItemNota): number {
+  const n = Number(item.descuento_porcentaje)
+  if (!item.promocion || !Number.isFinite(n) || n <= 0) return 0
+  return Math.min(n, 100)
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
@@ -516,6 +552,12 @@ const estilos = StyleSheet.create({
   codigos: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', marginTop: espaciado.xs },
 
   renglonTotal: { alignItems: 'flex-end', marginTop: espaciado.xs },
+  renglonTotalLista: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tintaTenue,
+    textDecorationLine: 'line-through',
+  },
   renglonTotalValor: {
     fontFamily: tipografia.familia.subtitulo,
     fontSize: tipografia.tamano.base,

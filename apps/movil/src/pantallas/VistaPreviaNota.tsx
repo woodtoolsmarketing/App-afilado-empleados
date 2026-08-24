@@ -304,7 +304,10 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
         <Text style={[estilos.celdaCabecera, estilos.colCodigo]}>Código</Text>
         <Text style={[estilos.celdaCabecera, estilos.colNum]}>Cant.</Text>
         <Text style={[estilos.celdaCabecera, estilos.colPrecio]}>Precio{'\n'}unitario</Text>
-        <Text style={[estilos.celdaCabecera, estilos.colPrecio]}>Precio{'\n'}total</Text>
+        {/* Las mismas columnas que el papel, en el mismo orden. Esta pantalla
+            existe para revisar la hoja antes de gastarla: si acá se ve una
+            columna que allá no está, deja de servir para eso. */}
+        <Text style={[estilos.celdaCabecera, estilos.colPrecio]}>Descuento</Text>
       </View>
       {comerciales.length === 0 ? (
         <Text style={estilos.vacio}>Sin cómputo</Text>
@@ -315,7 +318,7 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
             <Text style={[estilos.celda, estilos.colNum]}>{c.cantidad}</Text>
             <Text style={[estilos.celda, estilos.colPrecio]}>{c.precio_unitario || '—'}</Text>
             <Text style={[estilos.celda, estilos.colPrecio, estilos.celdaFuerte]}>
-              {c.precio || '—'}
+              {c.descuento || '—'}
             </Text>
           </View>
         ))

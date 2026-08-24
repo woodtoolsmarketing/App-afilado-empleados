@@ -19,6 +19,7 @@ import {
   agujeroDelRenglon,
   aNumero,
   CAMPOS_POR_HERRAMIENTA,
+  DESCUENTOS_DISPONIBLES,
   caracteristicasDeArticulo,
   colores,
   DESCRIPCION_GRUPO_NOTA,
@@ -1536,7 +1537,11 @@ function pasoRenglones(): HTMLElement {
     // que sí pide es qué es, porque de eso depende en qué nota cae.
     ...(item.servicio === 'venta'
       ? camposVenta(item, err)
-      : campos.map((c) => dibujarCampo(item, c, err, bloqueCodigos))),
+      : [
+          ...campos.map((c) => dibujarCampo(item, c, err, bloqueCodigos)),
+          // El descuento vale en los servicios igual que en la venta.
+          ...(item.herramienta ? camposDescuento(item, err, refrescar) : []),
+        ]),
 
     // Cómo se reparte todo esto en comprobantes. Se muestra antes de crear
     // para que no sea una sorpresa al final.
@@ -1916,6 +1921,36 @@ function recalcularYPintar(item: FormularioItemNota): void {
  * Es el único que no pide medidas: el código del artículo ya lo identifica. El
  * precio que se carga es el de UNA unidad y el total es la multiplicación.
  */
+/**
+ * La casilla de promocion y el porcentaje de descuento.
+ *
+ * Esta suelto y no adentro de `camposVenta` porque el descuento dejo de ser
+ * cosa de la venta: un cliente grande negocia el afilado igual que la sierra.
+ */
+function camposDescuento(
+  item: FormularioItemNota,
+  err: Record<string, string | undefined>,
+  refrescar: () => void,
+): Array<HTMLElement | null> {
+  return [
+    casilla('PROMOCIÓN', item.promocion, (v) => {
+      item.promocion = v
+      if (!v) item.descuento = ''
+      refrescar()
+    }),
+    item.promocion
+      ? desplegable('DESCUENTO', {
+          valor: item.descuento || null,
+          items: DESCUENTOS_DISPONIBLES.map((d) => ({ valor: String(d), etiqueta: `${d} %` })),
+          alCambiar: (v) => {
+            item.descuento = v
+            refrescar()
+          },
+        })
+      : null,
+  ]
+}
+
 function camposVenta(
   item: FormularioItemNota,
   err: Record<string, string | undefined>,
@@ -1950,18 +1985,6 @@ function camposVenta(
         pintarTotalVenta()
       },
     }),
-    casilla('PROMOCIÓN', item.promocion, (v) => {
-      item.promocion = v
-      if (!v) item.promocion_detalle = ''
-      refrescar()
-    }),
-    item.promocion
-      ? campo('¿CUÁL ES LA PROMOCIÓN?', {
-          valor: item.promocion_detalle,
-          error: err.promocion_detalle,
-          alCambiar: (v) => (item.promocion_detalle = v),
-        })
-      : null,
     campo(item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO', {
       valor: item.precio,
       error: err.precio,
@@ -1972,6 +1995,7 @@ function camposVenta(
       },
     }),
     nodoTotalVenta,
+    ...camposDescuento(item, err, refrescar),
   ]
 }
 

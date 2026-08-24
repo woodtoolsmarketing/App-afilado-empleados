@@ -21,7 +21,6 @@
 import { formatearMoneda, type Moneda } from './catalogo'
 import { LOGO_WOODTOOLS } from './logo'
 import {
-  ALICUOTA_IVA,
   consolidarLineasDeComputo,
   describirCondicionVenta,
   lineasDeComputo,
@@ -29,7 +28,6 @@ import {
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   type DatosComputo,
-  type SituacionIva,
 } from './notas-pedido'
 import {
   ESTILOS_ROL_DE_VISITA,
@@ -78,8 +76,15 @@ export interface RenglonComercial {
    * de la lista de precios, o el precio de la unidad en una venta.
    */
   precio_unitario: string
-  /** El resultado: cantidad × precio unitario. */
-  precio: string
+  /**
+   * El descuento de la fila, ya escrito: "10 %". Vacío si no lleva.
+   *
+   * Ocupa el lugar donde antes iba el importe de la fila. El importe de cada
+   * línea dejó de imprimirse: la hoja muestra el precio de lista, cuánto se
+   * rebaja, y el total abajo. Los tres números alcanzan para rehacer la cuenta
+   * y entran en el ancho que hay.
+   */
+  descuento: string
   condicion_venta: string
   anticipo: string
   observaciones: string
@@ -110,12 +115,6 @@ export interface NotaParaImprimir {
   comerciales: RenglonComercial[]
 
   /**
-   * Cómo se factura el IVA. Null en presupuesto y en las notas viejas.
-   *
-   * El total impreso ya lo lleva sumado cuando corresponde; esto es para poder
-   * decirlo, que es lo que hace que el número se entienda.
-   */
-  situacion_iva: SituacionIva | null
   /**
    * Los totales ya escritos, uno por moneda: `$ 65.696,40 · U$S 120,00`.
    *
@@ -123,15 +122,6 @@ export interface NotaParaImprimir {
    * puede diferir de los renglones que la componen.
    */
   totales: string
-  /**
-   * Los mismos totales con el IVA ya sumado, uno por moneda.
-   *
-   * Se escribe siempre y lo usa el que lo necesita: hoy, el responsable
-   * inscripto, que ve el subtotal y el total con IVA uno debajo del otro. Se
-   * calcula del mismo mapa por moneda que `totales`, así que los dos números
-   * salen de las mismas líneas y no pueden discrepar.
-   */
-  totales_con_iva: string
 
   tipo_cambio: string
   /** Ya escrita: "Contado", "Cheque a 30 días", el texto libre de "Otro". */
@@ -221,7 +211,6 @@ const ALTO_DATOS_CLIENTE_MM = 17
  * ficha del padrón y con cuatro se sigue sabiendo quién es el cliente y dónde
  * está. Sacárselos a la descripción, en cambio, taparía lo que hay que hacer.
  */
-const ALTO_DATOS_CLIENTE_DESGLOSE_MM = 13
 /**
  * El recuadro de la descripción general: cuatro renglones.
  *
@@ -302,10 +291,10 @@ const COLUMNAS_COMERCIALES = [
   12, // Código de Cómputo
   7, // Cantidad
   11, // Precio unitario
-  11, // Precio total
+  8, // Descuento — un porcentaje ocupa menos que un importe
   14, // Condición de Venta
   8, // Anticipo
-  37, // Observaciones — el otro texto libre
+  40, // Observaciones — el otro texto libre, se queda con los 3 que sobraron
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -383,7 +372,7 @@ const COMERCIAL_VACIO = (): RenglonComercial => ({
   codigo_computo: '',
   cantidad: '',
   precio_unitario: '',
-  precio: '',
+  descuento: '',
   condicion_venta: '',
   anticipo: '',
   observaciones: '',
@@ -461,7 +450,7 @@ export function generarHtmlNotaPedido(
         <td>${escapar(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
         <td class="num">${escapar(c.precio_unitario)}</td>
-        <td class="num">${escapar(c.precio)}</td>
+        <td class="num">${escapar(c.descuento)}</td>
         <td>${condicion}</td>
         <td class="num">${escapar(c.anticipo)}</td>
         <td>${escapar(c.observaciones)}</td>
@@ -477,8 +466,8 @@ export function generarHtmlNotaPedido(
     : `<tr>
         <th>Código de Cómputo</th>
         <th>Cantidad</th>
-        <th>Precio<br>unitario<br><span class="sin-iva">sin IVA</span></th>
-        <th>Precio<br>total<br><span class="sin-iva">sin IVA</span></th>
+        <th>Precio<br>unitario</th>
+        <th>Descuento</th>
         <th>Condicion de Venta</th>
         <th>Anticipo</th>
         <th>Observaciones</th>
@@ -553,48 +542,28 @@ export function generarHtmlNotaPedido(
    * tablas, que es donde en fábrica escriben a mano.
    */
   /**
-   * Qué total se imprime, y qué NO se dice sobre el IVA.
+   * Un solo número abajo de todo, y se llama SUBTOTAL.
    *
-   * El consumidor final lo lleva sumado adentro del total, sin leyenda: el
-   * número que ve es lo que paga, y para él discriminar el impuesto no cambia
-   * nada porque no lo descuenta. No se menciona la alícuota en ningún lado.
+   * La nota dejó de hablar de IVA. Antes decía tres cosas distintas según la
+   * condición del cliente —el consumidor final lo llevaba sumado adentro sin
+   * decirlo, el exento no, y el responsable inscripto veía el neto y el total
+   * uno debajo del otro—, y eso obligaba a que el papel supiera de impuestos
+   * para poder imprimir un número.
    *
-   * El exento no lleva nada sumado. A esta altura sólo puede ser uno de Tierra
-   * del Fuego —el de cualquier otra provincia se guarda como consumidor final,
-   * ver `situacionIvaEfectiva`— así que su total ES el neto. Tampoco se lo
-   * anuncia: la nota no aclara más su condición fiscal.
+   * Ahora imprime lo que se cobra por el trabajo y nada más. El impuesto es
+   * cosa de la factura, que sale de otro sistema.
    *
-   * El responsable inscripto es el único que ve los dos números, porque es el
-   * único que descuenta el impuesto y necesita el neto por separado.
+   * Dice SUBTOTAL y no TOTAL porque eso es lo que es: la suma de los renglones
+   * ya con su descuento, antes de cualquier cosa que se le agregue después.
    */
-  const desglosaIva = nota.situacion_iva === 'responsable_inscripto' && !!nota.totales_con_iva
-  const ivaAdentro = nota.situacion_iva === 'consumidor_final' && !!nota.totales_con_iva
-
-  /**
-   * El responsable inscripto ve los dos números, no uno con una leyenda.
-   *
-   * Es el único que descuenta el IVA, así que necesita el neto y el final como
-   * dos importes distintos: el subtotal es lo que va a su cuenta de compras y
-   * el total con IVA es lo que paga. Un solo número con "+ IVA" al lado lo
-   * obliga a sacar la cuenta a mano sobre un comprobante, que es justo donde no
-   * se saca ninguna cuenta a mano.
-   *
-   * El subtotal no se aclara como "sin IVA": las columnas de precio de arriba
-   * ya lo dicen, y acá lo que lo define es el renglón que tiene debajo.
-   */
-  const cuerpoTotal = desglosaIva
-    ? `<span>Subtotal: <strong>${escapar(nota.totales)}</strong></span>
-    <span>Total + IVA: <strong>${escapar(nota.totales_con_iva)}</strong></span>`
-    : `<span>TOTAL: <strong>${escapar(ivaAdentro ? nota.totales_con_iva : nota.totales)}</strong></span>`
+  const cuerpoTotal = `<span>SUBTOTAL: <strong>${escapar(nota.totales)}</strong></span>`
 
   const totalVisible = !esDuplicado && !!nota.totales
-  const resumen = totalVisible
-    ? `<div class="resumen${desglosaIva ? ' apilado' : ''}">
+  const resumen = totalVisible ? `<div class="resumen">
     ${cuerpoTotal}
-  </div>`
-    : ''
+  </div>` : ''
 
-  return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}${desglosaIva ? ' desglosa' : ''}">
+  return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}">
   <table class="encabezado">
     <tr>
       <td class="celda-logo">${celdaLogo}</td>
@@ -776,14 +745,6 @@ html {
   font-size: 8pt;
   line-height: 1.15;
 }
-/* Con el desglose de IVA la ficha del cliente cede lo que el pie necesita.
-   Ver ALTO_DATOS_CLIENTE_DESGLOSE_MM.
-
-   Va acotada al ORIGINAL a propósito. Sin ese .original, estos tres nombres de
-   clase le ganaban en especificidad a .duplicado .texto-libre —que son dos— y
-   le AGRANDABAN la ficha de 10 a 13 mm justo a la copia más apretada de las
-   dos. El duplicado ya no la necesita: lleva sólo el nombre. */
-.nota.original.desglosa .texto-libre { height: ${ALTO_DATOS_CLIENTE_DESGLOSE_MM}mm; }
 .texto-libre.alto-2 {
   height: ${ALTO_DESCRIPCION_MM}mm;
   border: 1px solid #000;
@@ -863,16 +824,6 @@ html {
   font-size: 9pt;
 }
 .resumen strong { font-size: 10pt; }
-/* Cuando van los dos importes —subtotal y total con IVA— se apilan, uno debajo
-   del otro. En la misma línea, el segundo número se lee como otra moneda o como
-   un descuento, y no como la suma del primero. */
-.resumen.apilado { flex-direction: column; align-items: flex-end; gap: 1px; }
-/* La aclaración del IVA va a la izquierda del total, más chica: explica el
-   número sin competir con él. */
-.resumen .iva { font-size: 8pt; align-self: center; }
-/* Debajo del rótulo de la columna, chico: aclara sin robarle lugar al ancho
-   de la columna, que es lo que decidía que el rótulo fuera en dos renglones. */
-.sin-iva { font-size: 6.5pt; font-weight: normal; }
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -1032,6 +983,15 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // un precio: el importe simbólico no se multiplica por nada.
     sinCargo: i.detalle?.sin_cargo === true,
     reparacionSinCargo: i.detalle?.reparacion_sin_cargo === true,
+    /**
+     * El descuento del renglón, que se aplica UNA sola vez.
+     *
+     * Se puede aplicar acá sin miedo a duplicarlo porque lo que la base guarda
+     * en `precio_unitario` y `precio_total` es precio de LISTA. Si alguna de
+     * esas dos columnas viniera ya descontada, esta línea la descontaría de
+     * nuevo y la reimpresión no daría el mismo número que el papel original.
+     */
+    descuentoPorcentaje: Number(i.descuento_porcentaje) || 0,
   })
 
   /**
@@ -1074,12 +1034,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
       .join('  ·  ')
 
   const totales = escribirTotales(1)
-  const totalesConIva = escribirTotales(1 + ALICUOTA_IVA)
 
   return {
     totales,
-    totales_con_iva: totalesConIva,
-    situacion_iva: (nota.situacion_iva as SituacionIva | null) ?? null,
     numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],
@@ -1178,7 +1135,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           : l.precioUnitario
             ? formatearMoneda(l.precioUnitario, l.moneda)
             : '',
-        precio: l.total ? formatearMoneda(l.total, l.moneda) : '',
+        // El porcentaje, no el importe: es lo que se pidió que se viera, y el
+        // dinero ya lo dice el total de abajo.
+        descuento: l.descuento > 0 ? `${l.descuento} %` : '',
         // La condición de venta es de la nota entera y va una sola vez, en
         // la primera fila. La reparación de dientes rotos se aclara en su
         // propia fila, que es donde está su código, y lo que no se cobra se

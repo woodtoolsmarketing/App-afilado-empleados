@@ -18,6 +18,8 @@ import {
   FAMILIA_CATALOGO,
   MEDIDA_PARA_CODIGO,
   reconocerHerramienta,
+  descuentoDelRenglon,
+  totalDeListaDelRenglon,
   totalDelRenglon,
   type CondicionVenta,
   type FormularioItemNota,
@@ -671,10 +673,13 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
         cantidad: Math.max(1, Math.round(aNumero(i.cantidad || i.unidades)) || 1),
         cantidad_dientes: aNumero(i.cantidad_dientes) || null,
         precio_unitario: aNumero(i.precio_por_diente || i.precio) || null,
-        precio_total: totalDelRenglon(i) || null,
+        // A precio de LISTA, como en la app: guardarlo descontado haria que la
+        // reimpresion volviera a descontar.
+        precio_total: totalDeListaDelRenglon(i) || null,
         moneda: i.servicio === 'venta' ? i.moneda : 'ARS',
         codigos_computo: i.codigos_computo,
         promocion: i.promocion,
+        descuento_porcentaje: descuentoDelRenglon(i) || null,
         dientes_rotos: i.dientes_rotos,
         detalle: Object.fromEntries(
           Object.entries({
@@ -691,7 +696,6 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
             paso: i.paso,
             tipo_mecha: i.tipo_mecha,
             mano: i.mano,
-            promocion_detalle: i.promocion_detalle,
             afilado_reparacion: i.afilado_reparacion,
             origen_fresa: i.origen_fresa,
             dientes_rotos_cantidad: i.dientes_rotos

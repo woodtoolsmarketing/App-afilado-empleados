@@ -451,114 +451,23 @@ export function describirCondicionVenta(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Encabezado de la nota: los datos del cliente. */
-/**
- * Frente a quién se emite la factura, que es lo que decide el IVA.
+/*
+ * El IVA salió de la nota de pedido.
  *
- *  · **consumidor_final**       — paga IVA.
- *  · **exento**                 — no paga, pero sólo si está en Tierra del
- *    Fuego. Fuera de la provincia un "exento" paga igual que un consumidor
- *    final: la exención es del territorio, no del cliente.
- *  · **responsable_inscripto**  — paga IVA.
+ * Vivía acá: la situación del cliente, la alícuota, la excepción de Tierra
+ * del Fuego y el cálculo del total con impuesto. El papel decía tres cosas
+ * distintas según a quién se le emitiera —el consumidor final lo llevaba
+ * sumado adentro sin decirlo, el exento no lo llevaba, y el responsable
+ * inscripto veía el neto y el total uno debajo del otro—, y eso obligaba a
+ * que una nota de pedido supiera de impuestos para poder imprimir un número.
  *
- * Lo que decide es si el comprobante lleva el "+ IVA", NO los importes: la
- * nota de pedido cotiza siempre en neto. Ver `ivaDeLaNota`.
+ * Ahora cotiza el trabajo y nada más: un SUBTOTAL, con los descuentos ya
+ * aplicados. El impuesto es cosa de la factura, que sale de otro sistema.
+ *
+ * La columna `notas_pedido.situacion_iva` queda en la base con lo que se
+ * cargó los dos días que esto estuvo activo. No se borra: son nueve notas
+ * reales y el dato no le molesta a nadie donde está.
  */
-export type SituacionIva = 'consumidor_final' | 'exento' | 'responsable_inscripto'
-
-export const ETIQUETA_SITUACION_IVA: Record<SituacionIva, string> = {
-  consumidor_final: 'Consumidor final',
-  exento: 'Exento',
-  responsable_inscripto: 'Responsable inscripto',
-}
-
-/** La alícuota general. Un solo número: no hay artículos con alícuota reducida. */
-export const ALICUOTA_IVA = 0.21
-
-/** La única provincia sin IVA. Se compara sin acentos ni mayúsculas. */
-const PROVINCIA_SIN_IVA = 'tierra del fuego'
-
-function esTierraDelFuego(provincia: string | null | undefined): boolean {
-  if (!provincia) return false
-  const limpia = provincia
-    .normalize('NFD')
-    .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
-    .toLowerCase()
-    .trim()
-  return limpia.includes(PROVINCIA_SIN_IVA)
-}
-
-/**
- * La situación que REALMENTE se aplica, que es la que se guarda.
- *
- * Un "exento" fuera de Tierra del Fuego se factura igual que un consumidor
- * final, y eso es lo que hay que dejar anotado: es lo que se cobró. Guardar la
- * declarada obligaría a guardar además la provincia para poder reconstruir la
- * cuenta, y a que el papel dijera "exento" arriba de un total con IVA adentro.
- */
-export function situacionIvaEfectiva(
-  situacion: SituacionIva | null,
-  provinciaDelCliente: string | null | undefined,
-): SituacionIva | null {
-  if (situacion !== 'exento') return situacion
-  return esTierraDelFuego(provinciaDelCliente) ? 'exento' : 'consumidor_final'
-}
-
-export interface IvaDeLaNota {
-  /**
-   * Lo que va impreso: el NETO.
-   *
-   * Ni el precio unitario, ni el del renglón, ni el total llevan IVA sumado.
-   * La nota de pedido cotiza el trabajo; el IVA lo agrega la factura, y
-   * mezclarlo acá obliga a descontarlo a mano para saber qué se cotizó.
-   */
-  total: number
-  /** Cuánto IVA le corresponde a ese neto. Cero cuando el cliente no paga. */
-  iva: number
-  /** El neto más el IVA. Se muestra como referencia, no es lo que se cotiza. */
-  conIva: number
-  /** El comprobante tiene que decir "+ IVA" al lado del total. */
-  masIva: boolean
-  /** Por qué un exento igual paga IVA: para poder decirlo en pantalla. */
-  exentoFueraDeZona: boolean
-}
-
-/**
- * Qué IVA le corresponde a la nota, sin tocarle los importes.
- *
- * El total que devuelve es SIEMPRE el neto. Lo que cambia con la situación del
- * cliente es si el comprobante lleva el "+ IVA" al lado y cuánto sería ese
- * IVA, no el número que se cotiza.
- *
- * Sólo se aplica en FACTURA: un presupuesto no discrimina IVA.
- */
-export function ivaDeLaNota(
-  neto: number,
-  situacion: SituacionIva | null,
-  provinciaDelCliente: string | null | undefined,
-): IvaDeLaNota {
-  const sinIva: IvaDeLaNota = {
-    total: neto,
-    iva: 0,
-    conIva: neto,
-    masIva: false,
-    exentoFueraDeZona: false,
-  }
-
-  if (!situacion) return sinIva
-
-  // El único que no paga: un exento con domicilio en Tierra del Fuego. Fuera
-  // de la provincia la exención no corre.
-  if (situacion === 'exento' && esTierraDelFuego(provinciaDelCliente)) return sinIva
-
-  const iva = redondear(neto * ALICUOTA_IVA)
-  return {
-    total: neto,
-    iva,
-    conIva: redondear(neto + iva),
-    masIva: true,
-    exentoFueraDeZona: situacion === 'exento',
-  }
-}
 
 export interface FormularioNotaEncabezado {
   cliente_id: string | null
@@ -810,8 +719,6 @@ export interface FormularioItemNota {
   // Venta
   codigo_herramienta: string
   unidades: string
-  promocion: boolean
-  promocion_detalle: string
   precio: string
   /** Sólo en la venta de fresas: define en qué nota de pedido cae. */
   origen_fresa: OrigenFresa | null
@@ -930,6 +837,55 @@ export interface FormularioItemNota {
   sin_cargo: boolean
   /** La reparación de los dientes rotos va sin cargo. Se decide aparte. */
   reparacion_sin_cargo: boolean
+
+  // ── Descuento ─────────────────────────────────────────────────────────────
+  //
+  // Antes esto era otra cosa: una casilla PROMOCIÓN con un texto libre al lado
+  // ("llevando 3") que no tocaba ningún precio. Se guardaba, se mostraba como
+  // pastilla en el detalle y no llegaba nunca al papel. Ahora es plata.
+  //
+  // Vale en TODOS los renglones, no sólo en los de venta: un cliente grande
+  // negocia el afilado igual que la sierra.
+  //
+  // Son dos campos y no uno porque la casilla es el interruptor —el desplegable
+  // recién aparece cuando la marcan— y porque un porcentaje en cero tiene que
+  // poder distinguirse de "no hay descuento".
+  /** Si el renglón lleva descuento. */
+  promocion: boolean
+  /** El porcentaje elegido, como texto: '5', '10' … '65'. Vacío si no hay. */
+  descuento: string
+}
+
+/**
+ * Los descuentos que el vendedor puede elegir: de 5 en 5, hasta 65 %.
+ *
+ * Es una lista cerrada y no un campo libre a propósito. Un descuento tipeado a
+ * mano admite el 7 %, el 12,5 % y el 110 %, y los tres terminan en una nota que
+ * la oficina tiene que salir a preguntar. De 5 en 5 también es como se habla:
+ * nadie negocia un 13 %.
+ *
+ * El tope es 65 y no 100: regalar el renglón entero no es un descuento, es un
+ * trabajo sin cargo, y para eso el sistema ya tiene su propia marca —que
+ * además se imprime distinto y no se multiplica.
+ */
+export const DESCUENTOS_DISPONIBLES: number[] = Array.from({ length: 13 }, (_, i) => (i + 1) * 5)
+
+/** El máximo que admite el desplegable. Fuera de esto el número no es válido. */
+export const DESCUENTO_MAXIMO = DESCUENTOS_DISPONIBLES[DESCUENTOS_DISPONIBLES.length - 1]
+
+/**
+ * El porcentaje efectivo de un renglón: 0 si no tiene descuento o es inválido.
+ *
+ * Se acota acá y no en cada consumidor porque el número viaja como texto desde
+ * el formulario y como `numeric` desde la base, y las dos vías pueden traer
+ * cualquier cosa. Un descuento que no se pueda creer vale cero: cobrar de más
+ * es un reclamo, cobrar de menos por un dato corrupto es una pérdida muda.
+ */
+export function descuentoDelRenglon(item: FormularioItemNota): number {
+  if (!item.promocion) return 0
+  const n = aNumero(item.descuento)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(n, DESCUENTO_MAXIMO)
 }
 
 export const ITEM_VACIO: FormularioItemNota = {
@@ -940,8 +896,6 @@ export const ITEM_VACIO: FormularioItemNota = {
   herramienta: null,
   codigo_herramienta: '',
   unidades: '',
-  promocion: false,
-  promocion_detalle: '',
   precio: '',
   origen_fresa: null,
   moneda: 'ARS',
@@ -978,6 +932,8 @@ export const ITEM_VACIO: FormularioItemNota = {
   cuchilla_trabajo: null,
   sin_cargo: false,
   reparacion_sin_cargo: false,
+  promocion: false,
+  descuento: '',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1055,6 +1011,14 @@ export function validarItemNota(
 ): ResultadoValidacion<string> {
   const errores: Record<string, string> = {}
 
+  // El descuento se controla acá arriba, antes de bifurcar por servicio: vale
+  // en la venta y en el afilado por igual, y las dos ramas de abajo terminan en
+  // su propio `return`. Puesto en una sola, la otra dejaba pasar un renglón con
+  // la casilla marcada y sin porcentaje.
+  if (item.promocion && descuentoDelRenglon(item) <= 0) {
+    errores.descuento = 'Elegí cuánto descuento lleva'
+  }
+
   // Se pide antes que nada: de la operación dependen la herramienta y los
   // campos, así que marcar errores de campos que todavía no se sabe si
   // corresponden sería mandar a completar cosas al pedo.
@@ -1080,10 +1044,6 @@ export function validarItemNota(
     }
     if (!esNumeroValido(item.precio)) {
       errores.precio = 'Ingresá el precio unitario'
-    }
-    // La promoción sólo se completa si la marcaron; si no, queda en "no".
-    if (item.promocion && !item.promocion_detalle.trim()) {
-      errores.promocion_detalle = 'Contá cuál es la promoción'
     }
     return { valido: Object.keys(errores).length === 0, errores }
   }
@@ -1366,7 +1326,6 @@ export type CampoEncabezado =
   | 'fecha_entrega'
   | 'condicion_venta'
   | 'condicion_venta_detalle'
-  | 'situacion_iva'
 
 /**
  * Las tres páginas en que se carga la nota.
@@ -1389,7 +1348,7 @@ const CAMPOS_DE_LA_PARTE: Record<ParteDeLaNota, CampoEncabezado[]> = {
     'fecha_entrega',
   ],
   operacion: ['servicios'],
-  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle', 'situacion_iva'],
+  facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
 }
 
 export function validarEncabezadoNota(
@@ -1401,7 +1360,6 @@ export function validarEncabezadoNota(
     condicionVenta?: CondicionVenta | null
     condicionVentaDetalle?: string
     /** Frente a quién se emite. Sólo se exige en factura. */
-    situacionIva?: SituacionIva | null
     /**
      * La versión de prueba carga el cliente a mano, sin buscarlo en la base.
      * Ahí no se puede exigir un `cliente_id` que no va a existir nunca.
@@ -1415,18 +1373,6 @@ export function validarEncabezadoNota(
   },
 ): ResultadoValidacion<CampoEncabezado> {
   const errores: Partial<Record<CampoEncabezado, string>> = {}
-
-  /**
-   * La situación de IVA sólo se exige en FACTURA.
-   *
-   * De ella depende el total que se cobra —con el IVA adentro, sin IVA, o con
-   * un "+ IVA" al lado— así que una factura sin contestar sale con un importe
-   * que no es el que corresponde. El presupuesto no discrimina IVA y no la
-   * pide.
-   */
-  if (extra.tipoNota === 'factura' && !extra.situacionIva) {
-    errores.situacion_iva = 'Preguntale al cliente su situación de IVA'
-  }
 
   // La condición de venta es cómo se cobra: sin eso la nota no se puede pasar
   // a cobranzas. Las dos que piden detalle lo exigen.
@@ -1626,6 +1572,16 @@ export interface LineaComputo {
    * dientes se afilaron— pero no multiplica: el total es $ 0,10 y punto.
    */
   sinCargo: boolean
+  /**
+   * El descuento aplicado a esta línea, en por ciento. 0 si no lleva.
+   *
+   * `precioUnitario` queda SIN tocar: es el precio de lista, el que el cliente
+   * reconoce y el que se imprime. El descuento vive en `total` y se muestra
+   * aparte, en su propia columna. Por eso `cantidad × precioUnitario` no da
+   * `total` cuando hay descuento — y está bien que no dé: la hoja muestra los
+   * tres números para que la cuenta se pueda seguir.
+   */
+  descuento: number
 }
 
 /**
@@ -1671,6 +1627,16 @@ export interface DatosComputo {
   sinCargo?: boolean
   /** La reparación de los rotos no se cobra. Se decide aparte del principal. */
   reparacionSinCargo?: boolean
+  /**
+   * El descuento del renglón, en por ciento. 0 o ausente si no lleva.
+   *
+   * Se aplica a TODAS las líneas del renglón —el afilado, los rascadores y la
+   * reparación de los rotos—, porque es un descuento sobre el trabajo de esa
+   * herramienta, no sobre uno de sus conceptos. Descontar sólo la línea
+   * principal dejaría al rascador a precio de lista adentro de una pieza que se
+   * negoció con descuento.
+   */
+  descuentoPorcentaje?: number
 }
 
 /**
@@ -1685,6 +1651,27 @@ function totalSinCargo(): number {
   return PRECIO_SIN_CARGO
 }
 
+/**
+ * Aplica el descuento del renglón a cada línea ya calculada.
+ *
+ * Va al final y no adentro de cada cuenta para que la aritmética del trabajo
+ * —dientes sanos, rascadores, rotos— quede escrita en un solo lugar y el
+ * descuento sea lo último que pasa. Es también el orden en que se negocia: se
+ * arma el trabajo y recién después se acuerda cuánto se rebaja.
+ *
+ * Lo que NO se descuenta: las líneas sin cargo. Su total es un importe
+ * simbólico de $ 0,10 que no sale de multiplicar nada; rebajarle un 20 %
+ * daría $ 0,08, un número que no significa absolutamente nada y que además
+ * rompería la regla de que dos sin cargo del mismo código siguen siendo $ 0,10.
+ */
+function conDescuento(lineas: LineaComputo[], porcentaje: number | undefined): LineaComputo[] {
+  const p = Math.min(Math.max(0, porcentaje || 0), DESCUENTO_MAXIMO)
+  if (p <= 0) return lineas
+  return lineas.map((l) =>
+    l.sinCargo ? l : { ...l, descuento: p, total: redondear(l.total * (1 - p / 100)) },
+  )
+}
+
 export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
   const unidades = Math.max(1, d.cantidad || 1)
   const codigo = d.codigos.filter(Boolean).join(', ')
@@ -1696,19 +1683,23 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
     const total = sinCargo
       ? totalSinCargo()
       : redondear(d.precioTotalDirecto || d.precioUnitario * unidades)
-    return [
-      {
-        concepto: d.concepto,
-        codigo,
-        cantidad: unidades,
-        // Sin cargo no hay precio unitario que mostrar: el importe no sale de
-        // multiplicar nada, y un "$ 0,03 c/u" sería una cuenta inventada.
-        precioUnitario: sinCargo ? 0 : redondear(total / unidades),
-        total,
-        moneda: sinCargo ? 'ARS' : d.moneda,
-        sinCargo,
-      },
-    ]
+    return conDescuento(
+      [
+        {
+          concepto: d.concepto,
+          codigo,
+          cantidad: unidades,
+          // Sin cargo no hay precio unitario que mostrar: el importe no sale de
+          // multiplicar nada, y un "$ 0,03 c/u" sería una cuenta inventada.
+          precioUnitario: sinCargo ? 0 : redondear(total / unidades),
+          total,
+          moneda: sinCargo ? 'ARS' : d.moneda,
+          sinCargo,
+          descuento: 0,
+        },
+      ],
+      d.descuentoPorcentaje,
+    )
   }
 
   const dientesTotales = d.dientesPorHerramienta * unidades
@@ -1736,6 +1727,7 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
       total: sinCargo ? totalSinCargo() : redondear(cobrados * d.precioUnitario),
       moneda: sinCargo ? 'ARS' : d.moneda,
       sinCargo,
+      descuento: 0,
     },
   ]
 
@@ -1756,6 +1748,7 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
       // El afilado del rascador se cobra en pesos, como el del diente.
       moneda: 'ARS',
       sinCargo,
+      descuento: 0,
     })
   }
 
@@ -1773,10 +1766,11 @@ export function lineasDeComputo(d: DatosComputo): LineaComputo[] {
       // El afilado y su reparación se cobran los dos en pesos.
       moneda: 'ARS',
       sinCargo: repSinCargo,
+      descuento: 0,
     })
   }
 
-  return lineas
+  return conDescuento(lineas, d.descuentoPorcentaje)
 }
 
 /**
@@ -1804,8 +1798,12 @@ export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[
 
   for (const linea of lineas) {
     // Sin código no hay contra qué agrupar: pasa tal cual.
+    // El descuento entra en la clave: dos líneas del mismo código con
+    // porcentajes distintos no se pueden fusionar, porque la fila resultante
+    // tendría que imprimir un solo número en la columna de descuento y
+    // cualquiera de los dos sería mentira.
     const clave = linea.codigo
-      ? `${linea.concepto}|${linea.codigo}|${linea.moneda}|${linea.precioUnitario}|${linea.sinCargo}`
+      ? `${linea.concepto}|${linea.codigo}|${linea.moneda}|${linea.precioUnitario}|${linea.sinCargo}|${linea.descuento}`
       : ''
 
     const previa = clave ? porClave.get(clave) : undefined
@@ -1868,6 +1866,7 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
     moneda: esVenta ? item.moneda : 'ARS',
     sinCargo: item.sin_cargo === true,
     reparacionSinCargo: item.reparacion_sin_cargo === true,
+    descuentoPorcentaje: descuentoDelRenglon(item),
   }
 }
 
@@ -1881,6 +1880,27 @@ export function lineasDelRenglon(item: FormularioItemNota): LineaComputo[] {
  */
 export function totalDelRenglon(item: FormularioItemNota): number {
   return redondear(lineasDelRenglon(item).reduce((s, l) => s + l.total, 0))
+}
+
+/**
+ * Lo mismo, pero a precio de LISTA: sin aplicar el descuento del renglón.
+ *
+ * Existe para que `precio_total` no pueda envenenarse. Ese campo es a la vez
+ * una salida —tres `useEffect` lo reescriben con la cuenta hecha— y una
+ * ENTRADA: en las mechas, las cuchillas y las sierras sin fin no hay precio por
+ * diente y el importe del renglón sale exclusivamente de ahí, por
+ * `precioTotalDirecto`.
+ *
+ * Si se le escribiera el total ya descontado, la próxima vuelta lo tomaría como
+ * precio de lista y le descontaría otra vez. Un 20 % aplicado tres renders
+ * seguidos no es un 20 %: es un 49 %, y nadie lo vería pasar.
+ *
+ * La regla, entonces: `precio_unitario` y `precio_total` viven siempre en
+ * precio de lista; el descuento vive en su porcentaje y en el total de la nota.
+ * Así la nota impresa puede mostrar los tres números y que la cuenta cierre.
+ */
+export function totalDeListaDelRenglon(item: FormularioItemNota): number {
+  return totalDelRenglon({ ...item, promocion: false })
 }
 
 /**

@@ -33,6 +33,7 @@ import {
   SINGULAR_HERRAMIENTA,
   soloNumeros,
   tipografia,
+  totalDeListaDelRenglon,
   totalDelRenglon,
   type CampoItem,
   type FormularioItemNota,
@@ -52,6 +53,7 @@ import {
   MensajeError,
 } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { CampoDescuento } from './Descuento'
 import {
   agujeroDeFabrica,
   codigosAfiladoCuchilla,
@@ -396,7 +398,10 @@ export function PasoRenglon({
   // rotos, más la reparación si la pidieron. Acá sólo se refleja el resultado.
   useEffect(() => {
     if (!campos.includes('precio_por_diente') || !campos.includes('cantidad_dientes')) return
-    const total = totalDelRenglon(item)
+    // A precio de LISTA. Este campo tambien es entrada en las herramientas que
+    // no se cobran por diente: escribirle el total ya descontado haria que la
+    // vuelta siguiente lo tomara como precio de lista y descontara otra vez.
+    const total = totalDeListaDelRenglon(item)
     const actual = aNumero(item.precio_total)
     if (total > 0 && Math.abs(total - actual) > 0.005) {
       alCambiar({ precio_total: String(total) })
@@ -1452,6 +1457,16 @@ export function PasoRenglon({
           campo === 'precio_total' || campo === 'precio_por_diente' ? 'mitad' : 'tercio'
         return campoNumerico(campo, ETIQUETAS[campo], anchoCampo)
       })}
+
+      {/* El descuento va afuera de `CAMPOS_POR_HERRAMIENTA` y al final de todo.
+          Afuera porque no es una medida de la herramienta sino una condición
+          del renglón, como el sin cargo: agregarlo a las siete listas sería
+          repetirlo siete veces para que aparezca siempre. Y al final porque se
+          acuerda sobre un precio que ya está cargado — antes, la cuenta se
+          mostraría sobre un renglón todavía vacío. */}
+      {item.herramienta ? (
+        <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
+      ) : null}
     </>
   )
 }

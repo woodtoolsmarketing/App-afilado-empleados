@@ -18,11 +18,6 @@ import {
   formatearFechaCorta,
   formatearMoneda,
   fechaLocalISO,
-  ivaDeLaNota,
-  situacionIvaEfectiva,
-  ALICUOTA_IVA,
-  ETIQUETA_SITUACION_IVA,
-  type SituacionIva,
   formatearPesos,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
@@ -88,6 +83,7 @@ import {
   type BorradorParaGuardar,
 } from '../../servicios/borradorDeNota'
 import { BuscadorArticulo } from './BuscadorArticulo'
+import { CampoDescuento } from './Descuento'
 import { PasoCliente, PasoOperacion } from './Encabezado'
 import { PasoRenglon } from './Renglon'
 import type { PropsPantalla } from '../../navegacion/tipos'
@@ -142,7 +138,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * Sólo se pregunta en FACTURA: un presupuesto no discrimina IVA. De la
    * respuesta depende el total que se cobra, así que no se supone ninguna.
    */
-  const [situacionIva, setSituacionIva] = useState<SituacionIva | null>(null)
   /**
    * Lo que este cliente usa siempre, para dejarlo preseleccionado.
    *
@@ -202,7 +197,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       tipoNota,
       condicionVenta,
       condicionDetalle,
-      situacionIva,
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       items,
       observaciones,
@@ -258,7 +252,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               setTipoNota(b.tipoNota)
               setCondicionVenta(b.condicionVenta)
               setCondicionDetalle(b.condicionDetalle)
-              setSituacionIva(b.situacionIva ?? null)
               setFechaEntrega(b.fechaEntrega ? new Date(b.fechaEntrega) : null)
               setItems(b.items.length > 0 ? b.items : [ITEM_VACIO])
               setObservaciones(b.observaciones.length > 0 ? b.observaciones : [''])
@@ -300,7 +293,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setTipoNota(borrador.tipoNota)
     setCondicionVenta(borrador.condicionVenta)
     setCondicionDetalle(borrador.condicionDetalle)
-    setSituacionIva(borrador.situacionIva)
     // La fecha viene como `2026-08-20`; con `new Date` de un ISO corto se lee
     // en UTC y en Argentina eso la corre un día para atrás.
     if (borrador.fechaEntrega) {
@@ -563,7 +555,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
-      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
       partes: partes ?? PARTES_DEL_PASO[paso],
     })
@@ -626,8 +617,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
             codigo_herramienta: '',
             descripcion_catalogo: '',
             moneda: 'ARS',
-            promocion: false,
-            promocion_detalle: '',
             origen_fresa: null,
           }
 
@@ -819,7 +808,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
-      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
       partes: PARTES_DEL_PASO[paso],
     })
@@ -865,7 +853,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       condicionVentaDetalle: condicionDetalle,
       // La que se guarda es la que se aplicó, no la que se eligió: un exento
       // fuera de Tierra del Fuego se facturó como consumidor final.
-      situacionIva: situacionIvaEfectiva(situacionIva, encabezado.cliente_provincia),
     }
   }
 
@@ -1022,7 +1009,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
       condicionVenta,
       condicionVentaDetalle: condicionDetalle,
-      situacionIva,
       clienteAMano: CLIENTE_A_MANO,
     })
 
@@ -1054,40 +1040,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   const tipoCambio = cambioEnUso
   const totalNota = totalDeRenglones(items, tipoCambio)
-  /**
-   * El total que se cobra, según la situación de IVA.
-   *
-   * En presupuesto no se aplica nada: `null` deja el neto tal cual. Lo que se
-   * guarda en la nota sigue siendo el NETO —el IVA se deriva de la situación—
-   * así que este número es para mostrar y para imprimir, no para persistir.
-   */
-  const ivaNota = ivaDeLaNota(
-    totalNota,
-    tipoNota === 'factura' ? situacionIva : null,
-    encabezado.cliente_provincia,
-  )
-  /**
-   * ¿Van los dos importes por separado, subtotal y total con IVA?
-   *
-   * Sólo para el responsable inscripto, que es el único que descuenta el IVA y
-   * necesita los dos números: el neto va a su cuenta de compras y el otro es lo
-   * que paga. Se decide acá y no en la pantalla para que sea la misma condición
-   * que usa la nota impresa: si cada lado la escribiera por su cuenta, un día
-   * el vendedor vería un desglose que en el papel no está.
-   */
-  const desglosaIva = tipoNota === 'factura' && situacionIva === 'responsable_inscripto'
-  /**
-   * ¿El total ya lleva el IVA adentro, sin decirlo?
-   *
-   * El consumidor final sí: el número que ve es lo que paga, y discriminarle el
-   * impuesto no le sirve de nada porque no lo descuenta. También el exento que
-   * está fuera de Tierra del Fuego, que se guarda como consumidor final.
-   *
-   * El de Tierra del Fuego no —`masIva` viene en false— y el presupuesto
-   * tampoco. La pantalla muestra el mismo número que va a salir impreso: si
-   * mostrara otro, el vendedor cantaría un precio y el papel diría otro.
-   */
-  const ivaAdentro = tipoNota === 'factura' && !desglosaIva && ivaNota.masIva
   // Cómo se va a repartir todo esto en comprobantes. Se calcula acá, con lo
   // que hay cargado, para poder avisarlo antes de crear y no después.
   const grupos = agruparParaNotas(items, tipoCambio)
@@ -1654,50 +1606,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     tono="exito"
                     titulo={items.length > 1 ? `Total de la nota · ${items.length} renglones` : 'Total del renglón'}
                   >
-                    {/* El responsable inscripto ve los dos importes separados y
-                        con la misma forma que van a salir impresos: subtotal
-                        arriba, total con IVA abajo. Para el resto el "+ IVA" va
-                        pegado al número —leerlo suelto invita a tomar el total
-                        como final— y la cuenta queda hecha debajo. */}
-                    {desglosaIva
-                      ? `Subtotal:  ${formatearPesos(ivaNota.total)}\nTotal + IVA:  ${formatearPesos(ivaNota.conIva)}`
-                      : formatearPesos(ivaAdentro ? ivaNota.conIva : ivaNota.total)}
+                    {/* El mismo número que va a salir impreso, con los descuentos
+                        ya aplicados. Si la pantalla mostrara otro, el vendedor
+                        cantaría un precio y el papel diría otro. */}
+                    {formatearPesos(totalNota)}
                   </Aviso>
 
-                  {/* Sólo en factura: un presupuesto no discrimina IVA. */}
-                  {tipoNota === 'factura' ? (
-                    <Desplegable<SituacionIva>
-                      etiqueta="SITUACIÓN DE IVA DEL CLIENTE"
-                      obligatorio
-                      marcador="Preguntale al cliente"
-                      valor={situacionIva}
-                      items={(
-                        ['consumidor_final', 'exento', 'responsable_inscripto'] as SituacionIva[]
-                      ).map((s) => ({
-                        valor: s,
-                        etiqueta: ETIQUETA_SITUACION_IVA[s].toUpperCase(),
-                        descripcion:
-                          s === 'consumidor_final'
-                            ? 'Paga IVA: la nota sale con "+ IVA"'
-                            : s === 'exento'
-                              ? 'No paga, sólo si está en Tierra del Fuego'
-                              : 'Paga IVA: la nota sale con subtotal y total con IVA',
-                      }))}
-                      alCambiar={setSituacionIva}
-                      error={errores.situacion_iva}
-                    />
-                  ) : null}
-
-                  {/* Un exento fuera de Tierra del Fuego paga IVA igual: la
-                      exención es del territorio, no del cliente. Si no se
-                      dijera, el vendedor vería un total que no entiende. */}
-                  {ivaNota.exentoFueraDeZona ? (
-                    <Aviso tono="atencion" titulo="Exento, pero fuera de Tierra del Fuego">
-                      {encabezado.cliente_provincia
-                        ? `El domicilio del cliente figura en ${encabezado.cliente_provincia}, así que paga IVA igual que un consumidor final.`
-                        : 'El cliente no tiene provincia cargada en su domicilio, así que paga IVA. Si está en Tierra del Fuego, cargale la dirección desde el panel.'}
-                    </Aviso>
-                  ) : null}
+                  {/* Acá vivía SITUACIÓN DE IVA DEL CLIENTE, obligatorio en toda
+                      factura, más el aviso del exento fuera de Tierra del Fuego.
+                      La nota dejó de hablar de impuestos, así que preguntarlo
+                      era hacerle completar al vendedor un campo que no cambiaba
+                      nada de lo que salía impreso. */}
                 </>
               ) : null}
 
@@ -1951,23 +1870,6 @@ function FormularioVenta({
         error={errores.unidades}
       />
 
-      {/* Por defecto "no": sólo se habilita el detalle si la marcan. */}
-      <Casilla
-        etiqueta="PROMOCIÓN"
-        valor={item.promocion}
-        alCambiar={(v) => alCambiar({ promocion: v, ...(v ? {} : { promocion_detalle: '' }) })}
-      />
-
-      {item.promocion ? (
-        <Campo
-          etiqueta="¿Cuál es la promoción?"
-          obligatorio
-          value={item.promocion_detalle}
-          onChangeText={(t) => alCambiar({ promocion_detalle: t })}
-          error={errores.promocion_detalle}
-        />
-      ) : null}
-
       {/* Es el precio de UNA unidad, en la moneda de la lista. Antes se
           guardaba como total y tres unidades a $100 se facturaban $100. */}
       <Campo
@@ -1995,6 +1897,11 @@ function FormularioVenta({
           ) : null}
         </View>
       ) : null}
+
+      {/* Va al final y no arriba: el descuento se acuerda sobre un precio que
+          ya existe, y así la cuenta de abajo se muestra con números de verdad
+          en vez de con el renglón todavía vacío. */}
+      <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
     </>
   )
 }
