@@ -469,22 +469,47 @@ export function plazoDePago(detalle?: string | null): { desde: number; hasta: nu
  * `Cheque de 15 a 45 días`, `Cuenta corriente de 0 a 30 días`,
  * `Otro: retira y paga en fábrica`, `Contado`.
  */
+/**
+ * Las mismas condiciones, escritas para una columna angosta.
+ *
+ * Sólo se usan al imprimir. La casilla "Condicion de Venta" del talonario mide
+ * 18 % de la tabla y no envuelve —recorta con puntos suspensivos—, así que
+ * "Cuenta corriente de 15 a 45 días" no entraba y lo que se perdía era el
+ * plazo, que es todo lo que esa casilla tiene para decir. Son abreviaturas
+ * corrientes en una factura; en la app se sigue leyendo el nombre completo.
+ */
+const ETIQUETA_CONDICION_COMPACTA: Partial<Record<CondicionVenta, string>> = {
+  cuenta_corriente: 'Cta. cte.',
+  transferencia: 'Transf. bancaria',
+}
+
 export function describirCondicionVenta(
   condicion: CondicionVenta | null,
   detalle?: string | null,
+  opciones?: {
+    /** Para el papel: nombres abreviados y el plazo como "15-45 días". */
+    compacto?: boolean
+  },
 ): string {
   if (!condicion) return ''
   const texto = String(detalle ?? '').trim()
+  const compacto = opciones?.compacto === true
 
   if (condicion === 'otro') return texto || 'Otro'
 
+  const nombre = compacto
+    ? (ETIQUETA_CONDICION_COMPACTA[condicion] ?? ETIQUETA_CONDICION_VENTA[condicion])
+    : ETIQUETA_CONDICION_VENTA[condicion]
+
   if (CONDICIONES_CON_PLAZO.includes(condicion)) {
     const plazo = plazoDePago(texto)
-    const nombre = ETIQUETA_CONDICION_VENTA[condicion]
-    return plazo ? `${nombre} de ${plazo.desde} a ${plazo.hasta} días` : nombre
+    if (!plazo) return nombre
+    return compacto
+      ? `${nombre} ${plazo.desde}-${plazo.hasta} días`
+      : `${nombre} de ${plazo.desde} a ${plazo.hasta} días`
   }
 
-  return ETIQUETA_CONDICION_VENTA[condicion]
+  return nombre
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

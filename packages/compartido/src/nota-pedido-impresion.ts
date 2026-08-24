@@ -307,47 +307,76 @@ const COLUMNAS_TECNICAS = [
 ]
 
 /**
- * Los siete anchos, medidos y no estimados.
+ * Los siete anchos, medidos contra la fuente MÁS ANCHA que puede tocar.
  *
  * Las celdas son `nowrap` con `text-overflow: ellipsis`: lo que no entra NO
  * baja de renglón, se corta. Así que cada ancho sale de medir el texto más
- * largo que esa columna puede llegar a tener, sobre la tabla real de 718 px.
+ * largo que esa columna puede tener, sobre la tabla real de 718 px.
  *
- *   Código        "8001, 8002"                        57 px  →  9 % = 65 px
- *   Cantidad      "1.240"                             28 px  →  5 % = 36 px
- *   Unitario      "× 240 = $ 46.125,60"               78 px  → 12 % = 86 px
- *   Descuento     "65 %"                              26 px  →  4 % = 29 px
- *   Condición     "Cuenta corriente de 15 a 45 días" 173 px  → 25 % = 180 px
- *   Anticipo      siempre vacía: casillero a mano       —    →  5 %
- *   Observaciones hasta 60 caracteres                 298 px → 40 % = 286 px
+ * ── Por qué se mide en Verdana y no en Arial ────────────────────────────────
  *
- * La condición pasó de 14 % a 25 % porque el plazo de pago no entraba:
- * "Cheque de 15 a 45 días" pedía 121 px sobre 99, y se cortaba justo el plazo
- * —que es lo único que esa columna tenía para decir—. Cuenta corriente es la
- * condición de 19 de las 57 notas cargadas, así que el caso largo es el normal.
- * Los 173 px son con la NEGRITA de la primera fila, que es donde va: medida sin
- * ella daba 165 y la columna quedaba corta por dos píxeles.
+ * El CSS pide `Arial, Helvetica, sans-serif`, pero **Android no tiene Arial**:
+ * cae a Roboto, que es más ancha. La misma cuenta mide 82 px en Arial y 99 en
+ * Verdana; Roboto queda en el medio. Medir en Arial —que es lo que tiene la PC
+ * donde uno prueba— da números optimistas, y el papel sale cortado en el
+ * teléfono aunque en pantalla se vea perfecto. Pasó exactamente así con la
+ * nota 000060: "× 480 = $ 119.448,..." y "CHC100...".
  *
- * Lo que se le sacó salió de columnas que sobraban medidas, no a ojo: Código,
- * Cantidad y Descuento juntas tenían 9 % que nunca usaron, y Anticipo se
- * imprime siempre vacía.
+ * Verdana es el techo razonable: lo que entra ahí entra en cualquier sans.
  *
- * Observaciones queda igual y sigue corta: 60 caracteres piden 41,5 %. Se deja
- * así a propósito —sacarle a las otras para darle a ésta sólo mueve el corte
- * de lugar— pero conviene saberlo.
+ *   Código        "CHC100HSSAF"               84 px → 13 % =  93 px
+ *                  "CLGNMFS3940MCAJA" a 6 pt   86 px → 13 % =  93 px
+ *   Cantidad      "1.240"                     33 px →  5 % =  36 px
+ *   Unitario      "× 1.240 = $ 1.199.448,00" 116 px → 17 % = 122 px
+ *   Descuento     "65 %"                      31 px →  5 % =  36 px
+ *   Condición     "Cta. cte. 15-45 días"     124 px → 18 % = 129 px
+ *   Anticipo      siempre vacía                 —   →  5 %
+ *   Observaciones hasta 60 caracteres        346 px → 37 % = 266 px
+ *
+ * La condición entra ahora porque el texto se acortó para el papel —ver
+ * `describirCondicionVenta` con `compacto`—: el nombre largo pedía 29 % y no
+ * había de dónde sacarlo.
+ *
+ * ── Lo que NO entra, y se sabe ──────────────────────────────────────────────
+ *
+ * Observaciones: 60 caracteres piden 48 % y tiene 37, así que se corta cerca de
+ * los 46. Es de antes de este paquete y se deja: darle más significa sacárselo
+ * a un código o a un importe, y un importe cortado es un error comercial;
+ * una observación cortada, una molestia.
+ *
+ * Anticipo se imprime SIEMPRE vacía —es un casillero para completar a mano— así
+ * que su 5 % no se mide contra ningún texto.
  */
 const COLUMNAS_COMERCIALES = [
-  9, // Código de Cómputo
+  13, // Código de Cómputo — hasta 16 caracteres, ver `celdaCodigo`
   5, // Cantidad
-  12, // Precio unitario — lleva debajo la cuenta escrita
-  4, // Descuento — un porcentaje ocupa menos que un importe
-  25, // Condición de Venta — la más larga: lleva el plazo de pago, y en negrita
+  17, // Precio unitario — lleva debajo la cuenta escrita, que es lo más largo
+  5, // Descuento — un porcentaje ocupa menos que un importe
+  18, // Condición de Venta — con el plazo, ya en su forma compacta
   5, // Anticipo — se imprime vacía, es para completar a mano
-  40, // Observaciones — el otro texto libre, se queda con los 40 que sobraron
+  37, // Observaciones — se queda con lo que sobra
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
 const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
+
+/**
+ * El código de cómputo, achicado sólo si no entra de otra forma.
+ *
+ * El catálogo tiene códigos de hasta 16 caracteres —`CLGNMFS3940MCAJA`, y 94
+ * artículos pasan de once— que en cuerpo normal piden 122 px sobre una columna
+ * de 93. La celda no envuelve: recorta. Y un código recortado en una nota de
+ * pedido es un renglón que la fábrica no puede identificar.
+ *
+ * Se achican SÓLO esos: los códigos corrientes —`8001`, `LU3F 0300`— se siguen
+ * leyendo en cuerpo normal, que es lo que se mira primero al recibir la pieza.
+ */
+const CODIGO_LARGO = 11
+
+function celdaCodigo(codigo: string): string {
+  const texto = escapar(codigo)
+  return codigo.length > CODIGO_LARGO ? `<span class="codigo-largo">${texto}</span>` : texto
+}
 
 const colgroup = (anchos: number[]): string =>
   `<colgroup>${anchos.map((a) => `<col style="width:${a}%">`).join('')}</colgroup>`
@@ -479,7 +508,7 @@ export function generarHtmlNotaPedido(
       if (esDuplicado) {
         // El duplicado sólo lleva código y cantidad.
         return `<tr>
-          <td>${escapar(c.codigo_computo)}</td>
+          <td>${celdaCodigo(c.codigo_computo)}</td>
           <td class="num">${escapar(c.cantidad)}</td>
         </tr>`
       }
@@ -497,7 +526,7 @@ export function generarHtmlNotaPedido(
           ? `<strong>${escapar(nota.condicion_venta)}</strong>${propia ? `<br>${propia}` : ''}`
           : propia
       return `<tr>
-        <td>${escapar(c.codigo_computo)}</td>
+        <td>${celdaCodigo(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
         <td class="num">${escapar(c.precio_unitario)}${
           c.importe ? `<br><span class="cuenta">${escapar(c.importe)}</span>` : ''
@@ -879,6 +908,10 @@ html {
 /* La cuenta de la fila, debajo del unitario y más chica: acompaña al precio sin
    competir con él, que es el número que el cliente busca primero. */
 .cuenta { font-size: 6.5pt; color: #333; }
+/* Ver celdaCodigo(): solo para los codigos que no entran en cuerpo normal.
+   Sin acentos ni comillas invertidas: esto vive adentro de un template
+   literal y una comilla invertida lo termina. Ya paso tres veces. */
+.codigo-largo { font-size: 6pt; }
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
@@ -1230,9 +1263,11 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // Vacío en las notas de afilado: se cobra en pesos y una cotización ahí
     // sólo hace dudar de en qué moneda está el total.
     tipo_cambio: nota.tipo_cambio ? monto(Number(nota.tipo_cambio)) : '',
+    // Compacta: la casilla del talonario es angosta y recorta sin avisar.
     condicion_venta: describirCondicionVenta(
       nota.condicion_venta ?? null,
       nota.condicion_venta_detalle,
+      { compacto: true },
     ),
     emision: new Date(nota.creado_en).toLocaleDateString('es-AR'),
     // `fecha_entrega` es un `date` de Postgres: al mediodía, para que el huso
