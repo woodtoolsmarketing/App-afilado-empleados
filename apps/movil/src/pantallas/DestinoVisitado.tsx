@@ -110,9 +110,10 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
    * acababa de comprometer—. El cliente quedaba como "Sin visitar" y el
    * compromiso se perdía sin que nada lo avisara.
    */
-  const esUltima =
-    restantes.length === 0 &&
-    !(form.visitado === false && form.motivo_no_visita === 'visitar_mas_tarde')
+  /** Este destino se esta difiriendo: vuelve a la cola mas tarde, hoy mismo. */
+  const seDifiere = form.visitado === false && form.motivo_no_visita === 'visitar_mas_tarde'
+
+  const esUltima = restantes.length === 0 && !seDifiere
 
   /**
    * Qué se vendió o se mandó a taller en esta visita, a grandes rasgos.
@@ -528,7 +529,17 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
             subtitulo={
               esUltima
                 ? 'Es el último destino del día'
-                : `Quedan ${restantes.length} destino${restantes.length === 1 ? '' : 's'}`
+                : seDifiere
+                  ? // El que se difiere sigue siendo trabajo del dia: cuenta.
+                    // Sin esto el boton decia "Quedan 0 destinos" justo despues
+                    // de comprometer una vuelta, que es lo contrario de lo que
+                    // pasa.
+                    `Volvés a las ${form.volver_a_las || 'la hora que pusiste'}${
+                      restantes.length > 0
+                        ? `, y quedan ${restantes.length} más`
+                        : ''
+                    }`
+                  : `Quedan ${restantes.length} destino${restantes.length === 1 ? '' : 's'}`
             }
             alTocar={alGuardar}
             cargando={guardar.isPending}
