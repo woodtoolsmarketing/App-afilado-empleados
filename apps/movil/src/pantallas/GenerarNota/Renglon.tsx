@@ -34,7 +34,6 @@ import {
   soloNumeros,
   tipografia,
   totalDeListaDelRenglon,
-  totalDelRenglon,
   type CampoItem,
   type FormularioItemNota,
   type Herramienta,
@@ -1590,10 +1589,21 @@ function alTocarCodigo(
  *
  * Cuando el renglón tiene además reparación de dientes rotos son dos líneas
  * con precios distintos, y se muestran las dos sumadas.
+ *
+ * El total va a precio de LISTA, sin el descuento. `conDescuento` baja el
+ * `total` de cada línea pero deja el `precioUnitario` como está —tiene que
+ * hacerlo, porque la nota impresa lleva el unitario y el descuento en columnas
+ * separadas—, así que restarle acá el descuento a un lado de la igualdad y no
+ * al otro escribía una cuenta falsa: con 10 % se leía «240 × $ 192,19 =
+ * $ 41.513,04», y esa multiplicación da $ 46.125,60.
+ *
+ * El descuento se explica solo, en su propio renglón abajo: «$ 46.125,60 −
+ * 10 % = $ 41.513,04». Las dos líneas se leen entonces como lo que son, una
+ * cuenta y después su descuento.
  */
 function cuentaDelRenglon(item: FormularioItemNota): string {
   const lineas = lineasDelRenglon(item).filter((l) => l.cantidad > 0)
-  const total = totalDelRenglon(item)
+  const total = totalDeListaDelRenglon(item)
   if (lineas.length === 0) return formatearPesos(total)
 
   const partes = lineas.map((l) =>

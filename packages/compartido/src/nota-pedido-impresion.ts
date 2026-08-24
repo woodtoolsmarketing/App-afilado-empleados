@@ -82,7 +82,8 @@ export interface RenglonComercial {
    */
   precio_unitario: string
   /**
-   * La cuenta de la fila, ya escrita: "192 × = $ 47.779,20".
+   * La cuenta de la fila, ya escrita: "× 192 = $ 47.779,20", debajo del
+   * unitario y leyéndose con él: "$ 248,85" / "× 192 = $ 47.779,20".
    *
    * Va DEBAJO del precio unitario, en la misma casilla, y sólo en las facturas.
    * Es a precio de lista: el descuento se muestra al lado y se aplica sobre
@@ -305,14 +306,44 @@ const COLUMNAS_TECNICAS = [
   7, // Z-Paso
 ]
 
+/**
+ * Los siete anchos, medidos y no estimados.
+ *
+ * Las celdas son `nowrap` con `text-overflow: ellipsis`: lo que no entra NO
+ * baja de renglón, se corta. Así que cada ancho sale de medir el texto más
+ * largo que esa columna puede llegar a tener, sobre la tabla real de 718 px.
+ *
+ *   Código        "8001, 8002"                        57 px  →  9 % = 65 px
+ *   Cantidad      "1.240"                             28 px  →  5 % = 36 px
+ *   Unitario      "× 240 = $ 46.125,60"               78 px  → 12 % = 86 px
+ *   Descuento     "65 %"                              26 px  →  4 % = 29 px
+ *   Condición     "Cuenta corriente de 15 a 45 días" 173 px  → 25 % = 180 px
+ *   Anticipo      siempre vacía: casillero a mano       —    →  5 %
+ *   Observaciones hasta 60 caracteres                 298 px → 40 % = 286 px
+ *
+ * La condición pasó de 14 % a 25 % porque el plazo de pago no entraba:
+ * "Cheque de 15 a 45 días" pedía 121 px sobre 99, y se cortaba justo el plazo
+ * —que es lo único que esa columna tenía para decir—. Cuenta corriente es la
+ * condición de 19 de las 57 notas cargadas, así que el caso largo es el normal.
+ * Los 173 px son con la NEGRITA de la primera fila, que es donde va: medida sin
+ * ella daba 165 y la columna quedaba corta por dos píxeles.
+ *
+ * Lo que se le sacó salió de columnas que sobraban medidas, no a ojo: Código,
+ * Cantidad y Descuento juntas tenían 9 % que nunca usaron, y Anticipo se
+ * imprime siempre vacía.
+ *
+ * Observaciones queda igual y sigue corta: 60 caracteres piden 41,5 %. Se deja
+ * así a propósito —sacarle a las otras para darle a ésta sólo mueve el corte
+ * de lugar— pero conviene saberlo.
+ */
 const COLUMNAS_COMERCIALES = [
-  12, // Código de Cómputo
-  7, // Cantidad
-  11, // Precio unitario
-  8, // Descuento — un porcentaje ocupa menos que un importe
-  14, // Condición de Venta
-  8, // Anticipo
-  40, // Observaciones — el otro texto libre, se queda con los 3 que sobraron
+  9, // Código de Cómputo
+  5, // Cantidad
+  12, // Precio unitario — lleva debajo la cuenta escrita
+  4, // Descuento — un porcentaje ocupa menos que un importe
+  25, // Condición de Venta — la más larga: lleva el plazo de pago, y en negrita
+  5, // Anticipo — se imprime vacía, es para completar a mano
+  40, // Observaciones — el otro texto libre, se queda con los 40 que sobraron
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -1172,7 +1203,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
          */
         importe:
           nota.tipo_nota === 'factura' && !l.sinCargo && l.precioUnitario && l.cantidad
-            ? `${l.cantidad} × = ${formatearMoneda(redondear(l.cantidad * l.precioUnitario), l.moneda)}`
+            ? `× ${l.cantidad} = ${formatearMoneda(redondear(l.cantidad * l.precioUnitario), l.moneda)}`
             : '',
         // El porcentaje, no el importe: es lo que se pidió que se viera, y el
         // dinero ya lo dice el total de abajo.
