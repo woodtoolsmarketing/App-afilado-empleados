@@ -2,6 +2,8 @@ import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 
+import { distanciaEnMetros } from '@woodtools/compartido'
+
 import { cacheLocal, supabase } from '../nucleo/supabase'
 
 /**
@@ -334,5 +336,40 @@ export async function radioDeLlegadaM(): Promise<number> {
     return Number.isFinite(n) && n > 0 ? n : 150
   } catch {
     return 150
+  }
+}
+
+/**
+ * Qué prioridad le toca a un destino que se agrega en el momento.
+ *
+ * ── Por qué ya no la elige el vendedor ──────────────────────────────────────
+ *
+ * Antes había que elegir entre ALTA, MEDIA y BAJA en un desplegable, y ALTA
+ * prometía "se visita a continuación, sin importar la distancia". Eso convertía
+ * una decisión de logística —¿conviene desviarse?— en una de urgencia, y las
+ * dos no son la misma: un envío urgentísimo del otro lado del conurbano no
+ * conviene meterlo al medio del recorrido, y uno que queda a tres cuadras
+ * conviene aunque no corra apuro.
+ *
+ * Ahora la decide la distancia. Si el vendedor está cerca, el destino se clava
+ * adelante y se desvía. Si no, entra a la ruta y la optimización de Google lo
+ * ubica donde menos cuesta.
+ *
+ * ── El radio ────────────────────────────────────────────────────────────────
+ *
+ * Diez veces el radio de llegada: si "llegué" son 150 metros, "me queda de
+ * paso" es un kilómetro y medio. No es un número exacto porque no hay uno
+ * exacto — es el orden de magnitud de "estoy por acá".
+ *
+ * Sin señal devuelve `baja`: no saber dónde está el vendedor no es razón para
+ * mandarlo a cruzar la ciudad.
+ */
+export async function prioridadPorCercania(lat: number, lng: number): Promise<'alta' | 'baja'> {
+  try {
+    const [donde, radio] = await Promise.all([ubicacionActual(), radioDeLlegadaM()])
+    const metros = distanciaEnMetros(donde, { lat, lng })
+    return metros <= radio * 10 ? 'alta' : 'baja'
+  } catch {
+    return 'baja'
   }
 }

@@ -320,3 +320,79 @@ export async function obtenerHistorial(
   if (error) throw error
   return (data ?? []) as DiaHistorial[]
 }
+
+/**
+ * La jornada de una fecha cualquiera, creándola si no existe.
+ *
+ * Es `asegurarJornadaDeHoy` sin el "de hoy", y existe para poder agendar: una
+ * visita que se acuerda para el jueves tiene que entrar en el rol del jueves,
+ * no en el de hoy.
+ *
+ * `roles_visita` tiene un único por vendedor y fecha, así que dos agendas
+ * simultáneas para el mismo día no pueden duplicar la jornada: la segunda choca
+ * contra el índice y vuelve a leer la que ya está.
+ */
+export async function asegurarJornadaDe(vendedorId: string, fecha: string): Promise<RolVisita> {
+  const { data: existente } = await supabase
+    .from('roles_visita')
+    .select('*')
+    .eq('vendedor_id', vendedorId)
+    .eq('fecha', fecha)
+    .maybeSingle<RolVisita>()
+
+  if (existente) return existente
+
+  const { data, error } = await supabase
+    .from('roles_visita')
+    .insert({ vendedor_id: vendedorId, fecha, estado: 'planificado' })
+    .select('*')
+    .single<RolVisita>()
+
+  if (error) {
+    // Carrera con otra agenda del mismo día: la fila ya está, se lee.
+    const { data: recien } = await supabase
+      .from('roles_visita')
+      .select('*')
+      .eq('vendedor_id', vendedorId)
+      .eq('fecha', fecha)
+      .maybeSingle<RolVisita>()
+    if (recien) return recien
+    throw error
+  }
+  return data
+}
+
+/** Un día agendado, con cuántos destinos tiene. */
+export interface DiaAgendado {
+  rol_visita_id: string
+  fecha: string
+  estado: string
+  destinos: number
+}
+
+/**
+ * Los días que ya tienen algo agendado, de hoy en adelante.
+ *
+ * Es lo que muestra el calendario de envíos: no un mes en blanco, sino los días
+ * en los que hay trabajo comprometido.
+ */
+export async function diasAgendados(vendedorId: string, desde: string): Promise<DiaAgendado[]> {
+  const { data, error } = await supabase
+    .from('roles_visita')
+    .select('id, fecha, estado, paradas(id)')
+    .eq('vendedor_id', vendedorId)
+    .gte('fecha', desde)
+    .order('fecha', { ascending: true })
+
+  if (error) throw error
+
+  return ((data ?? []) as Array<{ id: string; fecha: string; estado: string; paradas: unknown[] }>)
+    .map((r) => ({
+      rol_visita_id: r.id,
+      fecha: r.fecha,
+      estado: r.estado,
+      destinos: (r.paradas ?? []).length,
+    }))
+    // Un día que quedó creado y vacío no es una agenda: es ruido.
+    .filter((d) => d.destinos > 0)
+}

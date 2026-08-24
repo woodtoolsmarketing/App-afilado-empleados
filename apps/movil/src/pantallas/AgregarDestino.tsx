@@ -36,7 +36,7 @@ import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
-import { asegurarJornadaDeHoy } from '../servicios/jornada'
+import { asegurarJornadaDe, asegurarJornadaDeHoy } from '../servicios/jornada'
 import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
@@ -50,7 +50,11 @@ import {
   type DireccionResuelta,
   type SugerenciaDireccion,
 } from '../servicios/mapas'
-import { permisoDeUbicacionPuntual, ubicacionActual } from '../servicios/ubicacion'
+import {
+  permisoDeUbicacionPuntual,
+  prioridadPorCercania,
+  ubicacionActual,
+} from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -205,19 +209,29 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const guardar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
-      const jornada = await asegurarJornadaDeHoy(perfil.id)
+      // Con fecha, el destino entra en la jornada de ESE día: es una visita
+      // agendada, no una del recorrido de hoy.
+      const jornada = route.params?.fecha
+        ? await asegurarJornadaDe(perfil.id, route.params.fecha)
+        : await asegurarJornadaDeHoy(perfil.id)
       return agregarDestinoExistente({
         rolVisitaId: jornada.id,
         cliente: form.cliente!,
-        prioridad: form.prioridad!,
+        // Sin coordenadas del cliente no hay con qué medir: entra al recorrido
+        // como uno más y la optimización lo ubica. (Igual no llegaría acá: el
+        // alta rechaza a los clientes sin ubicar.)
+        prioridad:
+          form.cliente!.lat !== null && form.cliente!.lng !== null
+            ? await prioridadPorCercania(form.cliente!.lat, form.cliente!.lng)
+            : 'baja',
       })
     },
     onSuccess: async (parada) => {
       await cliente.invalidateQueries()
       Alert.alert(
         'Destino agregado',
-        form.prioridad === 'alta'
-          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}).`
+        parada.prioridad === 'alta'
+          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}): estás cerca.`
           : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`,
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
@@ -362,15 +376,6 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             />
           ) : null}
 
-          <Desplegable<PrioridadParada>
-            etiqueta="PRIORIDAD"
-            obligatorio
-            marcador="Elegí la prioridad"
-            valor={form.prioridad}
-            items={ITEMS_PRIORIDAD}
-            alCambiar={(v) => actualizar({ prioridad: v })}
-            error={errores.prioridad}
-          />
 
           <BotonMenu
             titulo={'AGREGAR AL\nRECORRIDO'}
@@ -730,8 +735,17 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   const guardar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
-      const jornada = await asegurarJornadaDeHoy(perfil.id)
-      return agregarDestinoClienteNuevo({ rolVisitaId: jornada.id, form })
+      // Con fecha, el destino entra en la jornada de ESE día: es una visita
+      // agendada, no una del recorrido de hoy.
+      const jornada = route.params?.fecha
+        ? await asegurarJornadaDe(perfil.id, route.params.fecha)
+        : await asegurarJornadaDeHoy(perfil.id)
+      // El cliente nuevo se acaba de ubicar en el mapa, así que hay contra qué
+      // medir: si el vendedor está encima, el destino se clava adelante.
+      return agregarDestinoClienteNuevo({
+        rolVisitaId: jornada.id,
+        form: { ...form, prioridad: await prioridadPorCercania(form.lat!, form.lng!) },
+      })
     },
     onSuccess: async (parada) => {
       await cliente.invalidateQueries()
@@ -851,15 +865,6 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
             autoCapitalize="words"
           />
 
-          <Desplegable<PrioridadParada>
-            etiqueta="PRIORIDAD"
-            obligatorio
-            marcador="Elegí la prioridad"
-            valor={form.prioridad}
-            items={ITEMS_PRIORIDAD}
-            alCambiar={(v) => actualizar({ prioridad: v })}
-            error={errores.prioridad}
-          />
 
           <Aviso tono="info">
             El cliente se guarda como provisorio con un código automático. La oficina completa

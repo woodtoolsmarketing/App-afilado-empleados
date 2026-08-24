@@ -96,6 +96,12 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         />
 
         <BotonMenu
+          titulo="CALENDARIO DE ENVÍOS"
+          subtitulo="Lo agendado para los próximos días"
+          alTocar={() => navigation.navigate('CalendarioEnvios')}
+        />
+
+        <BotonMenu
           titulo="COBRANZAS DEL DÍA"
           subtitulo="Lo que cobraste hoy, y la planilla para rendir"
           alTocar={() => navigation.navigate('Cobranzas')}

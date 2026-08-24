@@ -9,7 +9,19 @@ export type ParametrosApp = {
   Recorrido: { iniciar?: boolean } | undefined
   DestinoVisitado: { paradaId: string }
   /** Sin `modo` muestra el selector entre cliente existente y cliente nuevo. */
-  AgregarDestino: { volverA?: 'Visitas' | 'Recorrido'; modo?: ModoDestino }
+  /**
+   * `fecha` (ISO, "2026-08-28") agenda el destino para OTRO día en vez de para
+   * hoy. Es lo que usa el calendario de envíos: la pantalla de agregar es la
+   * misma —con su buscador, su alta de cliente nuevo y su ubicación en el
+   * mapa—, sólo cambia en qué jornada cae.
+   */
+  AgregarDestino: {
+    volverA?: 'Visitas' | 'Recorrido' | 'CalendarioEnvios'
+    modo?: ModoDestino
+    fecha?: string
+  }
+  /** La agenda: qué hay comprometido para los próximos días. */
+  CalendarioEnvios: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   Configuracion: undefined

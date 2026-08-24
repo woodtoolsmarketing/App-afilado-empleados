@@ -208,6 +208,13 @@ export function validarFormularioVisita(
 /** Acepta "1704" y también "B1704ARQ", los dos formatos que usa el Correo. */
 export const CODIGO_POSTAL = /^[A-Za-z]?\d{4}([A-Za-z]{3})?$/
 
+/**
+ * La prioridad ya no se elige: la decide la distancia al destino.
+ *
+ * El campo sigue en el tipo del formulario porque la parada la sigue llevando
+ * —la optimización de la ruta clava adelante las de prioridad alta— pero la
+ * completa la app, no el vendedor, así que no hay nada que validar.
+ */
 export type CampoDestinoExistente = 'cliente' | 'prioridad'
 
 export function validarDestinoExistente(
@@ -226,9 +233,6 @@ export function validarDestinoExistente(
       'Ubicá el cliente en el mapa: confirmá su dirección en el buscador de acá abajo.'
   }
 
-  if (!form.prioridad) {
-    errores.prioridad = 'Elegí la prioridad del destino'
-  }
 
   return { valido: Object.keys(errores).length === 0, errores }
 }
@@ -265,9 +269,6 @@ export function validarDestinoNuevo(
     errores.codigo_postal = 'El código postal no parece válido (ej. 1704 o B1704ARQ)'
   }
 
-  if (!form.prioridad) {
-    errores.prioridad = 'Elegí la prioridad del destino'
-  }
 
   return { valido: Object.keys(errores).length === 0, errores }
 }
