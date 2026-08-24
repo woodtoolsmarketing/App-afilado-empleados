@@ -82,20 +82,6 @@ export interface RenglonComercial {
    */
   precio_unitario: string
   /**
-   * La cuenta de la fila, ya escrita: "× 192 = $ 47.779,20", debajo del
-   * unitario y leyéndose con él: "$ 248,85" / "× 192 = $ 47.779,20".
-   *
-   * Va DEBAJO del precio unitario, en la misma casilla, y sólo en las facturas.
-   * Es a precio de lista: el descuento se muestra al lado y se aplica sobre
-   * esto, así la hoja tiene los tres números y la cuenta se puede rehacer a
-   * mano —unitario por cantidad, menos el porcentaje, contra el SUBTOTAL—.
-   *
-   * En la misma casilla y no en columna propia porque no hay columna libre: las
-   * siete suman 100 y sacarle ancho a cualquiera para meter un importe deja
-   * peor a la que se lo cedió.
-   */
-  importe: string
-  /**
    * El descuento de la fila, ya escrito: "10 %". Vacío si no lleva.
    *
    * Ocupa el lugar donde antes iba el importe de la fila. El importe de cada
@@ -310,56 +296,54 @@ const COLUMNAS_TECNICAS = [
  * Los siete anchos, medidos contra la fuente MÁS ANCHA que puede tocar.
  *
  * Las celdas son `nowrap` con `text-overflow: ellipsis`: lo que no entra NO
- * baja de renglón, se corta. Así que cada ancho sale de medir el texto más
- * largo que esa columna puede tener, sobre la tabla real de 718 px.
+ * baja de renglón, se corta. Cada ancho sale de medir el texto más largo que
+ * esa columna puede tener, sobre la tabla real de 718 px.
  *
  * ── Por qué se mide en Verdana y no en Arial ────────────────────────────────
  *
  * El CSS pide `Arial, Helvetica, sans-serif`, pero **Android no tiene Arial**:
- * cae a Roboto, que es más ancha. La misma cuenta mide 82 px en Arial y 99 en
- * Verdana; Roboto queda en el medio. Medir en Arial —que es lo que tiene la PC
- * donde uno prueba— da números optimistas, y el papel sale cortado en el
- * teléfono aunque en pantalla se vea perfecto. Pasó exactamente así con la
- * nota 000060: "× 480 = $ 119.448,..." y "CHC100...".
+ * cae a Roboto, que es más ancha. La misma cuenta medía 82 px en Arial y 99 en
+ * Verdana. Medir en Arial —que es lo que tiene la PC donde uno prueba— da
+ * números optimistas y el papel sale cortado en el teléfono aunque en pantalla
+ * se vea perfecto. Verdana es el techo: lo que entra ahí entra en cualquier sans.
  *
- * Verdana es el techo razonable: lo que entra ahí entra en cualquier sans.
+ * ── También se mide el ENCABEZADO ───────────────────────────────────────────
  *
- *   Código        "CHC100HSSAF"               84 px → 13 % =  93 px
- *                  "CLGNMFS3940MCAJA" a 6 pt   86 px → 13 % =  93 px
- *   Cantidad      "1.240"                     33 px →  5 % =  36 px
- *   Unitario      "× 1.240 = $ 1.199.448,00" 116 px → 17 % = 122 px
- *   Descuento     "65 %"                      31 px →  5 % =  36 px
- *   Condición     "Cta. cte. 15-45 días"     124 px → 18 % = 129 px
- *   Anticipo      siempre vacía                 —   →  5 %
- *   Observaciones hasta 46 caracteres        262 px → 37 % = 266 px
+ * Y esto no estaba. Los `th` no llevan el recorte que sí tienen los `td`, así
+ * que un encabezado que no entra no se corta: se DERRAMA sobre la columna de al
+ * lado y las letras se montan. "Descuento" pedía 60 px sobre una columna de 35
+ * y se leía "DescuentoCon…" pisando a "Condicion de Venta". Ahora cada columna
+ * entra su palabra más larga, y además se les puso el mismo recorte que a las
+ * celdas para que no pueda volver a pasar.
  *
- * La condición entra ahora porque el texto se acortó para el papel —ver
- * `describirCondicionVenta` con `compacto`—: el nombre largo pedía 29 % y no
- * había de dónde sacarlo.
+ *                   celda                        encabezado
+ *   Código          "CLGNMFS3940MCAJA" a 6pt 86  "Cómputo"   51  → 13 % = 93 px
+ *   Cantidad        "1.240"                  33  "Cantidad"  50  →  8 % = 57 px
+ *   Unitario        "$ 2.971.600,00"         88  "unitario"  78  → 13 % = 93 px
+ *   Descuento       "65 %"                   31  "Descuento" 60  →  9 % = 65 px
+ *   Condición       "Cta. cte. 15-45 días"  124  "Condicion" 55  → 18 % = 129 px
+ *   Anticipo        vacía                     —  "Anticipo"  45  →  7 % = 50 px
+ *   Observaciones   hasta 40 caracteres     226  "Observ…"   83  → 32 % = 230 px
  *
- * ── Lo que NO entra, y se sabe ──────────────────────────────────────────────
+ * El unitario bajó de 17 % a 12 % porque ya no lleva debajo la multiplicación
+ * escrita: se sacó por pedido, la cuenta se rehace con la cantidad y el
+ * unitario, que están en la misma fila.
  *
- * Observaciones ya no se corta: el límite del campo bajó de 60 a 46, que es lo
- * que de verdad entra acá (ver OBSERVACION_MAXIMO_CARACTERES). Los 60 nunca
- * entraron; lo que sobraba se perdía en silencio.
- *
- * Queda un caso: en MAYÚSCULA entran unos 40, así que una observación gritada
- * todavía puede recortarse. Y el texto automático de notas hermanas se escribe
- * en el servidor y no pasa por ese límite: con dos hermanas mide 36 caracteres
- * y entra; con tres —que nunca pasó, pero es posible— se cortaría el último
- * número.
- *
- * Anticipo se imprime SIEMPRE vacía —es un casillero para completar a mano— así
- * que su 5 % no se mide contra ningún texto.
+ * Lo que se liberó ahí se fue en los encabezados, que hasta ahora se derramaban
+ * en tres columnas. Observaciones quedó en 32 %, y su límite bajó a 40 —ver
+ * OBSERVACION_MAXIMO_CARACTERES—. Si se prefiere escribir más largo, la forma
+ * de recuperar 4 % es abreviar "Descuento" a "Dto." (24 px en vez de 60). No se
+ * hizo porque en la misma hoja hay una columna "Descripción" y "Desc." se
+ * presta a confusión.
  */
 const COLUMNAS_COMERCIALES = [
   13, // Código de Cómputo — hasta 16 caracteres, ver `celdaCodigo`
-  5, // Cantidad
-  17, // Precio unitario — lleva debajo la cuenta escrita, que es lo más largo
-  5, // Descuento — un porcentaje ocupa menos que un importe
+  8, // Cantidad — la manda su encabezado, no el número
+  13, // Precio unitario — el artículo más caro del catálogo son 7 cifras
+  9, // Descuento — la manda su encabezado: "65 %" ocuparía la mitad
   18, // Condición de Venta — con el plazo, ya en su forma compacta
-  5, // Anticipo — se imprime vacía, es para completar a mano
-  37, // Observaciones — se queda con lo que sobra
+  7, // Anticipo — se imprime vacía; la manda su encabezado
+  32, // Observaciones — se queda con lo que sobra
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -455,7 +439,6 @@ const COMERCIAL_VACIO = (): RenglonComercial => ({
   codigo_computo: '',
   cantidad: '',
   precio_unitario: '',
-  importe: '',
   descuento: '',
   condicion_venta: '',
   anticipo: '',
@@ -533,9 +516,7 @@ export function generarHtmlNotaPedido(
       return `<tr>
         <td>${celdaCodigo(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
-        <td class="num">${escapar(c.precio_unitario)}${
-          c.importe ? `<br><span class="cuenta">${escapar(c.importe)}</span>` : ''
-        }</td>
+        <td class="num">${escapar(c.precio_unitario)}</td>
         <td class="num">${escapar(c.descuento)}</td>
         <td>${condicion}</td>
         <td class="num">${escapar(c.anticipo)}</td>
@@ -876,6 +857,11 @@ html {
    dependen de lo que se cargue. */
 .nota .tabla { table-layout: fixed; }
 .nota .tabla td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Los encabezados tambien se recortan. Sin esto un titulo que no entra se
+   derrama sobre la columna vecina y las letras se montan: pasaba con
+   "Descuento" sobre "Condicion de Venta". Los anchos ya estan calculados para
+   que ninguno lo necesite; esto es la red por si manana cambia un titulo. */
+.nota .tabla th { overflow: hidden; text-overflow: ellipsis; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
 /* Los anchos de columna ya no se declaran acá: viven en los <colgroup> que
@@ -912,7 +898,6 @@ html {
 .resumen strong { font-size: 10pt; }
 /* La cuenta de la fila, debajo del unitario y más chica: acompaña al precio sin
    competir con él, que es el número que el cliente busca primero. */
-.cuenta { font-size: 6.5pt; color: #333; }
 /* Ver celdaCodigo(): solo para los codigos que no entran en cuerpo normal.
    Sin acentos ni comillas invertidas: esto vive adentro de un template
    literal y una comilla invertida lo termina. Ya paso tres veces. */
@@ -1227,21 +1212,6 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           ? ''
           : l.precioUnitario
             ? formatearMoneda(l.precioUnitario, l.moneda)
-            : '',
-        /**
-         * La multiplicación escrita, sólo en la factura.
-         *
-         * El presupuesto no la lleva: es una cotización, y lo que se mira ahí es
-         * cuánto sale la unidad. La factura sí, porque es el comprobante contra
-         * el que el cliente controla lo que le cobraron.
-         *
-         * A precio de lista. El descuento va en su columna y se aplica sobre
-         * este número; poner acá el importe ya descontado dejaría dos rebajas
-         * escritas para una sola.
-         */
-        importe:
-          nota.tipo_nota === 'factura' && !l.sinCargo && l.precioUnitario && l.cantidad
-            ? `× ${l.cantidad} = ${formatearMoneda(redondear(l.cantidad * l.precioUnitario), l.moneda)}`
             : '',
         // El porcentaje, no el importe: es lo que se pidió que se viera, y el
         // dinero ya lo dice el total de abajo.

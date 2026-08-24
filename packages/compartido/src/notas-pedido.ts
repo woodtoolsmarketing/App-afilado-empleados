@@ -1342,16 +1342,21 @@ export function fechaEntregaPorDefecto(desde: Date = new Date()): Date {
  * los cuarenta y pico se perdía en silencio, con el vendedor creyendo que lo
  * había escrito.
  *
- * Los 46 salen de medir, no de estimar: una frase corriente de 46 caracteres
- * ocupa 262 px y una de 47 ya pide 268. Medido en Verdana, que es el techo de
- * ancho —el papel sale del teléfono, y Android no tiene Arial: usa Roboto—.
+ * Los 40 salen de medir, no de estimar, sobre los 230 px que tiene la columna.
+ * Medido en Verdana, que es el techo de ancho —el papel sale del teléfono, y
+ * Android no tiene Arial: usa Roboto—.
  *
- * En MAYÚSCULA entran unos 40, así que una observación gritada todavía puede
- * recortarse. No se baja el límite a 40 por eso: castigaría a todos por un caso
- * que casi no se da —de 25 observaciones cargadas, una sola está en mayúscula—
- * y el promedio real es de 24 caracteres.
+ * Fueron 46 mientras la columna tenía 37 %. Bajó a 32 % cuando hubo que darle
+ * ancho a los encabezados, que se derramaban unos sobre otros. Se recupera
+ * abreviando "Descuento" a "Dto." en el talonario, si alguna vez importa más
+ * escribir largo que leer el título completo.
+ *
+ * En MAYÚSCULA entran unos 36, así que una observación gritada todavía puede
+ * recortarse. No se baja el límite por eso: castigaría a todos por un caso que
+ * casi no se da —de 25 observaciones cargadas, una sola está en mayúscula— y el
+ * promedio real es de 24 caracteres.
  */
-export const OBSERVACION_MAXIMO_CARACTERES = 46
+export const OBSERVACION_MAXIMO_CARACTERES = 40
 
 export interface ValidacionRenglones {
   valido: boolean
