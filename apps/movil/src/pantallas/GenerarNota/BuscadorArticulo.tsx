@@ -4,6 +4,8 @@ import {
   descripcionSugerida,
   esDescripcionSugerida,
   espaciado,
+  ETIQUETA_HERRAMIENTA,
+  FAMILIA_PRODUCTO,
   formatearMoneda,
   formatearPesos,
   radios,
@@ -17,7 +19,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { Campo } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
-import { buscarArticulos, type ArticuloCatalogo } from '../../servicios/notasPedido'
+import {
+  buscarArticulos,
+  LISTA_POR_FAMILIA,
+  type ArticuloCatalogo,
+} from '../../servicios/notasPedido'
 
 /**
  * Buscador del catálogo de precios para cotizar una venta.
@@ -30,6 +36,13 @@ import { buscarArticulos, type ArticuloCatalogo } from '../../servicios/notasPed
  *
  * Antes el código se escribía a mano y el precio también. Dos lugares donde
  * equivocarse, con la lista abierta al lado.
+ *
+ * **La lista arranca filtrada por lo que se eligió en QUÉ SE VENDE.** Elegir
+ * "MECHA" y tener que tipear igual para que aparecieran las mechas era pedirle
+ * al vendedor que supiera de memoria cómo las nombra la lista de precios: hay
+ * mechas que se llaman "BROCA", "AVELL." o "Punta Plegado" y no aparecen
+ * buscando "mecha". Con la familia puesta se muestran solas y el texto sirve
+ * para achicar, no para encontrar.
  */
 export function BuscadorArticulo({
   item,
@@ -48,11 +61,33 @@ export function BuscadorArticulo({
   const [buscando, setBuscando] = useState(false)
   const [sinResultados, setSinResultados] = useState(false)
   const [fallo, setFallo] = useState<string | null>(null)
+  /**
+   * La salida de emergencia del filtro.
+   *
+   * Hay cosas que se venden y están archivadas en otra familia: una muela de
+   * diamante, un bidón de resinol, el pote de soldadura. Filtrar sin manera de
+   * salir las volvería imposibles de cargar en una nota, y el vendedor no
+   * tendría forma de saber por qué el código que tiene en la mano "no existe".
+   */
+  const [todaLaLista, setTodaLaLista] = useState(false)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
+  const texto = consulta.trim()
+  // Con familia se busca aunque no haya escrito nada: eso es "mostrame las
+  // mechas". Sin familia hace falta el texto, porque si no la consulta es el
+  // catálogo entero.
+  const hayQueBuscar = familia !== null || texto.length >= 2
+
+  // Al cambiar la herramienta el filtro vuelve a estar puesto: la salida de
+  // emergencia era para el renglón anterior, no una preferencia.
+  useEffect(() => {
+    setTodaLaLista(false)
+  }, [item.herramienta])
 
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
-    if (consulta.trim().length < 2) {
+    if (!hayQueBuscar) {
       setResultados([])
       setSinResultados(false)
       setFallo(null)
@@ -65,7 +100,7 @@ export function BuscadorArticulo({
       setSinResultados(false)
       setFallo(null)
       try {
-        const encontrados = await buscarArticulos(consulta.trim())
+        const encontrados = await buscarArticulos(texto, familia)
         setResultados(encontrados)
         setSinResultados(encontrados.length === 0)
       } catch (e) {
@@ -78,18 +113,26 @@ export function BuscadorArticulo({
       } finally {
         setBuscando(false)
       }
-    }, 300)
+      // Sin texto no hay nada que esperar: es la lista de entrada, y media
+      // pantalla en blanco por 300 ms parece que no funcionó.
+    }, texto ? 300 : 0)
 
     return () => {
       if (temporizador.current) clearTimeout(temporizador.current)
     }
-  }, [consulta])
+  }, [texto, familia, hayQueBuscar])
 
   /**
    * Carga el artículo en el renglón.
    *
    * Las características van a los mismos campos que usa el afilado, así que
    * salen impresas en la columna técnica sin que nadie las vuelva a tipear.
+   *
+   * Se escriben TODAS, también las que este artículo no trae. En la venta
+   * estos campos no se tipean —salen sólo de acá—, así que dejarlas puestas
+   * cuando el artículo nuevo no las tiene significa imprimir las medidas del
+   * anterior: elegir una sierra de Z=72 y después cambiarla por una sin Z
+   * dejaba la nota diciendo 72 dientes sobre una pieza que no los tiene.
    */
   function elegir(a: ArticuloCatalogo) {
     const c = caracteristicasDeArticulo(a.descripcion, a.medida)
@@ -112,16 +155,20 @@ export function BuscadorArticulo({
       descripcion_catalogo: a.descripcion,
       precio: String(a.precio),
       moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
-      ...(c.diametro_exterior ? { diametro_exterior: c.diametro_exterior } : {}),
+      diametro_exterior: c.diametro_exterior ?? '',
       // El agujero de fábrica va a su propio campo: el que se carga a mano es
       // el de la pieza que trae el cliente, y la diferencia entre los dos es
       // lo que decide si hubo agrandado o buje reductor.
-      ...(c.diametro_interior ? { diametro_interior_catalogo: c.diametro_interior } : {}),
-      ...(c.ancho_corte ? { ancho_corte: c.ancho_corte } : {}),
-      ...(c.dientes ? { cantidad_dientes: c.dientes } : {}),
-      ...(c.largo ? { largo: c.largo } : {}),
-      ...(c.ancho ? { ancho: c.ancho } : {}),
-      ...(c.espesor ? { espesor: c.espesor } : {}),
+      diametro_interior_catalogo: c.diametro_interior ?? '',
+      ancho_corte: c.ancho_corte ?? '',
+      // Los dientes de una sierra que se VENDE. No se cobran por diente —eso
+      // lo atajan `computoDeRenglon` y `computoDeFila`, que ponen cero en la
+      // venta— pero sí van a la columna Z-Paso del talonario: es lo que la
+      // fábrica lee para saber qué pieza salió.
+      cantidad_dientes: c.dientes ?? '',
+      largo: c.largo ?? '',
+      ancho: c.ancho ?? '',
+      espesor: c.espesor ?? '',
     })
   }
 
@@ -131,26 +178,46 @@ export function BuscadorArticulo({
     ? caracteristicasDeArticulo(item.descripcion_catalogo || item.descripcion, null)
     : null
 
+  // "las mechas", "las sierras": el nombre de lo que se está listando, para
+  // poder decirlo en los carteles sin repetir el desplegable de arriba.
+  const loQueSeLista = item.herramienta
+    ? ETIQUETA_HERRAMIENTA[item.herramienta].toLowerCase()
+    : 'la lista'
+
   return (
     <View style={estilos.bloque}>
       <Campo
-        etiqueta="BUSCAR EN LA LISTA DE PRECIOS"
+        etiqueta={familia ? 'BUSCAR ENTRE LO QUE SE VENDE' : 'BUSCAR EN LA LISTA DE PRECIOS'}
         obligatorio
         value={consulta}
         onChangeText={setConsulta}
-        placeholder="Código o descripción — ej. LG2B o sierra 300"
+        placeholder={
+          familia ? `Achicá la lista — ej. 300 o bisagra` : 'Código o descripción — ej. LG2B'
+        }
         autoCapitalize="characters"
         error={error}
         accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-        ayuda="Al elegir se completan solos el precio y las características."
+        ayuda={
+          familia
+            ? `Abajo está lo que hay de ${loQueSeLista}. Al elegir se completan solos el precio y las características.`
+            : 'Al elegir se completan solos el precio y las características.'
+        }
       />
 
       {resultados.length > 0 ? (
         <View style={estilos.lista}>
           {resultados.map((a) => (
-            <FilaArticulo key={a.codigo} articulo={a} alTocar={() => elegir(a)} />
+            <FilaArticulo key={`${a.codigo}|${a.descripcion}`} articulo={a} alTocar={() => elegir(a)} />
           ))}
         </View>
+      ) : null}
+
+      {/* La lista quedó cortada. Se dice, en vez de mostrar cuarenta y hacer
+          creer que ésos son todos los que hay. */}
+      {familia && !texto && resultados.length >= LISTA_POR_FAMILIA ? (
+        <Text style={estilos.nota}>
+          {`Se muestran las primeras ${LISTA_POR_FAMILIA}. Escribí parte del código o de la descripción para achicar la lista.`}
+        </Text>
       ) : null}
 
       {fallo && !buscando ? (
@@ -164,9 +231,29 @@ export function BuscadorArticulo({
 
       {sinResultados ? (
         <Aviso tono="atencion">
-          No hay ningún artículo con eso. Probá con menos letras, o con parte de la descripción en
-          vez del código.
+          {familia
+            ? `No hay ninguna ${loQueSeLista} con eso. Probá con menos letras, o mirá toda la lista acá abajo: hay cosas que se venden y están archivadas en otro rubro.`
+            : 'No hay ningún artículo con eso. Probá con menos letras, o con parte de la descripción en vez del código.'}
         </Aviso>
+      ) : null}
+
+      {/* La salida del filtro. Va siempre visible cuando el filtro está puesto
+          y no sólo cuando la búsqueda falla: el vendedor puede saber de entrada
+          que lo que busca está en otro rubro y no tiene por qué averiguarlo
+          escribiendo hasta que no aparezca nada. */}
+      {item.herramienta ? (
+        <Pressable
+          onPress={() => setTodaLaLista((v) => !v)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: todaLaLista }}
+          style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+        >
+          <Text style={estilos.salidaTexto}>
+            {todaLaLista
+              ? `◂ VOLVER A ${ETIQUETA_HERRAMIENTA[item.herramienta].toUpperCase()}`
+              : 'BUSCAR EN TODA LA LISTA DE PRECIOS'}
+          </Text>
+        </Pressable>
       ) : null}
 
       {/* Lo que quedó cargado, para poder revisarlo sin volver a buscar. */}
@@ -250,6 +337,26 @@ const estilos = StyleSheet.create({
     gap: 2,
   },
   tocada: { opacity: 0.7 },
+
+  nota: {
+    fontFamily: tipografia.familia.liviana,
+    fontSize: tipografia.tamano.micro,
+    color: colores.tintaSuave,
+  },
+  salida: {
+    alignSelf: 'flex-start',
+    paddingVertical: espaciado.xs,
+    // Alto de dedo: se toca parado en un taller, no con el mouse.
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  salidaTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.rojo,
+    textDecorationLine: 'underline',
+  },
+
   filaCabecera: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   codigo: {
     fontFamily: tipografia.familia.subtitulo,

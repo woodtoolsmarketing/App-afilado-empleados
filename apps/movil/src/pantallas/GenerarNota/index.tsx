@@ -23,6 +23,7 @@ import {
   formatearMoneda,
   fechaLocalISO,
   formatearPesos,
+  CAMPOS_POR_HERRAMIENTA,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
   radios,
@@ -1959,6 +1960,34 @@ function FormularioVenta({
         numberOfLines={2}
         ayuda="Es la que sale impresa. Corta, para que entre en el renglón del talonario."
       />
+
+      {/*
+        Los dientes de la pieza que se vende.
+
+        No es un precio: en la venta se cobra por unidad, y la cuenta ni lo
+        mira. Es la columna Z-Paso del talonario, que es lo que la fábrica lee
+        para saber qué salió, y hasta ahora en las notas de venta salía siempre
+        vacía.
+
+        Lo completa solo el buscador, del "Z=96" de la lista —129 de las 130
+        sierras del catálogo lo traen—. Queda editable para la que no lo trae
+        (la "Z= (PED)", que se hace a pedido) y para cuando la pieza que se
+        entrega no es exactamente la del renglón de la lista.
+
+        Sólo en las herramientas que tienen dientes: una sierra sin fin lleva
+        paso y una cuchilla no lleva nada, y preguntarlo ahí es un campo más
+        para dejar vacío.
+      */}
+      {item.herramienta && CAMPOS_POR_HERRAMIENTA[item.herramienta].includes('cantidad_dientes') ? (
+        <Campo
+          etiqueta="CANTIDAD DE DIENTES"
+          value={item.cantidad_dientes}
+          onChangeText={(t) => alCambiar({ cantidad_dientes: t.replace(/\D/g, '') })}
+          keyboardType="number-pad"
+          contenedorStyle={estilos.corto}
+          ayuda="Sale de la lista al elegir el artículo. Va impresa en la columna Z-Paso; no cambia el precio."
+        />
+      ) : null}
 
       <Campo
         etiqueta="UNIDADES"

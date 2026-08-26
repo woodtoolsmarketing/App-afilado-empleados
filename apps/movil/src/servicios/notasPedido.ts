@@ -157,8 +157,39 @@ export async function codigosAfiladoCuchilla(): Promise<CodigoCuchilla[]> {
   return aplicarSinCargo((data ?? []) as CodigoCuchilla[])
 }
 
-export async function buscarArticulos(texto: string): Promise<ArticuloCatalogo[]> {
-  const { data, error } = await supabase.rpc('buscar_articulos', { p_texto: texto })
+/**
+ * Cuántos artículos de la familia se listan sin haber escrito nada. Se exporta
+ * porque la pantalla lo necesita para saber si la lista quedó cortada y
+ * decirlo, en vez de mostrar cuarenta y hacer creer que ésos son todos.
+ */
+export const LISTA_POR_FAMILIA = 40
+
+/**
+ * Artículos del catálogo que coinciden con el texto.
+ *
+ * `familia` la manda el desplegable de QUÉ SE VENDE: con ella la lista queda
+ * limitada a esa familia y sin los códigos de servicio —en una venta no se
+ * cotiza un afilado— y, sobre todo, se puede pedir con el texto vacío para
+ * mostrar lo que hay apenas se elige la herramienta.
+ *
+ * Sin familia busca en TODO el catálogo, que es lo que hace el botón de "ver
+ * toda la lista": hay artículos que se venden y están archivados en otra
+ * familia —una muela, un bidón de resinol, un pote de soldadura— y filtrar sin
+ * salida los volvería imposibles de cargar.
+ */
+export async function buscarArticulos(
+  texto: string,
+  familia?: string | null,
+): Promise<ArticuloCatalogo[]> {
+  const { data, error } = await supabase.rpc('buscar_articulos', {
+    p_texto: texto,
+    // Con la familia puesta se listan más: es un catálogo para mirar, no el
+    // resultado de haber tipeado algo. Cuarenta y no doscientos porque la lista
+    // se dibuja entera adentro del formulario; pasado ese punto lo que hace
+    // falta es escribir dos letras, no seguir bajando.
+    p_limite: familia ? LISTA_POR_FAMILIA : 20,
+    p_familia: familia ?? null,
+  })
   if (error) throw error
   return aplicarSinCargo((data ?? []) as ArticuloCatalogo[])
 }
@@ -247,8 +278,28 @@ async function codigosDeLaHerramienta(
     .or(`herramienta_sugerida.is.null,herramienta_sugerida.eq.${herramienta}`)
 
   consulta = conRango
-    ? consulta.not('rango_min', 'is', null).order('rango_min', { ascending: true })
-    : consulta.is('rango_min', null).order('codigo', { ascending: true }).limit(60)
+    ? // Con rango la lista se lee por medida: es la respuesta a "¿y qué medidas
+      // hay?", y ordenarla por otra cosa la vuelve ilegible.
+      consulta.not('rango_min', 'is', null).order('rango_min', { ascending: true })
+    : /**
+       * Sin rango, primero los que NOMBRAN el trabajo y la herramienta.
+       *
+       * El filtro de arriba ya dejó pasar sólo los que coinciden o los que no
+       * dicen nada, así que "no es nulo" significa "es de este trabajo sobre
+       * esta herramienta", y `nullsFirst: false` los sube.
+       *
+       * Sin esto la lista salía por código y el primero era el 6005 —"AGREGADO
+       * RASCADOR CORTO 45mm", $ 92.153,60—. Importa porque ésta es la lista de
+       * respaldo de `resolverCodigoDeItem` cuando la medida no cae en ningún
+       * rango: se proponía ese código, con ese precio, como si fuera el
+       * rectificado de la sierra.
+       */
+      consulta
+        .is('rango_min', null)
+        .order('servicio_sugerido', { ascending: true, nullsFirst: false })
+        .order('herramienta_sugerida', { ascending: true, nullsFirst: false })
+        .order('codigo', { ascending: true })
+        .limit(60)
 
   // Sin servicio no se filtra: se muestran todas las medidas de la herramienta.
   if (servicio) {
@@ -555,8 +606,24 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
     codigo_herramienta: i.codigo_herramienta || null,
     descripcion: i.descripcion || null,
     cantidad: Math.max(1, Math.round(cuantas) || 1),
-    // Los dientes son del afilado: una venta no tiene por qué arrastrarlos.
-    cantidad_dientes: esVenta ? null : aNumero(i.cantidad_dientes) || null,
+    /**
+     * Los dientes van SIEMPRE, también en la venta.
+     *
+     * Estaban en null: "los dientes son del afilado". Es cierto para lo que se
+     * COBRA —una sierra de 72 dientes se vende por unidad, no por diente— y ese
+     * riesgo ya está atajado donde corresponde: `computoDeRenglon` y
+     * `computoDeFila` ponen `dientesPorHerramienta: 0` cuando el servicio es
+     * venta, así que el precio no se multiplica por 72 venga o no el número.
+     *
+     * Pero además de un precio los dientes son una CARACTERÍSTICA de la pieza,
+     * como el diámetro o el ancho de corte, y van a la columna Z-Paso de la
+     * tabla técnica igual que las otras. Nulos acá, la nota de una venta de
+     * sierras salía impresa sin decir de cuántos dientes eran, que es
+     * justamente lo que la fábrica necesita para saber qué le llegó. Los pone
+     * solo el buscador de la lista, del "Z=72" de la descripción: 124 de las
+     * 130 sierras del catálogo lo traen.
+     */
+    cantidad_dientes: aNumero(i.cantidad_dientes) || null,
     // El unitario es lo que sale de la lista de precios —por diente en el
     // afilado, por unidad en la venta— y el total es la multiplicación.
     precio_unitario: unitario || null,

@@ -148,6 +148,28 @@ export const FAMILIA_CATALOGO: Record<Herramienta, string> = {
   cuchilla: 'cuchilla',
 }
 
+/**
+ * Familia del catálogo donde está el PRODUCTO que se vende.
+ *
+ * No es la misma que `FAMILIA_CATALOGO`, y la diferencia no es un detalle: al
+ * afilar una sierra el precio sale de `afilado_general` —el trabajo—, y al
+ * venderla sale de `sierra` —la pieza—. Con la familia equivocada, elegir
+ * "SIERRA" en QUÉ SE VENDE le ofrecería al vendedor los códigos de afilado.
+ *
+ * El incisor no está: no se vende suelto, y por eso tampoco figura en
+ * `HERRAMIENTAS_POR_SERVICIO.venta`. Queda igual para que el mapa cubra el tipo
+ * entero y nadie tenga que acordarse de este caso al agregar una herramienta.
+ */
+export const FAMILIA_PRODUCTO: Record<Herramienta, string> = {
+  sierra: 'sierra',
+  fresa: 'fresa',
+  cabezal: 'cabezal',
+  incisor: 'sierra',
+  sierra_sin_fin: 'sierra_sin_fin',
+  mecha: 'mecha',
+  cuchilla: 'cuchilla',
+}
+
 /** Qué herramientas se ofrecen según el servicio elegido. */
 export const HERRAMIENTAS_POR_SERVICIO: Record<TipoServicio, Herramienta[]> = {
   // La venta también pide herramienta, y no por prolijidad: de ella depende en
