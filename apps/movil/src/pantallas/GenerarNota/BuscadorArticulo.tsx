@@ -22,6 +22,7 @@ import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   buscarArticulos,
   LISTA_POR_FAMILIA,
+  LISTA_SUELTA,
   type ArticuloCatalogo,
 } from '../../servicios/notasPedido'
 
@@ -73,6 +74,7 @@ export function BuscadorArticulo({
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
+  const tope = familia ? LISTA_POR_FAMILIA : LISTA_SUELTA
   const texto = consulta.trim()
   // Con familia se busca aunque no haya escrito nada: eso es "mostrame las
   // mechas". Sin familia hace falta el texto, porque si no la consulta es el
@@ -93,6 +95,24 @@ export function BuscadorArticulo({
       setFallo(null)
       return
     }
+    /**
+     * La respuesta vieja no pinta.
+     *
+     * `clearTimeout` no alcanza: una vez que el temporizador disparó, la
+     * consulta ya salió y va a volver igual. Y acá hay dos que se pisan de
+     * verdad, porque la lista sin texto sale a los 0 ms y queda en vuelo
+     * mientras el vendedor tipea.
+     *
+     * Lo peor no es el orden entre dos búsquedas: es tocar "BUSCAR EN TODA LA
+     * LISTA" mientras la de la familia está viajando. La pantalla se vacía
+     * —sin familia hacen falta dos letras— y un segundo después se repuebla
+     * con las sierras, abajo de un rótulo que dice "toda la lista de precios".
+     * El vendedor concluye que la muela no está en el catálogo.
+     *
+     * Es la misma bandera que usan los otros efectos de esta carpeta.
+     */
+    let cancelado = false
+
     temporizador.current = setTimeout(async () => {
       setBuscando(true)
       // Se limpian ANTES de preguntar. Si no, un error dejaba en pantalla el
@@ -101,6 +121,7 @@ export function BuscadorArticulo({
       setFallo(null)
       try {
         const encontrados = await buscarArticulos(texto, familia)
+        if (cancelado) return
         setResultados(encontrados)
         setSinResultados(encontrados.length === 0)
       } catch (e) {
@@ -108,16 +129,18 @@ export function BuscadorArticulo({
         // distintas. Sin señal el buscador se quedaba mudo y el renglón no se
         // podía completar de ninguna forma: el código sólo se carga eligiendo
         // de esta lista.
+        if (cancelado) return
         setResultados([])
         setFallo((e as Error).message)
       } finally {
-        setBuscando(false)
+        if (!cancelado) setBuscando(false)
       }
       // Sin texto no hay nada que esperar: es la lista de entrada, y media
       // pantalla en blanco por 300 ms parece que no funcionó.
     }, texto ? 300 : 0)
 
     return () => {
+      cancelado = true
       if (temporizador.current) clearTimeout(temporizador.current)
     }
   }, [texto, familia, hayQueBuscar])
@@ -198,7 +221,7 @@ export function BuscadorArticulo({
         error={error}
         accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
         ayuda={
-          familia
+          familia && !texto
             ? `Abajo está lo que hay de ${loQueSeLista}. Al elegir se completan solos el precio y las características.`
             : 'Al elegir se completan solos el precio y las características.'
         }
@@ -212,11 +235,19 @@ export function BuscadorArticulo({
         </View>
       ) : null}
 
-      {/* La lista quedó cortada. Se dice, en vez de mostrar cuarenta y hacer
-          creer que ésos son todos los que hay. */}
-      {familia && !texto && resultados.length >= LISTA_POR_FAMILIA ? (
+      {/* La lista quedó cortada. Se dice, en vez de mostrar el tope y hacer
+          creer que ésos son todos los que hay.
+
+          El corte NO es sólo el de la lista sin escribir nada: el límite se
+          aplica igual cuando hay texto —"HSS" da 105 cuchillas y se ven 40— y
+          el aviso estaba condicionado a que el texto estuviera vacío, así que
+          justo ahí no aparecía. Sin familia el tope es otro, y también corta:
+          "300" da 57 en toda la lista. */}
+      {resultados.length >= tope ? (
         <Text style={estilos.nota}>
-          {`Se muestran las primeras ${LISTA_POR_FAMILIA}. Escribí parte del código o de la descripción para achicar la lista.`}
+          {texto
+            ? `Hay más de ${tope} que coinciden y se muestran las primeras. Escribí un poco más para achicar la lista.`
+            : `Se muestran las primeras ${tope}. Escribí parte del código o de la descripción para achicar la lista.`}
         </Text>
       ) : null}
 

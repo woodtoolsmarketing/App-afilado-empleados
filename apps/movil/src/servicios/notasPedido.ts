@@ -158,11 +158,17 @@ export async function codigosAfiladoCuchilla(): Promise<CodigoCuchilla[]> {
 }
 
 /**
- * Cuántos artículos de la familia se listan sin haber escrito nada. Se exporta
- * porque la pantalla lo necesita para saber si la lista quedó cortada y
- * decirlo, en vez de mostrar cuarenta y hacer creer que ésos son todos.
+ * Cuántos artículos devuelve el buscador. Se exportan porque la pantalla los
+ * necesita para saber si la lista quedó cortada y decirlo, en vez de mostrar el
+ * tope y hacer creer que ésos son todos los que hay.
+ *
+ * Con familia se listan más: es un catálogo para mirar, no el resultado de
+ * haber tipeado algo. Cuarenta y no doscientos porque la lista se dibuja entera
+ * adentro del formulario; pasado ese punto lo que hace falta es escribir dos
+ * letras, no seguir bajando.
  */
 export const LISTA_POR_FAMILIA = 40
+export const LISTA_SUELTA = 20
 
 /**
  * Artículos del catálogo que coinciden con el texto.
@@ -183,11 +189,7 @@ export async function buscarArticulos(
 ): Promise<ArticuloCatalogo[]> {
   const { data, error } = await supabase.rpc('buscar_articulos', {
     p_texto: texto,
-    // Con la familia puesta se listan más: es un catálogo para mirar, no el
-    // resultado de haber tipeado algo. Cuarenta y no doscientos porque la lista
-    // se dibuja entera adentro del formulario; pasado ese punto lo que hace
-    // falta es escribir dos letras, no seguir bajando.
-    p_limite: familia ? LISTA_POR_FAMILIA : 20,
+    p_limite: familia ? LISTA_POR_FAMILIA : LISTA_SUELTA,
     p_familia: familia ?? null,
   })
   if (error) throw error

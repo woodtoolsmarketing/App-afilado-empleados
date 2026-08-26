@@ -20,10 +20,24 @@
 --    43 % de más sobre el trabajo más común que entra al taller.
 --
 -- 3. Los códigos de SERVICIO que viven adentro de las familias de PRODUCTO.
---    La familia `mecha` tiene 181 filas y 16 son afilados de mecha o de
+--    La familia `mecha` tiene 181 filas y 15 son afilados de mecha o de
 --    cuchilla; `sierra_sin_fin` tiene dos. Sin marcarlos, filtrar el buscador
 --    de la venta por familia le ofrece al vendedor "AFILADO MECHA PASANTE DE
 --    M.D." como si fuera una mecha para vender.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- El punto 3 SE CORRIGE ENTERO en 20260826140000. Dos cosas estaban mal y se
+-- dejan acá tal como se aplicaron:
+--
+--   · `sierra_sin_fin` no tiene dos servicios, tiene OCHO. El laminado y las
+--     cinco soldaduras no empiezan con "afil" ni con "rep", que era lo único
+--     que había mirado la cuenta, y quedaron ofreciéndose como sierras.
+--
+--   · Escribir la respuesta en `servicio_sugerido` fue usar la columna
+--     equivocada, y rompió la búsqueda del código de cómputo: un RECLAMO sobre
+--     una sierra sin fin pasó a proponer una SOLDADURA de $ 13.200 en vez del
+--     afilado de $ 11.400.
+-- ─────────────────────────────────────────────────────────────────────────────
 -- =============================================================================
 
 -- ── 1. El diámetro exterior se rectifica ─────────────────────────────────────

@@ -1916,7 +1916,50 @@ function FormularioVenta({
           descripcion:
             h === 'sierra_sin_fin' ? 'Va en una nota de pedido aparte' : undefined,
         }))}
-        alCambiar={(h) => alCambiar({ herramienta: h, origen_fresa: null })}
+        /**
+         * Cambiar QUÉ SE VENDE suelta el artículo que estaba elegido.
+         *
+         * El renglón de venta se completa entero desde la lista de precios, y
+         * lo que quedaba cargado era de OTRA herramienta: elegir una sierra de
+         * US$ 183, darse cuenta de que el cliente pedía una mecha y cambiar el
+         * desplegable dejaba el código, el precio, la moneda y las medidas de
+         * la sierra sobre un renglón que ahora dice MECHA. El bloque verde de
+         * abajo lo muestra como si estuviera bien elegido y la validación no
+         * dice nada: sólo exige que el código y el precio no estén vacíos.
+         *
+         * Los dientes son el caso más difícil de ver. `CAMPOS_POR_HERRAMIENTA`
+         * no se los da a la mecha ni a la cuchilla, así que el campo se deja de
+         * dibujar y el número queda escondido en el renglón —y desde que se
+         * guardan también en las ventas, sale impreso en la columna Z-Paso de
+         * una pieza que no tiene dientes.
+         *
+         * Es lo mismo que ya hace el desplegable de la rama de servicio, que
+         * limpia `codigos_computo` por el mismo motivo.
+         *
+         * Sólo si de verdad cambió: tocar el desplegable y volver a elegir lo
+         * mismo no tiene por qué tirar el trabajo hecho.
+         */
+        alCambiar={(h) =>
+          alCambiar(
+            h === item.herramienta
+              ? { herramienta: h }
+              : {
+                  herramienta: h,
+                  origen_fresa: null,
+                  codigo_herramienta: '',
+                  descripcion_catalogo: '',
+                  precio: '',
+                  moneda: 'ARS',
+                  diametro_exterior: '',
+                  diametro_interior_catalogo: '',
+                  ancho_corte: '',
+                  cantidad_dientes: '',
+                  largo: '',
+                  ancho: '',
+                  espesor: '',
+                },
+          )
+        }
         error={errores.herramienta}
       />
 
