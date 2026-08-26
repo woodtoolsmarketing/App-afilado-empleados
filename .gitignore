@@ -70,3 +70,9 @@ publico/
 # `app.config.ts` y compile con lo que quedó congelado en la carpeta.
 apps/movil/android/
 apps/movil/ios/
+
+# `eas-cli` corrido desde la raíz por error escribe un `app.json` vacío acá y se
+# cuela en el commit siguiente. La configuración de Expo de este proyecto es
+# `apps/movil/app.config.ts`; este archivo no significa nada y confunde a las
+# herramientas que lo encuentran primero. Ya lo borró 7537d83 una vez.
+/app.json
