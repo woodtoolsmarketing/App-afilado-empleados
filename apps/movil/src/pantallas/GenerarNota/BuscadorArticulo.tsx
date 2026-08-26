@@ -76,10 +76,23 @@ export function BuscadorArticulo({
   const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
   const tope = familia ? LISTA_POR_FAMILIA : LISTA_SUELTA
   const texto = consulta.trim()
-  // Con familia se busca aunque no haya escrito nada: eso es "mostrame las
-  // mechas". Sin familia hace falta el texto, porque si no la consulta es el
-  // catálogo entero.
-  const hayQueBuscar = familia !== null || texto.length >= 2
+  // Con familia alcanza cualquier texto, que es filtrar una lista corta. Sin
+  // familia hacen falta dos letras, porque si no la consulta es el catálogo
+  // entero.
+  const hayTexto = familia ? texto.length > 0 : texto.length >= 2
+  /**
+   * La lista de entrada va SÓLO mientras no haya artículo elegido.
+   *
+   * `elegir` limpia el texto, así que sin esta condición el efecto vuelve a
+   * correr con el texto vacío y repuebla las cuarenta filas: el artículo que se
+   * acaba de elegir queda abajo de todas ellas, y para llegar a UNIDADES y al
+   * precio hay que volver a pasar por la lista entera. Se ve enseguida en el
+   * teléfono y es molesto en cada renglón.
+   *
+   * Para cambiar el artículo se escribe, y la lista vuelve.
+   */
+  const listarTodo = familia !== null && !item.codigo_herramienta
+  const hayQueBuscar = hayTexto || listarTodo
 
   // Al cambiar la herramienta el filtro vuelve a estar puesto: la salida de
   // emergencia era para el renglón anterior, no una preferencia.
@@ -221,9 +234,11 @@ export function BuscadorArticulo({
         error={error}
         accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
         ayuda={
-          familia && !texto
+          listarTodo
             ? `Abajo está lo que hay de ${loQueSeLista}. Al elegir se completan solos el precio y las características.`
-            : 'Al elegir se completan solos el precio y las características.'
+            : item.codigo_herramienta
+              ? 'Escribí para cambiar el artículo.'
+              : 'Al elegir se completan solos el precio y las características.'
         }
       />
 
