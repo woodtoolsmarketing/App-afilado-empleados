@@ -145,6 +145,12 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
   const [falloBusqueda, setFalloBusqueda] = useState<string | null>(null)
+  /**
+   * Qué texto se preguntó de verdad. Sin esto el cartel de "ningún cliente
+   * coincide" salía en el mismo render en que se tipea la segunda letra, antes
+   * de que la consulta hubiera salido siquiera.
+   */
+  const [consultaBuscada, setConsultaBuscada] = useState('')
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
@@ -167,6 +173,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       const encontrados = await buscarClientes(texto)
       if (mia !== vigente.current) return
       setResultados(encontrados)
+      setConsultaBuscada(texto)
     } catch (e) {
       // "No encontramos ese cliente" y "no pudimos preguntar" son cosas
       // distintas, y confundirlas es caro: el vendedor termina cargando de
@@ -187,6 +194,8 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       vigente.current++
       setResultados([])
       setBuscando(false)
+      setFalloBusqueda(null)
+      setConsultaBuscada('')
       return
     }
 
@@ -238,6 +247,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     if (temporizador.current) clearTimeout(temporizador.current)
     setBuscando(false)
     setResultados([])
+    // El aviso de "no pudimos preguntar" no puede sobrevivir a la elección:
+    // quedaba contradiciendo al cliente que ya está en pantalla.
+    setFalloBusqueda(null)
     setConsulta('')
     // Acá está el "que uno complete al otro": se llenan los dos campos.
     actualizar({ codigo: c.codigo, razon_social: c.razon_social, cliente: c })
@@ -371,7 +383,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           ) : null}
 
           {/* La búsqueda respondió bien y vino vacía: ahí sí no existe. */}
-          {!falloBusqueda && consulta.trim().length >= 2 && !buscando && resultados.length === 0 ? (
+          {!falloBusqueda &&
+          consulta.trim().length >= 2 &&
+          !buscando &&
+          consultaBuscada === consulta.trim() &&
+          resultados.length === 0 ? (
             <Aviso tono="atencion" titulo="Sin resultados">
               No encontramos ese cliente. Si es la primera vez que lo visitás, cargalo como cliente
               nuevo.

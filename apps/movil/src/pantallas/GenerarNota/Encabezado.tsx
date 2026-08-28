@@ -91,6 +91,26 @@ export function PasoCliente({
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
+  /**
+   * Qué texto se preguntó de verdad.
+   *
+   * Sin esto, el cartel de "ningún cliente coincide" salía ANTES de haber
+   * preguntado nada: al tipear la segunda letra la lista está vacía y todavía
+   * no arrancó el temporizador, así que ese mismo render ya decía que el
+   * cliente no existe. Se apagaba solo medio segundo después. Es la mitad del
+   * "aparece y desaparece", y encima es la mitad que miente.
+   */
+  const [consultaBuscada, setConsultaBuscada] = useState('')
+  /**
+   * "No lo encontré" y "no pude preguntar" son cosas distintas.
+   *
+   * Con la señal cortada en la calle —que es la condición normal— el cartel de
+   * "ningún cliente coincide" le hace creer al vendedor que el taller no está
+   * cargado. Toca "¿Es nuevo cliente?", lo da de alta, y la oficina se queda
+   * con dos fichas del mismo cliente. Los otros dos buscadores de la app ya
+   * separan los dos casos; éste era el único que no.
+   */
+  const [fallo, setFallo] = useState<string | null>(null)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * Cómo quedó la última búsqueda de zona: sirve para explicar de dónde salió
@@ -123,13 +143,18 @@ export function PasoCliente({
   async function buscar(texto: string) {
     const mia = ++vigente.current
     setBuscando(true)
+    setFallo(null)
     try {
       const encontrados = await buscarClientes(texto)
       if (mia !== vigente.current) return
       setResultados(encontrados)
-    } catch {
+      setConsultaBuscada(texto)
+    } catch (e) {
       if (mia !== vigente.current) return
-      setResultados([])
+      // La lista NO se vacía: si había algo bueno de antes, sigue sirviendo.
+      // Lo que cambia es que se dice qué pasó, en vez de dar a entender que el
+      // cliente no existe.
+      setFallo((e as Error).message)
     } finally {
       if (mia === vigente.current) setBuscando(false)
     }
@@ -140,10 +165,13 @@ export function PasoCliente({
     // En la beta no se busca nada: el cliente se escribe entero.
     if (CLIENTE_A_MANO || form.cliente_nuevo || consulta.trim().length < 2) {
       // Sube el número: una búsqueda en vuelo no puede repoblar una lista que
-      // se acaba de vaciar a propósito.
+      // se acaba de vaciar a propósito, ni dejar el reloj girando para siempre
+      // si el vendedor borró el texto mientras la respuesta viajaba.
       vigente.current++
       setResultados([])
+      setConsultaBuscada('')
       setBuscando(false)
+      setFallo(null)
       return
     }
     temporizador.current = setTimeout(() => void buscar(consulta.trim()), ESPERA_TECLEO)
@@ -168,17 +196,49 @@ export function PasoCliente({
   }
 
   /**
-   * Tipear en cualquiera de los tres invalida el cliente ya elegido.
+   * Escribir en los tres campos: buscar, o corregir.
    *
-   * Sólo si el texto CAMBIÓ de verdad. React vuelve a llamar a `onChangeText`
-   * en situaciones donde el vendedor no tocó nada —el autocompletado del
-   * teclado, volver al paso 1— y soltar el cliente ahí es lo que hacía que se
-   * perdiera después de haberlo elegido bien.
+   * **Con un cliente ya elegido, escribir CORRIGE el dato.** No arranca otra
+   * búsqueda ni suelta el vínculo. Antes, tocar una sola tecla en cualquiera de
+   * los tres —agregarle los guiones al CUIT, poner "S.A." donde decía "S.A",
+   * sacarle un espacio a la razón social— mandaba `cliente_id: null`. En
+   * pantalla no cambiaba nada: los tres campos seguían llenos con los datos del
+   * cliente. Recién al tocar CONTINUAR aparecía "Buscá el cliente por código,
+   * nombre o CUIT" debajo de un formulario que YA tenía el código, el nombre y
+   * el CUIT. No había forma de entender qué le estaban pidiendo.
+   *
+   * Vaciar el campo sí suelta el cliente: es el gesto de "me equivoqué de
+   * cliente", y para eso está también el botón de cambiarlo.
+   *
+   * Y si el texto no cambió, no pasa nada: `onChangeText` llega en situaciones
+   * donde el vendedor no tocó una tecla.
    */
   function alTipear(campo: 'cliente_codigo' | 'cliente_nombre' | 'cliente_cuit', texto: string) {
     if (texto === form[campo]) return
+    if (form.cliente_id && texto.trim()) {
+      alCambiar({ [campo]: texto } as Partial<FormularioNotaEncabezado>)
+      return
+    }
     setConsulta(texto)
     alCambiar({ [campo]: texto, cliente_id: null } as Partial<FormularioNotaEncabezado>)
+  }
+
+  /** Soltar el cliente elegido para buscar otro. Es el "✕ CAMBIAR". */
+  function soltarCliente() {
+    vigente.current++
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setConsulta('')
+    setResultados([])
+    setConsultaBuscada('')
+    setBuscando(false)
+    setFallo(null)
+    alCambiar({
+      cliente_id: null,
+      cliente_codigo: '',
+      cliente_nombre: '',
+      cliente_cuit: '',
+      cliente_provisorio: false,
+    })
   }
 
   /**
@@ -192,7 +252,13 @@ export function PasoCliente({
     !form.cliente_nuevo &&
     !form.cliente_id &&
     !buscando &&
+    !fallo &&
     consulta.trim().length >= 2 &&
+    // Ya se preguntó por ESTE texto. Sin esta línea el cartel salía en el mismo
+    // render en que se tipea la segunda letra, medio segundo antes de que
+    // saliera la consulta: la app decía que el cliente no existe sin haber
+    // preguntado.
+    consultaBuscada === consulta.trim() &&
     resultados.length === 0
 
   /**
@@ -346,6 +412,31 @@ export function PasoCliente({
         </Aviso>
       ) : null}
 
+      {/* Que el cliente esté elegido deja de ser un estado invisible.
+          Los tres campos se ven igual de llenos con el cliente enganchado que
+          con los datos tipeados a mano, y son dos situaciones muy distintas:
+          sin enganchar, la nota no se puede crear. Acá se ve cuál quedó, y por
+          dónde se lo suelta si es el equivocado. */}
+      {!CLIENTE_A_MANO && form.cliente_id ? (
+        <View style={estilos.clienteElegido}>
+          <View style={estilos.clienteElegidoTexto}>
+            <Text style={estilos.clienteElegidoRotulo}>CLIENTE ELEGIDO</Text>
+            <Text style={estilos.clienteElegidoNombre} numberOfLines={2}>
+              {form.cliente_codigo} · {form.cliente_nombre}
+            </Text>
+          </View>
+          <Pressable
+            onPress={soltarCliente}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Cambiar de cliente"
+            style={({ pressed }) => [estilos.cambiarCliente, pressed && estilos.tocado]}
+          >
+            <Text style={estilos.cambiarClienteTexto}>✕ CAMBIAR</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* La tecla del teclado dice BUSCAR y busca en el acto: el que sabe el
           código lo escribe y confirma, sin esperar a que la app adivine que
           terminó de tipear. `blurOnSubmit={false}` deja el teclado abierto,
@@ -378,6 +469,7 @@ export function PasoCliente({
         returnKeyType="search"
         blurOnSubmit={false}
         onSubmitEditing={buscarYa}
+        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
         error={errores.cliente_nombre}
       />
 
@@ -407,6 +499,7 @@ export function PasoCliente({
         returnKeyType="search"
         blurOnSubmit={false}
         onSubmitEditing={buscarYa}
+        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
       />
 
       {/* ── Resultados de la búsqueda ─────────────────────────────────────────
@@ -442,6 +535,12 @@ export function PasoCliente({
             </Pressable>
           ))}
         </View>
+      ) : fallo && !buscando ? (
+        <Aviso tono="atencion" titulo="No pudimos consultar el padrón">
+          {fallo}
+          {'\n\n'}Esto NO quiere decir que el cliente no exista. Revisá la señal y tocá BUSCAR de
+          nuevo; no lo des de alta como nuevo sin haberlo podido buscar.
+        </Aviso>
       ) : sinResultados ? (
         <Text style={estilos.sinResultados}>
           Ningún cliente coincide con “{consulta.trim()}”. Se busca por código, razón social y
@@ -718,6 +817,41 @@ const estilos = StyleSheet.create({
     color: colores.rojo,
     textDecorationLine: 'underline',
   },
+
+  clienteElegido: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    borderWidth: 2,
+    borderColor: colores.verdeOscuro,
+    borderRadius: radios.sm,
+    backgroundColor: colores.campoBlanco,
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
+  },
+  clienteElegidoTexto: { flex: 1, gap: 2 },
+  clienteElegidoRotulo: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.verdeOscuro,
+  },
+  clienteElegidoNombre: {
+    fontFamily: tipografia.familia.fuerte,
+    fontSize: tipografia.tamano.xs,
+    color: colores.tinta,
+  },
+  cambiarCliente: {
+    // Alto de dedo: se toca parado en un taller.
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.xs,
+  },
+  cambiarClienteTexto: {
+    fontFamily: tipografia.familia.subtitulo,
+    fontSize: tipografia.tamano.micro,
+    color: colores.rojo,
+  },
+  tocado: { opacity: 0.7 },
 
   sugerencias: {
     borderWidth: 2,

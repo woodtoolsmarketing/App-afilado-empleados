@@ -26,7 +26,7 @@
 --    M.D." como si fuera una mecha para vender.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
--- El punto 3 SE CORRIGE ENTERO en 20260826140000. Dos cosas estaban mal y se
+-- El punto 3 SE CORRIGE ENTERO en 20260826124835. Dos cosas estaban mal y se
 -- dejan acá tal como se aplicaron:
 --
 --   · `sierra_sin_fin` no tiene dos servicios, tiene OCHO. El laminado y las
