@@ -29,7 +29,7 @@ import {
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
-import { buscarClientes } from '../../servicios/clientes'
+import { buscarClientes, ESPERA_TECLEO } from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
 
 /**
@@ -102,30 +102,81 @@ export function PasoCliente({
   /** De dónde salió el número de vendedor cuando lo puso la app. */
   const [origenVendedor, setOrigenVendedor] = useState<'usuario' | 'zona' | null>(null)
 
+  /**
+   * Quién manda sobre la lista.
+   *
+   * Cada búsqueda se lleva un número. Sólo la ÚLTIMA puede escribir en
+   * pantalla: si vuelve una vieja, se descarta.
+   *
+   * No es una precaución teórica, es el "aparece y desaparece". Tipear "10484"
+   * dispara varias búsquedas —una por cada pausa entre teclas— y cada una tarda
+   * lo suyo entre el servidor y la red del celular. Volvían en cualquier orden,
+   * y la de "104" repintaba encima de la de "10484". Peor todavía: el vendedor
+   * tocaba el cliente correcto, y una búsqueda que seguía viajando devolvía su
+   * lista y la volvía a poner arriba del cliente ya elegido.
+   *
+   * Por eso también se sube el número al elegir y al limpiar: lo que esté en el
+   * aire en ese momento ya no tiene derecho a dibujar nada.
+   */
+  const vigente = useRef(0)
+
+  async function buscar(texto: string) {
+    const mia = ++vigente.current
+    setBuscando(true)
+    try {
+      const encontrados = await buscarClientes(texto)
+      if (mia !== vigente.current) return
+      setResultados(encontrados)
+    } catch {
+      if (mia !== vigente.current) return
+      setResultados([])
+    } finally {
+      if (mia === vigente.current) setBuscando(false)
+    }
+  }
+
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
     // En la beta no se busca nada: el cliente se escribe entero.
     if (CLIENTE_A_MANO || form.cliente_nuevo || consulta.trim().length < 2) {
+      // Sube el número: una búsqueda en vuelo no puede repoblar una lista que
+      // se acaba de vaciar a propósito.
+      vigente.current++
       setResultados([])
+      setBuscando(false)
       return
     }
-    temporizador.current = setTimeout(async () => {
-      setBuscando(true)
-      try {
-        setResultados(await buscarClientes(consulta))
-      } catch {
-        setResultados([])
-      } finally {
-        setBuscando(false)
-      }
-    }, 300)
+    temporizador.current = setTimeout(() => void buscar(consulta.trim()), ESPERA_TECLEO)
     return () => {
       if (temporizador.current) clearTimeout(temporizador.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consulta, form.cliente_nuevo])
 
-  /** Tipear en cualquiera de los tres invalida el cliente ya elegido. */
+  /**
+   * Buscar YA, sin esperar la pausa del tecleo.
+   *
+   * Es lo que hace la tecla "Listo" del teclado: el vendedor terminó de
+   * escribir el código y quiere el cliente, no quiere que la app adivine
+   * cuándo dejó de tipear.
+   */
+  function buscarYa() {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    const texto = consulta.trim()
+    if (CLIENTE_A_MANO || form.cliente_nuevo || texto.length < 2) return
+    void buscar(texto)
+  }
+
+  /**
+   * Tipear en cualquiera de los tres invalida el cliente ya elegido.
+   *
+   * Sólo si el texto CAMBIÓ de verdad. React vuelve a llamar a `onChangeText`
+   * en situaciones donde el vendedor no tocó nada —el autocompletado del
+   * teclado, volver al paso 1— y soltar el cliente ahí es lo que hacía que se
+   * perdiera después de haberlo elegido bien.
+   */
   function alTipear(campo: 'cliente_codigo' | 'cliente_nombre' | 'cliente_cuit', texto: string) {
+    if (texto === form[campo]) return
     setConsulta(texto)
     alCambiar({ [campo]: texto, cliente_id: null } as Partial<FormularioNotaEncabezado>)
   }
@@ -242,6 +293,11 @@ export function PasoCliente({
   }, [form.vendedor_numero, form.zona, codigoVendedorUsuario])
 
   function elegirCliente(c: ClienteBuscado) {
+    // Nada de lo que esté viajando puede volver a abrir la lista encima del
+    // cliente que el vendedor acaba de elegir. Ver `vigente`.
+    vigente.current++
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setBuscando(false)
     setResultados([])
     setConsulta('')
     // Acá está el "que uno complete a los otros": se llenan los tres campos y,
@@ -290,6 +346,11 @@ export function PasoCliente({
         </Aviso>
       ) : null}
 
+      {/* La tecla del teclado dice BUSCAR y busca en el acto: el que sabe el
+          código lo escribe y confirma, sin esperar a que la app adivine que
+          terminó de tipear. `blurOnSubmit={false}` deja el teclado abierto,
+          porque lo que sigue es tocar el cliente en la lista de abajo y
+          cerrarlo la haría saltar justo cuando aparece. */}
       <Campo
         etiqueta="COD. CLIENTE"
         value={form.cliente_codigo}
@@ -298,6 +359,9 @@ export function PasoCliente({
         autoCapitalize="characters"
         contenedorStyle={estilos.mitad}
         editable={!form.cliente_nuevo}
+        returnKeyType="search"
+        blurOnSubmit={false}
+        onSubmitEditing={buscarYa}
         accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
       />
 
@@ -311,6 +375,9 @@ export function PasoCliente({
         onChangeText={(t) => alTipear('cliente_nombre', t)}
         placeholder="Razón social"
         autoCapitalize="words"
+        returnKeyType="search"
+        blurOnSubmit={false}
+        onSubmitEditing={buscarYa}
         error={errores.cliente_nombre}
       />
 
@@ -337,6 +404,9 @@ export function PasoCliente({
         placeholder="30-12345678-9"
         keyboardType="numbers-and-punctuation"
         contenedorStyle={estilos.mitad}
+        returnKeyType="search"
+        blurOnSubmit={false}
+        onSubmitEditing={buscarYa}
       />
 
       {/* ── Resultados de la búsqueda ─────────────────────────────────────────

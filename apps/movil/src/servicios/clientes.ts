@@ -19,14 +19,66 @@ import type { DireccionResuelta } from './mapas'
  * nuestra.
  */
 
+/**
+ * Cuánto se espera después de la última tecla antes de salir a buscar.
+ *
+ * Eran 300 ms en cada pantalla por separado. Subió a 450 y vive acá, con la
+ * búsqueda, por una cuenta simple: un código de cliente son cuatro o cinco
+ * dígitos, y con 300 ms el vendedor que tipea a velocidad normal dispara TRES o
+ * CUATRO búsquedas para llegar al mismo cliente. Cada una es un viaje de ida y
+ * vuelta por la red del celular parado en un taller, que es lo que de verdad se
+ * siente lento: el servidor tarda unos 45 ms.
+ *
+ * No se sube más porque el que escribe el nombre sí quiere ver la lista
+ * mientras escribe. Para el que sabe el código está la tecla "Listo", que busca
+ * en el acto y no espera nada.
+ */
+export const ESPERA_TECLEO = 450
+
+/**
+ * Lo que ya se preguntó hace un rato, para no volver a preguntarlo.
+ *
+ * Buscar un cliente es un viaje de ida y vuelta por la red del celular, y el
+ * vendedor repite la misma búsqueda todo el tiempo sin darse cuenta: borra una
+ * letra y la vuelve a escribir, vuelve al paso 1 a mirar el cliente, carga dos
+ * notas seguidas al mismo taller. Cada una de esas era otro viaje.
+ *
+ * Un minuto de memoria alcanza para todo eso y es corto de sobra para lo que
+ * puede cambiar: la ficha de un cliente no se edita mientras el vendedor está
+ * parado adelante suyo. Es memoria, no base de datos: se pierde al cerrar la
+ * app, y así tiene que ser.
+ */
+const VIDA_DEL_RECUERDO = 60_000
+const recordadas = new Map<string, { cuando: number; clientes: ClienteBuscado[] }>()
+
+/** Se olvida todo. Va después de crear un cliente: la lista quedó vieja. */
+export function olvidarBusquedasDeClientes(): void {
+  recordadas.clear()
+}
+
 export async function buscarClientes(texto: string, limite = 15): Promise<ClienteBuscado[]> {
+  const clave = `${limite}|${texto.trim().toLowerCase()}`
+  const recuerdo = recordadas.get(clave)
+  if (recuerdo && Date.now() - recuerdo.cuando < VIDA_DEL_RECUERDO) return recuerdo.clientes
+
   const { data, error } = await supabase.rpc('buscar_clientes', {
     p_texto: texto,
     p_limite: limite,
   })
 
   if (error) throw error
-  return (data ?? []) as ClienteBuscado[]
+  const clientes = (data ?? []) as ClienteBuscado[]
+
+  // Sólo se guarda lo que salió bien: recordar un error dejaría al vendedor sin
+  // poder reintentar durante un minuto, que es justo cuando quiere reintentar.
+  recordadas.set(clave, { cuando: Date.now(), clientes })
+  // El padrón tiene 12.181 clientes y esto vive en memoria del teléfono: se
+  // corta antes de que crezca. Cien búsquedas son las de una jornada entera.
+  if (recordadas.size > 100) {
+    const masVieja = recordadas.keys().next().value
+    if (masVieja !== undefined) recordadas.delete(masVieja)
+  }
+  return clientes
 }
 
 /**
@@ -138,6 +190,10 @@ export async function agregarDestinoClienteNuevo(params: {
     throw error
   }
 
+  // Esta función también da de alta un cliente: lo que se buscó antes ya no lo
+  // incluye. Ver `olvidarBusquedasDeClientes`.
+  olvidarBusquedasDeClientes()
+
   return data as ParadaCompleta
 }
 
@@ -180,6 +236,10 @@ export async function crearClienteProvisorio(
     }
     throw error
   }
+
+  // El cliente recién creado no está en nada de lo que se buscó hasta ahora, y
+  // buscarlo es lo primero que se hace después de crearlo.
+  olvidarBusquedasDeClientes()
 
   return data as Cliente
 }

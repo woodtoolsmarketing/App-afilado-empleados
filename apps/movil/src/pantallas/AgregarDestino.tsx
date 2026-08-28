@@ -41,6 +41,7 @@ import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
   buscarClientes,
+  ESPERA_TECLEO,
   ubicarCliente,
 } from '../servicios/clientes'
 import {
@@ -146,37 +147,64 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const [falloBusqueda, setFalloBusqueda] = useState<string | null>(null)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /**
+   * Quién manda sobre la lista: sólo la última búsqueda puede dibujar.
+   *
+   * Es el mismo arreglo que el del encabezado de la nota. Tipear un código son
+   * varias búsquedas —una por cada pausa entre teclas—, vuelven en cualquier
+   * orden, y la vieja repintaba encima de la nueva o volvía a abrir la lista
+   * arriba del cliente que el vendedor ya había elegido.
+   */
+  const vigente = useRef(0)
+
   // Una sola búsqueda alimenta los dos campos: la función `buscar_clientes` de
   // Postgres mira código y razón social a la vez.
+  async function buscar(texto: string) {
+    const mia = ++vigente.current
+    setBuscando(true)
+    setFalloBusqueda(null)
+    try {
+      const encontrados = await buscarClientes(texto)
+      if (mia !== vigente.current) return
+      setResultados(encontrados)
+    } catch (e) {
+      // "No encontramos ese cliente" y "no pudimos preguntar" son cosas
+      // distintas, y confundirlas es caro: el vendedor termina cargando de
+      // nuevo un cliente que ya existe, y la oficina se queda con dos fichas
+      // del mismo taller.
+      if (mia !== vigente.current) return
+      setResultados([])
+      setFalloBusqueda((e as Error).message)
+    } finally {
+      if (mia === vigente.current) setBuscando(false)
+    }
+  }
+
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
 
     if (consulta.trim().length < 2) {
+      vigente.current++
       setResultados([])
+      setBuscando(false)
       return
     }
 
-    temporizador.current = setTimeout(async () => {
-      setBuscando(true)
-      setFalloBusqueda(null)
-      try {
-        setResultados(await buscarClientes(consulta))
-      } catch (e) {
-        // "No encontramos ese cliente" y "no pudimos preguntar" son cosas
-        // distintas, y confundirlas es caro: el vendedor termina cargando de
-        // nuevo un cliente que ya existe, y la oficina se queda con dos fichas
-        // del mismo taller.
-        setResultados([])
-        setFalloBusqueda((e as Error).message)
-      } finally {
-        setBuscando(false)
-      }
-    }, 300)
+    temporizador.current = setTimeout(() => void buscar(consulta.trim()), ESPERA_TECLEO)
 
     return () => {
       if (temporizador.current) clearTimeout(temporizador.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consulta])
+
+  /** Buscar YA: es lo que hace la tecla "Listo" del teclado. */
+  function buscarYa() {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    const texto = consulta.trim()
+    if (texto.length < 2) return
+    void buscar(texto)
+  }
 
   /**
    * Sobre el estado anterior, no sobre la copia del render.
@@ -193,13 +221,22 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     })
   }
 
-  /** Al tipear en cualquiera de los dos campos se invalida la selección previa. */
+  /**
+   * Al tipear en cualquiera de los dos campos se invalida la selección previa.
+   * Sólo si el texto cambió de verdad: soltar el cliente cuando no lo tocaron
+   * es lo que hacía que se perdiera después de haberlo elegido bien.
+   */
   function alTipear(campo: 'codigo' | 'razon_social', texto: string) {
+    if (texto === form[campo]) return
     setConsulta(texto)
     actualizar({ [campo]: texto, cliente: null } as Partial<FormularioDestinoExistente>)
   }
 
   function elegirCliente(c: ClienteBuscado) {
+    // Lo que esté viajando ya no puede reabrir la lista sobre el elegido.
+    vigente.current++
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setBuscando(false)
     setResultados([])
     setConsulta('')
     // Acá está el "que uno complete al otro": se llenan los dos campos.
@@ -266,6 +303,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             placeholder="Ej. 1003"
             autoCapitalize="characters"
             contenedorStyle={estilos.campoCorto}
+            returnKeyType="search"
+            blurOnSubmit={false}
+            onSubmitEditing={buscarYa}
             accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
           />
 
@@ -277,6 +317,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             onChangeText={(t) => alTipear('razon_social', t)}
             placeholder="Ej. Maderera del Oeste"
             autoCapitalize="words"
+            returnKeyType="search"
+            blurOnSubmit={false}
+            onSubmitEditing={buscarYa}
             error={errores.cliente}
           />
 
