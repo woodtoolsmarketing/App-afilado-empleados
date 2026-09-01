@@ -42,6 +42,7 @@ import {
   agregarDestinoExistente,
   buscarClientes,
   ESPERA_TECLEO,
+  LIMITE_CLIENTES,
   ubicarCliente,
 } from '../servicios/clientes'
 import {
@@ -382,7 +383,16 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             </Aviso>
           ) : null}
 
+          {/* La lista quedó cortada: hay más de los que entran. Sin esto el
+              vendedor ve que su cliente no está y lo carga de nuevo. */}
+          {resultados.length >= LIMITE_CLIENTES ? (
+            <Aviso tono="atencion">
+              {`Hay más de ${LIMITE_CLIENTES} que coinciden. Escribí un poco más —otro dígito del código, o más letras del nombre— para achicar la lista.`}
+            </Aviso>
+          ) : null}
+
           {/* La búsqueda respondió bien y vino vacía: ahí sí no existe. */}
+
           {!falloBusqueda &&
           consulta.trim().length >= 2 &&
           !buscando &&

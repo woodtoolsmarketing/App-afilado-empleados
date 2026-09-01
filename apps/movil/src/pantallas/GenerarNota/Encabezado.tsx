@@ -29,7 +29,7 @@ import {
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
-import { buscarClientes, ESPERA_TECLEO } from '../../servicios/clientes'
+import { buscarClientes, ESPERA_TECLEO, LIMITE_CLIENTES } from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
 
 /**
@@ -535,7 +535,20 @@ export function PasoCliente({
             </Pressable>
           ))}
         </View>
-      ) : fallo && !buscando ? (
+      ) : null}
+
+      {/* La lista quedó cortada, y hay que decirlo.
+          Con tres dígitos de un código de cinco hay más de cien candidatos y se
+          muestran quince. Sin este cartel el vendedor ve que su cliente no está
+          y concluye que no está cargado. Ahora los quince que se ven son los
+          quince primeros POR CÓDIGO, así que escribir un dígito más lo trae. */}
+      {resultados.length >= LIMITE_CLIENTES ? (
+        <Text style={estilos.sinResultados}>
+          {`Hay más de ${LIMITE_CLIENTES} que coinciden con “${consulta.trim()}”. Escribí un poco más —otro dígito del código, o más letras del nombre— para achicar la lista.`}
+        </Text>
+      ) : null}
+
+      {fallo && !buscando ? (
         <Aviso tono="atencion" titulo="No pudimos consultar el padrón">
           {fallo}
           {'\n\n'}Esto NO quiere decir que el cliente no exista. Revisá la señal y tocá BUSCAR de

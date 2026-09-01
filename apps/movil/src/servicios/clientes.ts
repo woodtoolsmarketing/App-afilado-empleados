@@ -36,6 +36,16 @@ import type { DireccionResuelta } from './mapas'
 export const ESPERA_TECLEO = 450
 
 /**
+ * Cuántos clientes devuelve una búsqueda.
+ *
+ * Se exporta porque la pantalla lo necesita para saber si la lista quedó
+ * cortada y decirlo. Con tres dígitos de un código de cinco hay más de cien
+ * candidatos: mostrar quince sin avisar es lo que hace que el vendedor crea que
+ * su cliente no está cargado.
+ */
+export const LIMITE_CLIENTES = 15
+
+/**
  * Lo que ya se preguntó hace un rato, para no volver a preguntarlo.
  *
  * Buscar un cliente es un viaje de ida y vuelta por la red del celular, y el
@@ -56,7 +66,10 @@ export function olvidarBusquedasDeClientes(): void {
   recordadas.clear()
 }
 
-export async function buscarClientes(texto: string, limite = 15): Promise<ClienteBuscado[]> {
+export async function buscarClientes(
+  texto: string,
+  limite = LIMITE_CLIENTES,
+): Promise<ClienteBuscado[]> {
   const clave = `${limite}|${texto.trim().toLowerCase()}`
   const recuerdo = recordadas.get(clave)
   if (recuerdo && Date.now() - recuerdo.cuando < VIDA_DEL_RECUERDO) return recuerdo.clientes
