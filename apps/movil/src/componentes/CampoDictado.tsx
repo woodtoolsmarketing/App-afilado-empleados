@@ -1,9 +1,10 @@
-import { colores } from '@woodtools/compartido'
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native'
+
+import { ActivityIndicator, Pressable, Text } from 'react-native'
 
 import { Campo, type PropsCampo } from './Formulario'
 import { Aviso } from './Estado'
 import { DURACION_MAXIMA_MS, usarDictado } from '../servicios/transcripcion'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Campo de texto con micrófono.
@@ -24,6 +25,8 @@ export function CampoDictado({
   /** Deja registro de si el texto se escribió o se dictó. */
   alCambiarOrigen?: (origen: 'texto' | 'voz') => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const dictado = usarDictado()
 
   async function alTocarMicrofono() {
@@ -88,18 +91,18 @@ export function CampoDictado({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   microfono: {
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: colores.rojo,
+    backgroundColor: t.colores.rojoSolido,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
   },
-  grabando: { backgroundColor: colores.rojoAccion },
+  grabando: { backgroundColor: t.colores.rojoAccion },
   presionado: { opacity: 0.75 },
   icono: { fontSize: 20 },
-})
+}))

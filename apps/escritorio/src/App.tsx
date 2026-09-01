@@ -12,6 +12,7 @@ import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
 import { PaginaNotasPedido } from './paginas/NotasPedido'
+import { PaginaProblemas } from './paginas/Problemas'
 import { PaginaRolMaestro } from './paginas/RolMaestro'
 import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
 import { PaginaTablero } from './paginas/Tablero'
@@ -64,6 +65,7 @@ export function App() {
           <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
           <Route path="/rol-maestro" element={<PaginaRolMaestro soloLectura={!sesion.esAdmin} />} />
           <Route path="/mapa" element={<PaginaMapaEnVivo />} />
+          <Route path="/problemas" element={<PaginaProblemas soloLectura={!sesion.esAdmin} />} />
           <Route
             path="/actualizaciones"
             element={<PaginaActualizaciones soloLectura={!sesion.esAdmin} />}
@@ -146,6 +148,25 @@ function BarraLateral({
     refetchInterval: 15_000,
   })
 
+  /*
+   * Cuantos problemas hay sin resolver.
+   *
+   * Va como globo por lo mismo que las altas pendientes: un reporte que hay que
+   * acordarse de ir a mirar es un reporte que se queda dias sin leer, y del
+   * otro lado hay alguien parado en la calle esperando.
+   */
+  const { data: problemas } = useQuery({
+    queryKey: ['reportes-abiertos'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('reportes_problema')
+        .select('id', { count: 'exact', head: true })
+        .in('estado', ['nuevo', 'en_revision'])
+      return count ?? 0
+    },
+    refetchInterval: 60_000,
+  })
+
   const enlaces = [
     { a: '/', icono: '▦', texto: 'Tablero' },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
@@ -156,6 +177,7 @@ function BarraLateral({
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
+    { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas },
     { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones' },
   ]
 

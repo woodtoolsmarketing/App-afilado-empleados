@@ -1,11 +1,10 @@
-import { colores, espaciado, radios, sombras, tipografia } from '@woodtools/compartido'
+import { espaciado, radios, sombras } from '@woodtools/compartido'
 import { formatearFechaCorta } from '@woodtools/compartido'
 import { useEffect, useRef, type ReactNode } from 'react'
 import {
   Keyboard,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   type StyleProp,
@@ -13,6 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Estructura visual común a todas las pantallas: fondo rojo de la marca y, por
@@ -26,6 +26,7 @@ export function Pantalla({
   children: ReactNode
   style?: StyleProp<ViewStyle>
 }) {
+  const estilos = usarEstilos()
   const insets = useSafeAreaInsets()
   return (
     <View
@@ -79,6 +80,7 @@ export function Panel({
    */
   subirAlTopeCuando?: string | number | boolean | null
 }) {
+  const estilos = usarEstilos()
   // Los hooks van antes del atajo de `desplazable`: si quedaran después,
   // cambiar esa prop en caliente cambiaría cuántos hooks tiene el componente y
   // React se queja.
@@ -135,6 +137,7 @@ export function BarraPanel({
   fecha?: Date
   titulo?: string
 }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.barra}>
       {alVolver ? (
@@ -169,6 +172,7 @@ export function TituloPanel({
   destacado?: ReactNode
   style?: StyleProp<TextStyle>
 }) {
+  const estilos = usarEstilos()
   return (
     <Text style={[estilos.titulo, style]}>
       {children}
@@ -181,16 +185,16 @@ export function Separador({ alto = espaciado.base }: { alto?: number }) {
   return <View style={{ height: alto }} />
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   fondo: {
     flex: 1,
-    backgroundColor: colores.rojo,
+    backgroundColor: t.colores.fondo,
   },
   panel: {
     flex: 1,
-    backgroundColor: colores.panel,
+    backgroundColor: t.colores.panel,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     marginHorizontal: espaciado.md,
     marginBottom: espaciado.md,
@@ -217,9 +221,9 @@ const estilos = StyleSheet.create({
     paddingRight: espaciado.base,
   },
   volverTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   presionado: {
     opacity: 0.55,
@@ -227,25 +231,25 @@ const estilos = StyleSheet.create({
   barraTitulo: {
     flex: 1,
     textAlign: 'center',
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
   },
   fecha: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
     letterSpacing: 0.5,
   },
   titulo: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
-    lineHeight: tipografia.tamano.xl * tipografia.interlineado.ajustado,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    lineHeight: t.tipografia.tamano.xl * t.tipografia.interlineado.ajustado,
+    color: t.colores.tinta,
     textAlign: 'center',
     letterSpacing: 0.4,
   },
   tituloDestacado: {
-    color: colores.rojoAccion,
+    color: t.colores.rojoAccion,
   },
-})
+}))

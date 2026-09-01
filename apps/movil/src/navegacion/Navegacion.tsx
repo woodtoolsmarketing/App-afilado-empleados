@@ -1,4 +1,3 @@
-import { colores } from '@woodtools/compartido'
 import { NavigationContainer, type Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 
@@ -6,10 +5,13 @@ import { BotonMenu } from '../componentes/Botones'
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
+import { usarTema, type Tema } from '../nucleo/tema'
 import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaCalendarioEnvios } from '../pantallas/CalendarioEnvios'
+import { PantallaCalendarioVisitas } from '../pantallas/CalendarioVisitas'
 import { PantallaClientesDelDia } from '../pantallas/ClientesDelDia'
 import { PantallaCobranzas } from '../pantallas/Cobranzas'
+import { PantallaComunicacionInterna } from '../pantallas/ComunicacionInterna'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
 import { PantallaDetalleNota } from '../pantallas/DetalleNota'
@@ -29,28 +31,40 @@ import { PantallaVistaPreviaNota } from '../pantallas/VistaPreviaNota'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
+import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarCandado } from '../servicios/presencia'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
 
-const tema: Theme = {
-  dark: false,
-  colors: {
-    primary: colores.rojo,
-    background: colores.rojo,
-    card: colores.rojo,
-    text: colores.blanco,
-    border: colores.negro,
-    notification: colores.rojoAccion,
-  },
-  fonts: {
-    regular: { fontFamily: 'Poppins_400Regular', fontWeight: '400' },
-    medium: { fontFamily: 'Poppins_500Medium', fontWeight: '500' },
-    bold: { fontFamily: 'Poppins_700Bold', fontWeight: '700' },
-    heavy: { fontFamily: 'Poppins_800ExtraBold', fontWeight: '800' },
-  },
+/**
+ * El tema que ve React Navigation.
+ *
+ * Es aparte del nuestro y hay que darselo igual: lo que pinta el hueco entre
+ * una pantalla y la siguiente durante la transicion es ESTE `background`, no
+ * el de nuestras pantallas. Con el tema oscuro puesto y este color fijo en
+ * rojo, cada vez que se navega aparecia un destello rojo entre dos pantallas
+ * negras.
+ */
+function temaDeLaNavegacion(tema: Tema): Theme {
+  return {
+    dark: tema.oscuro,
+    colors: {
+      primary: tema.colores.rojo,
+      background: tema.colores.fondo,
+      card: tema.colores.fondo,
+      text: tema.colores.blanco,
+      border: tema.colores.borde,
+      notification: tema.colores.rojoAccion,
+    },
+    fonts: {
+      regular: { fontFamily: 'Poppins_400Regular', fontWeight: '400' },
+      medium: { fontFamily: 'Poppins_500Medium', fontWeight: '500' },
+      bold: { fontFamily: 'Poppins_700Bold', fontWeight: '700' },
+      heavy: { fontFamily: 'Poppins_800ExtraBold', fontWeight: '800' },
+    },
+  }
 }
 
 /**
@@ -62,6 +76,7 @@ const tema: Theme = {
  */
 export function Navegacion() {
   const estado = usarSesion((s) => s.estado)
+  const tema = usarTema()
 
   /**
    * Fijarse solo si hay un instalador nuevo.
@@ -117,7 +132,7 @@ export function Navegacion() {
   }
 
   return (
-    <NavigationContainer theme={tema}>
+    <NavigationContainer theme={temaDeLaNavegacion(tema)}>
       <Pila.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         {estado === 'sin_sesion' ? (
           <Pila.Screen name="Menu" component={PantallaIniciarSesion} />
@@ -142,6 +157,9 @@ export function Navegacion() {
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
             <Pila.Screen name="Cobranzas" component={PantallaCobranzas} />
             <Pila.Screen name="CalendarioEnvios" component={PantallaCalendarioEnvios} />
+            <Pila.Screen name="CalendarioVisitas" component={PantallaCalendarioVisitas} />
+            <Pila.Screen name="ComunicacionInterna" component={PantallaComunicacionInterna} />
+            <Pila.Screen name="ReportarProblema" component={PantallaReportarProblema} />
             <Pila.Screen name="ClientesDelDia" component={PantallaClientesDelDia} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />

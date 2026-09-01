@@ -1,13 +1,7 @@
-import {
-  colores,
-  espaciado,
-  formatearDiaHistorial,
-  tipografia,
-  TOQUE_MINIMO,
-} from '@woodtools/compartido'
+import { espaciado, formatearDiaHistorial, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 
 import { Desplegable } from '../componentes/Formulario'
 import { Aviso, Cargando, Vacio } from '../componentes/Estado'
@@ -16,6 +10,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { historialNotas, type DiaNotas } from '../servicios/notasPedido'
 import { rangoDelPeriodo, type PeriodoHistorial } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * "HISTORIAL DE NOTAS DE PEDIDO"
@@ -29,6 +24,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * cuatro más. Todo eso está a un toque, en el detalle de la nota.
  */
 export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialNotas'>) {
+  const estilos = usarEstilos()
   const [periodo, setPeriodo] = useState<PeriodoHistorial>('semana')
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({})
 
@@ -52,7 +48,7 @@ export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialN
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -113,6 +109,7 @@ function DiaAcordeon({
   alAlternar: () => void
   alElegir: (notaId: string) => void
 }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.dia}>
       <Pressable
@@ -157,7 +154,7 @@ function DiaAcordeon({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
 
   // Sin caja ni recuadro: en el mockup el título del día es texto suelto sobre
@@ -173,12 +170,12 @@ const estilos = StyleSheet.create({
   },
   tocado: { opacity: 0.7 },
   diaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.xl,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tinta,
     letterSpacing: 0.4,
   },
-  flecha: { fontSize: tipografia.tamano.lg, color: colores.tintaSuave },
+  flecha: { fontSize: t.tipografia.tamano.lg, color: t.colores.tintaSuave },
 
   diaCuerpo: { paddingBottom: espaciado.xs },
   renglon: {
@@ -188,16 +185,16 @@ const estilos = StyleSheet.create({
     minHeight: 48,
   },
   renglonTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
-  renglonPendiente: { color: colores.tintaTenue },
+  renglonPendiente: { color: t.colores.tintaTenue },
   nota: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginTop: espaciado.sm,
   },
-})
+}))

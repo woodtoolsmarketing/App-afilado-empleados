@@ -1,6 +1,6 @@
-import { colores, espaciado, tipografia } from '@woodtools/compartido'
+import { espaciado } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
@@ -9,6 +9,7 @@ import { usarSesion } from '../nucleo/sesion'
 import { obtenerResumenDeHoy } from '../servicios/jornada'
 import { notasPendientes as listarNotasPendientes } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Menú principal.
@@ -23,6 +24,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * va a crecer y no piense que algo se rompió.
  */
 export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
 
   const { data: resumen } = useQuery({
@@ -43,7 +45,7 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel />
@@ -78,9 +80,8 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
 
         <BotonMenu
           titulo="CALENDARIO DE VISITAS"
-          subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Calendario de visitas' })}
-          style={estilos.futuro}
+          subtitulo="La semana entera: a quién ver cada día"
+          alTocar={() => navigation.navigate('CalendarioVisitas')}
         />
 
         {/*
@@ -115,9 +116,8 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
 
         <BotonMenu
           titulo="COMUNICACIÓN INTERNA"
-          subtitulo="Se habilita en el próximo paso"
-          alTocar={() => navigation.navigate('EnPreparacion', { modulo: 'Comunicación interna' })}
-          style={estilos.futuro}
+          subtitulo="Los teléfonos de la oficina, a un toque"
+          alTocar={() => navigation.navigate('ComunicacionInterna')}
         />
 
         <BotonMenu
@@ -133,14 +133,14 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: {
     gap: espaciado.md,
   },
   titulo: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tinta,
     textAlign: 'center',
     letterSpacing: 1,
     marginBottom: espaciado.xs,
@@ -153,8 +153,8 @@ const estilos = StyleSheet.create({
     paddingTop: espaciado.base,
   },
   pieTexto: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
   },
-})
+}))

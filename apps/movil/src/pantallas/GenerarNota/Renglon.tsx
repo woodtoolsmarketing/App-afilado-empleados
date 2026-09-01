@@ -12,7 +12,6 @@ import {
   type CuchillaTipo,
   type CuchillaTrabajo,
   CAMPOS_POR_HERRAMIENTA,
-  colores,
   describirRango,
   descripcionSugerida,
   dientesAAfilar,
@@ -32,7 +31,6 @@ import {
   radios,
   SINGULAR_HERRAMIENTA,
   soloNumeros,
-  tipografia,
   totalDeListaDelRenglon,
   type CampoItem,
   type FormularioItemNota,
@@ -42,7 +40,7 @@ import {
   type TipoServicio,
 } from '@woodtools/compartido'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 
 import {
   Campo,
@@ -68,6 +66,7 @@ import {
   type CodigoComputo,
   type ModeloMecha,
 } from '../../servicios/notasPedido'
+import { hojaDeTema, usarTema } from '../../nucleo/tema'
 
 /**
  * Un renglón de la nota.
@@ -196,6 +195,8 @@ export function PasoRenglon({
   /** Para pisar el precio de lista con el acordado con este cliente. */
   clienteId?: string | null
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   /**
    * El precio acordado con el cliente, si tiene uno para este código.
    *
@@ -1693,6 +1694,8 @@ function SelectorModeloMecha({
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [modelos, setModelos] = useState<ModeloMecha[]>([])
   const [cargando, setCargando] = useState(false)
   const [fallo, setFallo] = useState(false)
@@ -1851,6 +1854,8 @@ function SelectorAfiladoCuchilla({
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [opciones, setOpciones] = useState<CodigoCuchilla[]>([])
   const [cargando, setCargando] = useState(true)
   const [fallo, setFallo] = useState(false)
@@ -2006,39 +2011,39 @@ function SelectorAfiladoCuchilla({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   cascada: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   cascadaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   cascadaAyuda: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   cascadaFila: {
     paddingVertical: espaciado.xs,
     borderTopWidth: 1,
-    borderTopColor: colores.panelClaro,
+    borderTopColor: t.colores.panelClaro,
   },
   cascadaCodigo: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   cascadaDescripcion: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   filaTocada: { opacity: 0.6 },
 
@@ -2049,80 +2054,80 @@ const estilos = StyleSheet.create({
   mitad: { flex: 1 },
 
   totalDientes: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.verdeOscuro,
     marginTop: -espaciado.xs,
   },
 
   bloqueRotos: { gap: espaciado.xs },
   lineaRotos: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm, flexWrap: 'wrap' },
   lineaRotosTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.ambarOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.ambarOscuro,
   },
 
   verMedidas: { paddingVertical: espaciado.sm },
   verMedidasTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
     textDecorationLine: 'underline',
   },
   opcionRango: {
     flex: 1,
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
   },
 
   herramientaFija: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     alignItems: 'center',
   },
   herramientaFijaRotulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   herramientaFijaValor: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
 
   bloqueCodigos: { gap: espaciado.xs },
   rotulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   buscando: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
   buscandoTexto: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   elegidos: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
 
   opciones: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   opcion: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 58,
     justifyContent: 'center',
     gap: 2,
@@ -2131,27 +2136,27 @@ const estilos = StyleSheet.create({
   /** El texto del modelo, que comparte fila con el precio de la derecha. */
   opcionTexto: { flex: 1, gap: 2 },
   /** El que todavía no tiene importe: se ve distinto del que sí lo tiene. */
-  aCotizar: { color: colores.rojo },
+  aCotizar: { color: t.colores.rojo },
   tocado: { opacity: 0.7 },
   opcionFila: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   opcionCodigo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   opcionPrecio: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
   },
   opcionDesc: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   opcionNota: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
   },
-})
+}))

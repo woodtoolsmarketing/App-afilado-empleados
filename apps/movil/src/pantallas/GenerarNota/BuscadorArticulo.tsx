@@ -1,6 +1,5 @@
 import {
   caracteristicasDeArticulo,
-  colores,
   descripcionSugerida,
   esDescripcionSugerida,
   espaciado,
@@ -10,12 +9,11 @@ import {
   formatearPesos,
   radios,
   resumenCaracteristicas,
-  tipografia,
   type CaracteristicasArticulo,
   type FormularioItemNota,
 } from '@woodtools/compartido'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 
 import { Campo } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
@@ -25,6 +23,7 @@ import {
   LISTA_SUELTA,
   type ArticuloCatalogo,
 } from '../../servicios/notasPedido'
+import { hojaDeTema, usarTema } from '../../nucleo/tema'
 
 /**
  * Buscador del catálogo de precios para cotizar una venta.
@@ -57,6 +56,8 @@ export function BuscadorArticulo({
   tipoCambio: number
   error?: string
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
   const [buscando, setBuscando] = useState(false)
@@ -333,6 +334,7 @@ function FilaArticulo({
   articulo: ArticuloCatalogo
   alTocar: () => void
 }) {
+  const estilos = usarEstilos()
   const c: CaracteristicasArticulo = caracteristicasDeArticulo(articulo.descripcion, articulo.medida)
   const resumen = resumenCaracteristicas(c)
   const moneda = articulo.moneda === 'USD' ? 'USD' : 'ARS'
@@ -363,21 +365,21 @@ function FilaArticulo({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   bloque: { gap: espaciado.xs },
 
   lista: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   fila: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 64,
     justifyContent: 'center',
     gap: 2,
@@ -385,9 +387,9 @@ const estilos = StyleSheet.create({
   tocada: { opacity: 0.7 },
 
   nota: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   salida: {
     alignSelf: 'flex-start',
@@ -397,56 +399,56 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
   },
   salidaTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     textDecorationLine: 'underline',
   },
 
   filaCabecera: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   codigo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   precio: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
   },
   descripcion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   caracteristicas: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   enPesos: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
   },
 
   elegido: {
     borderWidth: 2,
-    borderColor: colores.verdeOscuro,
+    borderColor: t.colores.verdeOscuro,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     padding: espaciado.md,
     gap: 2,
   },
   elegidoFila: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
   elegidoDesc: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   elegidoCaract: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
-})
+}))

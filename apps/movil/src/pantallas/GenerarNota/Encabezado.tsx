@@ -1,11 +1,9 @@
 import {
-  colores,
   espaciado,
   etiquetaZona,
   ETIQUETA_TIPO_SERVICIO,
   numeroDeVendedorImpreso,
   radios,
-  tipografia,
   VENDEDORES_CON_CERO,
   zonaParaUbicacion,
   lineaDeServicio,
@@ -18,7 +16,7 @@ import {
   type ZonaSugerida,
 } from '@woodtools/compartido'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 
 import {
   Campo,
@@ -31,6 +29,7 @@ import { Aviso, Pastilla } from '../../componentes/Estado'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import { buscarClientes, ESPERA_TECLEO, LIMITE_CLIENTES } from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
+import { hojaDeTema, usarTema } from '../../nucleo/tema'
 
 /**
  * Las dos primeras páginas de la nota de pedido.
@@ -88,6 +87,8 @@ export function PasoCliente({
   /** El del que está usando la app. Es el primero que se prueba. */
   codigoVendedorUsuario?: string | null
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [consulta, setConsulta] = useState('')
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
@@ -703,6 +704,7 @@ export function PasoOperacion({
   items: FormularioItemNota[]
   errores: Record<string, string | undefined>
 }) {
+  const estilos = usarEstilos()
   const linea = lineaDeServicio(items)
   const conAfilado = servicios.includes('afilado')
   const disponibles: TipoServicio[] = conAfilado
@@ -761,61 +763,61 @@ export function PasoOperacion({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   fila: { flexDirection: 'row', gap: espaciado.sm },
 
   /* La descripción general que arma la app. Va con el mismo rótulo que tenía
      el campo, porque para el vendedor es el mismo dato: lo que va a decir la
      nota. Lo que cambió es quién lo escribe. */
   servicio: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
     borderLeftWidth: 4,
-    borderLeftColor: colores.verdeOscuro,
+    borderLeftColor: t.colores.verdeOscuro,
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
     gap: espaciado.xs,
   },
   servicioRotulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   servicioTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   servicioVacio: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
   },
   mitad: { flex: 1 },
 
   vendedor: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   zonaAuto: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.verdeOscuro,
     marginTop: -espaciado.xs,
   },
   zonaDudosa: {
     borderWidth: 2,
-    borderColor: colores.ambarOscuro,
+    borderColor: t.colores.ambarOscuro,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   zonaDudosaTitulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
     paddingHorizontal: espaciado.md,
     paddingTop: espaciado.sm,
   },
@@ -826,16 +828,16 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
   },
   zonaOpcionTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
 
   enlaceNuevo: { alignSelf: 'flex-start', paddingVertical: espaciado.xs },
   enlaceNuevoTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
     textDecorationLine: 'underline',
   },
 
@@ -844,22 +846,22 @@ const estilos = StyleSheet.create({
     alignItems: 'center',
     gap: espaciado.sm,
     borderWidth: 2,
-    borderColor: colores.verdeOscuro,
+    borderColor: t.colores.verdeOscuro,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
   },
   clienteElegidoTexto: { flex: 1, gap: 2 },
   clienteElegidoRotulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.verdeOscuro,
   },
   clienteElegidoNombre: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   cambiarCliente: {
     // Alto de dedo: se toca parado en un taller.
@@ -868,48 +870,48 @@ const estilos = StyleSheet.create({
     paddingHorizontal: espaciado.xs,
   },
   cambiarClienteTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
   },
   tocado: { opacity: 0.7 },
 
   sugerencias: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   sugerencia: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.md,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 60,
     justifyContent: 'center',
     gap: 2,
   },
-  sugerenciaTocada: { backgroundColor: colores.panelClaro },
+  sugerenciaTocada: { backgroundColor: t.colores.panelClaro },
   sugerenciaFila: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
   sugerenciaCodigo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
   },
   sugerenciaNombre: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   sugerenciaDato: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   sinResultados: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
-})
+}))

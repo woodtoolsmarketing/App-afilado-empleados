@@ -1,7 +1,6 @@
 import {
   agruparParaNotas,
   aNumero,
-  colores,
   DESCRIPCION_GRUPO_NOTA,
   descripcionSugerida,
   DIAS_CHEQUE_MAXIMO,
@@ -35,7 +34,6 @@ import {
   soloNumeros,
   SUMAR_OTRA,
   tieneRenglonesEnDolares,
-  tipografia,
   totalDeRenglones,
   totalDelRenglon,
   totalDelRenglonEnPesos,
@@ -59,7 +57,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native'
@@ -92,6 +89,7 @@ import { CampoDescuento } from './Descuento'
 import { PasoCliente, PasoOperacion } from './Encabezado'
 import { PasoRenglon } from './Renglon'
 import type { PropsPantalla } from '../../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../../nucleo/tema'
 
 /**
  * "GENERAR NUEVA NOTA DE PEDIDO"
@@ -118,6 +116,8 @@ import type { PropsPantalla } from '../../navegacion/tipos'
  * pantallas que dibujan lo mismo termina en que una de las dos se queda atrás.
  */
 export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'GenerarNota'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
@@ -1124,7 +1124,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   if (corrigiendo && !cargado) {
     return (
       <Pantalla>
-        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Encabezado />
         <Panel contentStyle={estilos.contenido}>
           <BarraPanel alVolver={() => navigation.goBack()} />
           {errorNota ? (
@@ -1142,7 +1142,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <KeyboardAvoidingView
         style={estilos.flex}
@@ -1782,6 +1782,8 @@ function ResumenCliente({
   servicios: TipoServicio[]
   tipoNota: TipoNotaPedido | null
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   return (
     <View style={estilos.resumen}>
       <Text style={estilos.resumenCliente} numberOfLines={1}>
@@ -1820,6 +1822,8 @@ function TarjetaRenglon({
   alEditar: () => void
   alQuitar: () => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const total = totalDelRenglon(item)
   const completo = validarItemNota(item, { pedirServicio }).valido
 
@@ -1883,6 +1887,7 @@ function FormularioVenta({
   errores: Record<string, string | undefined>
   tipoCambio: number
 }) {
+  const estilos = usarEstilos()
   const unidades = aNumero(item.unidades)
   const unitario = aNumero(item.precio)
   const total = totalDelRenglon(item)
@@ -2094,7 +2099,7 @@ function explicarTendencia(t: TendenciaCliente, cual: 'tipo' | 'condicion'): str
   return `Puesto solo: lo usó en ${veces} de sus últimas ${t.notas_miradas} notas. Cambialo si hoy es distinto.`
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   // Los dos plazos, lado a lado: es un solo dato con dos puntas, y verlos en
@@ -2104,9 +2109,9 @@ const estilos = StyleSheet.create({
   medio: { maxWidth: 220 },
 
   porTendencia: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     marginTop: -espaciado.xs,
   },
 
@@ -2118,129 +2123,129 @@ const estilos = StyleSheet.create({
   },
 
   resumen: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   resumenCliente: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   resumenPastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
 
   totalVenta: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
   },
   totalVentaPesos: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   observaciones: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   observacionesTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
   },
   observacionesAyuda: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   observacion: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
   observacionCampo: { flex: 1 },
   observacionNumero: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
     minWidth: 16,
   },
   observacionQuitar: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.rojoAccion,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.rojoAccion,
     paddingHorizontal: espaciado.xs,
   },
 
   grupos: {
     borderWidth: 2,
-    borderColor: colores.azul,
+    borderColor: t.colores.azul,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     padding: espaciado.md,
     gap: espaciado.sm,
   },
   gruposTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.azul,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.azul,
     letterSpacing: 0.8,
   },
   grupo: { gap: 2 },
   grupoFila: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   grupoNombre: {
     flex: 1,
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   grupoTotal: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.verdeOscuro,
   },
   grupoDetalle: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
 
   multiple: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   multipleTitulo: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   renglones: { gap: espaciado.xs },
   renglonesTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
   },
   tarjeta: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     overflow: 'hidden',
   },
-  tarjetaAbierta: { borderColor: colores.rojo, borderWidth: 3 },
+  tarjetaAbierta: { borderColor: t.colores.rojo, borderWidth: 3 },
   tarjetaCuerpo: {
     flex: 1,
     paddingHorizontal: espaciado.md,
@@ -2252,36 +2257,36 @@ const estilos = StyleSheet.create({
   tocada: { opacity: 0.7 },
   tarjetaFila: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
   tarjetaNumero: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.rojo,
     minWidth: 20,
   },
   tarjetaResumen: {
     flex: 1,
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   tarjetaPie: { flexDirection: 'row', alignItems: 'center', gap: espaciado.xs, flexWrap: 'wrap' },
   tarjetaTotal: {
     marginLeft: 'auto',
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.verdeOscuro,
   },
   quitar: {
     width: 52,
     borderLeftWidth: 2,
-    borderLeftColor: colores.negro,
-    backgroundColor: colores.panelClaro,
+    borderLeftColor: t.colores.borde,
+    backgroundColor: t.colores.panelClaro,
     justifyContent: 'center',
     alignItems: 'center',
   },
   quitarTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.rojoAccion,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.rojoAccion,
   },
 
   cambioEdicion: { gap: espaciado.xs, marginTop: espaciado.sm },
@@ -2292,9 +2297,9 @@ const estilos = StyleSheet.create({
    * cuando en realidad es un dato de referencia: lo que se mira es el total.
    */
   cambio: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
@@ -2302,25 +2307,25 @@ const estilos = StyleSheet.create({
     gap: 2,
   },
   cambioRotulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
   },
   cambioValor: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   cambioNota: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   cambioError: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojoAccion,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojoAccion,
     textAlign: 'center',
   },
-})
+}))

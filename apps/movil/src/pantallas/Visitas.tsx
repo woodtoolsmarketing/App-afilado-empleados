@@ -1,6 +1,6 @@
-import { colores, espaciado, formatearDistancia, formatearDuracion, tipografia } from '@woodtools/compartido'
+import { espaciado, formatearDistancia, formatearDuracion } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { Aviso, Cargando } from '../componentes/Estado'
@@ -9,6 +9,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { usarSesion } from '../nucleo/sesion'
 import { obtenerResumenDeHoy } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "TUS VISITAS DE HOY SON: 13"
@@ -17,6 +18,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * acciones del mockup.
  */
 export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
 
   const {
@@ -35,7 +38,7 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -119,6 +122,7 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
 }
 
 function Marcador({ etiqueta, valor, color }: { etiqueta: string; valor: number; color: string }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.marcador}>
       <Text style={[estilos.marcadorValor, { color }]}>{valor}</Text>
@@ -127,7 +131,7 @@ function Marcador({ etiqueta, valor, color }: { etiqueta: string; valor: number;
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: {
     gap: espaciado.md,
   },
@@ -141,20 +145,20 @@ const estilos = StyleSheet.create({
     minWidth: 84,
   },
   marcadorValor: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xxl,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xxl,
   },
   marcadorEtiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   estimacion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
   },
-})
+}))

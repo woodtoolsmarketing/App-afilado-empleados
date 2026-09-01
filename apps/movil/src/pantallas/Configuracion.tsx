@@ -1,12 +1,19 @@
-import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
+import {
+  espaciado,
+  MOTIVO_NO_SE_ACTUALIZO,
+  radios,
+  TOQUE_MINIMO,
+} from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, BackHandler, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
+import { Deslizador } from '../componentes/Deslizador'
 import { Aviso } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { Casilla, Opcion } from '../componentes/Formulario'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
@@ -18,11 +25,49 @@ import {
   iniciarSeguimiento,
   seguimientoActivo,
 } from '../servicios/ubicacion'
-import type { PropsPantalla } from '../navegacion/tipos'
+import type { PropsPantalla, SeccionDeConfiguracion } from '../navegacion/tipos'
+import {
+  hojaDeTema,
+  LETRA_NORMAL,
+  multiplicadorDeLetra,
+  PASO_DE_LA_BARRA,
+  usarAjustesDeTema,
+} from '../nucleo/tema'
 
-/** Configuración: datos de la cuenta, estado del seguimiento y actualizaciones. */
-export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuracion'>) {
+/**
+ * "CONFIGURACIÓN"
+ *
+ * Una portada con las cuatro cosas que se pueden cambiar, y adentro de cada
+ * una lo suyo. Es la forma del mockup, y es la correcta por una razón que se
+ * ve al entrar: el tamaño de la letra y el tema se tocan una vez en la vida,
+ * las actualizaciones cada tanto, y los datos de la cuenta se miran. Ponerlo
+ * todo en una sola tirada obliga a pasar por delante de las cuatro para llegar
+ * a la que se vino a buscar.
+ *
+ * `route.params.seccion` abre directo en una de ellas. Es lo que usa "BUSCAR
+ * ACTUALIZACIÓN" del menú de las tres rayas.
+ */
+export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Configuracion'>) {
+  const estilos = usarEstilos()
   const { perfil, cerrarSesion } = usarSesion()
+  const [seccion, setSeccion] = useState<SeccionDeConfiguracion | null>(
+    route.params?.seccion ?? null,
+  )
+
+  // Se leen acá para poder contarlo en la portada: sin esto, para saber qué
+  // tema tiene puesto hay que entrar a mirar.
+  const temaPuesto = usarAjustesDeTema((s) => s.modo)
+  const porcentajeLetra = usarAjustesDeTema((s) => s.porcentajeLetra)
+  const letraDelCelular = usarAjustesDeTema((s) => s.letraDelCelular)
+
+  function resumenDelTamano(): string {
+    if (letraDelCelular) return 'El que tiene puesto el celular'
+    if (porcentajeLetra === LETRA_NORMAL) return 'Normal'
+    const cuanto = Math.round(multiplicadorDeLetra(porcentajeLetra) * 100)
+    return porcentajeLetra > LETRA_NORMAL
+      ? `Más grande (${cuanto} %)`
+      : `Más chica (${cuanto} %)`
+  }
   const [instalacion, setInstalacion] = useState('')
   const [siguiendo, setSiguiendo] = useState(false)
   const [buscandoUpdate, setBuscandoUpdate] = useState(false)
@@ -219,113 +264,351 @@ export function PantallaConfiguracion({ navigation }: PropsPantalla<'Configuraci
     }
   }
 
+  /**
+   * El "Atrás" de adentro de una sección vuelve a la portada, no a la pantalla
+   * anterior. Si saliera de Configuración, el que entró a mirar el tamaño de
+   * la letra tendría que volver a entrar para mirar el tema.
+   */
+  function volver() {
+    if (seccion) setSeccion(null)
+    else navigation.goBack()
+  }
+
+  /**
+   * Y el botón de atrás del teléfono hace lo mismo.
+   *
+   * Sin esto son dos "atrás" distintos en la misma pantalla: el de arriba
+   * vuelve a la portada y el de abajo se va de Configuración. El vendedor usa
+   * el de abajo —es el que tiene el pulgar al lado— y termina afuera sin
+   * entender por qué.
+   */
+  /**
+   * Volver a entrar pidiendo una sección tiene que llevar a esa sección.
+   *
+   * `useState` sólo mira el parámetro la primera vez. Y hay un camino que pasa
+   * dos veces: estando en CONFIGURACIÓN se abren las tres rayas y se toca
+   * "BUSCAR ACTUALIZACIÓN". React Navigation no vuelve a montar la pantalla
+   * —ya está en la pila—, sólo le cambia los parámetros, así que sin esto el
+   * vendedor tocaba la opción y se quedaba mirando la portada.
+   */
+  useEffect(() => {
+    if (route.params?.seccion) setSeccion(route.params.seccion)
+  }, [route.params?.seccion])
+
+  useEffect(() => {
+    if (!seccion) return
+    const suscripcion = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSeccion(null)
+      return true
+    })
+    return () => suscripcion.remove()
+  }, [seccion])
+
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Menu')} />
+      <Encabezado />
 
-      <Panel contentStyle={estilos.contenido}>
-        <BarraPanel alVolver={() => navigation.goBack()} />
+      <Panel contentStyle={estilos.contenido} subirAlTopeCuando={seccion ?? 'portada'}>
+        <BarraPanel alVolver={volver} />
 
         <TituloPanel>CONFIGURACIÓN</TituloPanel>
 
-        <View style={estilos.tarjeta}>
-          <Text style={estilos.tarjetaTitulo}>TU CUENTA</Text>
-          <Dato etiqueta="Nombre" valor={perfil?.nombre_completo ?? '—'} />
-          <Dato etiqueta="Rol" valor={etiquetaVendedor(perfil)} />
-          <Dato etiqueta="Usuario" valor={perfil?.email ?? '—'} />
-          <Dato etiqueta="Teléfono" valor={perfil?.telefono ?? 'Sin cargar'} />
-        </View>
-
-        <View style={estilos.tarjeta}>
-          <Text style={estilos.tarjetaTitulo}>ESTE TELÉFONO</Text>
-          <Dato etiqueta="Código" valor={instalacion} />
-          <Dato
-            etiqueta="Versión"
-            valor={`${Constants.expoConfig?.version ?? '—'} (${Constants.expoConfig?.extra?.variante ?? 'interno'})`}
-          />
-          <Dato etiqueta="Actualizaciones" valor={comoSeActualizaEsteTelefono()} />
-          <Dato etiqueta="Seguimiento" valor={siguiendo ? 'Activo' : 'Detenido'} />
-        </View>
-
-        {siguiendo ? (
-          <Aviso tono="atencion" titulo="Seguimiento activo">
-            La oficina está viendo tu ubicación. Se corta solo al finalizar el recorrido.
-          </Aviso>
-        ) : null}
-
-        {/*
-          El botón alterna. Antes sólo aparecía con el seguimiento activo, y su
-          propia acción lo desmontaba: era una puerta de un solo sentido. El
-          cartel prometía "el recorrido sigue abierto", pero no había forma de
-          volver a prenderlo sin cerrar la jornada y empezar otra.
-        */}
-        {jornadaAbierta ? (
-          <BotonSecundario
-            titulo={siguiendo ? 'Detener el seguimiento' : 'Reanudar el seguimiento'}
-            cargando={cambiandoSeguimiento}
-            alTocar={() =>
-              siguiendo
-                ? Alert.alert(
-                    'Detener el seguimiento',
-                    'La oficina va a dejar de ver tu ubicación. El recorrido sigue abierto y lo podés reanudar desde acá mismo.',
-                    [
-                      { text: 'Volver', style: 'cancel' },
-                      {
-                        text: 'Detener',
-                        style: 'destructive',
-                        onPress: async () => {
-                          setCambiandoSeguimiento(true)
-                          try {
-                            await detenerSeguimiento(perfil?.id)
-                            setSiguiendo(false)
-                          } finally {
-                            setCambiandoSeguimiento(false)
-                          }
-                        },
-                      },
-                    ],
-                  )
-                : void (async () => {
-                    setCambiandoSeguimiento(true)
-                    try {
-                      await iniciarSeguimiento({
-                        vendedorId: perfil!.id,
-                        rolVisitaId: jornadaAbierta,
-                      })
-                      setSiguiendo(true)
-                    } catch (e) {
-                      Alert.alert('No pudimos reanudar el seguimiento', (e as Error).message)
-                    } finally {
-                      setCambiandoSeguimiento(false)
-                    }
-                  })()
+        {seccion === 'tamano' ? (
+          <SeccionTamano />
+        ) : seccion === 'tema' ? (
+          <SeccionTema />
+        ) : seccion === 'actualizaciones' ? (
+          <SeccionActualizaciones
+            buscando={buscandoUpdate}
+            alBuscar={buscarActualizacion}
+            alReportar={() =>
+              navigation.navigate('ReportarProblema', {
+                motivo: MOTIVO_NO_SE_ACTUALIZO,
+                pantalla: 'Configuración · Actualizaciones',
+              })
             }
           />
-        ) : null}
+        ) : (
+          <>
+            {/* ── La portada del mockup ─────────────────────────────── */}
+            <BotonMenu
+              titulo="TAMAÑO DE LA LETRA"
+              subtitulo={resumenDelTamano()}
+              alTocar={() => setSeccion('tamano')}
+            />
+            <BotonMenu
+              titulo="TEMA OSCURO/CLARO"
+              subtitulo={temaPuesto === 'oscuro' ? 'Oscuro' : 'Claro'}
+              alTocar={() => setSeccion('tema')}
+            />
+            <BotonMenu
+              titulo="REPORTAR UN PROBLEMA"
+              subtitulo="Le llega a Marketing con la versión de tu app"
+              alTocar={() =>
+                navigation.navigate('ReportarProblema', { pantalla: 'Configuración' })
+              }
+            />
+            <BotonMenu
+              titulo="ACTUALIZACIONES"
+              subtitulo={`Versión ${Constants.expoConfig?.version ?? '—'}`}
+              alTocar={() => setSeccion('actualizaciones')}
+            />
 
-        <BotonSecundario
-          titulo="Buscar actualizaciones"
-          alTocar={buscarActualizacion}
-          cargando={buscandoUpdate}
-        />
+            <View style={estilos.tarjeta}>
+              <Text style={estilos.tarjetaTitulo}>TU CUENTA</Text>
+              <Dato etiqueta="Nombre" valor={perfil?.nombre_completo ?? '—'} />
+              <Dato etiqueta="Rol" valor={etiquetaVendedor(perfil)} />
+              <Dato etiqueta="Usuario" valor={perfil?.email ?? '—'} />
+              <Dato etiqueta="Teléfono" valor={perfil?.telefono ?? 'Sin cargar'} />
+            </View>
 
-        <BotonMenu
-          titulo="CERRAR SESIÓN"
-          alTocar={() =>
-            Alert.alert('Cerrar sesión', '¿Seguro que querés salir?', [
-              { text: 'Volver', style: 'cancel' },
-              { text: 'Salir', style: 'destructive', onPress: () => void cerrarSesion() },
-            ])
-          }
-        />
+            <View style={estilos.tarjeta}>
+              <Text style={estilos.tarjetaTitulo}>ESTE TELÉFONO</Text>
+              <Dato etiqueta="Código" valor={instalacion} />
+              <Dato
+                etiqueta="Versión"
+                valor={`${Constants.expoConfig?.version ?? '—'} (${Constants.expoConfig?.extra?.variante ?? 'interno'})`}
+              />
+              <Dato etiqueta="Actualizaciones" valor={comoSeActualizaEsteTelefono()} />
+              <Dato etiqueta="Seguimiento" valor={siguiendo ? 'Activo' : 'Detenido'} />
+            </View>
 
-        <Text style={estilos.pie}>
-          WoodTools S.R.L. · Aplicación de uso interno.{'\n'}
-          Tu ubicación se registra mientras el recorrido está en curso, y una vez al marcar tu
-          entrada y otra al marcar tu salida. Fuera de eso, no.
-        </Text>
+            {siguiendo ? (
+              <Aviso tono="atencion" titulo="Seguimiento activo">
+                La oficina está viendo tu ubicación. Se corta solo al finalizar el recorrido.
+              </Aviso>
+            ) : null}
+
+            {/*
+              El botón alterna. Antes sólo aparecía con el seguimiento activo, y su
+              propia acción lo desmontaba: era una puerta de un solo sentido. El
+              cartel prometía "el recorrido sigue abierto", pero no había forma de
+              volver a prenderlo sin cerrar la jornada y empezar otra.
+            */}
+            {jornadaAbierta ? (
+              <BotonSecundario
+                titulo={siguiendo ? 'Detener el seguimiento' : 'Reanudar el seguimiento'}
+                cargando={cambiandoSeguimiento}
+                alTocar={() =>
+                  siguiendo
+                    ? Alert.alert(
+                        'Detener el seguimiento',
+                        'La oficina va a dejar de ver tu ubicación. El recorrido sigue abierto y lo podés reanudar desde acá mismo.',
+                        [
+                          { text: 'Volver', style: 'cancel' },
+                          {
+                            text: 'Detener',
+                            style: 'destructive',
+                            onPress: async () => {
+                              setCambiandoSeguimiento(true)
+                              try {
+                                await detenerSeguimiento(perfil?.id)
+                                setSiguiendo(false)
+                              } finally {
+                                setCambiandoSeguimiento(false)
+                              }
+                            },
+                          },
+                        ],
+                      )
+                    : void (async () => {
+                        setCambiandoSeguimiento(true)
+                        try {
+                          await iniciarSeguimiento({
+                            vendedorId: perfil!.id,
+                            rolVisitaId: jornadaAbierta,
+                          })
+                          setSiguiendo(true)
+                        } catch (e) {
+                          Alert.alert('No pudimos reanudar el seguimiento', (e as Error).message)
+                        } finally {
+                          setCambiandoSeguimiento(false)
+                        }
+                      })()
+                }
+              />
+            ) : null}
+
+            <BotonMenu
+              titulo="CERRAR SESIÓN"
+              alTocar={() =>
+                Alert.alert('Cerrar sesión', '¿Seguro que querés salir?', [
+                  { text: 'Volver', style: 'cancel' },
+                  { text: 'Salir', style: 'destructive', onPress: () => void cerrarSesion() },
+                ])
+              }
+            />
+
+            <Text style={estilos.pie}>
+              WoodTools S.R.L. · Aplicación de uso interno.{'\n'}
+              Tu ubicación se registra mientras el recorrido está en curso, y una vez al marcar tu
+              entrada y otra al marcar tu salida. Fuera de eso, no.
+            </Text>
+          </>
+        )}
       </Panel>
     </Pantalla>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El tamaño de la letra
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La barra del mockup, con la casilla que faltaba: "usar el tamaño del
+ * celular".
+ *
+ * ─── Qué hace la casilla ────────────────────────────────────────────────────
+ *
+ * Tildada, la app no toca nada y la letra sale del tamaño que el vendedor puso
+ * en los ajustes de Android. Es lo que corresponde por defecto: el que ve mal
+ * ya le agrandó la letra a TODO el teléfono, y una app que ignora eso es una
+ * app que le hace repetir el trabajo.
+ *
+ * Destildada manda la barra, y el 50 es el tamaño con el que se dibujó la app.
+ *
+ * ─── Por qué mover la barra destilda sola ───────────────────────────────────
+ *
+ * Porque si no, mover la barra no haría nada visible y el vendedor concluiría
+ * que está rota. Obligarlo a destildar primero es un paso previo para la única
+ * acción de la pantalla.
+ */
+function SeccionTamano() {
+  const estilos = usarEstilos()
+  const porcentaje = usarAjustesDeTema((s) => s.porcentajeLetra)
+  const delCelular = usarAjustesDeTema((s) => s.letraDelCelular)
+  const ponerPorcentaje = usarAjustesDeTema((s) => s.ponerPorcentajeLetra)
+  const ponerDelCelular = usarAjustesDeTema((s) => s.ponerLetraDelCelular)
+
+  return (
+    <View style={estilos.seccion}>
+      <Text style={estilos.seccionTitulo}>TAMAÑO DE LA LETRA</Text>
+
+      <Deslizador
+        valor={porcentaje}
+        minimo={0}
+        maximo={100}
+        paso={PASO_DE_LA_BARRA}
+        accessibilityLabel="Tamaño de la letra"
+        alCambiar={(v) => {
+          if (delCelular) ponerDelCelular(false)
+          ponerPorcentaje(v)
+        }}
+      />
+
+      <Text style={estilos.valorBarra}>{porcentaje}</Text>
+
+      <Casilla
+        etiqueta="USAR EL TAMAÑO DEL CELULAR"
+        valor={delCelular}
+        alCambiar={ponerDelCelular}
+      />
+
+      {/*
+        La prueba se hace acá y con las letras de verdad de la app: elegir un
+        número a ciegas y descubrir el resultado tres pantallas después es lo
+        que hace que nadie toque esto dos veces.
+      */}
+      <View style={estilos.muestra}>
+        <Text style={estilos.muestraTitulo}>ASÍ SE VA A VER</Text>
+        <Text style={estilos.muestraGrande}>NOTA DE PEDIDO</Text>
+        <Text style={estilos.muestraNormal}>3149 · AGLOLAM S.A.</Text>
+        <Text style={estilos.muestraChica}>
+          Sierra circular Ø 300 · 96 dientes · afilado 8001 · $ 248,85 por diente
+        </Text>
+      </View>
+
+      <Aviso tono="info" titulo="Se guarda en este teléfono">
+        El tamaño es de este aparato, no de tu cuenta: si mañana usás otro, ese otro tiene su
+        propia pantalla y su propio ajuste.
+      </Aviso>
+    </View>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El tema
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SeccionTema() {
+  const estilos = usarEstilos()
+  const modo = usarAjustesDeTema((s) => s.modo)
+  const ponerModo = usarAjustesDeTema((s) => s.ponerModo)
+
+  return (
+    <View style={estilos.seccion}>
+      <Text style={estilos.seccionTitulo}>TEMA OSCURO/CLARO</Text>
+
+      {/*
+        Cambia al instante, sin confirmar y sin reiniciar. Es la única forma de
+        elegir un tema: se elige mirando.
+      */}
+      <Opcion
+        etiqueta="TEMA OSCURO  🌙"
+        descripcion="Fondo oscuro y letra clara. Para el galpón y para la noche."
+        seleccionada={modo === 'oscuro'}
+        alSeleccionar={() => ponerModo('oscuro')}
+      />
+
+      <Opcion
+        etiqueta="TEMA CLARO  ☀"
+        descripcion="El de siempre: fondo rojo de la marca y panel gris."
+        seleccionada={modo === 'claro'}
+        alSeleccionar={() => ponerModo('claro')}
+      />
+
+      <Aviso tono="info" titulo="Al sol se ve mejor el claro">
+        El tema oscuro gasta menos batería y cansa menos la vista adentro, pero a pleno sol el
+        claro se lee bastante mejor.
+      </Aviso>
+    </View>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actualizaciones
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SeccionActualizaciones({
+  buscando,
+  alBuscar,
+  alReportar,
+}: {
+  buscando: boolean
+  alBuscar: () => void
+  alReportar: () => void
+}) {
+  const estilos = usarEstilos()
+
+  return (
+    <View style={estilos.seccion}>
+      <Text style={estilos.seccionTitulo}>ACTUALIZACIONES</Text>
+
+      <Text style={estilos.version}>
+        Versión actual: {Constants.expoConfig?.version ?? '—'}
+      </Text>
+      <Text style={estilos.versionDetalle}>{comoSeActualizaEsteTelefono()}</Text>
+
+      <BotonMenu titulo="BUSCAR ACTUALIZACIONES" alTocar={alBuscar} cargando={buscando} />
+
+      {/*
+        El enlace del mockup.
+        No abre una pantalla de ayuda: abre el reporte de problema con el motivo
+        ya elegido. El que lo toca ya dijo cuál es su problema, y volver a
+        preguntárselo sería no haberlo escuchado. Del otro lado, Marketing
+        recibe el reporte con la versión que ESTÁ CORRIENDO —no la que dice el
+        APK—, que es lo único con lo que se puede contestar por qué no se
+        actualizó.
+      */}
+      <Pressable
+        onPress={alReportar}
+        accessibilityRole="button"
+        style={({ pressed }) => [estilos.enlace, pressed && estilos.enlaceTocado]}
+      >
+        <Text style={estilos.enlaceTexto}>¿No se te actualizó?</Text>
+      </Pressable>
+    </View>
   )
 }
 
@@ -348,6 +631,7 @@ function comoSeActualizaEsteTelefono(): string {
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.dato}>
       <Text style={estilos.datoEtiqueta}>{etiqueta}</Text>
@@ -358,19 +642,92 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
-  tarjeta: {
-    backgroundColor: colores.campoBlanco,
+
+  seccion: { gap: espaciado.md },
+  seccionTitulo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
+    textAlign: 'center',
+    letterSpacing: 0.8,
+  },
+  valorBarra: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
+    textAlign: 'center',
+    marginTop: -espaciado.sm,
+  },
+
+  muestra: {
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: espaciado.xs,
+  },
+  muestraTitulo: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
+    letterSpacing: 1,
+  },
+  muestraGrande: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tinta,
+  },
+  muestraNormal: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+  },
+  muestraChica: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    lineHeight: t.tipografia.tamano.xs * t.tipografia.interlineado.normal,
+  },
+
+  version: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+    textAlign: 'center',
+  },
+  versionDetalle: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    textAlign: 'center',
+    marginTop: -espaciado.sm,
+  },
+  enlace: {
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enlaceTocado: { opacity: 0.6 },
+  enlaceTexto: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+    textDecorationLine: 'underline',
+  },
+  tarjeta: {
+    backgroundColor: t.colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
   },
   tarjetaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojo,
     letterSpacing: 1,
     marginBottom: espaciado.sm,
   },
@@ -380,25 +737,25 @@ const estilos = StyleSheet.create({
     gap: espaciado.md,
     paddingVertical: espaciado.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
   },
   datoEtiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   datoValor: {
     flexShrink: 1,
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   pie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginTop: espaciado.base,
-    lineHeight: tipografia.tamano.micro * 1.6,
+    lineHeight: t.tipografia.tamano.micro * 1.6,
   },
-})
+}))

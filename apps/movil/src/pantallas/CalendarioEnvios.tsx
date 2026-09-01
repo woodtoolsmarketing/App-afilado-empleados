@@ -1,14 +1,8 @@
 import DateTimePicker from '@react-native-community/datetimepicker'
-import {
-  colores,
-  espaciado,
-  formatearFechaCorta,
-  radios,
-  tipografia,
-} from '@woodtools/compartido'
+import { espaciado, formatearFechaCorta, radios } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -17,6 +11,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { usarSesion } from '../nucleo/sesion'
 import { diasAgendados } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "CALENDARIO DE ENVÍOS"
@@ -43,6 +38,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * cuatro días.
  */
 export function PantallaCalendarioEnvios({ navigation }: PropsPantalla<'CalendarioEnvios'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const [eligiendoFecha, setEligiendoFecha] = useState(false)
 
@@ -54,7 +51,7 @@ export function PantallaCalendarioEnvios({ navigation }: PropsPantalla<'Calendar
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -151,26 +148,26 @@ function hoyISO(): string {
   return fechaLocalISO(new Date())
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.sm },
   lista: { gap: espaciado.xs },
   dia: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
     padding: espaciado.sm,
   },
   diaIzquierda: { gap: 2 },
   fecha: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   cuantos: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
-})
+}))

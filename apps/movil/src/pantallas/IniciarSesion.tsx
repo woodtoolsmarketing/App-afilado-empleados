@@ -1,11 +1,4 @@
-import {
-  colores,
-  espaciado,
-  radios,
-  tipografia,
-  validarLogin,
-  type CampoLogin,
-} from '@woodtools/compartido'
+import { espaciado, radios, validarLogin, type CampoLogin } from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -14,7 +7,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -25,6 +17,7 @@ import { Campo } from '../componentes/Formulario'
 import { Aviso } from '../componentes/Estado'
 import { Pantalla } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Pantalla de inicio de sesión.
@@ -38,6 +31,7 @@ import { usarSesion } from '../nucleo/sesion'
  *    resuelve después del login, en `usarSesion`.
  */
 export function PantallaIniciarSesion() {
+  const estilos = usarEstilos()
   const { iniciarSesion, procesando, errorAcceso, usuarioRecordado, recuperarContrasena } =
     usarSesion()
 
@@ -201,7 +195,7 @@ export function PantallaIniciarSesion() {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: {
     flexGrow: 1,
@@ -214,18 +208,28 @@ const estilos = StyleSheet.create({
     width: '65%',
     height: 110,
     alignSelf: 'center',
-    backgroundColor: colores.blanco,
+    backgroundColor: t.colores.blanco,
     borderRadius: radios.base,
     marginBottom: espaciado.sm,
   },
   titulo: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.display,
-    color: colores.negro,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.display,
+    /*
+     * Negro sobre el rojo de la marca, blanco sobre el fondo oscuro.
+     *
+     * El título va sobre el fondo de la pantalla, no sobre el panel. En el
+     * tema claro ese fondo es el rojo #B30F0F y el negro se recorta contra él;
+     * en el oscuro el fondo es casi negro y el título se volvía una mancha con
+     * el halo blanco alrededor y ninguna letra adentro.
+     */
+    color: t.oscuro ? t.colores.blanco : t.colores.negro,
     textAlign: 'center',
     letterSpacing: 0.5,
     marginBottom: espaciado.sm,
-    textShadowColor: 'rgba(255,255,255,0.35)',
+    // El halo blanco existe para despegar el negro del rojo. Con la letra ya
+    // blanca no separa nada: sería un blanco alrededor de un blanco.
+    textShadowColor: t.oscuro ? 'transparent' : 'rgba(255,255,255,0.35)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 12,
   },
@@ -237,9 +241,9 @@ const estilos = StyleSheet.create({
     paddingVertical: espaciado.xs,
   },
   olvideTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.blanco,
     textDecorationLine: 'underline',
   },
   recordarFila: {
@@ -252,36 +256,36 @@ const estilos = StyleSheet.create({
     width: 32,
     height: 32,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campo,
+    backgroundColor: t.colores.campo,
     alignItems: 'center',
     justifyContent: 'center',
   },
   recordarMarcada: {
-    backgroundColor: colores.verde,
+    backgroundColor: t.colores.verde,
   },
   recordarTilde: {
-    fontFamily: tipografia.familia.titulo,
+    fontFamily: t.tipografia.familia.titulo,
     fontSize: 20,
     lineHeight: 24,
-    color: colores.negro,
+    color: t.colores.negro,
   },
   recordarTexto: {
     flex: 1,
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.blanco,
   },
   boton: {
     marginTop: espaciado.sm,
     minWidth: 260,
   },
   pie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
     color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
     marginTop: espaciado.lg,
   },
-})
+}))

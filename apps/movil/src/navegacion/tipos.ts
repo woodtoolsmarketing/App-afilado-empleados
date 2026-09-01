@@ -1,6 +1,15 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import type { ModoDestino } from '@woodtools/compartido'
 
+/**
+ * Las partes de CONFIGURACIÓN que se abren adentro de la pantalla.
+ *
+ * "Reportar un problema" es la cuarta opción del mockup y no está acá: es una
+ * pantalla propia, porque se llega también desde el menú de las tres rayas y
+ * desde el enlace "¿No se te actualizó?".
+ */
+export type SeccionDeConfiguracion = 'tamano' | 'tema' | 'actualizaciones'
+
 /** Rutas de la app y qué parámetros espera cada una. */
 export type ParametrosApp = {
   Menu: undefined
@@ -16,17 +25,50 @@ export type ParametrosApp = {
    * mapa—, sólo cambia en qué jornada cae.
    */
   AgregarDestino: {
-    volverA?: 'Visitas' | 'Recorrido' | 'CalendarioEnvios'
+    volverA?: 'Visitas' | 'Recorrido' | 'CalendarioEnvios' | 'CalendarioVisitas'
     modo?: ModoDestino
     fecha?: string
+    /**
+     * Con quién arranca escrito el buscador de clientes.
+     *
+     * Lo usa el calendario cuando ofrece "UBICARLO EN EL MAPA" sobre un cliente
+     * que el plan sugiere y todavía no tiene dirección: ese cliente ya está
+     * nombrado en la pantalla de la que se viene, y hacérselo tipear de nuevo
+     * sería pedirle que busque lo que acaba de señalar.
+     */
+    buscarA?: string
   }
   /** La agenda: qué hay comprometido para los próximos días. */
   CalendarioEnvios: undefined
+  /**
+   * La semana completa: a quién hay que ver cada día y a qué hora.
+   *
+   * `fecha` (ISO) abre parado en la semana de ese día en vez de en la de hoy.
+   * Lo usa el que viene de otra pantalla mirando una fecha puntual.
+   */
+  CalendarioVisitas: { fecha?: string } | undefined
+  /** Los teléfonos de la oficina, para llamar o escribir por WhatsApp. */
+  ComunicacionInterna: undefined
   /** A quién toca visitar hoy según el rol maestro, para armar el recorrido. */
   ClientesDelDia: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
-  Configuracion: undefined
+  /**
+   * `seccion` abre directo en una de las cuatro partes.
+   *
+   * Es lo que necesita "BUSCAR ACTUALIZACIÓN" del menú de las tres rayas: si
+   * abriera la configuración en su portada, el que la eligió tendría que
+   * volver a elegirla adentro.
+   */
+  Configuracion: { seccion?: SeccionDeConfiguracion } | undefined
+  /**
+   * Contar un problema.
+   *
+   * `motivo` lo deja elegido de entrada: lo usa el enlace "¿No se te
+   * actualizó?", donde el vendedor ya dijo cuál es el problema al tocarlo y
+   * volver a preguntárselo sería no haberlo escuchado.
+   */
+  ReportarProblema: { motivo?: string; pantalla?: string } | undefined
   EnPreparacion: { modulo: string }
 
   // ── Notas de pedido (Paso 2) ──────────────────────────────────────────────

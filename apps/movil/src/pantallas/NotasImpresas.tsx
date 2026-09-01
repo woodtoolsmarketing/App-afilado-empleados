@@ -1,14 +1,12 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_TIPO_NOTA,
   formatearFechaCorta,
   formatearPesos,
   radios,
-  tipografia,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -16,6 +14,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { notasImpresas, type NotaResumen } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "NOTAS DE PEDIDO IMPRESAS"
@@ -31,6 +30,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Desde acá se abre el detalle, que es donde se puede volver a imprimir.
  */
 export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpresas'>) {
+  const estilos = usarEstilos()
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['notas-impresas'],
     queryFn: notasImpresas,
@@ -40,7 +40,7 @@ export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpres
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -92,6 +92,8 @@ export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpres
 }
 
 function FilaImpresa({ nota, alVer }: { nota: NotaResumen; alVer: () => void }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const sinNumero = nota.numero === null
 
   return (
@@ -133,31 +135,31 @@ function FilaImpresa({ nota, alVer }: { nota: NotaResumen; alVer: () => void }) 
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.sm },
 
   fila: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     minHeight: 78,
     justifyContent: 'center',
     gap: 2,
   },
-  tocada: { backgroundColor: colores.panelClaro },
+  tocada: { backgroundColor: t.colores.panelClaro },
 
   numero: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
-  numeroPendiente: { color: colores.tintaTenue },
+  numeroPendiente: { color: t.colores.tintaTenue },
   cliente: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   pastillas: {
     flexDirection: 'row',
@@ -167,22 +169,22 @@ const estilos = StyleSheet.create({
     marginTop: 3,
   },
   total: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   fecha: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     marginLeft: 'auto',
   },
 
   pie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginTop: espaciado.sm,
   },
-})
+}))

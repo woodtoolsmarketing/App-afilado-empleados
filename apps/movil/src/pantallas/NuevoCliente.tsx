@@ -1,9 +1,7 @@
 import {
   CLIENTE_NUEVO_VACIO,
-  colores,
   espaciado,
   radios,
-  tipografia,
   validarClienteNuevo,
   type CampoClienteNuevo,
   type FormularioClienteNuevo,
@@ -17,7 +15,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native'
@@ -30,6 +27,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { crearClienteProvisorio } from '../servicios/clientes'
 import { detallarDireccion, sugerirDirecciones, type SugerenciaDireccion } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "GENERAR NUEVO CLIENTE"
@@ -43,6 +41,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * ponga el código real.
  */
 export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'NuevoCliente'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const cliente = useQueryClient()
 
   const [form, setForm] = useState<FormularioClienteNuevo>({
@@ -180,7 +180,7 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <KeyboardAvoidingView
         style={estilos.flex}
@@ -308,7 +308,7 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
                       pressed && estilos.tocado,
                     ]}
                   >
-                    <Text style={estilos.botonRedondoTexto}>−</Text>
+                    <Text style={[estilos.botonRedondoTexto, estilos.botonQuitarTexto]}>−</Text>
                   </Pressable>
                 )}
               </View>
@@ -356,7 +356,7 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   medio: { maxWidth: 240 },
@@ -364,9 +364,9 @@ const estilos = StyleSheet.create({
 
   bloque: { gap: espaciado.xs },
   rotulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   filaTelefono: { flexDirection: 'row', alignItems: 'flex-start', gap: espaciado.sm },
 
@@ -375,43 +375,50 @@ const estilos = StyleSheet.create({
     height: 46,
     borderRadius: 23,
     borderWidth: 2.5,
-    borderColor: colores.negro,
-    backgroundColor: colores.verde,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.verde,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  botonQuitar: { backgroundColor: colores.panelOscuro },
+  botonQuitar: { backgroundColor: t.colores.panelOscuro },
   botonRedondoTexto: {
-    fontFamily: tipografia.familia.titulo,
+    fontFamily: t.tipografia.familia.titulo,
     fontSize: 24,
     lineHeight: 28,
-    color: colores.negro,
+    // El "+" va sobre el verde, que es el mismo en los dos temas: negro.
+    color: t.colores.negro,
   },
+  /*
+   * El "−" va sobre un gris que en el tema oscuro se da vuelta, así que su
+   * letra tiene que darse vuelta con él. Con el negro compartido quedaba un
+   * botón redondo vacío, indistinguible de uno deshabilitado.
+   */
+  botonQuitarTexto: { color: t.colores.tinta },
 
   sugerencias: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   sugerencia: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.md,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 60,
     justifyContent: 'center',
   },
   tocado: { opacity: 0.7 },
   sugerenciaPrincipal: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   sugerenciaSecundaria: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
-})
+}))

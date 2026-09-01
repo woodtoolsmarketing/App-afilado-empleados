@@ -1,12 +1,10 @@
 import {
-  colores,
   DESCRIPCION_PRIORIDAD,
   espaciado,
   ETIQUETA_PRIORIDAD,
   FORMULARIO_DESTINO_EXISTENTE_VACIO,
   FORMULARIO_DESTINO_NUEVO_VACIO,
   radios,
-  tipografia,
   validarDestinoExistente,
   validarDestinoNuevo,
   type CampoDestinoExistente,
@@ -25,7 +23,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native'
@@ -58,6 +55,7 @@ import {
   ubicacionActual,
 } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "AGREGAR NUEVO DESTINO"
@@ -80,7 +78,6 @@ export function PantallaAgregarDestino({ navigation, route }: PropsPantalla<'Agr
       <Selector
         alElegir={(m) => navigation.setParams({ modo: m })}
         alVolver={() => navigation.goBack()}
-        alAbrirMenu={() => navigation.navigate('Configuracion')}
       />
     )
   }
@@ -99,15 +96,14 @@ export function PantallaAgregarDestino({ navigation, route }: PropsPantalla<'Agr
 function Selector({
   alElegir,
   alVolver,
-  alAbrirMenu,
 }: {
   alElegir: (modo: 'existente' | 'nuevo') => void
   alVolver: () => void
-  alAbrirMenu: () => void
 }) {
+  const estilos = usarEstilos()
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={alAbrirMenu} />
+      <Encabezado />
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={alVolver} />
         <TituloPanel>{'AGREGAR NUEVO\nDESTINO'}</TituloPanel>
@@ -135,14 +131,39 @@ function Selector({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestino'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
-  const [form, setForm] = useState<FormularioDestinoExistente>(FORMULARIO_DESTINO_EXISTENTE_VACIO)
+  /*
+   * El formulario arranca con lo que se vino a buscar ya escrito.
+   *
+   * Va en el campo que corresponde: si son todos dígitos es un código de
+   * cliente, si no es la razón social. Escribirlo en el campo equivocado sería
+   * peor que no escribirlo, porque el vendedor tendría que borrarlo primero.
+   */
+  const aBuscar = (route.params?.buscarA ?? '').trim()
+  const [form, setForm] = useState<FormularioDestinoExistente>(() =>
+    aBuscar
+      ? {
+          ...FORMULARIO_DESTINO_EXISTENTE_VACIO,
+          ...(/^\d+$/.test(aBuscar) ? { codigo: aBuscar } : { razon_social: aBuscar }),
+        }
+      : FORMULARIO_DESTINO_EXISTENTE_VACIO,
+  )
   const [errores, setErrores] = useState<Partial<Record<CampoDestinoExistente, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
-  const [consulta, setConsulta] = useState('')
+  /**
+   * El buscador puede arrancar escrito.
+   *
+   * Lo usa el calendario de visitas cuando ofrece "UBICARLO EN EL MAPA" sobre
+   * un cliente que el plan sugiere y todavía no tiene dirección: ese cliente ya
+   * está nombrado en la pantalla de la que se viene, y hacérselo tipear de
+   * nuevo al vendedor sería pedirle que busque lo que acaba de señalar.
+   */
+  const [consulta, setConsulta] = useState(aBuscar)
   const [resultados, setResultados] = useState<ClienteBuscado[]>([])
   const [buscando, setBuscando] = useState(false)
   const [falloBusqueda, setFalloBusqueda] = useState<string | null>(null)
@@ -298,7 +319,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <KeyboardAvoidingView
         style={estilos.flex}
@@ -453,7 +474,6 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             />
           ) : null}
 
-
           <BotonMenu
             titulo={'AGREGAR AL\nRECORRIDO'}
             alTocar={alAgregar}
@@ -507,6 +527,8 @@ function UbicarCliente({
   cliente: ClienteBuscado
   alUbicar: (ubicada: ClienteUbicado) => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const faltaUbicar = cliente.lat === null
 
   // Si falta, no hay nada que decidir: se abre solo. Si ya está ubicado, el
@@ -722,6 +744,8 @@ function UbicarCliente({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
@@ -844,7 +868,7 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <KeyboardAvoidingView
         style={estilos.flex}
@@ -942,7 +966,6 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
             autoCapitalize="words"
           />
 
-
           <Aviso tono="info">
             El cliente se guarda como provisorio con un código automático. La oficina completa
             después el código real y los datos fiscales.
@@ -965,44 +988,44 @@ const ITEMS_PRIORIDAD = (['alta', 'media', 'baja'] as const).map((p) => ({
   descripcion: DESCRIPCION_PRIORIDAD[p],
 }))
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   campoCorto: { maxWidth: 220 },
 
   pregunta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
     marginBottom: espaciado.xs,
   },
 
   separadorO: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginVertical: -espaciado.xs,
   },
 
   sugerencias: {
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
   sugerencia: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.md,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 60,
     justifyContent: 'center',
     gap: 2,
   },
-  sugerenciaTocada: { backgroundColor: colores.panelClaro },
+  sugerenciaTocada: { backgroundColor: t.colores.panelClaro },
   sugerenciaFila: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1010,82 +1033,82 @@ const estilos = StyleSheet.create({
     flexWrap: 'wrap',
   },
   sugerenciaCodigo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
   },
   sugerenciaPrincipal: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   sugerenciaSecundaria: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   fichaCliente: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: 3,
   },
 
   ubicar: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderWidth: 2,
-    borderColor: colores.rojoAccion,
+    borderColor: t.colores.rojoAccion,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.sm,
   },
   // La corrección de algo que ya está bien no tiene por qué gritar como la
   // falta de algo imprescindible: mismo bloque, borde neutro.
-  ubicarCorreccion: { borderColor: colores.negro },
+  ubicarCorreccion: { borderColor: t.colores.borde },
   ubicarAyuda: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   corregir: {
     paddingVertical: espaciado.sm,
     paddingHorizontal: espaciado.md,
     borderWidth: 1,
-    borderColor: colores.panelOscuro,
+    borderColor: t.colores.panelOscuro,
     borderRadius: radios.sm,
     alignItems: 'center',
   },
   corregirTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   cancelar: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
     textDecorationLine: 'underline',
     paddingVertical: espaciado.xs,
   },
   fichaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
   },
   fichaDireccion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   fichaDato: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
-})
+}))

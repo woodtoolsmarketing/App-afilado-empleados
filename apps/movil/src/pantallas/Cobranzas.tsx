@@ -1,15 +1,7 @@
-import {
-  aNumero,
-  colores,
-  espaciado,
-  formatearPesos,
-  radios,
-  soloNumeros,
-  tipografia,
-} from '@woodtools/compartido'
+import { aNumero, espaciado, formatearPesos, radios, soloNumeros } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -19,6 +11,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { cobranzasDelDia, registrarCobranza } from '../servicios/cobranzas'
 import { imprimirPlanillaCobranzas } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "COBRANZAS DEL DÍA"
@@ -36,6 +29,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * una factura de la semana pasada, por ejemplo.
  */
 export function PantallaCobranzas({ navigation, route }: PropsPantalla<'Cobranzas'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const cliente = useQueryClient()
   const [cargando, setCargando] = useState(false)
 
@@ -58,7 +53,7 @@ export function PantallaCobranzas({ navigation, route }: PropsPantalla<'Cobranza
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -152,6 +147,7 @@ function FormularioCobro({
   tipoSugerido: 'factura' | 'presupuesto'
   alGuardar: () => void
 }) {
+  const estilos = usarEstilos()
   const [abierto, setAbierto] = useState(!!clienteNombre)
   const [nombre, setNombre] = useState(clienteNombre)
   const [codigo, setCodigo] = useState(clienteCodigo ?? '')
@@ -297,37 +293,37 @@ function aPesos(texto: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   lista: { gap: espaciado.sm },
   fila: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: espaciado.sm,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
     padding: espaciado.sm,
   },
   filaIzquierda: { flex: 1, gap: espaciado.xs },
-  cliente: { fontFamily: tipografia.familia.fuerte, fontSize: tipografia.tamano.sm, color: colores.tinta },
+  cliente: { fontFamily: t.tipografia.familia.fuerte, fontSize: t.tipografia.tamano.sm, color: t.colores.tinta },
   pastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
   comentario: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
-  monto: { fontFamily: tipografia.familia.fuerte, fontSize: tipografia.tamano.base, color: colores.tinta },
+  monto: { fontFamily: t.tipografia.familia.fuerte, fontSize: t.tipografia.tamano.base, color: t.colores.tinta },
   totalFila: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 2,
-    borderTopColor: colores.tinta,
+    borderTopColor: t.colores.tinta,
     paddingTop: espaciado.sm,
     marginTop: espaciado.xs,
   },
-  totalRotulo: { fontFamily: tipografia.familia.fuerte, fontSize: tipografia.tamano.sm, color: colores.tinta },
-  totalMonto: { fontFamily: tipografia.familia.fuerte, fontSize: tipografia.tamano.lg, color: colores.rojo },
+  totalRotulo: { fontFamily: t.tipografia.familia.fuerte, fontSize: t.tipografia.tamano.sm, color: t.colores.tinta },
+  totalMonto: { fontFamily: t.tipografia.familia.fuerte, fontSize: t.tipografia.tamano.lg, color: t.colores.rojo },
   par: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
-})
+}))

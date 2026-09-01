@@ -1,17 +1,27 @@
-import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
+import { espaciado, radios } from '@woodtools/compartido'
 import { Image } from 'expo-image'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { useState } from 'react'
+import { Pressable, Text, View } from 'react-native'
 
+import { MenuLateral } from './MenuLateral'
 import { usarFotoDePerfil } from '../nucleo/foto'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
- * Encabezado fijo sobre el fondo rojo: menú lateral, foto y nombre del
+ * Encabezado fijo sobre el fondo de la marca: las tres rayas, foto y nombre del
  * vendedor a la izquierda, logo de WoodTools a la derecha.
+ *
+ * El menú desplegable vive acá adentro, y esa es la razón por la que existe en
+ * las 27 pantallas: el encabezado ya estaba en todas. Si el estado de "abierto"
+ * lo llevara cada pantalla, cada una tendría que acordarse de pasarlo, y la que
+ * se olvide se queda sin menú sin que se entere nadie.
  */
 
-export function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
+export function Encabezado({ alAbrirMenu }: { alAbrirMenu?: () => void }) {
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
+  const [menuAbierto, setMenuAbierto] = useState(false)
   // La foto vive en un bucket privado: lo que hay guardado es la ruta, no una
   // dirección. Hasta que llega la URL firmada se muestran las iniciales.
   const foto = usarFotoDePerfil(perfil?.foto_url)
@@ -19,7 +29,7 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
   return (
     <View style={estilos.contenedor}>
       <Pressable
-        onPress={alAbrirMenu}
+        onPress={alAbrirMenu ?? (() => setMenuAbierto(true))}
         hitSlop={14}
         accessibilityRole="button"
         accessibilityLabel="Abrir menú"
@@ -63,6 +73,8 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
         contentFit="contain"
         accessibilityLabel="WoodTools S.R.L."
       />
+
+      <MenuLateral abierto={menuAbierto} alCerrar={() => setMenuAbierto(false)} />
     </View>
   )
 }
@@ -76,7 +88,7 @@ function iniciales(nombre?: string | null): string {
     .join('')
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenedor: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -93,7 +105,7 @@ const estilos = StyleSheet.create({
   linea: {
     height: 3.5,
     borderRadius: 2,
-    backgroundColor: colores.blanco,
+    backgroundColor: t.colores.blanco,
   },
   presionado: { opacity: 0.6 },
 
@@ -108,9 +120,9 @@ const estilos = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     borderWidth: 2,
-    borderColor: colores.blanco,
+    borderColor: t.colores.blanco,
     overflow: 'hidden',
-    backgroundColor: colores.panelOscuro,
+    backgroundColor: t.colores.panelOscuro,
   },
   avatar: {
     width: '100%',
@@ -119,30 +131,30 @@ const estilos = StyleSheet.create({
   avatarVacio: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colores.rojoOscuro,
+    backgroundColor: t.colores.rojoOscuro,
   },
   iniciales: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.blanco,
   },
   textos: {
     flex: 1,
   },
   nombre: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.blanco,
   },
   rol: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
     color: 'rgba(255,255,255,0.9)',
   },
   logo: {
     width: 104,
     height: 46,
-    backgroundColor: colores.blanco,
+    backgroundColor: t.colores.blanco,
     borderRadius: radios.sm,
   },
-})
+}))

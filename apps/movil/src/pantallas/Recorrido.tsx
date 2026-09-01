@@ -1,20 +1,19 @@
 import {
-  colores,
+  distanciaEnMetros,
   espaciado,
   ETIQUETA_ESTADO_PARADA,
   ETIQUETA_PRIORIDAD,
-  distanciaEnMetros,
   formatearDistancia,
   formatearDuracion,
   radios,
-  tipografia,
-  type EstadoParada,
-  type ParadaCompleta,
   todaviaNoLeToca,
+  type EstadoParada,
+  type Paleta,
+  type ParadaCompleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, AppState, Pressable, Text, View } from 'react-native'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -36,6 +35,7 @@ import {
   ubicacionActual,
 } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "ESTE ES TU RECORRIDO DEL DÍA DE HOY"
@@ -45,6 +45,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * el parte de cada visita.
  */
 export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrido'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
   const mapa = useRef<MapView>(null)
@@ -278,7 +280,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -353,7 +355,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                     coordinate={{ latitude: p.direccion.lat, longitude: p.direccion.lng }}
                     title={`${p.orden}. ${p.cliente?.razon_social ?? p.razon_social_snapshot ?? 'Destino'}`}
                     description={p.direccion.direccion_formateada}
-                    pinColor={colorDeEstado(p.estado)}
+                    pinColor={colorDeEstado(p.estado, colores)}
                   />
                 ))}
               </MapView>
@@ -459,6 +461,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 }
 
 function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () => void }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const resuelta = parada.estado === 'visitada' || parada.estado === 'no_visitada'
 
   return (
@@ -469,7 +473,7 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
       accessibilityRole={alTocar ? 'button' : 'text'}
       accessibilityLabel={`Destino ${parada.orden}, ${parada.cliente?.razon_social ?? 'sin cliente'}, ${ETIQUETA_ESTADO_PARADA[parada.estado]}`}
     >
-      <View style={[estilos.numero, { backgroundColor: colorDeEstado(parada.estado) }]}>
+      <View style={[estilos.numero, { backgroundColor: colorDeEstado(parada.estado, colores) }]}>
         <Text style={estilos.numeroTexto}>{parada.orden}</Text>
       </View>
 
@@ -484,7 +488,7 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
         <View style={estilos.filaPastillas}>
           <Pastilla
             texto={ETIQUETA_ESTADO_PARADA[parada.estado]}
-            color={colorDeEstado(parada.estado)}
+            color={colorDeEstado(parada.estado, colores)}
           />
           {parada.prioridad !== 'baja' ? (
             <Pastilla
@@ -505,7 +509,15 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
   )
 }
 
-function colorDeEstado(estado: EstadoParada): string {
+/**
+ * El color va como parametro y no se pide adentro.
+ *
+ * Esto no es un componente: es una cuenta. Pedirle el tema aca adentro seria
+ * llamar a un gancho de React desde una funcion que se invoca en medio de un
+ * `map`, y ahi React deja de poder contar cuantos ganchos tiene el dibujado.
+ * Se lo pasa el que dibuja, que si es un componente.
+ */
+function colorDeEstado(estado: EstadoParada, colores: Paleta): string {
   switch (estado) {
     case 'visitada':
       return colores.estadoVisitada
@@ -520,48 +532,48 @@ function colorDeEstado(estado: EstadoParada): string {
   }
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
 
   marcoMapa: {
     height: 300,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     overflow: 'hidden',
   },
   mapa: { flex: 1 },
 
   resumenRuta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
   },
 
   proxima: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   proximaEtiqueta: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 1,
   },
   proximaCliente: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
   },
   proximaDireccion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   proximaBotones: {
     flexDirection: 'row',
@@ -571,9 +583,9 @@ const estilos = StyleSheet.create({
   mitad: { flex: 1, minWidth: 0 },
 
   subtitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
     letterSpacing: 1,
     marginTop: espaciado.sm,
   },
@@ -582,9 +594,9 @@ const estilos = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: espaciado.md,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderWidth: 1.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.sm,
     minHeight: 76,
@@ -597,23 +609,23 @@ const estilos = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
   },
   numeroTexto: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.blanco,
   },
   filaTextos: { flex: 1, gap: 2 },
   filaCliente: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   filaDireccion: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   filaPastillas: {
     flexDirection: 'row',
@@ -622,8 +634,8 @@ const estilos = StyleSheet.create({
     marginTop: 2,
   },
   tildeFila: {
-    fontFamily: tipografia.familia.titulo,
+    fontFamily: t.tipografia.familia.titulo,
     fontSize: 22,
-    color: colores.verdeOscuro,
+    color: t.colores.verdeOscuro,
   },
-})
+}))

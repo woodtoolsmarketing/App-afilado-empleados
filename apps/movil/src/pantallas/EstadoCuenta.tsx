@@ -1,13 +1,14 @@
-import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
+import { espaciado, radios } from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Pantalla } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { usarSesion, VERSION_APP, type EstadoAcceso } from '../nucleo/sesion'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Pantalla de espera.
@@ -18,6 +19,7 @@ import { usarSesion, VERSION_APP, type EstadoAcceso } from '../nucleo/sesion'
  * tiene nada que corregir: tiene que esperar, y saber a quién avisarle.
  */
 export function PantallaEstadoCuenta() {
+  const estilos = usarEstilos()
   const { estado, perfil, cerrarSesion, refrescarPerfil } = usarSesion()
   const [instalacion, setInstalacion] = useState('')
   const [verificando, setVerificando] = useState(false)
@@ -186,7 +188,7 @@ const CONTENIDOS: Partial<Record<EstadoAcceso, Contenido>> = {
   },
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   centro: {
     flex: 1,
     alignItems: 'center',
@@ -197,37 +199,45 @@ const estilos = StyleSheet.create({
   logo: {
     width: 200,
     height: 78,
-    backgroundColor: colores.blanco,
+    backgroundColor: t.colores.blanco,
     borderRadius: radios.base,
     marginBottom: espaciado.sm,
   },
   icono: { fontSize: 54 },
   titulo: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xxl,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xxl,
+    color: t.colores.blanco,
     textAlign: 'center',
-    lineHeight: tipografia.tamano.xxl * tipografia.interlineado.ajustado,
+    lineHeight: t.tipografia.tamano.xxl * t.tipografia.interlineado.ajustado,
   },
   texto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
     color: 'rgba(255,255,255,0.92)',
     textAlign: 'center',
-    lineHeight: tipografia.tamano.sm * tipografia.interlineado.holgado,
+    lineHeight: t.tipografia.tamano.sm * t.tipografia.interlineado.holgado,
   },
   ficha: {
+    /*
+     * Un velo negro sobre el rojo de la marca recorta la ficha; sobre el fondo
+     * oscuro no recorta nada —negro al 22 % sobre negro— y los tres renglones
+     * quedaban flotando sueltos. Con el borde se leen como una caja en los dos
+     * temas sin cambiar el aspecto del claro.
+     */
     backgroundColor: 'rgba(0,0,0,0.22)',
+    borderWidth: t.oscuro ? 1.5 : 0,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
     alignSelf: 'stretch',
   },
   fichaLinea: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.blanco,
   },
-  fichaEtiqueta: { fontFamily: tipografia.familia.subtitulo },
+  fichaEtiqueta: { fontFamily: t.tipografia.familia.subtitulo },
   salir: { alignSelf: 'stretch', marginTop: espaciado.md },
-})
+}))

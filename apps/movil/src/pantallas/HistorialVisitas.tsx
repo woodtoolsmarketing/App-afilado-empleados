@@ -1,16 +1,15 @@
 import {
-  colores,
   espaciado,
   formatearDiaHistorial,
   formatearFechaCorta,
   formatearHora,
-  tipografia,
   TOQUE_MINIMO,
+  type Paleta,
 } from '@woodtools/compartido'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Desplegable } from '../componentes/Formulario'
@@ -24,6 +23,7 @@ import {
   type PeriodoHistorial,
 } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "HISTORIAL DE VISITAS"
@@ -37,6 +37,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * llegan los administradores.
  */
 export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
+  const estilos = usarEstilos()
   const [periodo, setPeriodo] = useState<PeriodoHistorial>('semana')
   const [desde, setDesde] = useState(() => new Date(Date.now() - 7 * 86_400_000))
   const [hasta, setHasta] = useState(() => new Date())
@@ -58,7 +59,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -165,6 +166,8 @@ function DiaAcordeon({
   alAlternar: () => void
   alElegir: (detalle: DetalleHistorial) => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const detalle = (dia.detalle ?? []).filter((d) => d.parada_id)
 
   return (
@@ -196,7 +199,7 @@ function DiaAcordeon({
                 accessibilityLabel={`${d.cliente}, ${textoEstado(d)}`}
                 style={({ pressed }) => [estilos.renglon, pressed && estilos.tocado]}
               >
-                <View style={[estilos.punto, { backgroundColor: colorRenglon(d) }]} />
+                <View style={[estilos.punto, { backgroundColor: colorRenglon(d, colores) }]} />
                 <Text style={estilos.renglonTexto} numberOfLines={2}>
                   <Text style={estilos.renglonCliente}>{d.cliente}: </Text>
                   {textoEstado(d)}
@@ -229,13 +232,21 @@ function textoEstado(d: DetalleHistorial): string {
   return 'Sin visitar'
 }
 
-function colorRenglon(d: DetalleHistorial): string {
+/**
+ * El color va como parametro y no se pide adentro.
+ *
+ * Esto no es un componente: es una cuenta. Pedirle el tema aca adentro seria
+ * llamar a un gancho de React desde una funcion que se invoca en medio de un
+ * `map`, y ahi React deja de poder contar cuantos ganchos tiene el dibujado.
+ * Se lo pasa el que dibuja, que si es un componente.
+ */
+function colorRenglon(d: DetalleHistorial, colores: Paleta): string {
   if (d.visitado === true) return colores.estadoVisitada
   if (d.visitado === false) return colores.estadoNoVisitada
   return colores.estadoOmitida
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   rango: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
@@ -252,20 +263,20 @@ const estilos = StyleSheet.create({
   },
   tocado: { opacity: 0.7 },
   diaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.xl,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tinta,
     letterSpacing: 0.4,
   },
   // El "3/8" se queda: dice cuántas de las planificadas se cumplieron, que es
   // información que el historial de notas no tiene y no se puede deducir.
   diaConteo: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
     marginLeft: 'auto',
   },
-  flecha: { fontSize: tipografia.tamano.lg, color: colores.tintaSuave },
+  flecha: { fontSize: t.tipografia.tamano.lg, color: t.colores.tintaSuave },
 
   diaCuerpo: { paddingBottom: espaciado.xs },
   renglon: {
@@ -277,26 +288,26 @@ const estilos = StyleSheet.create({
   punto: { width: 10, height: 10, borderRadius: 5 },
   renglonTexto: {
     flex: 1,
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
-    lineHeight: tipografia.tamano.xs * 1.4,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    lineHeight: t.tipografia.tamano.xs * 1.4,
   },
   renglonCliente: {
-    fontFamily: tipografia.familia.fuerte,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    color: t.colores.tinta,
   },
   sinDatos: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
     padding: espaciado.md,
   },
   nota: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginTop: espaciado.sm,
   },
-})
+}))

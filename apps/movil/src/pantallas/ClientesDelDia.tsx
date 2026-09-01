@@ -1,7 +1,7 @@
-import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
+import { espaciado, radios } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -17,6 +17,7 @@ import {
 import { optimizarRecorrido, previsualizarRecorrido } from '../servicios/mapas'
 import { ubicacionActual } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "CLIENTES DE HOY"
@@ -39,6 +40,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * destinos que nunca se visitaron.
  */
 export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDelDia'>) {
+  const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
   const [elegidos, setElegidos] = useState<Set<string>>(new Set())
@@ -128,7 +130,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -205,6 +207,8 @@ function Fila({
   elegido: boolean
   alTocar: () => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const sinUbicar = candidato.lat === null
 
   return (
@@ -251,47 +255,55 @@ function Fila({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.sm },
   ayuda: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   lista: { gap: espaciado.xs },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: espaciado.sm,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
     padding: espaciado.sm,
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  filaElegida: { borderColor: colores.verdeOscuro, backgroundColor: colores.blanco },
+  /*
+   * `campoBlanco` y no `blanco`: el blanco puro es el mismo en los dos temas,
+   * así que en el oscuro tildar un cliente lo pintaba de blanco y su razón
+   * social —que sí sigue al tema— quedaba en 1,1:1. El cliente elegido era el
+   * único que no se podía leer. `campoBlanco` es blanco en el tema claro y una
+   * superficie oscura en el otro, así que el efecto es el mismo y la letra se
+   * lee en los dos. Lo que marca cuál está elegido es el borde verde.
+   */
+  filaElegida: { borderColor: t.colores.verdeOscuro, backgroundColor: t.colores.campoBlanco },
   filaApagada: { opacity: 0.55 },
   tilde: {
     width: 26,
     height: 26,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: colores.tintaTenue,
+    borderColor: t.colores.tintaTenue,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tildeMarcado: { backgroundColor: colores.verdeOscuro, borderColor: colores.verdeOscuro },
-  tildeTexto: { color: colores.blanco, fontFamily: tipografia.familia.fuerte, fontSize: 16 },
+  tildeMarcado: { backgroundColor: t.colores.verdeOscuro, borderColor: t.colores.verdeOscuro },
+  tildeTexto: { color: t.colores.blanco, fontFamily: t.tipografia.familia.fuerte, fontSize: 16 },
   datos: { flex: 1, gap: 2 },
   nombre: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   direccion: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   pastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', marginTop: 2 },
-})
+}))

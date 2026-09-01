@@ -1,5 +1,4 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_ESTADO_PARADA,
   ETIQUETA_MOTIVO_NO_VISITA,
@@ -7,10 +6,9 @@ import {
   formatearFechaCorta,
   formatearHora,
   radios,
-  tipografia,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { Linking, StyleSheet, Text, View } from 'react-native'
+import { Linking, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -18,12 +16,15 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerDetalleParada } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Detalle de una visita del historial: qué se hizo y qué quedó escrito en las
  * observaciones.
  */
 export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'DetalleVisita'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const { paradaId, fecha } = route.params
 
   const { data: parada, isLoading, error, refetch, isRefetching } = useQuery({
@@ -35,7 +36,7 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} fecha={new Date(`${fecha}T12:00:00`)} />
@@ -158,6 +159,7 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.dato}>
       <Text style={estilos.datoEtiqueta}>{etiqueta}</Text>
@@ -167,6 +169,7 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 }
 
 function Marca({ etiqueta, activo }: { etiqueta: string; activo: boolean }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.marca}>
       <Text style={[estilos.marcaIcono, activo && estilos.marcaActiva]}>{activo ? '✓' : '·'}</Text>
@@ -175,41 +178,41 @@ function Marca({ etiqueta, activo }: { etiqueta: string; activo: boolean }) {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
 
   tarjeta: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
   },
   cliente: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
   },
   meta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   pastillas: { flexDirection: 'row', gap: espaciado.xs, marginTop: espaciado.xs },
 
   subtitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
     letterSpacing: 0.6,
     marginBottom: espaciado.xs,
   },
   observacion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
-    lineHeight: tipografia.tamano.sm * tipografia.interlineado.holgado,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    lineHeight: t.tipografia.tamano.sm * t.tipografia.interlineado.holgado,
   },
 
   dato: {
@@ -218,35 +221,35 @@ const estilos = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: espaciado.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     gap: espaciado.md,
   },
   datoEtiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   datoValor: {
     flexShrink: 1,
     textAlign: 'right',
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
 
   marca: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm, paddingVertical: 4 },
   marcaIcono: {
     width: 24,
     textAlign: 'center',
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tintaTenue,
   },
-  marcaActiva: { color: colores.verdeOscuro },
+  marcaActiva: { color: t.colores.verdeOscuro },
   marcaTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
-  marcaApagada: { color: colores.tintaTenue },
-})
+  marcaApagada: { color: t.colores.tintaTenue },
+}))

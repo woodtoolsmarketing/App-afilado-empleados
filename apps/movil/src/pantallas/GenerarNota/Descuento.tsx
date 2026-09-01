@@ -1,16 +1,15 @@
 import {
-  colores,
   DESCUENTOS_DISPONIBLES,
   descuentoDelRenglon,
   espaciado,
   formatearMoneda,
-  tipografia,
   totalDelRenglon,
   type FormularioItemNota,
 } from '@woodtools/compartido'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { Casilla, Desplegable } from '../../componentes/Formulario'
+import { hojaDeTema } from '../../nucleo/tema'
 
 /**
  * El descuento del renglón: la casilla que lo habilita y el porcentaje.
@@ -36,6 +35,7 @@ export function CampoDescuento({
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
   error?: string | null
 }) {
+  const estilos = usarEstilos()
   const porcentaje = descuentoDelRenglon(item)
 
   // El total de lista es el mismo renglón sin el descuento. Se recalcula en vez
@@ -86,16 +86,16 @@ export function CampoDescuento({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   cuenta: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     marginTop: -espaciado.xs,
     marginBottom: espaciado.sm,
   },
   resultado: {
-    fontFamily: tipografia.familia.fuerte,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.fuerte,
+    color: t.colores.verdeOscuro,
   },
-})
+}))

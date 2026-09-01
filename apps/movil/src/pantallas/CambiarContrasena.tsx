@@ -1,13 +1,14 @@
-import { colores, espaciado, radios, tipografia } from '@woodtools/compartido'
+import { espaciado, radios } from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import { useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput } from 'react-native'
+import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Campo } from '../componentes/Formulario'
 import { Aviso } from '../componentes/Estado'
 import { Pantalla } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Cambio obligatorio de la contraseña provisoria.
@@ -26,6 +27,7 @@ import { usarSesion } from '../nucleo/sesion'
 const LARGO_MINIMO = 6
 
 export function PantallaCambiarContrasena() {
+  const estilos = usarEstilos()
   const { perfil, cambiarContrasena, cerrarSesion } = usarSesion()
 
   const [nueva, setNueva] = useState('')
@@ -151,7 +153,7 @@ export function PantallaCambiarContrasena() {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: {
     flexGrow: 1,
@@ -164,14 +166,16 @@ const estilos = StyleSheet.create({
     width: '65%',
     height: 100,
     alignSelf: 'center',
-    backgroundColor: colores.blanco,
+    backgroundColor: t.colores.blanco,
     borderRadius: radios.base,
     marginBottom: espaciado.sm,
   },
   titulo: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
-    color: colores.negro,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    // Igual que en la pantalla de acceso: el título va sobre el fondo de la
+    // marca, así que en el tema oscuro tiene que darse vuelta.
+    color: t.oscuro ? t.colores.blanco : t.colores.negro,
     textAlign: 'center',
     letterSpacing: 0.5,
   },
@@ -180,10 +184,10 @@ const estilos = StyleSheet.create({
     minWidth: 260,
   },
   pie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
     color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
     marginTop: espaciado.md,
   },
-})
+}))

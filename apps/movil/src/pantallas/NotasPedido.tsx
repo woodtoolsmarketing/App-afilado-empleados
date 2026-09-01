@@ -1,6 +1,6 @@
-import { colores, espaciado, tipografia } from '@woodtools/compartido'
+import { espaciado } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso } from '../componentes/Estado'
@@ -8,6 +8,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { notasPendientes } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * "NOTAS DE PEDIDO PENDIENTES: 7"
@@ -16,6 +17,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * primero, así que va en el título y no escondido adentro de una opción.
  */
 export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>) {
+  const estilos = usarEstilos()
   const {
     data: pendientes,
     isLoading,
@@ -40,7 +42,7 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -101,14 +103,14 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   pie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
     marginTop: espaciado.base,
-    lineHeight: tipografia.tamano.micro * 1.6,
+    lineHeight: t.tipografia.tamano.micro * 1.6,
   },
-})
+}))

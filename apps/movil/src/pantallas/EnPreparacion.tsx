@@ -1,10 +1,11 @@
-import { colores, espaciado, tipografia } from '@woodtools/compartido'
-import { StyleSheet, Text } from 'react-native'
+import { espaciado } from '@woodtools/compartido'
+import { Text } from 'react-native'
 
 import { BotonPrincipal } from '../componentes/Botones'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema } from '../nucleo/tema'
 
 /**
  * Módulos del menú que se implementan en pasos posteriores.
@@ -14,9 +15,10 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * interpreta que algo se rompió.
  */
 export function PantallaEnPreparacion({ navigation, route }: PropsPantalla<'EnPreparacion'>) {
+  const estilos = usarEstilos()
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -35,15 +37,15 @@ export function PantallaEnPreparacion({ navigation, route }: PropsPantalla<'EnPr
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.base, paddingTop: espaciado.xl },
   icono: { fontSize: 56, textAlign: 'center' },
   texto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
-    lineHeight: tipografia.tamano.sm * tipografia.interlineado.holgado,
+    lineHeight: t.tipografia.tamano.sm * t.tipografia.interlineado.holgado,
     paddingHorizontal: espaciado.md,
   },
-})
+}))

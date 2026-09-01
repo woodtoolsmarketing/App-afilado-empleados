@@ -1,16 +1,9 @@
-import {
-  colores,
-  espaciado,
-  radios,
-  tipografia,
-  TOQUE_MINIMO,
-} from '@woodtools/compartido'
+import { espaciado, radios, TOQUE_MINIMO } from '@woodtools/compartido'
 import { forwardRef, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
@@ -19,6 +12,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Controles de formulario.
@@ -40,6 +34,7 @@ export function Etiqueta({
   /** Para los selectores que encabezan una pantalla, como el PERIODO. */
   centrada?: boolean
 }) {
+  const estilos = usarEstilos()
   return (
     <Text
       style={[
@@ -55,6 +50,7 @@ export function Etiqueta({
 }
 
 export function MensajeError({ children }: { children?: string | null }) {
+  const estilos = usarEstilos()
   if (!children) return null
   return (
     <View style={estilos.errorCaja} accessibilityLiveRegion="polite">
@@ -89,6 +85,8 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
   },
   ref,
 ) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [enfocado, setEnfocado] = useState(false)
 
   return (
@@ -161,6 +159,7 @@ export function Casilla({
    */
   compacta?: boolean
 }) {
+  const estilos = usarEstilos()
   return (
     <Pressable
       onPress={() => alCambiar(!valor)}
@@ -202,6 +201,7 @@ export function Opcion({
   seleccionada: boolean
   alSeleccionar: () => void
 }) {
+  const estilos = usarEstilos()
   return (
     <Pressable
       onPress={alSeleccionar}
@@ -258,6 +258,7 @@ export function CampoConOpciones({
   alElegir: (valor: string) => void
   sinCoincidencias?: string
 }) {
+  const estilos = usarEstilos()
   const [abierta, setAbierta] = useState(false)
 
   /**
@@ -354,6 +355,8 @@ function HojaDeOpciones({
   marcadorBusqueda?: string
   vacio?: string
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const [filtro, setFiltro] = useState(filtroInicial)
   const { height: altoVentana } = useWindowDimensions()
 
@@ -517,6 +520,7 @@ export function Desplegable<T extends string>({
   /** Qué decir cuando el filtro no deja nada. */
   vacio?: string
 }) {
+  const estilos = usarEstilos()
   const [abierto, setAbierto] = useState(false)
   const elegido = items.find((i) => i.valor === valor)
 
@@ -616,6 +620,7 @@ export function DesplegableMultiple<T extends string>({
   deshabilitado?: boolean
   ayuda?: string
 }) {
+  const estilos = usarEstilos()
   const [abierto, setAbierto] = useState(false)
   const { height: altoVentana } = useWindowDimensions()
 
@@ -738,34 +743,34 @@ export function DesplegableMultiple<T extends string>({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   campoContenedor: {
     gap: espaciado.xs,
   },
   etiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   etiquetaCentrada: { textAlign: 'center' },
   etiquetaSobreRojo: {
-    color: colores.blanco,
-    fontSize: tipografia.tamano.xl,
-    fontFamily: tipografia.familia.fuerte,
+    color: t.colores.blanco,
+    fontSize: t.tipografia.tamano.xl,
+    fontFamily: t.tipografia.familia.fuerte,
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
   asterisco: {
-    color: colores.rojoAccion,
-    fontFamily: tipografia.familia.subtitulo,
+    color: t.colores.rojoAccion,
+    fontFamily: t.tipografia.familia.subtitulo,
   },
 
   campoCaja: {
     minHeight: TOQUE_MINIMO,
-    backgroundColor: colores.campo,
+    backgroundColor: t.colores.campo,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     flexDirection: 'row',
     alignItems: 'center',
@@ -774,26 +779,26 @@ const estilos = StyleSheet.create({
   campoCajaMultilinea: {
     minHeight: 150,
     alignItems: 'stretch',
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     paddingVertical: espaciado.sm,
   },
   campoEnfocado: {
-    borderColor: colores.azul,
+    borderColor: t.colores.azul,
   },
   campoConError: {
-    borderColor: colores.rojoAccion,
+    borderColor: t.colores.rojoAccion,
     borderWidth: 2.5,
   },
   /** Resultado de una cuenta: se lee, no se escribe. */
   campoCalculado: {
-    backgroundColor: colores.panelOscuro,
+    backgroundColor: t.colores.panelOscuro,
     borderStyle: 'dashed',
   },
   campoTexto: {
     flex: 1,
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
     paddingVertical: espaciado.sm,
   },
   campoTextoMultilinea: {
@@ -806,12 +811,12 @@ const estilos = StyleSheet.create({
     paddingBottom: espaciado.xs,
   },
   marcador: {
-    color: colores.tintaTenue,
+    color: t.colores.tintaTenue,
   },
   ayuda: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   ayudaSobreRojo: {
     color: 'rgba(255,255,255,0.85)',
@@ -821,18 +826,22 @@ const estilos = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: espaciado.sm,
-    backgroundColor: 'rgba(224,27,36,0.12)',
+    // Teñido, no pintado: el fondo tiene que dejar ver sobre qué está apoyado
+    // el error. En el tema oscuro un rojo al 12 % sobre el panel negro daba un
+    // marrón sobre el que el rojo oscuro de abajo no se leía, así que el tinte
+    // se levanta y la letra se aclara.
+    backgroundColor: t.oscuro ? 'rgba(255,90,90,0.16)' : 'rgba(224,27,36,0.12)',
     borderLeftWidth: 4,
-    borderLeftColor: colores.rojoAccion,
+    borderLeftColor: t.colores.rojoAccion,
     borderRadius: radios.sm,
     paddingVertical: espaciado.sm,
     paddingHorizontal: espaciado.sm,
   },
   errorIcono: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.blanco,
-    backgroundColor: colores.rojoAccion,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.blanco,
+    backgroundColor: t.colores.rojoAccion,
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -842,10 +851,13 @@ const estilos = StyleSheet.create({
   },
   errorTexto: {
     flex: 1,
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: '#8A0B0B',
-    lineHeight: tipografia.tamano.xs * tipografia.interlineado.normal,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    // El rojo oscuro de siempre en el tema claro; uno claro en el oscuro. Es
+    // el mensaje que le dice al vendedor qué campo está mal: si no se lee, el
+    // borde rojo del campo queda sin explicación.
+    color: t.oscuro ? '#FFB3B3' : '#8A0B0B',
+    lineHeight: t.tipografia.tamano.xs * t.tipografia.interlineado.normal,
   },
 
   casillaFila: {
@@ -857,36 +869,36 @@ const estilos = StyleSheet.create({
     paddingRight: espaciado.xs,
   },
   casillaEtiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
     letterSpacing: 0.3,
     // Que ceda el espacio a la caja del tilde en vez de empujarla afuera.
     flexShrink: 1,
     marginRight: espaciado.xs,
   },
   casillaEtiquetaCompacta: {
-    fontSize: tipografia.tamano.base,
+    fontSize: t.tipografia.tamano.base,
     letterSpacing: 0,
   },
   casillaCaja: {
     width: 36,
     height: 36,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     alignItems: 'center',
     justifyContent: 'center',
   },
   casillaMarcada: {
-    backgroundColor: colores.verde,
+    backgroundColor: t.colores.verde,
   },
   casillaTilde: {
-    fontFamily: tipografia.familia.titulo,
+    fontFamily: t.tipografia.familia.titulo,
     fontSize: 22,
     lineHeight: 26,
-    color: colores.negro,
+    color: t.colores.negro,
   },
 
   filaPresionada: {
@@ -903,11 +915,11 @@ const estilos = StyleSheet.create({
   },
   desplegableCaja: {
     flex: 1,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
   },
   flecha: {
-    fontSize: tipografia.tamano.xl,
-    color: colores.tintaSuave,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tintaSuave,
     // Padding y no margen: es lo que le da ancho propio dentro del área táctil.
     paddingHorizontal: espaciado.sm,
   },
@@ -917,19 +929,19 @@ const estilos = StyleSheet.create({
     paddingHorizontal: espaciado.xs,
   },
   verOpcionesTexto: {
-    fontSize: tipografia.tamano.base,
-    color: colores.rojo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.rojo,
   },
 
   velo: {
     flex: 1,
-    backgroundColor: colores.velo,
+    backgroundColor: t.colores.velo,
     justifyContent: 'flex-end',
   },
   hoja: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderTopWidth: 3,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderTopLeftRadius: radios.lg,
     borderTopRightRadius: radios.lg,
     padding: espaciado.base,
@@ -944,9 +956,9 @@ const estilos = StyleSheet.create({
   },
   hojaTitulo: {
     flex: 1,
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
     textAlign: 'center',
   },
   hojaCerrar: {
@@ -955,25 +967,25 @@ const estilos = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
   },
   hojaCerrarTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   buscador: {
     minHeight: TOQUE_MINIMO,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     paddingHorizontal: espaciado.md,
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   /**
    * Con alto fijo en la hoja, el ScrollView llena lo que sobra entre el
@@ -987,16 +999,16 @@ const estilos = StyleSheet.create({
     paddingBottom: espaciado.xs,
   },
   hojaVacia: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
     paddingVertical: espaciado.base,
   },
   hojaConteo: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     textAlign: 'center',
   },
   /** El pie de la hoja de varias opciones: cierra y dice cuántas quedaron. */
@@ -1004,15 +1016,15 @@ const estilos = StyleSheet.create({
     minHeight: TOQUE_MINIMO,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colores.rojo,
+    backgroundColor: t.colores.rojoSolido,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
   },
   hojaListoTexto: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.blanco,
     letterSpacing: 0.8,
   },
 
@@ -1026,43 +1038,43 @@ const estilos = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
     borderRadius: radios.sm,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     marginBottom: espaciado.sm,
   },
   opcionSeleccionada: {
-    borderColor: colores.negro,
-    backgroundColor: colores.panelClaro,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.panelClaro,
   },
   radio: {
     width: 26,
     height: 26,
     borderRadius: 13,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioActivo: {
-    borderColor: colores.rojo,
+    borderColor: t.colores.rojo,
   },
   radioPunto: {
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: colores.rojo,
+    backgroundColor: t.colores.rojo,
   },
   opcionTextos: {
     flex: 1,
   },
   opcionEtiqueta: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   opcionDescripcion: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     marginTop: 2,
   },
-})
+}))

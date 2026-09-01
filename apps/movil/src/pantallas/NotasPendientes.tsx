@@ -1,15 +1,13 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_TIPO_NOTA,
   formatearHora,
   formatearPesos,
   radios,
-  tipografia,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -24,6 +22,7 @@ import {
 } from '../servicios/notasPedido'
 import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * "VER NOTAS DE PEDIDO PENDIENTES"
@@ -33,6 +32,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * no en el botón de "imprimir todas" del menú.
  */
 export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPendientes'>) {
+  const estilos = usarEstilos()
   const cliente = useQueryClient()
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
   const [conRolDeVisita, setConRolDeVisita] = useState(false)
@@ -154,7 +154,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -280,6 +280,8 @@ function FilaNota({
   alVer: () => void
   alCorregir: () => void
 }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const sinNumero = nota.numero === null
 
   return (
@@ -348,46 +350,46 @@ function FilaNota({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.sm },
 
   fila: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: espaciado.md,
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     minHeight: 78,
   },
-  filaElegida: { backgroundColor: colores.panelClaro, borderColor: colores.rojo },
+  filaElegida: { backgroundColor: t.colores.panelClaro, borderColor: t.colores.rojo },
 
   casilla: {
     width: 30,
     height: 30,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  casillaMarcada: { backgroundColor: colores.verde },
-  tilde: { fontFamily: tipografia.familia.titulo, fontSize: 19, lineHeight: 23 },
+  casillaMarcada: { backgroundColor: t.colores.verde },
+  tilde: { fontFamily: t.tipografia.familia.titulo, fontSize: 19, lineHeight: 23 },
 
   filaCuerpo: { flex: 1, gap: 2 },
   numero: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   // Sin código de cliente todavía no es un comprobante: se muestra apagado.
-  numeroPendiente: { color: colores.tintaTenue },
+  numeroPendiente: { color: t.colores.tintaTenue },
   cliente: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   pastillas: {
     flexDirection: 'row',
@@ -397,14 +399,14 @@ const estilos = StyleSheet.create({
     marginTop: 3,
   },
   total: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   hora: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     marginLeft: 'auto',
   },
 
@@ -413,24 +415,24 @@ const estilos = StyleSheet.create({
     width: 46,
     minHeight: 46,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  corregirTocado: { backgroundColor: colores.campo },
+  corregirTocado: { backgroundColor: t.colores.campo },
   /** El hueco del ✎ cuando la nota ya se imprimió: dice por qué no está. */
   corregirVacio: { width: 46, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
   corregirVacioTexto: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
     textAlign: 'center',
   },
   corregirTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.lg,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.rojo,
   },
-})
+}))

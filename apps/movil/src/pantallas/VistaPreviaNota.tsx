@@ -1,5 +1,4 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
@@ -7,12 +6,11 @@ import {
   nombreDeZona,
   notaImprimibleDesdeFila,
   radios,
-  tipografia,
   type NotaParaImprimir,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla } from '../componentes/Estado'
@@ -21,6 +19,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import { marcarImpresas, obtenerNota } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Vista previa de la nota de pedido, antes de mandarla a la impresora.
@@ -35,6 +34,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * cual está "GUARDAR COMO PDF", que genera el documento de verdad.
  */
 export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'VistaPrevia'>) {
+  const estilos = usarEstilos()
   const { notaIds, incluirRolDeVisita = false } = route.params
   const cliente = useQueryClient()
 
@@ -141,7 +141,7 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
@@ -196,6 +196,8 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
 }
 
 function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   // Las filas en blanco del talonario no se muestran: en papel están para
   // escribir a mano, y acá sólo serían diez renglones vacíos de scroll.
   const tecnicos = nota.tecnicos.filter((t) => t.descripcion || t.cantidad)
@@ -374,6 +376,7 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
 }
 
 function Bloque({ titulo, children }: { titulo: string; children: string }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.bloque}>
       <Text style={estilos.rotuloChico}>{titulo}</Text>
@@ -382,13 +385,13 @@ function Bloque({ titulo, children }: { titulo: string; children: string }) {
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
 
   hoja: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.sm,
@@ -399,25 +402,25 @@ const estilos = StyleSheet.create({
   cabeceraDer: { alignItems: 'flex-end', gap: 2 },
 
   rotuloChico: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
   },
   numero: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tinta,
   },
   pendiente: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.ambarOscuro,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.ambarOscuro,
   },
   dato: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   pastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
@@ -426,68 +429,68 @@ const estilos = StyleSheet.create({
     flexWrap: 'wrap',
     gap: espaciado.sm,
     borderTopWidth: 1,
-    borderTopColor: colores.panelOscuro,
+    borderTopColor: t.colores.panelOscuro,
     paddingTop: espaciado.xs,
   },
 
   bloque: { gap: 2 },
   bloqueTexto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
 
   tituloTabla: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tinta,
     letterSpacing: 0.8,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     paddingHorizontal: espaciado.xs,
     paddingVertical: 3,
     marginTop: espaciado.xs,
   },
   vacio: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
   },
 
   renglon: {
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     paddingVertical: espaciado.xs,
     gap: 2,
   },
   renglonTitulo: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   renglonDato: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   operaciones: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
 
   filaTabla: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: colores.panelOscuro,
+    borderBottomColor: t.colores.panelOscuro,
     paddingVertical: 3,
   },
   celdaCabecera: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
   },
   celda: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
-  celdaFuerte: { fontFamily: tipografia.familia.fuerte, color: colores.verdeOscuro },
+  celdaFuerte: { fontFamily: t.tipografia.familia.fuerte, color: t.colores.verdeOscuro },
   colCodigo: { flex: 2 },
   colNum: { flex: 1, textAlign: 'right' },
   colPrecio: { flex: 2, textAlign: 'right' },
@@ -502,9 +505,9 @@ const estilos = StyleSheet.create({
   colObservacion: { flex: 6 },
 
   notaPie: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.ambarOscuro,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.ambarOscuro,
   },
-  pie: { borderTopWidth: 1, borderTopColor: colores.panelOscuro, paddingTop: espaciado.xs },
-})
+  pie: { borderTopWidth: 1, borderTopColor: t.colores.panelOscuro, paddingTop: espaciado.xs },
+}))

@@ -1,5 +1,4 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_ESTADO_NOTA,
   ETIQUETA_HERRAMIENTA,
@@ -11,14 +10,14 @@ import {
   formatearMoneda,
   formatearPesos,
   radios,
-  tipografia,
   type EstadoNotaPedido,
   type Herramienta,
+  type Paleta,
   type TipoMecha,
   type TipoServicio,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -32,6 +31,7 @@ import {
   sePuedeCorregir,
 } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Detalle de una nota de pedido.
@@ -94,6 +94,8 @@ interface ItemNota {
 }
 
 export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'DetalleNota'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const { notaId } = route.params
   const cliente = useQueryClient()
 
@@ -142,7 +144,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   if (isLoading) {
     return (
       <Pantalla>
-        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Encabezado />
         <Panel>
           <Cargando />
         </Panel>
@@ -159,7 +161,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   if (error) {
     return (
       <Pantalla>
-        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Encabezado />
         <Panel contentStyle={estilos.contenido}>
           <BarraPanel alVolver={() => navigation.goBack()} />
           <Aviso tono="error" titulo="No pudimos abrir la nota">
@@ -179,7 +181,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   if (!nota) {
     return (
       <Pantalla>
-        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Encabezado />
         <Panel>
           <Vacio titulo="No encontramos esa nota" icono="🔍" />
         </Panel>
@@ -195,7 +197,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel
@@ -221,7 +223,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
               color={n.tipo_nota === 'factura' ? colores.azul : colores.tintaSuave}
             />
           ) : null}
-          <Pastilla texto={ETIQUETA_ESTADO_NOTA[estado]} color={colorEstado(estado)} />
+          <Pastilla texto={ETIQUETA_ESTADO_NOTA[estado]} color={colorEstado(estado, colores)} />
           {(n.servicios ?? []).map((s: TipoServicio) => (
             <Pastilla key={s} texto={ETIQUETA_TIPO_SERVICIO[s]} color={colores.rojo} />
           ))}
@@ -357,6 +359,8 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 }
 
 function RenglonDetalle({ item }: { item: ItemNota }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const medidas = Object.entries(item.detalle ?? {})
     .filter(([k, v]) => ETIQUETA_MEDIDA[k] && v !== '' && v !== null)
     .map(([k, v]) => {
@@ -473,6 +477,7 @@ function descuentoDelItem(item: ItemNota): number {
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.dato}>
       <Text style={estilos.datoEtiqueta}>{etiqueta}</Text>
@@ -483,7 +488,15 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   )
 }
 
-function colorEstado(estado: EstadoNotaPedido): string {
+/**
+ * El color va como parametro y no se pide adentro.
+ *
+ * Esto no es un componente: es una cuenta. Pedirle el tema aca adentro seria
+ * llamar a un gancho de React desde una funcion que se invoca en medio de un
+ * `map`, y ahi React deja de poder contar cuantos ganchos tiene el dibujado.
+ * Se lo pasa el que dibuja, que si es un componente.
+ */
+function colorEstado(estado: EstadoNotaPedido, colores: Paleta): string {
   switch (estado) {
     case 'pendiente_cliente':
       return colores.ambarOscuro
@@ -498,50 +511,50 @@ function colorEstado(estado: EstadoNotaPedido): string {
   }
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   pastillas: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', justifyContent: 'center' },
 
   tarjeta: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: 2,
   },
   tarjetaTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.micro,
-    color: colores.rojo,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
     letterSpacing: 0.8,
     marginBottom: espaciado.xs,
   },
   cliente: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
     marginBottom: espaciado.xs,
   },
   texto: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
-    lineHeight: tipografia.tamano.sm * tipografia.interlineado.holgado,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    lineHeight: t.tipografia.tamano.sm * t.tipografia.interlineado.holgado,
   },
 
   subtitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
     letterSpacing: 1,
     marginTop: espaciado.xs,
   },
 
   renglon: {
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.xs,
@@ -551,64 +564,64 @@ const estilos = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colores.rojo,
-    color: colores.blanco,
+    backgroundColor: t.colores.rojoSolido,
+    color: t.colores.blanco,
     textAlign: 'center',
     lineHeight: 32,
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.sm,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.sm,
     overflow: 'hidden',
   },
   renglonTitulos: { flex: 1 },
   renglonHerramienta: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   renglonServicio: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   renglonDesc: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
 
   medidas: { flexDirection: 'row', flexWrap: 'wrap', gap: espaciado.sm, marginTop: espaciado.xs },
   medida: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 1,
-    borderColor: colores.panelOscuro,
+    borderColor: t.colores.panelOscuro,
     borderRadius: radios.sm,
     paddingHorizontal: espaciado.sm,
     paddingVertical: 3,
   },
   medidaEtiqueta: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
   },
   medidaValor: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
 
   codigos: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', marginTop: espaciado.xs },
 
   renglonTotal: { alignItems: 'flex-end', marginTop: espaciado.xs },
   renglonTotalLista: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
     textDecorationLine: 'line-through',
   },
   renglonTotalValor: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.verdeOscuro,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.verdeOscuro,
   },
 
   dato: {
@@ -618,16 +631,16 @@ const estilos = StyleSheet.create({
     paddingVertical: 3,
   },
   datoEtiqueta: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   datoValor: {
     flexShrink: 1,
     textAlign: 'right',
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
 
   totalFila: {
@@ -635,19 +648,19 @@ const estilos = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 2,
-    borderTopColor: colores.negro,
+    borderTopColor: t.colores.borde,
     marginTop: espaciado.sm,
     paddingTop: espaciado.sm,
   },
   totalRotulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.sm,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
     letterSpacing: 1,
   },
   totalValor: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
   },
-})
+}))

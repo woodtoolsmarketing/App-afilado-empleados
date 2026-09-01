@@ -1,21 +1,14 @@
-import {
-  colores,
-  espaciado,
-  radios,
-  sombras,
-  tipografia,
-  TOQUE_MINIMO,
-} from '@woodtools/compartido'
+import { espaciado, radios, sombras, TOQUE_MINIMO } from '@woodtools/compartido'
 import type { ReactNode } from 'react'
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Botones de la app.
@@ -44,6 +37,8 @@ export function BotonMenu({
   subtitulo,
   accessibilityLabel,
 }: PropsBase & { subtitulo?: string }) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const inactivo = deshabilitado || cargando
 
   return (
@@ -83,6 +78,8 @@ export function BotonPrincipal({
   style,
   accessibilityLabel,
 }: PropsBase) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const inactivo = deshabilitado || cargando
 
   return (
@@ -118,6 +115,8 @@ export function BotonSecundario({
   cargando,
   style,
 }: PropsBase) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const inactivo = deshabilitado || cargando
   return (
     <Pressable
@@ -154,6 +153,7 @@ export function BotonesSiNo({
   alCambiar: (valor: boolean) => void
   error?: boolean
 }) {
+  const estilos = usarEstilos()
   return (
     <View style={estilos.siNoFila}>
       <Pressable
@@ -193,12 +193,12 @@ export function BotonesSiNo({
   )
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   menu: {
     minHeight: 74,
-    backgroundColor: colores.rojoBoton,
+    backgroundColor: t.colores.rojoBoton,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     paddingHorizontal: espaciado.base,
     paddingVertical: espaciado.md,
@@ -215,24 +215,24 @@ const estilos = StyleSheet.create({
     gap: 2,
   },
   menuTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.blanco,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.blanco,
     textAlign: 'center',
     letterSpacing: 0.6,
   },
   menuSubtitulo: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
     color: 'rgba(255,255,255,0.82)',
     textAlign: 'center',
   },
 
   principal: {
     minHeight: TOQUE_MINIMO,
-    backgroundColor: colores.verde,
+    backgroundColor: t.colores.verde,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     paddingHorizontal: espaciado.lg,
     justifyContent: 'center',
@@ -242,33 +242,33 @@ const estilos = StyleSheet.create({
     ...sombras.boton,
   },
   principalPresionado: {
-    backgroundColor: colores.verdeOscuro,
+    backgroundColor: t.colores.verdeOscuro,
     transform: [{ scale: 0.98 }],
   },
   principalTexto: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.lg,
-    color: colores.negro,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.negro,
     letterSpacing: 0.8,
   },
 
   secundario: {
     minHeight: TOQUE_MINIMO,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
-    backgroundColor: colores.panelClaro,
+    backgroundColor: t.colores.panelClaro,
     paddingHorizontal: espaciado.base,
     justifyContent: 'center',
     alignItems: 'center',
   },
   secundarioPresionado: {
-    backgroundColor: colores.panelOscuro,
+    backgroundColor: t.colores.panelOscuro,
   },
   secundarioTexto: {
-    fontFamily: tipografia.familia.fuerte,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
 
   siNoFila: {
@@ -281,27 +281,27 @@ const estilos = StyleSheet.create({
     minWidth: 130,
     minHeight: TOQUE_MINIMO,
     borderWidth: 2.5,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     justifyContent: 'center',
     alignItems: 'center',
     ...sombras.boton,
   },
-  siActivo: { backgroundColor: colores.verde },
-  siInactivo: { backgroundColor: colores.panelClaro },
-  noActivo: { backgroundColor: colores.rojoAccion },
-  noInactivo: { backgroundColor: colores.panelClaro },
-  siNoConError: { borderColor: colores.rojoAccion, borderWidth: 3 },
+  siActivo: { backgroundColor: t.colores.verde },
+  siInactivo: { backgroundColor: t.colores.panelClaro },
+  noActivo: { backgroundColor: t.colores.rojoAccion },
+  noInactivo: { backgroundColor: t.colores.panelClaro },
+  siNoConError: { borderColor: t.colores.rojoAccion, borderWidth: 3 },
   siNoTexto: {
-    fontFamily: tipografia.familia.titulo,
-    fontSize: tipografia.tamano.xl,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
     letterSpacing: 1,
   },
-  textoSobreColor: { color: colores.blanco },
-  textoVerde: { color: colores.verdeOscuro },
-  textoRojo: { color: colores.rojoAccion },
+  textoSobreColor: { color: t.colores.blanco },
+  textoVerde: { color: t.colores.verdeOscuro },
+  textoRojo: { color: t.colores.rojoAccion },
 
   inactivo: {
     opacity: 0.45,
   },
-})
+}))

@@ -1,11 +1,9 @@
 import {
-  colores,
   espaciado,
   ETIQUETA_MOTIVO_NO_VISITA,
   observacionSugerida,
   FORMULARIO_VISITA_VACIO,
   radios,
-  tipografia,
   validarFormularioVisita,
   type CampoVisita,
   type FormularioVisita,
@@ -20,7 +18,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native'
@@ -42,6 +39,7 @@ import { navegarHacia } from '../servicios/mapas'
 import { detenerSeguimiento, ubicacionActual } from '../servicios/ubicacion'
 import { usarDictado, DURACION_MAXIMA_MS } from '../servicios/transcripcion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
  * Formulario "¿DESTINO VISITADO?".
@@ -72,6 +70,8 @@ function soloHora(texto: string): string {
 }
 
 export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'DestinoVisitado'>) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
   const { paradaId } = route.params
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
@@ -327,7 +327,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   if (isLoading) {
     return (
       <Pantalla>
-        <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+        <Encabezado />
         <Panel>
           <Cargando />
         </Panel>
@@ -337,7 +337,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
   return (
     <Pantalla>
-      <Encabezado alAbrirMenu={() => navigation.navigate('Configuracion')} />
+      <Encabezado />
 
       <KeyboardAvoidingView
         style={estilos.flex}
@@ -554,39 +554,39 @@ function nombreDe(parada?: { cliente?: { razon_social: string } | null; razon_so
   return parada?.cliente?.razon_social ?? parada?.razon_social_snapshot ?? 'el siguiente destino'
 }
 
-const estilos = StyleSheet.create({
+const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
 
   ficha: {
-    backgroundColor: colores.campoBlanco,
+    backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: 2,
   },
   fichaCliente: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
   },
   fichaDireccion: {
-    fontFamily: tipografia.familia.cuerpo,
-    fontSize: tipografia.tamano.xs,
-    color: colores.tintaSuave,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
   },
   fichaCodigo: {
-    fontFamily: tipografia.familia.liviana,
-    fontSize: tipografia.tamano.micro,
-    color: colores.tintaTenue,
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
   },
 
   bloque: { gap: espaciado.sm },
   bloqueTitulo: {
-    fontFamily: tipografia.familia.subtitulo,
-    fontSize: tipografia.tamano.base,
-    color: colores.tinta,
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
     letterSpacing: 0.8,
   },
 
@@ -594,13 +594,13 @@ const estilos = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: colores.rojo,
+    backgroundColor: t.colores.rojoSolido,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: colores.negro,
+    borderColor: t.colores.borde,
   },
-  microfonoActivo: { backgroundColor: colores.rojoAccion },
+  microfonoActivo: { backgroundColor: t.colores.rojoAccion },
   microfonoPresionado: { opacity: 0.75 },
   microfonoIcono: { fontSize: 20 },
-})
+}))
