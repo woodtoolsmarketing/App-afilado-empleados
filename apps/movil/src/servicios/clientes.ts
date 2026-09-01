@@ -40,10 +40,15 @@ export const ESPERA_TECLEO = 450
  *
  * Se exporta porque la pantalla lo necesita para saber si la lista quedó
  * cortada y decirlo. Con tres dígitos de un código de cinco hay más de cien
- * candidatos: mostrar quince sin avisar es lo que hace que el vendedor crea que
- * su cliente no está cargado.
+ * candidatos: mostrar los primeros sin avisar es lo que hace que el vendedor
+ * crea que su cliente no está cargado.
+ *
+ * Eran quince, y quince le quedaban cortos al que escribe una palabra del MEDIO
+ * del nombre: buscando "TORRES", los cuarenta apellidos Torres se comen la
+ * lista antes de llegar a CARPINTERIA TORRES. La función admite hasta 50; 25 es
+ * el punto donde entra ese caso sin volver la lista una pared de scroll.
  */
-export const LIMITE_CLIENTES = 15
+export const LIMITE_CLIENTES = 25
 
 /**
  * Lo que ya se preguntó hace un rato, para no volver a preguntarlo.
@@ -141,6 +146,18 @@ export async function ubicarCliente(params: {
   if (!fila || fila.id === null || fila.lat === null || fila.lng === null) {
     throw new Error('No pudimos guardar la ubicación del cliente. Avisá a la oficina.')
   }
+
+  /**
+   * Ubicar un cliente le cambia la ficha, y el buscador la tiene guardada.
+   *
+   * `buscar_clientes` devuelve la dirección del cliente —`direccion_id`, lat,
+   * lng y localidad salen de `direcciones`— y esto acaba de escribir justo esa
+   * fila. Sin olvidar lo buscado, el vendedor ubica el cliente y si vuelve a
+   * buscarlo dentro del minuto le sale otra vez la fila vieja, con la pastilla
+   * roja SIN UBICAR sobre un cliente que ya está ubicado. Peor: sin
+   * `direccion_id` no se lo puede agregar al recorrido.
+   */
+  olvidarBusquedasDeClientes()
 
   return { direccion_id: fila.id, lat: fila.lat, lng: fila.lng, localidad: fila.localidad }
 }

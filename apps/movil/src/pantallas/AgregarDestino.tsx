@@ -369,6 +369,14 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                       {c.direccion}
                     </Text>
                   ) : null}
+                  {/* Ahora se puede buscar por teléfono: si no se muestra, el
+                      cliente que enganchó por su número parece un resultado al
+                      azar. */}
+                  {c.telefono ? (
+                    <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
+                      Tel {c.telefono}
+                    </Text>
+                  ) : null}
                 </Pressable>
               ))}
             </View>

@@ -531,6 +531,14 @@ export function PasoCliente({
                   {c.direccion}
                 </Text>
               ) : null}
+              {/* El teléfono, ahora que se puede buscar por él: sin esto, el
+                  cliente que enganchó por su número aparece sin ninguna razón
+                  visible y parece un resultado al azar. */}
+              {c.telefono ? (
+                <Text style={estilos.sugerenciaDato} numberOfLines={1}>
+                  Tel {c.telefono}
+                </Text>
+              ) : null}
               {c.cuit ? <Text style={estilos.sugerenciaDato}>CUIT {c.cuit}</Text> : null}
             </Pressable>
           ))}
