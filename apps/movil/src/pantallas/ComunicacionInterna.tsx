@@ -32,8 +32,8 @@ import type { PropsPantalla } from '../navegacion/tipos'
  *
  * ─── Por qué el mensaje de WhatsApp viene empezado ──────────────────────────
  *
- * Del otro lado hay cinco personas que reciben mensajes de once vendedores.
- * "Hola" no dice quién escribe. El nombre y el número de vendedor van puestos
+ * Del otro lado hay cinco personas recibiendo mensajes de todos los que están
+ * en la calle, y "Hola" no dice quién escribe. El nombre y el número de vendedor van puestos
  * de entrada, y el resto lo escribe él: es un encabezado, no un formulario.
  */
 export function PantallaComunicacionInterna({
