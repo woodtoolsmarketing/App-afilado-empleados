@@ -119,20 +119,35 @@ function Fila({
         <Text style={estilos.nombre} numberOfLines={1}>
           {contacto.nombre}
         </Text>
+        {/*
+          El número va en su propio renglón.
+          Junto al rol no entraba: "Administración · 11 3097-6000" se cortaba
+          justo en el número, que es lo único de esta fila que hay que poder
+          leer —para dictarlo, para anotarlo, para marcarlo desde otro
+          teléfono—.
+        */}
+        <Text style={estilos.numero} numberOfLines={1}>
+          {contacto.legible}
+        </Text>
         <Text style={estilos.rol} numberOfLines={1}>
-          {contacto.rol} · {contacto.legible}
+          {contacto.rol}
         </Text>
       </View>
 
+      {/*
+        Un globo de mensaje y un tubo de teléfono, no dos teléfonos.
+        Los dos primeros que probé —✆ y ☎— Android los dibuja como emoji, y
+        los dos quedaban siendo un tubo: dos botones distintos que decían lo
+        mismo. Con el globo se lee de un vistazo cuál escribe y cuál llama, que
+        es la única pregunta que se hace el que llega a esta pantalla.
+      */}
       <Pressable
         onPress={alEscribir}
         accessibilityRole="button"
         accessibilityLabel={`Escribirle por WhatsApp a ${contacto.nombre}`}
         style={({ pressed }) => [estilos.boton, estilos.whatsapp, pressed && estilos.tocado]}
       >
-        {/* El ícono es texto: una imagen más sería un archivo más en el APK, y
-            lo que tiene que reconocerse de un vistazo es el color, no el dibujo. */}
-        <Text style={estilos.iconoWhatsapp}>✆</Text>
+        <Text style={estilos.icono}>💬</Text>
       </Pressable>
 
       <Pressable
@@ -141,7 +156,7 @@ function Fila({
         accessibilityLabel={`Llamar a ${contacto.nombre}`}
         style={({ pressed }) => [estilos.boton, estilos.llamar, pressed && estilos.tocado]}
       >
-        <Text style={estilos.iconoLlamar}>☎</Text>
+        <Text style={estilos.icono}>📞</Text>
       </Pressable>
     </View>
   )
@@ -161,11 +176,17 @@ const usarEstilos = hojaDeTema((t) => ({
     borderColor: t.colores.borde,
     padding: espaciado.sm,
   },
-  quien: { flex: 1, gap: 2 },
+  quien: { flex: 1, gap: 1 },
   nombre: {
     fontFamily: t.tipografia.familia.subtitulo,
     fontSize: t.tipografia.tamano.base,
     color: t.colores.tinta,
+  },
+  numero: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    letterSpacing: 0.4,
   },
   rol: {
     fontFamily: t.tipografia.familia.liviana,
@@ -187,6 +208,7 @@ const usarEstilos = hojaDeTema((t) => ({
   whatsapp: { backgroundColor: '#25D366' },
   llamar: { backgroundColor: '#0B4F8A' },
   tocado: { opacity: 0.75 },
-  iconoWhatsapp: { fontSize: 26, color: '#0B3D1E' },
-  iconoLlamar: { fontSize: 26, color: '#FFFFFF' },
+  // Tamaño fijo: es un emoji, lo dibuja el sistema con su propio color, y
+  // agrandarlo con el tema lo sacaría del botón.
+  icono: { fontSize: 26 },
 }))

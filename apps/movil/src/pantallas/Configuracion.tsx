@@ -497,12 +497,26 @@ function SeccionTamano() {
         }}
       />
 
-      <Text style={estilos.valorBarra}>{porcentaje}</Text>
+      {/*
+        Con la casilla tildada, la barra sigue mostrando dónde quedó lo último
+        que se eligió, pero no es lo que manda. Decir "50" ahí sería mentir: la
+        letra que se está viendo es la del celular. Se dice cuál es la que
+        manda, y la barra queda como lo que es: la elección guardada, esperando
+        a que se la destilde.
+      */}
+      <Text style={estilos.valorBarra}>
+        {delCelular ? 'Lo decide el celular' : String(porcentaje)}
+      </Text>
 
+      {/*
+        `compacta` no es un capricho de tamaño: sin ella el rótulo se cortaba en
+        "USAR EL TAMAÑO DEL CEL…" y la casilla dejaba de explicar qué hace.
+      */}
       <Casilla
         etiqueta="USAR EL TAMAÑO DEL CELULAR"
         valor={delCelular}
         alCambiar={ponerDelCelular}
+        compacta
       />
 
       {/*
