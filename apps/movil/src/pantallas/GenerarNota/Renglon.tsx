@@ -22,6 +22,7 @@ import {
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
   formatearPesos,
+  medidasDeLaCuchilla,
   HERRAMIENTAS_POR_SERVICIO,
   lineasDelRenglon,
   maquinasDeLaHerramienta,
@@ -824,7 +825,29 @@ export function PasoRenglon({
      * el caso del que se trata —elegido el diámetro, los dientes posibles son
      * dos o tres y no cualquiera—.
      */
-    const opciones = cascada.opciones[campo] ?? []
+    /*
+      Las medidas de una cuchilla las decide el TIPO, no el catálogo entero.
+
+      La cascada sugiere sobre todas las cuchillas cargadas juntas, así que al
+      que estaba cargando una plana —30 ó 35 de ancho— le ofrecía además 40, 50,
+      55, 60 y 70, que son las de dorso ranurado, y al revés. El tipo ya está
+      contestado más arriba: con eso alcanza para ofrecer sólo las que existen.
+
+      Sigue siendo un campo para escribir, no un desplegable: por el mostrador
+      entra alguna que no es de medida estándar, y ahí lo que hace falta es
+      poder tipearla, no que la app la rechace.
+    */
+    const delTipo = item.herramienta === 'cuchilla' ? medidasDeLaCuchilla(item.cuchilla_tipo) : null
+    const estandar =
+      delTipo && campo === 'ancho'
+        ? delTipo.anchos
+        : delTipo && campo === 'espesor'
+          ? delTipo.espesores
+          : null
+
+    const opciones = estandar
+      ? estandar.map((v) => ({ valor: v, cantidad: 0 }))
+      : (cascada.opciones[campo] ?? [])
 
     const propsComunes = {
       etiqueta,
@@ -859,7 +882,9 @@ export function PasoRenglon({
           ayuda={
             esMedida && aNumero(valor) > 0
               ? formatearMedida(valor)
-              : `${opciones.length} en el catálogo`
+              : estandar
+                ? `Las de ${ETIQUETA_CUCHILLA_TIPO[item.cuchilla_tipo!].toLowerCase()}`
+                : `${opciones.length} en el catálogo`
           }
         />
       )

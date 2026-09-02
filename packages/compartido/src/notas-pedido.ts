@@ -755,6 +755,54 @@ export const ETIQUETA_CUCHILLA_TRABAJO: Record<CuchillaTrabajo, string> = {
   perfilado: 'PERFILADO',
 }
 
+/**
+ * Las medidas que puede tener cada tipo de cuchilla.
+ *
+ * ─── Por qué hace falta ──────────────────────────────────────────────────────
+ *
+ * Porque el ancho y el espesor no son cualquier número: los decide el tipo. Una
+ * cuchilla plana es de 30 ó 35 mm de ancho y no existe de otra medida; una de
+ * dorso ranurado va de 40 a 70. Hasta ahora los dos campos se tipeaban libres y
+ * las sugerencias salían del catálogo entero, así que al que estaba cargando una
+ * plana la app le ofrecía los anchos de las de dorso ranurado y al revés.
+ *
+ * ─── De dónde salen los números ──────────────────────────────────────────────
+ *
+ * Del corte real de la lista de precios del 20/03/2026, contado sobre las 127
+ * cuchillas que tiene cargadas:
+ *
+ *   plana (sub-rubros 040 y 041)           anchos 30 y 35
+ *   dorso ranurado (sub-rubros 044 y 045)  anchos 40, 50, 55, 60 y 70
+ *                                          espesores 4, 5, 6, 8 y 10
+ *
+ * ─── El espesor de las planas ────────────────────────────────────────────────
+ *
+ * Va 5 mm porque así lo indicó la oficina. **La lista dice 3 mm en las 69**, sin
+ * una sola excepción: todas las descripciones terminan en "x3" —"100x30x3",
+ * "1080x35x3"—. Los dos no pueden ser ciertos, y queda anotado acá para que se
+ * resuelva: si mandan las planas de 5, hay 69 filas de `catalogo_medidas` para
+ * corregir; si manda la lista, este número vuelve a 3.
+ *
+ * No cambia ningún precio: el afilado de cuchilla se cobra por cada 100 mm de
+ * LARGO. El espesor es un dato para el taller.
+ */
+export const MEDIDAS_POR_TIPO_CUCHILLA: Record<CuchillaTipo, { anchos: number[]; espesores: number[] }> = {
+  plana: { anchos: [30, 35], espesores: [5] },
+  dorso_ranurado: { anchos: [40, 50, 55, 60, 70], espesores: [4, 5, 6, 8, 10] },
+}
+
+/**
+ * Las medidas del tipo elegido, o `null` si todavía no eligió.
+ *
+ * Sin tipo no se sugiere nada: mostrar las de los dos juntas es justamente lo
+ * que se vino a arreglar.
+ */
+export function medidasDeLaCuchilla(
+  tipo: CuchillaTipo | null,
+): { anchos: number[]; espesores: number[] } | null {
+  return tipo ? MEDIDAS_POR_TIPO_CUCHILLA[tipo] : null
+}
+
 /** Los milímetros que cubre el precio de lista de un afilado de cuchilla. */
 export const TRAMO_CUCHILLA_MM = 100
 
