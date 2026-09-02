@@ -666,6 +666,10 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         largo_util: i.largo_util,
         espesor: i.espesor,
         paso: i.paso,
+        // Qué tipo de pieza es. Va guardado y no derivado de la descripción:
+        // al reabrir la nota el desplegable tiene que volver contestado, y de
+        // un texto ya armado no se saca de vuelta el valor que lo generó.
+        tipo_pieza: i.tipo_pieza,
         tipo_mecha: i.tipo_mecha,
         mano: i.mano,
         // Las tres respuestas que eligen el código de afilado de cuchilla. No
@@ -1007,6 +1011,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     espesor: comoCadena(detalle.espesor),
     paso: comoCadena(detalle.paso),
 
+    tipo_pieza: (detalle.tipo_pieza as string | null) || null,
     tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
     mano: (detalle.mano as ManoMecha | null) ?? null,
 

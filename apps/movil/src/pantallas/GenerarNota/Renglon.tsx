@@ -31,7 +31,11 @@ import {
   radios,
   SINGULAR_HERRAMIENTA,
   soloNumeros,
+  medidasDelTipoDePieza,
+  tipoDePieza,
+  tiposDePieza,
   totalDeListaDelRenglon,
+  unaPieza,
   type CampoItem,
   type FormularioItemNota,
   type Herramienta,
@@ -93,6 +97,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   paso: 'PASO',
   descripcion: 'DESCRIPCIÓN',
   cantidad_dientes: 'CANTIDAD DE DIENTES A AFILAR',
+  tipo_pieza: 'TIPO DE PIEZA',
   tipo_mecha: 'TIPO DE MECHA',
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
@@ -730,6 +735,31 @@ export function PasoRenglon({
     alCambiar(cambios as Partial<FormularioItemNota>)
   }
 
+  /**
+   * Elegir el tipo trae las medidas que el catálogo fija para ese tipo.
+   *
+   * No pisa lo que el vendedor escribió: sólo llena lo que está vacío y lo que
+   * había puesto el tipo anterior. Así, corregir "FRESA RECTA" por "FRESA
+   * ÁNGULO" cambia el diámetro que trajo el tipo equivocado, pero un ancho de
+   * corte medido con el calibre se queda donde está.
+   *
+   * El diámetro interior va al campo del catálogo y no al de carga, igual que
+   * cuando lo trae un artículo: el de carga significa "esta pieza tiene OTRO
+   * agujero", y llenarlo con el de fábrica borra justamente esa distinción.
+   */
+  function elegirTipoDePieza(valor: string) {
+    const antes = medidasDelTipoDePieza(item.herramienta, item.tipo_pieza)
+    const ahora = medidasDelTipoDePieza(item.herramienta, valor)
+
+    const cambios: Record<string, string> = {}
+    for (const [campo, medida] of Object.entries(ahora)) {
+      const puesto = (item as unknown as Record<string, string>)[campo] ?? ''
+      if (puesto.trim() === '' || puesto === antes[campo]) cambios[campo] = medida
+    }
+
+    alCambiar({ ...cambios, tipo_pieza: valor } as Partial<FormularioItemNota>)
+  }
+
   function campoNumerico(campo: CampoItem, etiqueta: string, ancho?: 'tercio' | 'mitad') {
     const valor = (item as unknown as Record<string, string>)[campo] ?? ''
     const esPrecio = campo === 'precio_por_diente' || campo === 'precio_total'
@@ -987,6 +1017,35 @@ export function PasoRenglon({
           )
         }
         if (campo === 'tipo_mecha') return null
+
+        /*
+          El tipo de pieza, primero de la lista y por eso primero en pantalla.
+          Contestarlo deja puestas las medidas que el catálogo fija para ese
+          tipo, así que los campos de abajo llegan con la mitad hecha.
+        */
+        if (campo === 'tipo_pieza') {
+          const tipos = tiposDePieza(item.herramienta)
+          if (tipos.length === 0) return null
+          const elegido = tipoDePieza(item.herramienta, item.tipo_pieza)
+          return (
+            <View key={campo}>
+              <Desplegable
+                etiqueta={`TIPO DE ${unaPieza(item.herramienta).toUpperCase()}`}
+                obligatorio
+                marcador="Elegí el tipo"
+                valor={item.tipo_pieza}
+                items={tipos.map((t) => ({
+                  valor: t.valor,
+                  etiqueta: t.etiqueta,
+                  descripcion: t.descripcion,
+                }))}
+                alCambiar={elegirTipoDePieza}
+                error={errores.tipo_pieza}
+              />
+              {elegido?.notas ? <Aviso>{elegido.notas}</Aviso> : null}
+            </View>
+          )
+        }
 
         if (campo === 'cantidad') {
           return campoNumerico(

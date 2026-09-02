@@ -18,6 +18,7 @@ import {
   type TipoNotaPedido,
   type TipoServicio,
 } from './tipos'
+import { etiquetaTipoDePieza, unaPieza } from './tipos-de-pieza'
 import { CODIGO_POSTAL } from './validaciones'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,6 +248,7 @@ export type CampoItem =
   | 'paso'
   | 'descripcion'
   | 'cantidad_dientes'
+  | 'tipo_pieza'
   | 'tipo_mecha'
   | 'mano'
   | 'dientes_rotos'
@@ -279,13 +281,23 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
+  /*
+   * El tipo va ANTES de todo, y ese es el punto.
+   *
+   * "FRESA" no es una herramienta: son veintinueve. Preguntando primero cuál es,
+   * la app puede traer las medidas que el catálogo fija para ese tipo —todas
+   * llevan diámetro interior 40, casi todas tienen exterior fijo— y el vendedor
+   * escribe sólo lo que de verdad cambia de pieza a pieza. Ver `TIPOS_DE_PIEZA`.
+   */
   fresa: [
+    'tipo_pieza',
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
     'diametro_interior', 'descripcion', 'cantidad_dientes',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
     'precio_por_diente', 'precio_total',
   ],
   cabezal: [
+    'tipo_pieza',
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
     'diametro_interior', 'descripcion', 'cantidad_dientes',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
@@ -865,6 +877,16 @@ export interface FormularioItemNota {
   espesor: string
   paso: string
 
+  /**
+   * Qué tipo de pieza es, dentro de su herramienta.
+   *
+   * Guarda el mismo valor que `catalogo_medidas.geometria`, así que el renglón
+   * y el catálogo hablan el mismo idioma. Sale de `TIPOS_DE_PIEZA`; por ahora
+   * lo tienen las fresas y los cabezales, y las demás herramientas no muestran
+   * el campo.
+   */
+  tipo_pieza: string | null
+
   // Mechas
   tipo_mecha: TipoMecha | null
   mano: ManoMecha | null
@@ -1004,6 +1026,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   largo_util: '',
   espesor: '',
   paso: '',
+  tipo_pieza: null,
   tipo_mecha: null,
   mano: null,
   dientes_rotos: false,
@@ -1041,6 +1064,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   paso: 'el paso',
   descripcion: 'la descripción',
   cantidad_dientes: 'la cantidad de dientes',
+  tipo_pieza: 'el tipo de pieza',
   tipo_mecha: 'el tipo de mecha',
   mano: 'si es derecha o izquierda',
   dientes_rotos: '',
@@ -1174,6 +1198,15 @@ export function validarItemNota(
   for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {
     if (NO_OBLIGATORIOS.includes(campo)) continue
 
+    // El tipo se elige de una lista, no se tipea: el mensaje tiene que decir
+    // "elegí" y nombrar la pieza, que es lo que el vendedor tiene en la mano.
+    if (campo === 'tipo_pieza') {
+      if (!item.tipo_pieza) {
+        errores.tipo_pieza = `Elegí qué tipo de ${unaPieza(item.herramienta)} es`
+      }
+      continue
+    }
+
     // La mano sólo se pide en las mechas que la tienen.
     if (campo === 'mano') {
       const pide = item.tipo_mecha && MECHAS_CON_MANO.includes(item.tipo_mecha)
@@ -1298,6 +1331,10 @@ export function resumenRenglon(item: FormularioItemNota): string {
   if (!item.herramienta) return 'Renglón sin herramienta'
 
   const partes: string[] = [ETIQUETA_HERRAMIENTA[item.herramienta]]
+  // El tipo va pegado a la herramienta: "FRESAS · MACHIMBRE DOBLE" dice de qué
+  // pieza se trata, y "FRESAS" solo no dice nada.
+  const tipo = etiquetaTipoDePieza(item.herramienta, item.tipo_pieza)
+  if (tipo) partes.push(tipo)
   if (item.tipo_mecha) partes.push(ETIQUETA_TIPO_MECHA[item.tipo_mecha])
 
   for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {

@@ -25,6 +25,7 @@ import {
   CAMPOS_POR_HERRAMIENTA,
   HERRAMIENTAS_POR_SERVICIO,
   ITEM_VACIO,
+  medidasDelTipoDePieza,
   radios,
   MAXIMO_RENGLONES,
   OBSERVACION_MAXIMO_CARACTERES,
@@ -777,6 +778,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       codigos_computo: [],
       precio_por_diente: '',
       precio_total: '',
+      // El tipo de pieza se conserva —separar por medida es la misma clase de
+      // pieza con otro ancho—, así que las medidas que el catálogo le fija a
+      // ese tipo vuelven puestas. Las que se acaban de borrar son las que de
+      // verdad cambian entre una y otra.
+      ...medidasDelTipoDePieza(actual.herramienta, actual.tipo_pieza),
       /**
        * Los dientes rotos también se limpian, y no por prolijidad.
        *
