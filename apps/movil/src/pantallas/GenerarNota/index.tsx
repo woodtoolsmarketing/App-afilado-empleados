@@ -1046,7 +1046,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       e.preventDefault()
       Alert.alert(
         'Dejás la corrección sin guardar',
-        `La nota ${numeroDeNota(borrador?.numero ?? null, encabezado.vendedor_numero).toLowerCase()} va a quedar como estaba.`,
+        // Sin "La nota" adelante: `numeroDeNota` ya devuelve "Nota de pedido
+      // Nº 02-0077", así que el cartel decía "La nota nota de pedido nº…".
+      `${numeroDeNota(borrador?.numero ?? null, encabezado.vendedor_numero)} va a quedar como estaba.`,
         [
           { text: 'Seguir corrigiendo', style: 'cancel' },
           {

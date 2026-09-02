@@ -592,9 +592,16 @@ export function PasoCliente({
               ? 'Tuyo. Cambialo si es de otro.'
               : origenVendedor === 'zona' && form.vendedor_numero
                 ? `De la zona ${form.zona}.`
-                : form.vendedor_numero
+                : // Sólo cuando sale distinto de lo que se tipeó, que es el
+                  // caso de los códigos con ceros de relleno del Gestión
+                  // ("007" sale 7). Cuando sale igual —que es casi siempre—
+                  // la línea repetía el número que está tres centímetros más
+                  // arriba y costaba una fila de una pantalla que no la tiene.
+                  form.vendedor_numero &&
+                    numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO) !==
+                      form.vendedor_numero
                   ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
-                  : 'Va impreso en la nota.'
+                  : undefined
           }
         />
       </View>
@@ -727,16 +734,28 @@ export function PasoCliente({
           esta línea, y CAMBIAR abre el desplegable de verdad. */}
       {!muestraZona ? (
         <View style={estilos.pieFila}>
-          {/* `mitad` es `flex: 1`, y acá no es prolijidad: sin eso el texto se
-              queda con su ancho natural —en React Native `flexShrink` es 0— y
-              empuja a CAMBIAR ZONA fuera del borde derecho. Con la zona ya
-              deducida, ese botón es el ÚNICO acceso al desplegable: fuera de
-              pantalla, una zona mal deducida no se puede corregir. Es lo mismo
-              que hace la fila de CLIENTE ELEGIDO acá arriba. */}
+          {/*
+            Tres piezas, y cuál se encoge no es un detalle.
+
+            El NOMBRE lleva `flex: 1` y es el único que se achica: en un
+            teléfono angosto se corta con puntos suspensivos y no pasa nada,
+            porque el vendedor sabe cómo se llama.
+
+            La ZONA va sin flex, así que se queda con su ancho natural —tres
+            dígitos— y no se corta nunca. Es el dato por el que existe esta
+            línea: escondido el desplegable, es lo único que dice en qué zona
+            quedó la nota. Puesta junto al nombre en un solo `Text`, con
+            "Sebastian Sayago" adelante desaparecía entera y quedaba un "·…".
+
+            Y CAMBIAR tampoco se encoge, porque es el único acceso que queda al
+            desplegable: una zona mal deducida no se podría corregir.
+          */}
           <Text style={[estilos.vendedor, estilos.mitad]} numberOfLines={1}>
             VENDEDOR: {form.vendedor || '—'}
-            {zonaElegida ? `   ·   ZONA ${zonaElegida.codigo}` : ''}
           </Text>
+          {zonaElegida ? (
+            <Text style={estilos.zonaPuesta}>ZONA {zonaElegida.codigo}</Text>
+          ) : null}
           <Pressable
             onPress={() => setZonaAbierta(true)}
             hitSlop={10}
@@ -744,7 +763,7 @@ export function PasoCliente({
             accessibilityLabel="Cambiar la zona"
             style={({ pressed }) => [estilos.cambiarZona, pressed && estilos.tocado]}
           >
-            <Text style={estilos.cambiarZonaTexto}>CAMBIAR ZONA</Text>
+            <Text style={estilos.cambiarZonaTexto}>CAMBIAR</Text>
           </Pressable>
         </View>
       ) : (
@@ -1070,6 +1089,13 @@ const usarEstilos = hojaDeTema((t) => ({
     alignItems: 'center',
     gap: espaciado.sm,
     marginTop: -espaciado.xs,
+  },
+  /* Sin `flex`: se queda con su ancho natural y no se corta nunca. Ver el
+     comentario de la fila. */
+  zonaPuesta: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   cambiarZona: { minHeight: 44, justifyContent: 'center', paddingHorizontal: espaciado.xs },
   cambiarZonaTexto: {
