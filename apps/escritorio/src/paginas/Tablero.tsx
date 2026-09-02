@@ -49,15 +49,26 @@ export function PaginaTablero() {
     refetchInterval: 15_000,
   })
 
+  /*
+   * La última conexión, no el último login.
+   *
+   * Antes esto leía `perfiles.ultimo_acceso_en`, que se escribe SÓLO cuando
+   * alguien tipea la contraseña. Como la sesión de la app no vence, el vendedor
+   * la tipea una vez y no vuelve a pasar por ahí: la tabla decía "Nunca entró"
+   * de gente que había abierto la app el día anterior.
+   *
+   * `vista_ultima_conexion` toma el máximo entre las cuatro señales que la app
+   * ya venía guardando. Ver la migración 20260902115441.
+   */
   const { data: sesiones } = useQuery({
-    queryKey: ['sesiones-recientes'],
+    queryKey: ['ultima-conexion'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('perfiles')
-        .select('id, nombre_completo, codigo_vendedor, ultimo_acceso_en, rol')
+        .from('vista_ultima_conexion')
+        .select('perfil_id, nombre_completo, codigo_vendedor, ultima_conexion, de_donde, aperturas_hoy')
         .eq('rol', 'vendedor')
         .eq('estado', 'aprobado')
-        .order('ultimo_acceso_en', { ascending: false, nullsFirst: false })
+        .order('ultima_conexion', { ascending: false, nullsFirst: false })
       if (error) throw error
       return data
     },
@@ -153,29 +164,47 @@ export function PaginaTablero() {
           <thead>
             <tr>
               <th>Vendedor</th>
-              <th>Último acceso</th>
+              <th>Última conexión</th>
               <th>Estado</th>
             </tr>
           </thead>
           <tbody>
             {(sesiones ?? []).map((v) => {
-              const dias = v.ultimo_acceso_en
-                ? Math.floor((Date.now() - new Date(v.ultimo_acceso_en).getTime()) / 86_400_000)
+              const dias = v.ultima_conexion
+                ? Math.floor((Date.now() - new Date(v.ultima_conexion).getTime()) / 86_400_000)
                 : null
 
               return (
-                <tr key={v.id}>
+                <tr key={v.perfil_id}>
                   <td>
                     {v.nombre_completo}
                     {v.codigo_vendedor ? ` (#${v.codigo_vendedor})` : ''}
                   </td>
                   <td>
-                    {v.ultimo_acceso_en
-                      ? new Date(v.ultimo_acceso_en).toLocaleString('es-AR', {
+                    {v.ultima_conexion ? (
+                      <>
+                        {new Date(v.ultima_conexion).toLocaleString('es-AR', {
                           dateStyle: 'short',
                           timeStyle: 'short',
-                        })
-                      : 'Nunca entró'}
+                        })}
+                        {/* De dónde salió el dato. Sin esto, "hace 3 días" no
+                            distingue al que abrió la app del que sólo tipeó la
+                            contraseña esa vez y nunca más. */}
+                        {v.de_donde ? (
+                          <>
+                            <br />
+                            <small style={{ color: 'var(--tinta-tenue)' }}>
+                              {v.de_donde}
+                              {v.aperturas_hoy
+                                ? ` · ${v.aperturas_hoy} apertura${v.aperturas_hoy === 1 ? '' : 's'} hoy`
+                                : ''}
+                            </small>
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                      'Nunca entró'
+                    )}
                   </td>
                   <td>
                     {dias === null ? (

@@ -57,6 +57,23 @@ export function usarSesion() {
       return
     }
 
+    /*
+     * Entrar al panel también cuenta como conexión.
+     *
+     * Es el único de los cuatro rastros que puede dejar alguien que trabaja
+     * sólo desde la PC: `dispositivos` y `presencias` los escribe la app del
+     * celular, así que un administrador que nunca instaló la app figuraba como
+     * "nunca entró" aunque abriera el panel todos los días.
+     *
+     * Va sin `await` y sin mirar el error a propósito: es un dato de gestión,
+     * no una condición para entrar. Si falla, lo que no puede pasar es que
+     * alguien se quede afuera del panel por eso.
+     */
+    void supabase
+      .from('perfiles')
+      .update({ ultimo_acceso_en: new Date().toISOString() })
+      .eq('id', perfil.id)
+
     setEstado({ cargando: false, perfil, error: null })
   }
 

@@ -30,6 +30,34 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
+  /*
+   * La última conexión de cada uno.
+   *
+   * `perfiles.ultimo_acceso_en` sola no sirve para esto: se escribe únicamente
+   * cuando alguien tipea la contraseña, y la sesión de la app no vence, así
+   * que la columna decía "Nunca" de gente que había abierto la app el día
+   * anterior. La vista toma el máximo de las cuatro señales que ya se venían
+   * guardando. Ver la migración 20260902115441.
+   */
+  const { data: conexiones } = useQuery({
+    queryKey: ['ultima-conexion'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vista_ultima_conexion')
+        .select('perfil_id, ultima_conexion, de_donde, cuantos_aparatos')
+      if (error) throw error
+      return data as Array<{
+        perfil_id: string
+        ultima_conexion: string | null
+        de_donde: string | null
+        cuantos_aparatos: number | null
+      }>
+    },
+    refetchInterval: 60_000,
+  })
+
+  const conexionDe = new Map((conexiones ?? []).map((c) => [c.perfil_id, c]))
+
   const { data: dispositivos, error: falloDispositivos } = useQuery({
     queryKey: ['dispositivos'],
     queryFn: async () => {
@@ -299,7 +327,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
               <th>Zonas a cargo</th>
               <th>Rol</th>
               <th>Estado</th>
-              <th>Último acceso</th>
+              <th>Última conexión</th>
               <th style={{ width: 210 }} />
             </tr>
           </thead>
@@ -338,12 +366,22 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                   </span>
                 </td>
                 <td>
-                  {p.ultimo_acceso_en
-                    ? new Date(p.ultimo_acceso_en).toLocaleString('es-AR', {
+                  {conexionDe.get(p.id)?.ultima_conexion ? (
+                    <>
+                      {new Date(conexionDe.get(p.id)!.ultima_conexion!).toLocaleString('es-AR', {
                         dateStyle: 'short',
                         timeStyle: 'short',
-                      })
-                    : 'Nunca'}
+                      })}
+                      <br />
+                      {/* De dónde salió: no es lo mismo el que abrió la app que
+                          el que sólo tipeó la contraseña una vez. */}
+                      <small style={{ color: 'var(--tinta-tenue)' }}>
+                        {conexionDe.get(p.id)?.de_donde}
+                      </small>
+                    </>
+                  ) : (
+                    'Nunca'
+                  )}
                 </td>
                 <td>
                   <div className="acciones">
