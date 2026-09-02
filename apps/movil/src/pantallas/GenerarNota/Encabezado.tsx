@@ -519,18 +519,24 @@ export function PasoCliente({
       ) : null}
 
       {/* Que el cliente esté elegido deja de ser un estado invisible.
-          Los tres campos se ven igual de llenos con el cliente enganchado que
-          con los datos tipeados a mano, y son dos situaciones muy distintas:
-          sin enganchar, la nota no se puede crear. Acá se ve cuál quedó, y por
-          dónde se lo suelta si es el equivocado. */}
+          Los campos se ven igual de llenos con el cliente enganchado que con
+          los datos tipeados a mano, y son dos situaciones muy distintas: sin
+          enganchar, la nota no se puede crear. Acá se ve cuál quedó, y por
+          dónde se lo suelta si es el equivocado.
+
+          En una línea, no en un recuadro de tres. El rótulo "CLIENTE ELEGIDO"
+          lo dicen igual el tilde y el borde verde, y el nombre entra al lado.
+          Eran un centímetro y pico de una página que tiene que entrar entera. */}
       {!CLIENTE_A_MANO && form.cliente_id ? (
         <View style={estilos.clienteElegido}>
-          <View style={estilos.clienteElegidoTexto}>
-            <Text style={estilos.clienteElegidoRotulo}>CLIENTE ELEGIDO</Text>
-            <Text style={estilos.clienteElegidoNombre} numberOfLines={2}>
-              {form.cliente_codigo} · {form.cliente_nombre}
-            </Text>
-          </View>
+          <Text style={estilos.clienteElegidoTilde}>✓</Text>
+          <Text
+            style={[estilos.clienteElegidoNombre, estilos.mitad]}
+            numberOfLines={1}
+            accessibilityLabel={`Cliente elegido: ${form.cliente_codigo}, ${form.cliente_nombre}`}
+          >
+            {form.cliente_codigo} · {form.cliente_nombre}
+          </Text>
           <Pressable
             onPress={soltarCliente}
             hitSlop={10}
@@ -623,10 +629,18 @@ export function PasoCliente({
         error={errores.cliente_nombre}
       />
 
-      {/* En la beta no se dan de alta clientes: escribirlos en la nota es
+      {/* Mientras no haya cliente elegido, que es cuando sirve.
+
+          Con uno ya enganchado el enlace no lleva a ningún lado bueno: el
+          cliente existe, está elegido, y "¿Es nuevo cliente?" abajo de su
+          nombre es una fila que sólo puede confundir. Aparece de nuevo apenas
+          se lo suelta o si la búsqueda no lo encuentra, que es el momento en
+          que el vendedor se pregunta justamente eso.
+
+          En la beta no se dan de alta clientes: escribirlos en la nota es
           justamente lo que se está probando, y crear fichas sueltas mientras
           tanto ensuciaría el padrón que después hay que cargar en serio. */}
-      {CLIENTE_A_MANO ? null : (
+      {CLIENTE_A_MANO || form.cliente_id ? null : (
         <Pressable
           onPress={alCrearCliente}
           hitSlop={10}
@@ -1156,12 +1170,15 @@ const usarEstilos = hojaDeTema((t) => ({
     borderRadius: radios.sm,
     backgroundColor: t.colores.campoBlanco,
     paddingHorizontal: espaciado.md,
-    paddingVertical: espaciado.sm,
+    // Alto de dedo, y nada más: el rótulo de arriba se fue y el nombre entra
+    // en la misma línea que el tilde y el botón de cambiarlo.
+    minHeight: 48,
   },
-  clienteElegidoTexto: { flex: 1, gap: 2 },
-  clienteElegidoRotulo: {
-    fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.micro,
+  /* El tilde verde dice lo que decía el rótulo "CLIENTE ELEGIDO", y ocupa un
+     carácter en vez de un renglón. */
+  clienteElegidoTilde: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.verdeOscuro,
   },
   clienteElegidoNombre: {

@@ -1203,8 +1203,20 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
             </Aviso>
           ) : null}
 
+          {/*
+            En la primera página no se dibujan, y es la única en que no.
+
+            Esa página tiene que entrar entera —se completa parado en la puerta
+            de un taller, con el cliente enfrente— y estas tres pastillas son
+            medio centímetro. En la primera además son las que menos hacen
+            falta: recién se entró, no se puede estar en otro lado, y todo lo
+            que hay abajo pregunta por el cliente. En la segunda y la tercera
+            quedan, que es donde uno se pierde y donde el alto sobra.
+          */}
+          {paso === 1 ? null : (
           <View style={estilos.pasos}>
-            <Pastilla texto="1 · CLIENTE" color={paso === 1 ? colores.rojo : colores.tintaTenue} />
+            {/* Apagada siempre: acá adentro el paso 1 ya quedó atrás. */}
+            <Pastilla texto="1 · CLIENTE" color={colores.tintaTenue} />
             <Pastilla
               texto="2 · HERRAMIENTA"
               color={paso === 2 ? colores.rojo : colores.tintaTenue}
@@ -1214,6 +1226,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               color={paso === 3 ? colores.rojo : colores.tintaTenue}
             />
           </View>
+          )}
 
           {/* ── 1 · A quién se le hace la nota ──────────────────────────── */}
           {paso === 1 ? (
@@ -1232,19 +1245,31 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 codigoVendedorUsuario={perfil?.codigo_vendedor}
               />
 
+              {/*
+                De dónde salió la fecha va DENTRO del botón.
+
+                Que la puso la app y no el cliente hay que decirlo: una fecha
+                que aparece sola se lee como una fecha acordada, y el vendedor
+                le promete al cliente un día que nadie negoció. Pero decirlo en
+                una línea aparte costaba dos renglones de una página que tiene
+                que entrar entera, así que va pegado a la fecha misma, que es
+                donde se lo mira.
+
+                Y se calla en cuanto el vendedor elige otra: ahí ya no la puso
+                la app, y seguir diciéndolo sería mentir.
+              */}
               <BotonSecundario
                 titulo={
                   fechaEntrega
-                    ? `Entrega: ${formatearFechaCorta(fechaEntrega)}`
+                    ? `Entrega: ${formatearFechaCorta(fechaEntrega)}${
+                        fechaLocalISO(fechaEntrega) === fechaLocalISO(fechaEntregaPorDefecto())
+                          ? '  ·  puesta sola'
+                          : ''
+                      }`
                     : 'Elegir fecha de entrega'
                 }
                 alTocar={() => setCalendario(true)}
               />
-              {/* De dónde salió la que está puesta. Sin esto, una fecha que
-                  aparece sola se lee como una fecha acordada con el cliente. */}
-              <Text style={estilos.porTendencia}>
-                Puesta sola a una semana. Cambiala si acordaste otra.
-              </Text>
               <MensajeError>{errores.fecha_entrega}</MensajeError>
 
               {calendario ? (
