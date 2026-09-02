@@ -94,17 +94,25 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  * taller.
  */
 
+/**
+ * Los rótulos de los campos.
+ *
+ * Las medidas llevan la unidad puesta. Todas son milímetros y siempre lo
+ * fueron, pero el rótulo no lo decía: el vendedor lo veía recién después de
+ * escribir, en la ayudita de abajo que repite "42 mm". Con la unidad en la
+ * pregunta se sabe antes de tipear, que es cuando hace falta.
+ */
 const ETIQUETAS: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
-  diametro_exterior: 'DIÁMETRO EXTERIOR',
-  diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
-  diametro: 'DIÁMETRO',
-  ancho_corte: 'ANCHO DE CORTE',
-  largo: 'LARGO',
-  ancho: 'ANCHO',
-  largo_util: 'LARGO ÚTIL',
-  espesor: 'ESPESOR',
-  paso: 'PASO',
+  diametro_exterior: 'DIÁMETRO EXTERIOR (mm)',
+  diametro_interior: 'DIÁMETRO INTERIOR (mm, OPCIONAL)',
+  diametro: 'DIÁMETRO (mm)',
+  ancho_corte: 'ANCHO DE CORTE (mm)',
+  largo: 'LARGO (mm)',
+  ancho: 'ANCHO (mm)',
+  largo_util: 'LARGO ÚTIL (mm)',
+  espesor: 'ESPESOR (mm)',
+  paso: 'PASO (mm)',
   descripcion: 'DESCRIPCIÓN',
   cantidad_dientes: 'CANTIDAD DE DIENTES A AFILAR',
   tipo_pieza: 'TIPO DE PIEZA',
@@ -1006,6 +1014,37 @@ export function PasoRenglon({
       ) : null}
 
       {/*
+        De qué mano es.
+
+        Va pegada al tipo porque es parte de decir QUÉ pieza es, no algo que
+        salga de medirla: el vendedor la tiene en la mano y la contesta de una.
+        Estaba al final, después del código de cómputo, y se llegaba ahí con
+        todo lo demás ya cargado.
+
+        Sólo en los tipos que vienen de las dos —pasante, ciega, bisagra e
+        integral de widia—. Preguntarlo en una barreno no significa nada.
+
+        Si después el vendedor elige el modelo, la mano del modelo pisa a ésta:
+        es más específica, y sale del catálogo en vez de la memoria.
+      */}
+      {item.herramienta === 'mecha' &&
+      item.tipo_mecha &&
+      MECHAS_CON_MANO.includes(item.tipo_mecha) ? (
+        <Desplegable<ManoMecha>
+          etiqueta="¿ES DERECHA O IZQUIERDA?"
+          obligatorio
+          marcador="Elegí"
+          valor={item.mano}
+          items={[
+            { valor: 'derecha', etiqueta: 'DERECHA' },
+            { valor: 'izquierda', etiqueta: 'IZQUIERDA' },
+          ]}
+          alCambiar={(m) => alCambiar({ mano: m })}
+          error={errores.mano}
+        />
+      ) : null}
+
+      {/*
         El afilado de la mecha: de qué material es, y cuántos filos si es integral.
         Va ANTES del modelo porque es lo que decide el precio. El modelo, abajo,
         dice cuál de las mechas es —para las medidas y para el taller— pero no
@@ -1245,26 +1284,9 @@ export function PasoRenglon({
           )
         }
 
-        if (campo === 'mano') {
-          // Sólo las mechas que tienen mano: preguntarlo en una barreno no
-          // significa nada.
-          if (!item.tipo_mecha || !MECHAS_CON_MANO.includes(item.tipo_mecha)) return null
-          return (
-            <Desplegable<ManoMecha>
-              key={campo}
-              etiqueta="¿ES DERECHA O IZQUIERDA?"
-              obligatorio
-              marcador="Elegí"
-              valor={item.mano}
-              items={[
-                { valor: 'derecha', etiqueta: 'DERECHA' },
-                { valor: 'izquierda', etiqueta: 'IZQUIERDA' },
-              ]}
-              alCambiar={(m) => alCambiar({ mano: m })}
-              error={errores.mano}
-            />
-          )
-        }
+        // La mano se dibuja arriba, pegada al tipo, no acá. Sigue en la lista
+        // de campos porque de ahí salen la validación y el resumen del renglón.
+        if (campo === 'mano') return null
 
         if (campo === 'afilado_reparacion') {
           return (

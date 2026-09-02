@@ -323,9 +323,21 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
     'cantidad', 'ancho', 'codigos_computo', 'paso', 'descripcion', 'espesor',
     'precio_total',
   ],
+  /*
+   * La MANO va pegada al tipo, y las medidas después.
+   *
+   * Estaba al final, después del código de cómputo: el vendedor contestaba de
+   * qué mano era la mecha cuando ya había cargado todo lo demás. Es parte de
+   * decir QUÉ pieza es —como el tipo—, no un dato que salga de medirla, y sólo
+   * se pregunta en los tipos que vienen de las dos (ver `MECHAS_CON_MANO`).
+   *
+   * El código va después de las medidas y no antes: ya no sale de ellas —lo
+   * elige el selector de afilado por tipo, material y filos— así que ponerlo
+   * en el medio partía el bloque de medidas en dos.
+   */
   mecha: [
-    'tipo_mecha', 'cantidad', 'diametro', 'codigos_computo', 'largo_util',
-    'mano', 'descripcion', 'precio_total',
+    'tipo_mecha', 'mano', 'cantidad', 'diametro', 'largo_util',
+    'codigos_computo', 'descripcion', 'precio_total',
   ],
   cuchilla: [
     'cantidad', 'largo', 'ancho', 'codigos_computo', 'descripcion', 'espesor',
