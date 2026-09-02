@@ -29,6 +29,7 @@ import {
   type GrupoNota,
   type Herramienta,
   type ManoMecha,
+  type MaterialMecha,
   type OrigenFresa,
   type TipoMecha,
   type TipoNotaPedido,
@@ -142,6 +143,40 @@ export interface CodigoCuchilla {
   tipo: CuchillaTipo
   material: CuchillaMaterial
   trabajo: CuchillaTrabajo
+}
+
+/**
+ * Uno de los nueve códigos de afilado de mecha, ya clasificado.
+ *
+ * `tipos` dice a qué tipos de mecha sirve, y en null quiere decir "a
+ * cualquiera": en HSS toda la línea se afila al mismo precio. `dientes` sólo
+ * viene en las integrales, que es donde el número de filos cambia el importe.
+ *
+ * `precio_pesos` es POR MECHA, no por filo ni por milímetro.
+ */
+export interface CodigoAfiladoMecha {
+  codigo: string
+  descripcion: string
+  precio: number
+  moneda: 'ARS' | 'USD' | null
+  precio_pesos: number | null
+  a_cotizar: boolean
+  material: MaterialMecha
+  tipos: TipoMecha[] | null
+  dientes: number | null
+}
+
+/**
+ * Los nueve códigos de afilado de mecha.
+ *
+ * Están en la misma lista que los de cuchilla —el rubro se llama "Afil.Mechas
+ * Insertos Cuchillas"— y ninguno tiene rango de medida, así que el buscador por
+ * diámetro no los encontraba nunca. Se piden por código.
+ */
+export async function codigosAfiladoMecha(): Promise<CodigoAfiladoMecha[]> {
+  const { data, error } = await supabase.rpc('codigos_afilado_mecha')
+  if (error) throw error
+  return aplicarSinCargo((data ?? []) as CodigoAfiladoMecha[])
 }
 
 /**
@@ -671,6 +706,12 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         // un texto ya armado no se saca de vuelta el valor que lo generó.
         tipo_pieza: i.tipo_pieza,
         tipo_mecha: i.tipo_mecha,
+        // Las dos respuestas que eligen el código de afilado de la mecha. Se
+        // guardan por lo mismo que las tres de la cuchilla: al reabrir la nota
+        // el selector tiene que volver contestado, no en blanco con el código
+        // puesto y sin que se vea de dónde salió.
+        mecha_material: i.mecha_material,
+        mecha_dientes: aNumero(i.mecha_dientes) || null,
         mano: i.mano,
         // Las tres respuestas que eligen el código de afilado de cuchilla. No
         // se imprimen: se guardan para que al volver a abrir la nota el
@@ -1013,6 +1054,8 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
 
     tipo_pieza: (detalle.tipo_pieza as string | null) || null,
     tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
+    mecha_material: (detalle.mecha_material as MaterialMecha | null) ?? null,
+    mecha_dientes: comoCadena(detalle.mecha_dientes),
     mano: (detalle.mano as ManoMecha | null) ?? null,
 
     dientes_rotos: fila.dientes_rotos === true,

@@ -18,6 +18,7 @@ import {
   type TipoNotaPedido,
   type TipoServicio,
 } from './tipos'
+import type { MaterialMecha } from './afilado-mecha'
 import { etiquetaTipoDePieza, unaPieza } from './tipos-de-pieza'
 import { CODIGO_POSTAL } from './validaciones'
 
@@ -204,6 +205,7 @@ export type TipoMecha =
   | 'ciega'
   | 'barreno'
   | 'bisagra'
+  | 'malletadora'
   | 'compresion'
   | 'caja_cerradura'
   | 'integral_widia'
@@ -215,6 +217,7 @@ export const ETIQUETA_TIPO_MECHA: Record<TipoMecha, string> = {
   ciega: 'CIEGA',
   barreno: 'BARRENO',
   bisagra: 'BISAGRA',
+  malletadora: 'MALLETADORA',
   compresion: 'COMPRESIÓN',
   caja_cerradura: 'CAJA DE CERRADURA',
   integral_widia: 'INTEGRAL DE WIDIA',
@@ -889,6 +892,19 @@ export interface FormularioItemNota {
 
   // Mechas
   tipo_mecha: TipoMecha | null
+
+  /**
+   * De qué material es el filo, y cuántos filos tiene.
+   *
+   * No son medidas: son las dos respuestas que, junto con el tipo, eligen el
+   * código de afilado. Van fuera de `CAMPOS_POR_HERRAMIENTA` como las tres del
+   * afilado de cuchilla, porque no se tipean ni se validan de a una: lo que se
+   * exige es el código, y sin contestarlas no hay código.
+   *
+   * Los filos sólo se piden en las integrales, que es donde cambian el precio.
+   */
+  mecha_material: MaterialMecha | null
+  mecha_dientes: string
   mano: ManoMecha | null
 
   // Si/No con "no" por defecto, como pidieron
@@ -1028,6 +1044,8 @@ export const ITEM_VACIO: FormularioItemNota = {
   paso: '',
   tipo_pieza: null,
   tipo_mecha: null,
+  mecha_material: null,
+  mecha_dientes: '',
   mano: null,
   dientes_rotos: false,
   afilado_reparacion: false,

@@ -18,6 +18,7 @@ import {
   esDescripcionSugerida,
   espaciado,
   ETIQUETA_HERRAMIENTA,
+  ETIQUETA_MATERIAL_MECHA,
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
   formatearPesos,
@@ -31,15 +32,21 @@ import {
   radios,
   SINGULAR_HERRAMIENTA,
   soloNumeros,
+  codigoAfiladoMecha,
+  DIENTES_MECHA_INTEGRAL,
+  materialFijoDeLaMecha,
   medidasDelTipoDePieza,
+  pideDientesLaMecha,
   tipoDePieza,
   tiposDePieza,
+  totalAfiladoMecha,
   totalDeListaDelRenglon,
   unaPieza,
   type CampoItem,
   type FormularioItemNota,
   type Herramienta,
   type ManoMecha,
+  type MaterialMecha,
   type TipoMecha,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -59,12 +66,14 @@ import { CampoDescuento } from './Descuento'
 import {
   agujeroDeFabrica,
   codigosAfiladoCuchilla,
+  codigosAfiladoMecha,
   mechasDelTipo,
   codigosSinRango,
   medidasDisponibles,
   medidasEnCascada,
   type ArticuloConMedidas,
   type CascadaMedidas,
+  type CodigoAfiladoMecha,
   type CodigoCuchilla,
   resolverCodigoDeItem,
   type CodigoComputo,
@@ -677,18 +686,41 @@ export function PasoRenglon({
     if (!item.herramienta) return
     setVerMedidas(false)
 
-    // Sin rango no hay medida que cargar: el código SE ELIGE. Es el caso de
-    // mechas y cuchillas, donde el precio no depende de una medida. Antes esta
-    // función devolvía sin hacer nada y tocar la opción no producía ningún
-    // efecto visible.
+    /*
+      Sin rango no hay medida que cargar: el código SE ELIGE. Es el caso de
+      mechas y cuchillas, donde el precio no depende de una medida.
+
+      El importe va al campo que la herramienta usa de verdad. Iba siempre a
+      PRECIO POR DIENTE, y las mechas, las cuchillas y las sierras sin fin no
+      tienen ese campo —no se cobran por diente— así que el renglón quedaba con
+      el código bien elegido y el precio en cero. En ésas el importe de la lista
+      es por unidad y va a PRECIO TOTAL, multiplicado por las que sean.
+    */
     if (m.rango_min === null) {
       propuesto.current = m.codigo
+      const porDiente = campos.includes('precio_por_diente')
+      const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+      const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
+
       alCambiar({
         codigos_computo: [m.codigo],
         ...(m.a_cotizar
-          ? { precio_por_diente: '' }
-          : m.precio_pesos !== null
-            ? { precio_por_diente: String(m.precio_pesos) }
+          ? porDiente
+            ? { precio_por_diente: '' }
+            : { precio_total: '' }
+          : importe !== null
+            ? porDiente
+              ? { precio_por_diente: String(importe).replace('.', ',') }
+              : {
+                  precio_total: String(Math.round(importe * unidades * 100) / 100).replace(
+                    '.',
+                    ',',
+                  ),
+                  // El servicio se cobra en pesos: `precio_pesos` ya viene
+                  // convertido, y dejar la moneda en dólares lo volvería a
+                  // convertir en la nota.
+                  moneda: 'ARS' as const,
+                }
             : {}),
         sin_cargo: esSinCargo(m.descripcion),
       })
@@ -929,6 +961,11 @@ export function PasoRenglon({
             alCambiar({
               tipo_mecha: t,
               mano: null,
+              // El material se conserva —una mecha de widia sigue siendo de
+              // widia aunque cambie el tipo— pero los filos no: sólo tienen
+              // sentido en las integrales, y arrastrar un 3 a una pasante
+              // dejaría elegido un código que esa mecha no usa.
+              mecha_dientes: '',
               codigos_computo: [],
               codigo_herramienta: '',
               descripcion_catalogo: '',
@@ -944,12 +981,21 @@ export function PasoRenglon({
       ) : null}
 
       {/*
+        El afilado de la mecha: de qué material es, y cuántos filos si es integral.
+        Va ANTES del modelo porque es lo que decide el precio. El modelo, abajo,
+        dice cuál de las mechas es —para las medidas y para el taller— pero no
+        cotiza nada.
+      */}
+      {item.herramienta === 'mecha' && item.tipo_mecha ? (
+        <SelectorAfiladoMecha item={item} alCambiar={alCambiar} />
+      ) : null}
+
+      {/*
         El modelo de mecha.
         No se cotiza por medida como una sierra: la familia entera del catálogo
         tiene un solo código con rango, así que buscar por diámetro no devolvía
         nunca nada y el vendedor terminaba tipeando el código de memoria. Se
-        elige de la lista del tipo, y de ahí salen solos el código, el precio y
-        las medidas. Lo único que queda por poner son las unidades.
+        elige de la lista del tipo y de ahí salen las medidas y la mano.
       */}
       {item.herramienta === 'mecha' && item.tipo_mecha ? (
         <SelectorModeloMecha item={item} alCambiar={alCambiar} />
@@ -1497,14 +1543,22 @@ export function PasoRenglon({
                 </Aviso>
               ) : null}
 
-              {sinCodigo ? (
+              {/* El cartel dice "no hay código": con uno ya elegido es mentira.
+                  Pasa en las mechas y las cuchillas, donde el código no sale de
+                  la medida sino de las respuestas de más arriba: se elegía bien
+                  y abajo seguía avisando que no se había encontrado nada. */}
+              {sinCodigo &&
+              !(
+                SIN_RANGOS.has(item.herramienta as Herramienta) &&
+                item.codigos_computo.length > 0
+              ) ? (
                 // Mechas y cuchillas no tienen un solo código con rango: no se
                 // cotizan por medida. Decirle "probá otra medida" sería mandarlo
                 // a buscar algo que no existe.
                 SIN_RANGOS.has(item.herramienta as Herramienta) ? (
                   <Aviso tono="atencion" titulo="Esta herramienta no se cotiza por medida">
                     {item.herramienta === 'mecha'
-                      ? 'El afilado de mechas va por tipo y cantidad de filos, no por diámetro. Abrí la lista de abajo y elegí el código.'
+                      ? 'El afilado de mechas va por tipo, material y cantidad de filos, no por diámetro. Contestá el material acá arriba y el código sale solo.'
                       : 'La lista de cuchillas es de producto, no de servicio. Abrí la lista de abajo y elegí el código.'}
                   </Aviso>
                 ) : (
@@ -1740,6 +1794,219 @@ function manoDelModelo(m: ModeloMecha): ManoMecha | null {
 }
 
 /**
+ * El afilado de la mecha: qué código le toca y cuánto sale.
+ *
+ * El código no sale de una medida. Ninguno de los nueve de la lista tiene rango
+ * de diámetro cargado, así que el buscador por medida no devolvía nunca nada:
+ * lo eligen el TIPO —que ya se contestó arriba—, el MATERIAL, y en las
+ * integrales la cantidad de filos.
+ *
+ * El material es el que parte la tabla en dos y es el que la app no preguntaba
+ * en ninguna parte: en HSS toda la línea se afila a $ 8.064; en metal duro va
+ * de $ 10.528 una pasante a $ 47.480 una integral de cuatro filos.
+ *
+ * Es el mismo mecanismo del afilado de cuchilla, y está calcado de ahí a
+ * propósito: el vendedor ya lo conoce de esa pantalla.
+ */
+function SelectorAfiladoMecha({
+  item,
+  alCambiar,
+}: {
+  item: FormularioItemNota
+  alCambiar: (cambios: Partial<FormularioItemNota>) => void
+}) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
+  const [opciones, setOpciones] = useState<CodigoAfiladoMecha[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [fallo, setFallo] = useState(false)
+
+  useEffect(() => {
+    let cancelado = false
+    codigosAfiladoMecha()
+      .then((c) => {
+        if (!cancelado) setOpciones(c)
+      })
+      .catch(() => {
+        if (!cancelado) setFallo(true)
+      })
+      .finally(() => {
+        if (!cancelado) setCargando(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
+
+  /**
+   * Hay tipos donde el material no es una pregunta: ya está contestado.
+   *
+   * Una integral de widia es de metal duro por definición —el sub-rubro se
+   * llama así y ninguna de las veinte dice otra cosa— y las cinco de barreno
+   * son HSS. Preguntarlo ahí no sólo era un toque al pedo: dejaba elegir la
+   * opción que no existe, y en las integrales eso cotiza $ 8.064 un trabajo de
+   * $ 39.764,50.
+   */
+  const materialFijo = materialFijoDeLaMecha(item.tipo_mecha)
+  const material = materialFijo ?? item.mecha_material
+
+  // Se guarda lo que la pantalla está usando, para que la nota diga por qué
+  // salió ese código y para que al reabrirla se vea contestado.
+  useEffect(() => {
+    if (materialFijo && item.mecha_material !== materialFijo) {
+      alCambiar({ mecha_material: materialFijo })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [materialFijo, item.mecha_material])
+
+  const pideDientes = pideDientesLaMecha(item.tipo_mecha, material)
+  const dientes = pideDientes ? aNumero(item.mecha_dientes) || null : null
+
+  /**
+   * Cuál de los nueve corresponde.
+   *
+   * La cuenta la hace `codigoAfiladoMecha` —compartida, para que el panel de
+   * escritorio y el probador lleguen al mismo código— y acá sólo se busca la
+   * fila que trae el precio.
+   */
+  const codigo = codigoAfiladoMecha(item.tipo_mecha, material, dientes)
+  const elegida = codigo ? opciones.find((o) => o.codigo === codigo) : undefined
+
+  /**
+   * El código y el total salen solos de las respuestas.
+   *
+   * El precio de la lista es POR MECHA: afilar cuatro pasantes son cuatro veces
+   * $ 10.528. No se cobra por filo —los filos sólo eligen el código de las
+   * integrales— ni por milímetro, que es lo de las cuchillas.
+   */
+  useEffect(() => {
+    if (!elegida) return
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const total = elegida.precio_pesos
+      ? totalAfiladoMecha(elegida.precio_pesos, unidades)
+      : 0
+
+    const cambios: Partial<FormularioItemNota> = {}
+    if (item.codigos_computo[0] !== elegida.codigo) {
+      cambios.codigos_computo = [elegida.codigo]
+      cambios.sin_cargo = esSinCargo(elegida.descripcion)
+      // El afilado se cobra en pesos siempre. Quedaba en USD de cuando el
+      // precio salía del catálogo de producto.
+      cambios.moneda = 'ARS'
+    }
+    if (total > 0 && Math.abs(total - aNumero(item.precio_total)) > 0.005) {
+      // Con coma: el campo lo lee y lo edita el vendedor, y todo el formulario
+      // tipea a la argentina. Un "39764.5" en pantalla se lee como otro número.
+      cambios.precio_total = String(total).replace('.', ',')
+    }
+    if (Object.keys(cambios).length > 0) alCambiar(cambios)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elegida?.codigo, elegida?.precio_pesos, item.cantidad])
+
+  if (cargando) {
+    return (
+      <View style={estilos.bloqueCodigos}>
+        <ActivityIndicator size="small" color={colores.rojo} />
+      </View>
+    )
+  }
+
+  if (fallo || opciones.length === 0) {
+    return (
+      <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
+        Revisá la señal. Podés cargar el código y el precio total a mano.
+      </Aviso>
+    )
+  }
+
+  const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+
+  return (
+    <View style={estilos.bloqueCodigos}>
+      {materialFijo ? (
+        <View style={estilos.afiladoDato}>
+          <Text style={estilos.rotulo}>MATERIAL</Text>
+          <Text style={estilos.afiladoDatoValor}>{ETIQUETA_MATERIAL_MECHA[materialFijo]}</Text>
+          <Text style={estilos.afiladoDescripcion}>
+            {materialFijo === 'md'
+              ? 'Lo dice el tipo: las integrales son todas de widia.'
+              : 'Lo dice el tipo: las mechas de barreno son todas HSS.'}
+          </Text>
+        </View>
+      ) : (
+        <Desplegable<MaterialMecha>
+          etiqueta="¿DE QUÉ MATERIAL ES?"
+          obligatorio
+          marcador="Elegí el material"
+          valor={item.mecha_material}
+          items={(['hss', 'md'] as MaterialMecha[]).map((m) => ({
+            valor: m,
+            etiqueta: ETIQUETA_MATERIAL_MECHA[m],
+          }))}
+          alCambiar={(m) =>
+            alCambiar({
+              mecha_material: m,
+              // En HSS no se pregunta por los filos: es un solo precio para
+              // toda la línea. Lo que hubiera quedado elegido no aplica más.
+              ...(m === 'hss' ? { mecha_dientes: '' } : {}),
+            })
+          }
+        />
+      )}
+
+      {/* Los filos, sólo en las integrales de metal duro: es lo único que
+          cambia el precio ahí, de $ 34.423 con dos a $ 47.480 con cuatro. */}
+      {pideDientes ? (
+        <Desplegable<string>
+          etiqueta="¿CUÁNTOS FILOS TIENE?"
+          obligatorio
+          marcador="Elegí la cantidad"
+          valor={item.mecha_dientes || null}
+          items={DIENTES_MECHA_INTEGRAL.map((z) => ({
+            valor: String(z),
+            etiqueta: `Z = ${z}`,
+          }))}
+          alCambiar={(z) => alCambiar({ mecha_dientes: z })}
+        />
+      ) : null}
+
+      {/*
+        Qué código quedó y cuánto sale. Se muestra hecho y no como una lista
+        para elegir: las respuestas de arriba ya lo deciden, y ofrecer los nueve
+        sería pedir dos veces lo mismo.
+      */}
+      {elegida ? (
+        <View style={estilos.afiladoElegido}>
+          <Text style={estilos.afiladoCodigo}>{elegida.codigo}</Text>
+          <Text style={estilos.afiladoDescripcion}>{elegida.descripcion}</Text>
+          <Text style={estilos.afiladoPrecio}>
+            {elegida.precio_pesos
+              ? `${formatearPesos(Number(elegida.precio_pesos))} cada una${
+                  unidades > 1
+                    ? ` · ${unidades} = ${formatearPesos(
+                        totalAfiladoMecha(Number(elegida.precio_pesos), unidades),
+                      )}`
+                    : ''
+                }`
+              : 'Falta la cotización para pasarlo a pesos'}
+          </Text>
+        </View>
+      ) : material && !pideDientes ? (
+        /*
+          La lista de afilado no cubre todas las mechas en metal duro: barreno,
+          practiwall y plegado no tienen precio de metal duro. Se dice, en vez
+          de proponer el código de otra mecha, que es lo que se cobraría mal.
+        */
+        <Aviso tono="atencion" titulo="Sin precio de lista para esa mecha">
+          La lista de afilado no tiene {ETIQUETA_TIPO_MECHA[item.tipo_mecha!]} en metal
+          duro. Cargá el código y el precio total a mano, o consultá con la oficina.
+        </Aviso>
+      ) : null}
+    </View>
+  )
+}
+
+/**
  * Elegir la mecha de la lista del tipo.
  *
  * Es el reemplazo de tipear el código de memoria: se elige el modelo y de ahí
@@ -1782,48 +2049,35 @@ function SelectorModeloMecha({
     }
   }, [item.tipo_mecha])
 
-  const esVenta = item.servicio === 'venta'
-  const elegido = esVenta ? item.codigo_herramienta : (item.codigos_computo[0] ?? '')
-
   /**
-   * El total sale del precio del modelo por las unidades.
+   * Este selector NO cotiza. Dice cuál de las mechas es.
    *
-   * En las mechas no se cobra por diente, así que el PRECIO TOTAL era un campo
-   * que el vendedor tenía que tipear. Con el modelo elegido el importe ya se
-   * sabe: se recalcula solo cuando cambian las unidades.
+   * Escribía el código del producto en `codigos_computo` y el precio de lista
+   * en `precio`, y de ahí salía el importe del renglón: afilar una pasante de
+   * 4 mm se cobraba $ 31.406,10 —lo que sale comprarla, pasada a pesos— en vez
+   * de $ 10.528, que es lo que dice la lista de afilado. Y no era un caso raro:
+   * era el único camino, porque ninguna pantalla ofrecía los códigos de
+   * afilado. Ahora los elige `SelectorAfiladoMecha`, acá arriba.
+   *
+   * Lo que sí deja puesto es lo que identifica la pieza —el diámetro, el largo
+   * útil, la mano y la descripción del catálogo—, que es lo que necesita el
+   * taller para saber qué le llegó y el vendedor para no medir a mano.
+   *
+   * El código de producto va a `codigo_herramienta`, que es su casillero: en un
+   * renglón de servicio no interviene en ninguna cuenta.
    */
-  useEffect(() => {
-    if (esVenta || !elegido) return
-    const unitario = aNumero(item.precio)
-    if (unitario <= 0) return
-    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
-    const total = Math.round(unitario * unidades * 100) / 100
-    if (Math.abs(total - aNumero(item.precio_total)) > 0.005) {
-      alCambiar({ precio_total: String(total) })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.precio, item.cantidad, elegido, esVenta])
+  const elegido = item.codigo_herramienta
 
   function elegir(m: ModeloMecha) {
     const c = caracteristicasDeArticulo(m.descripcion, m.medida)
     const mano = manoDelModelo(m)
-    // Los precios en dólares no se pasan a pesos acá: eso necesita la
-    // cotización, que esta pantalla no tiene. Se guarda el de la lista y la
-    // nota lo convierte con el tipo de cambio que ya lleva impreso.
-    const unitario = m.precio_pesos !== null ? String(m.precio_pesos) : String(m.precio || '')
 
     alCambiar({
-      ...(esVenta ? { codigo_herramienta: m.codigo } : { codigos_computo: [m.codigo] }),
+      codigo_herramienta: m.codigo,
       descripcion_catalogo: `${m.codigo} · ${m.descripcion}${m.medida ? ` · ${m.medida}` : ''}`,
-      precio: m.a_cotizar ? '' : unitario,
-      moneda: m.moneda === 'USD' ? 'USD' : 'ARS',
       ...(c.diametro_exterior ? { diametro: c.diametro_exterior } : {}),
       ...(c.largo ? { largo_util: c.largo } : {}),
       ...(mano ? { mano } : {}),
-      sin_cargo: esSinCargo(m.descripcion),
-      // A cotizar: el importe lo pone el vendedor, así que se limpia lo que
-      // hubiera quedado de un modelo anterior en vez de dejar un precio ajeno.
-      ...(m.a_cotizar ? { precio_total: '' } : {}),
     })
   }
 
@@ -1847,7 +2101,8 @@ function SelectorModeloMecha({
   if (modelos.length === 0) {
     return (
       <Aviso tono="atencion" titulo="Sin modelos cargados">
-        La lista de precios no tiene modelos para ese tipo. Cargá el código y el precio a mano.
+        La lista de producto no tiene modelos de ese tipo, así que las medidas van a mano. El
+        precio del afilado no depende de esto: sale de las respuestas de arriba.
       </Aviso>
     )
   }
@@ -1855,7 +2110,11 @@ function SelectorModeloMecha({
   return (
     <View style={estilos.bloqueCodigos}>
       <Text style={estilos.rotulo}>
-        MODELO ({modelos.length} en la lista)
+        ¿CUÁL ES? ({modelos.length} en la lista)
+      </Text>
+      <Text style={estilos.ayudaModelo}>
+        Para las medidas y para que el taller sepa qué le llegó. El precio del
+        afilado sale de arriba.
       </Text>
       {modelos.map((m) => {
         const marcado = m.codigo === elegido
@@ -1883,13 +2142,6 @@ function SelectorModeloMecha({
                 {c.diametro_exterior ? ` · Ø ${c.diametro_exterior} mm` : ''}
               </Text>
             </View>
-            <Text style={[estilos.opcionPrecio, m.a_cotizar && estilos.aCotizar]}>
-              {m.a_cotizar
-                ? 'A cotizar'
-                : m.precio_pesos !== null
-                  ? formatearPesos(Number(m.precio_pesos))
-                  : `U$S ${m.precio}`}
-            </Text>
           </Pressable>
         )
       })}
@@ -2192,6 +2444,51 @@ const usarEstilos = hojaDeTema((t) => ({
     gap: 2,
   },
   opcionElegida: { backgroundColor: 'rgba(0,200,83,0.12)' },
+
+  /**
+   * El código de afilado que quedó, con su precio.
+   *
+   * Se dibuja como un resultado y no como una opción para tocar: las respuestas
+   * de arriba ya lo eligieron, y un recuadro que se ve pulsable invita a
+   * cambiarlo desde un lugar donde no se puede.
+   */
+  afiladoElegido: {
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campoBlanco,
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
+    gap: 2,
+  },
+  afiladoCodigo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  afiladoDescripcion: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  afiladoPrecio: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
+  },
+  /** El material que no se pregunta porque el tipo ya lo contesta. */
+  afiladoDato: { gap: 2 },
+  afiladoDatoValor: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  /** Por qué se elige el modelo, ahora que no es de donde sale el precio. */
+  ayudaModelo: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
   /** El texto del modelo, que comparte fila con el precio de la derecha. */
   opcionTexto: { flex: 1, gap: 2 },
   /** El que todavía no tiene importe: se ve distinto del que sí lo tiene. */
