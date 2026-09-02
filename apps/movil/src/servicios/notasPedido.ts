@@ -112,13 +112,30 @@ export interface ModeloMecha {
   moneda: 'ARS' | 'USD' | null
   precio_pesos: number | null
   a_cotizar: boolean
+  /**
+   * De qué mano es, sacada de la columna y no del texto de la descripción.
+   *
+   * La lista tiene una errata: `MCIR0670` dice "MECHA CIEGA DER." siendo
+   * izquierda —lo dice su propio código, MC**I**R—. Y hay dos que no dicen ni
+   * DER ni IZQ, así que el campo quedaba vacío y obligatorio sobre un dato que
+   * la base tenía cargado.
+   */
+  mano: ManoMecha | null
+  /**
+   * Los filos. Sólo vienen en las integrales, que es donde eligen el precio del
+   * afilado: Z=2 son $ 34.423 y Z=4 son $ 47.480.
+   */
+  cantidad_dientes: number | null
 }
 
 /**
  * Los modelos de mecha de un tipo, con su precio.
  *
- * El tipo sale del desplegable del renglón y el prefijo del código lo
- * confirma: MB bisagra, MC ciega, MP pasante, MID integral, MIDN compresión.
+ * Los clasifica `catalogo_medidas.subrubro`, que es el sub-rubro del Gestión y
+ * ya tiene las 166 filas repartidas. Antes se adivinaba por el prefijo del
+ * código —MB bisagra, MC ciega, MP pasante— y con cuatro reglas de texto para
+ * once sub-rubros quedaban 42 códigos sin tipo y cuatro tipos sin un solo
+ * modelo.
  * El reparto lo hace la base, que es la que tiene el catálogo entero.
  */
 export async function mechasDelTipo(tipo: TipoMecha): Promise<ModeloMecha[]> {

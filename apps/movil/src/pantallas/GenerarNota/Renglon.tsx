@@ -1805,20 +1805,6 @@ function rotuloServicio(s: TipoServicio): string {
 }
 
 /**
- * De qué mano es el modelo.
- *
- * Sale de la descripción y no del código: `MCDL0870` dice "MECHA DERECHA
- * LASER" y `MCIL0570` "MECHA IZQUIERDA LASER", pero la letra de mano cae en
- * distinta posición según la sub-familia. El texto lo dice siempre.
- */
-function manoDelModelo(m: ModeloMecha): ManoMecha | null {
-  const texto = m.descripcion.toUpperCase()
-  if (/\bIZQ/.test(texto)) return 'izquierda'
-  if (/\bDER/.test(texto)) return 'derecha'
-  return null
-}
-
-/**
  * El afilado de la mecha: qué código le toca y cuánto sale.
  *
  * El código no sale de una medida. Ninguno de los nueve de la lista tiene rango
@@ -2095,14 +2081,29 @@ function SelectorModeloMecha({
 
   function elegir(m: ModeloMecha) {
     const c = caracteristicasDeArticulo(m.descripcion, m.medida)
-    const mano = manoDelModelo(m)
 
+    /*
+      La mano y los filos vienen con el modelo, de su columna en el catálogo.
+
+      La mano se leía de la descripción, y la lista tiene una errata: MCIR0670
+      dice "MECHA CIEGA DER." siendo izquierda —lo dice su propio código,
+      MC-I-R— así que se guardaba al revés. Y MCARD0840 y MPDL0570 no dicen ni
+      DER ni IZQ, con lo cual el campo quedaba vacío y obligatorio sobre un dato
+      que la base ya tenía.
+
+      Los filos sólo los traen las integrales, y son los que eligen el precio
+      del afilado. Precargarlos ahorra la única pregunta que quedaba: elegido el
+      modelo, el renglón ya está cotizado.
+    */
     alCambiar({
       codigo_herramienta: m.codigo,
       descripcion_catalogo: `${m.codigo} · ${m.descripcion}${m.medida ? ` · ${m.medida}` : ''}`,
       ...(c.diametro_exterior ? { diametro: c.diametro_exterior } : {}),
       ...(c.largo ? { largo_util: c.largo } : {}),
-      ...(mano ? { mano } : {}),
+      ...(m.mano ? { mano: m.mano } : {}),
+      ...(pideDientesLaMecha(item.tipo_mecha, item.mecha_material) && m.cantidad_dientes
+        ? { mecha_dientes: String(m.cantidad_dientes) }
+        : {}),
     })
   }
 

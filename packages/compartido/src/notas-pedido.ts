@@ -226,11 +226,19 @@ export const ETIQUETA_TIPO_MECHA: Record<TipoMecha, string> = {
 }
 
 /**
- * Sólo estas tres tienen mano: preguntar "¿derecha o izquierda?" en una barreno
- * o una practiwall no significa nada y sólo agrega un campo que el vendedor
- * tiene que completar al pedo.
+ * Los tipos que vienen de las dos manos, y por eso hay que preguntar cuál es.
+ *
+ * Contado sobre los modelos de la lista: pasante 16 y 16, ciega 25 y 25,
+ * bisagra 13 y 12, integral de widia 14 derechas y 3 izquierdas (las MIIR).
+ *
+ * La integral faltaba. No era inocuo: sus tres izquierdas quedaban sin poder
+ * declararse, y el taller recibía una mecha izquierda con la nota muda.
+ *
+ * Los que no están es porque no hay de dos manos: la caja de cerradura y las de
+ * compresión son todas derechas, y la practiwall y la punta de plegado no
+ * tienen mano. Preguntarlo ahí es un campo que el vendedor completa al pedo.
  */
-export const MECHAS_CON_MANO: TipoMecha[] = ['pasante', 'ciega', 'bisagra']
+export const MECHAS_CON_MANO: TipoMecha[] = ['pasante', 'ciega', 'bisagra', 'integral_widia']
 
 export type ManoMecha = 'derecha' | 'izquierda'
 
