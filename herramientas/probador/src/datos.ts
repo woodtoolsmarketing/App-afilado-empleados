@@ -543,7 +543,7 @@ export async function resolverCodigoDeItem(
 export async function notasPendientes() {
   const { data, error } = await supabase
     .from('notas_pedido')
-    .select('id, numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios')
+    .select('id, numero, vendedor_numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios')
     .in('estado', ['pendiente', 'pendiente_cliente'])
     .order('creado_en', { ascending: false })
   if (error) throw error

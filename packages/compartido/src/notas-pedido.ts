@@ -73,6 +73,57 @@ export const SUMAR_OTRA: Record<Herramienta, string> = {
   cuchilla: 'SUMAR OTRA CUCHILLA',
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sierra o incisor
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cuál de los dos discos trajeron.
+ *
+ * El incisor es el disco chico que va DELANTE de la sierra y marca el corte
+ * para que no se astille. Son dos piezas distintas, se afilan por separado y
+ * cada una va en su propio renglón —eso no cambia—, pero entran por la misma
+ * puerta: el vendedor elige SIERRAS y acá adentro aclara cuál es.
+ *
+ * **El código de cómputo no se entera.** Los dos salen de la misma lista, por
+ * ancho de corte, y ésa es la razón por la que el incisor entraba como sierra:
+ * el precio daba bien igual. Lo que salía mal era la hoja. La fábrica recibía
+ * dos renglones que decían los dos "S.C." y tenía que adivinar cuál de los dos
+ * era el disco chico.
+ *
+ * Se pregunta siempre y arranca sin contestar, a propósito: poner "sierra" por
+ * defecto sería volver a lo de antes, con la diferencia de que ahora la nota
+ * afirmaría que alguien lo miró.
+ */
+export type SierraClase = 'sierra' | 'incisor'
+
+export const ETIQUETA_SIERRA_CLASE: Record<SierraClase, string> = {
+  sierra: 'SIERRA CIRCULAR',
+  incisor: 'INCISOR',
+}
+
+/** Una línea que diga qué es cada uno, para no elegir por el nombre solo. */
+export const QUE_ES_EL_DISCO: Record<SierraClase, string> = {
+  sierra: 'El disco principal, el que hace el corte',
+  incisor: 'El disco chico que va delante y marca el corte',
+}
+
+/**
+ * Con qué nombre se anuncia este renglón, que no siempre es el de la
+ * herramienta con la que se cargó.
+ *
+ * Un incisor se carga en SIERRAS —comparte la lista de precios y el ancho de
+ * corte— pero en la nota tiene que decir "incisor". Es lo único que la fábrica
+ * lee para saber qué disco le llegó.
+ */
+export function herramientaEnLaDescripcion(
+  herramienta: Herramienta | null,
+  sierraClase: SierraClase | null = null,
+): Herramienta | null {
+  if (herramienta === 'sierra' && sierraClase === 'incisor') return 'incisor'
+  return herramienta
+}
+
 /**
  * Cómo se llama la herramienta en la descripción del renglón.
  *
@@ -103,15 +154,20 @@ export const DESCRIPCION_VENTA: Record<Herramienta, string> = {
   cuchilla: 'Cuchilla nueva',
 }
 
-/** La descripción que corresponde a esa herramienta en ese servicio. */
+/**
+ * La descripción que corresponde a esa herramienta en ese servicio.
+ *
+ * `sierraClase` es lo que hace que un incisor salga diciendo "Incisor" y no
+ * "S.C.": es el mismo renglón de sierras, pero no es la misma pieza.
+ */
 export function descripcionSugerida(
   herramienta: Herramienta | null,
   servicio: TipoServicio,
+  sierraClase: SierraClase | null = null,
 ): string {
-  if (!herramienta) return ''
-  return servicio === 'venta'
-    ? DESCRIPCION_VENTA[herramienta]
-    : DESCRIPCION_SERVICIO[herramienta]
+  const nombra = herramientaEnLaDescripcion(herramienta, sierraClase)
+  if (!nombra) return ''
+  return servicio === 'venta' ? DESCRIPCION_VENTA[nombra] : DESCRIPCION_SERVICIO[nombra]
 }
 
 /**
@@ -247,6 +303,7 @@ export type ManoMecha = 'derecha' | 'izquierda'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type CampoItem =
+  | 'sierra_clase'
   | 'cantidad'
   | 'diametro_exterior'
   | 'diametro_interior'
@@ -287,7 +344,16 @@ export type CampoItem =
  * mapas tienen que seguir coincidiendo.
  */
 export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
+  /*
+   * SIERRA o INCISOR va primero, antes de la cantidad.
+   *
+   * Es la misma razón por la que el tipo de pieza abre el renglón de la fresa:
+   * es lo que dice QUÉ hay en la mano, no un dato que salga de medirlo. Y va
+   * arriba de todo porque de él sale la descripción del renglón, que el
+   * vendedor ve completarse sola apenas contesta.
+   */
   sierra: [
+    'sierra_clase',
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
     'diametro_interior', 'descripcion', 'cantidad_dientes', 'rascadores',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
@@ -970,6 +1036,15 @@ export interface FormularioItemNota {
   largo_rebajado: string
 
   /**
+   * Sierra o incisor.
+   *
+   * Sólo en los renglones de SIERRAS. No toca el código de cómputo —los dos
+   * salen de la misma lista por ancho de corte— pero sí cambia con qué nombre
+   * sale el renglón en la hoja. Ver `SierraClase`.
+   */
+  sierra_clase: SierraClase | null
+
+  /**
    * Qué tipo de pieza es, dentro de su herramienta.
    *
    * Guarda el mismo valor que `catalogo_medidas.geometria`, así que el renglón
@@ -1132,6 +1207,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   espesor: '',
   paso: '',
   largo_rebajado: '',
+  sierra_clase: null,
   tipo_pieza: null,
   tipo_mecha: null,
   mecha_material: null,
@@ -1173,6 +1249,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   paso: 'el paso',
   descripcion: 'la descripción',
   cantidad_dientes: 'la cantidad de dientes',
+  sierra_clase: 'si es sierra o incisor',
   tipo_pieza: 'el tipo de pieza',
   tipo_mecha: 'el tipo de mecha',
   mano: 'si es derecha o izquierda',
@@ -1306,6 +1383,21 @@ export function validarItemNota(
 
   for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {
     if (NO_OBLIGATORIOS.includes(campo)) continue
+
+    /*
+     * Sierra o incisor: sin respuesta por defecto, y por eso se exige.
+     *
+     * Poner "sierra" de arranque dejaría la nota igual que antes —todo entra
+     * como sierra circular— con el agravante de que ahora afirmaría que
+     * alguien lo miró. Son dos discos distintos y la fábrica los trata
+     * distinto.
+     */
+    if (campo === 'sierra_clase') {
+      if (!item.sierra_clase) {
+        errores.sierra_clase = 'Aclará si es una sierra o un incisor'
+      }
+      continue
+    }
 
     // El tipo se elige de una lista, no se tipea: el mensaje tiene que decir
     // "elegí" y nombrar la pieza, que es lo que el vendedor tiene en la mano.
@@ -1464,7 +1556,12 @@ export function resumenRenglon(item: FormularioItemNota): string {
 
   if (!item.herramienta) return 'Renglón sin herramienta'
 
-  const partes: string[] = [ETIQUETA_HERRAMIENTA[item.herramienta]]
+  // Un incisor se anuncia como incisor, aunque se haya cargado en SIERRAS.
+  const partes: string[] = [
+    ETIQUETA_HERRAMIENTA[
+      herramientaEnLaDescripcion(item.herramienta, item.sierra_clase) ?? item.herramienta
+    ],
+  ]
   // El tipo va pegado a la herramienta: "FRESAS · MACHIMBRE DOBLE" dice de qué
   // pieza se trata, y "FRESAS" solo no dice nada.
   const tipo = etiquetaTipoDePieza(item.herramienta, item.tipo_pieza)
@@ -2397,7 +2494,10 @@ export function lineaDeServicio(items: FormularioItemNota[]): string {
     // En minúscula, como las herramientas: la línea es una frase, no un rótulo.
     const maquina = (item.maquina || '').trim().toLowerCase()
     const suyas = grupo.destinos.get(maquina) ?? []
-    if (!suyas.includes(item.herramienta)) suyas.push(item.herramienta)
+    // Con qué nombre se anuncia, que en el incisor no es el de la herramienta:
+    // "AFILADO DE SIERRAS CIRCULARES E INCISORES" es lo que hay en la caja.
+    const nombra = herramientaEnLaDescripcion(item.herramienta, item.sierra_clase)
+    if (nombra && !suyas.includes(nombra)) suyas.push(nombra)
     grupo.destinos.set(maquina, suyas)
     porTrabajo.set(etiqueta, grupo)
   }
@@ -2554,7 +2654,11 @@ export function avisosDeAgujero(items: FormularioItemNota[]): string[] {
     if (item.servicio === 'venta') continue
     const a = agujeroDelRenglon(item)
     if (a.ajuste === 'de_fabrica' || !a.comparable) continue
-    const que = item.herramienta ? DESCRIPCION_SERVICIO[item.herramienta] : 'Herramienta'
+    // Con el mismo nombre que usa el resto de la nota: un incisor con el
+    // agujero agrandado decía "S.C. con agujero agrandado", justo debajo de
+    // una línea que ya hablaba de incisores.
+    const nombra = herramientaEnLaDescripcion(item.herramienta, item.sierra_clase)
+    const que = nombra ? DESCRIPCION_SERVICIO[nombra] : 'Herramienta'
     const como = a.ajuste === 'agrandado' ? 'con agujero agrandado' : 'con buje reductor'
     avisos.push(
       `${que} ${como}: ${a.medida} mm (de fábrica ${item.diametro_interior_catalogo.trim()} mm)`,
@@ -2769,6 +2873,48 @@ export function numeroDeVendedorImpreso(
   // Sólo se sacan ceros de adelante, y nunca todos: "000" queda en "0".
   const sinCeros = t.replace(/^0+(?=\d)/, '')
   return sinCeros || t
+}
+
+/**
+ * Cuántos dígitos lleva el número de nota cuando va con el vendedor adelante.
+ *
+ * Cuatro: el talonario va por la 81 y así entra hasta la 9999, que a este
+ * ritmo son años. Con seis, `02-000081` ocupaba tres caracteres más que el
+ * casillero del talonario, que es angosto.
+ */
+export const DIGITOS_NUMERO_DE_NOTA = 4
+
+/**
+ * El número de nota como va impreso: **el vendedor adelante**.
+ *
+ * `02-0081` es la nota 81 del vendedor 2. El prefijo son dos dígitos, con el
+ * cero de relleno si hace falta, y sale del número de vendedor de ESA nota
+ * —no del que la está mirando—, que es el mismo que se imprime en el casillero
+ * "Vendedor Nº".
+ *
+ * Sin número de vendedor se escribe como siempre, `000081`. Pasa con notas
+ * viejas, cargadas antes de que el campo fuera obligatorio: inventarles un
+ * prefijo sería atribuírselas a alguien, y `0081` a secas se lee como otra
+ * nota.
+ *
+ * `VENDEDORES_CON_CERO` **no** se pasa acá a propósito, y la diferencia sólo
+ * aparecería con un código de tres dígitos que arranque en cero: el casillero
+ * "Vendedor Nº" escribiría `007` y el prefijo `07`. Del lado de la base,
+ * `interno.numero_de_nota_impreso` no conoce esa lista de excepciones —es una
+ * convención de cómo se nombra a cada vendedor, no un dato de la tabla— así
+ * que hacerle caso acá pondría a las dos mitades a escribir números distintos
+ * para la misma nota, que es peor. Hoy la lista está vacía y no cambia nada.
+ */
+export function numeroDeNotaImpreso(
+  numero: number | string | null | undefined,
+  vendedorNumero?: string | null,
+): string | null {
+  if (numero === null || numero === undefined || numero === '') return null
+
+  const vendedor = numeroDeVendedorImpreso(vendedorNumero)
+  if (!vendedor) return String(numero).padStart(6, '0')
+
+  return `${vendedor.padStart(2, '0')}-${String(numero).padStart(DIGITOS_NUMERO_DE_NOTA, '0')}`
 }
 
 /*

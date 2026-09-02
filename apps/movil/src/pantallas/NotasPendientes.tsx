@@ -3,6 +3,7 @@ import {
   ETIQUETA_TIPO_NOTA,
   formatearHora,
   formatearPesos,
+  numeroDeNotaImpreso,
   radios,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -299,7 +300,8 @@ function FilaNota({
 
       <Pressable style={estilos.filaCuerpo} onPress={alVer} accessibilityRole="button">
         <Text style={[estilos.numero, sinNumero && estilos.numeroPendiente]}>
-          NOTA DE PEDIDO {sinNumero ? '— — —' : `Nº ${String(nota.numero).padStart(6, '0')}`}
+          NOTA DE PEDIDO{' '}
+          {sinNumero ? '— — —' : `Nº ${numeroDeNotaImpreso(nota.numero, nota.vendedor_numero)}`}
         </Text>
 
         <Text style={estilos.cliente} numberOfLines={1}>

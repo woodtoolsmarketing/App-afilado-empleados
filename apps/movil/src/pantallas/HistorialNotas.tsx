@@ -1,4 +1,9 @@
-import { espaciado, formatearDiaHistorial, TOQUE_MINIMO } from '@woodtools/compartido'
+import {
+  espaciado,
+  formatearDiaHistorial,
+  numeroDeNotaImpreso,
+  TOQUE_MINIMO,
+} from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -135,7 +140,7 @@ function DiaAcordeon({
               accessibilityLabel={
                 n.numero === null
                   ? `Nota de pedido sin número todavía, ${n.cliente_nombre}`
-                  : `Nota de pedido ${String(n.numero).padStart(6, '0')}, ${n.cliente_nombre}`
+                  : `Nota de pedido ${numeroDeNotaImpreso(n.numero, n.vendedor_numero)}, ${n.cliente_nombre}`
               }
               style={({ pressed }) => [estilos.renglon, pressed && estilos.tocado]}
             >
@@ -144,7 +149,7 @@ function DiaAcordeon({
                     y con los mismos guiones que en pendientes y en el talonario. */}
                 {n.numero === null
                   ? '- NOTA DE PEDIDO — — —'
-                  : `- NOTA DE PEDIDO Nº ${String(n.numero).padStart(6, '0')}`}
+                  : `- NOTA DE PEDIDO Nº ${numeroDeNotaImpreso(n.numero, n.vendedor_numero)}`}
               </Text>
             </Pressable>
           ))}

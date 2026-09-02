@@ -3,6 +3,7 @@ import {
   aNumero,
   DESCRIPCION_GRUPO_NOTA,
   descripcionSugerida,
+  numeroDeNotaImpreso,
   DIAS_CHEQUE_MAXIMO,
   esDescripcionSugerida,
   ENCABEZADO_VACIO,
@@ -970,7 +971,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // comprobante. Se dice cuáles son y con qué número quedó cada una.
       const detalle = notas
         .map((n) => {
-          const numero = n.numero === null ? 'sin número todavía' : `Nº ${String(n.numero).padStart(6, '0')}`
+          const numero =
+            n.numero === null
+              ? 'sin número todavía'
+              : `Nº ${numeroDeNotaImpreso(n.numero, encabezado.vendedor_numero)}`
           return `· ${ETIQUETA_GRUPO_NOTA[n.grupo]} — ${numero} — ${formatearPesos(n.total)}`
         })
         .join('\n')
@@ -1042,7 +1046,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       e.preventDefault()
       Alert.alert(
         'Dejás la corrección sin guardar',
-        `La nota ${numeroDeNota(borrador?.numero ?? null).toLowerCase()} va a quedar como estaba.`,
+        `La nota ${numeroDeNota(borrador?.numero ?? null, encabezado.vendedor_numero).toLowerCase()} va a quedar como estaba.`,
         [
           { text: 'Seguir corrigiendo', style: 'cancel' },
           {
@@ -1054,7 +1058,19 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       )
     })
     return quitar
-  }, [navigation, corrigiendo, borrador?.numero])
+    /*
+     * `encabezado.vendedor_numero` va en las dependencias, y no es de más.
+     *
+     * El listener se registra con el closure del render en que se lo registró.
+     * Al abrir una nota para corregirla, la consulta resuelve y en ESE render
+     * el `borrador` ya está pero el encabezado todavía es `ENCABEZADO_VACIO`:
+     * el efecto que lo copia corre antes que éste. Sin esta dependencia el
+     * listener se quedaba con `vendedor_numero: ''` para siempre, y el cartel
+     * nombraba la nota `02-0081` como `000081` — un número que no es de
+     * ninguna hoja.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, corrigiendo, borrador?.numero, encabezado.vendedor_numero])
 
   function alCrear() {
     /**
@@ -1169,12 +1185,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
             alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
           />
 
-          <TituloPanel>
-            {corrigiendo ? 'CORREGIR NOTA\nDE PEDIDO' : 'GENERAR NUEVA\nNOTA DE PEDIDO'}
+          {/* Una sola línea, y más chico.
+              El título ocupaba dos renglones de 24 pt en el alto de una
+              pantalla que tiene que entrar entera: eran casi ochenta píxeles
+              para decir dónde está parado el vendedor, que ya lo sabe porque
+              tocó el botón para llegar. */}
+          <TituloPanel style={estilos.titulo}>
+            {corrigiendo ? 'CORREGIR NOTA DE PEDIDO' : 'NUEVA NOTA DE PEDIDO'}
           </TituloPanel>
 
           {corrigiendo ? (
-            <Aviso tono="info" titulo={numeroDeNota(borrador?.numero ?? null)}>
+            <Aviso tono="info" titulo={numeroDeNota(borrador?.numero ?? null, encabezado.vendedor_numero)}>
               Todavía no se imprimió, así que se puede corregir entera. Al guardar se reemplaza lo
               que decía; el número no cambia.
             </Aviso>
@@ -1766,10 +1787,17 @@ const CAMPOS_DE_LA_PAGINA: Record<ParteDeLaNota, string[]> = {
   facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
 }
 
-function numeroDeNota(numero: number | null): string {
+/**
+ * El número de vendedor va adelante: `02-0081`.
+ *
+ * Sale del encabezado que se está editando y no del perfil de quien mira: el
+ * campo VENDEDOR Nº se puede corregir cuando la nota es de otro, y el que
+ * manda es el que va a salir impreso.
+ */
+function numeroDeNota(numero: number | null, vendedorNumero: string): string {
   return numero === null
     ? 'Nota sin número todavía'
-    : `Nota de pedido Nº ${String(numero).padStart(6, '0')}`
+    : `Nota de pedido Nº ${numeroDeNotaImpreso(numero, vendedorNumero)}`
 }
 
 /**
@@ -2119,6 +2147,13 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
     marginTop: -espaciado.xs,
+  },
+
+  /* El título de esta pantalla, en una línea y un escalón más chico que el
+     resto: acá el alto es un requisito. Ver el comentario donde se usa. */
+  titulo: {
+    fontSize: t.tipografia.tamano.lg,
+    lineHeight: t.tipografia.tamano.lg * t.tipografia.interlineado.ajustado,
   },
 
   pasos: {

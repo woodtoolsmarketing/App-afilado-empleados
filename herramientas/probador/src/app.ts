@@ -26,6 +26,7 @@ import {
   describirRango,
   descripcionSugerida,
   esDescripcionSugerida,
+  numeroDeNotaImpreso,
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   CONDICIONES_CON_PLAZO,
@@ -42,6 +43,12 @@ import {
   ETIQUETA_ESTADO_NOTA,
   ETIQUETA_GRUPO_NOTA,
   ETIQUETA_HERRAMIENTA,
+  ETIQUETA_SIERRA_CLASE,
+  herramientaEnLaDescripcion,
+  QUE_ES_EL_DISCO,
+  tiposDePieza,
+  unaPieza,
+  medidasDelTipoDePieza,
   ETIQUETA_MOTIVO_NO_VISITA,
   ETIQUETA_ORIGEN_FRESA,
   ETIQUETA_ROL,
@@ -77,6 +84,7 @@ import {
   type FormularioNotaEncabezado,
   type Herramienta,
   type ManoMecha,
+  type SierraClase,
   type OrigenFresa,
   type TipoMecha,
   type TipoNotaPedido,
@@ -644,7 +652,7 @@ function pantallaHistorialNotas(): HTMLElement {
                 texto:
                   n.numero === null
                     ? '- NOTA DE PEDIDO — — —'
-                    : `- NOTA DE PEDIDO Nº ${String(n.numero).padStart(6, '0')}`,
+                    : `- NOTA DE PEDIDO Nº ${numeroDeNotaImpreso(n.numero, n.vendedor_numero)}`,
                 al: { click: () => pantalla(() => pantallaDetalleNota(n.nota_id)) },
               }),
             ),
@@ -711,7 +719,7 @@ function pantallaNotasPendientes(): HTMLElement {
               texto:
                 n.numero === null
                   ? 'NOTA DE PEDIDO — — —'
-                  : `NOTA DE PEDIDO Nº ${String(n.numero).padStart(6, '0')}`,
+                  : `NOTA DE PEDIDO Nº ${numeroDeNotaImpreso(n.numero, n.vendedor_numero)}`,
             }),
           ),
           h('div.tarjeta-dato', {
@@ -996,7 +1004,14 @@ function pantallaDetalleNota(notaId: string): HTMLElement {
             'div.tarjeta',
             {},
             h('div.tarjeta-titulo', {
-              texto: `${i.orden}. ${i.herramienta ? ETIQUETA_HERRAMIENTA[i.herramienta as Herramienta] : 'VENTA'}`,
+              // Un incisor se anuncia como incisor, igual que en la app.
+              texto: (() => {
+                const nombra = herramientaEnLaDescripcion(
+                  (i.herramienta as Herramienta | null) ?? null,
+                  (i.detalle?.sierra_clase as SierraClase | undefined) ?? null,
+                )
+                return `${i.orden}. ${nombra ? ETIQUETA_HERRAMIENTA[nombra] : 'VENTA'}`
+              })(),
             }),
             h('div.tarjeta-dato', {
               texto: `${ETIQUETA_TIPO_SERVICIO[i.servicio as TipoServicio]} · ${i.cantidad} un.`,
@@ -1392,10 +1407,11 @@ function pasoEncabezado(): HTMLElement {
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
   'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
-  'largo_util', 'espesor', 'paso',
+  'largo_util', 'largo_rebajado', 'espesor', 'paso',
 ])
 
 const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
+  sierra_clase: '¿SIERRA O INCISOR?',
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
   diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
@@ -1404,10 +1420,12 @@ const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   largo: 'LARGO',
   ancho: 'ANCHO',
   largo_util: 'LARGO ÚTIL',
+  largo_rebajado: '¿A QUÉ LARGO SE REBAJA?',
   espesor: 'ESPESOR',
   paso: 'PASO',
   descripcion: 'DESCRIPCIÓN',
   cantidad_dientes: 'CANTIDAD DE DIENTES',
+  tipo_pieza: 'TIPO DE PIEZA',
   tipo_mecha: 'TIPO DE MECHA',
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
@@ -2162,6 +2180,62 @@ function dibujarCampo(
 ): HTMLElement | null {
   if (c === 'tipo_mecha') return null
 
+  /*
+    SIERRA o INCISOR. Sin respuesta por defecto: el validador la exige, igual
+    que en la app. El código de cómputo no cambia —los dos discos salen de la
+    misma lista por ancho de corte— pero la descripción del renglón sí.
+  */
+  if (c === 'sierra_clase') {
+    return h(
+      'div',
+      {},
+      desplegable(ETIQUETAS_CAMPO[c], {
+        valor: item.sierra_clase,
+        items: (['sierra', 'incisor'] as SierraClase[]).map((x) => ({
+          valor: x,
+          etiqueta: `${ETIQUETA_SIERRA_CLASE[x]} · ${QUE_ES_EL_DISCO[x]}`,
+        })),
+        alCambiar: (v) => {
+          item.sierra_clase = v
+          // La descripción la ponemos nosotros: un incisor dice "Incisor".
+          if (esDescripcionSugerida(item.descripcion)) {
+            item.descripcion = descripcionSugerida(item.herramienta, item.servicio, v)
+          }
+          refrescar()
+        },
+      }),
+      err.sierra_clase ? h('span.campo-error-texto', { texto: err.sierra_clase }) : null,
+    )
+  }
+
+  /*
+    El TIPO DE PIEZA de las fresas y los cabezales. Contestarlo deja puestas
+    las medidas que el catálogo fija para ese tipo.
+  */
+  if (c === 'tipo_pieza') {
+    const tipos = tiposDePieza(item.herramienta)
+    if (!tipos.length) return null
+    return h(
+      'div',
+      {},
+      desplegable(`TIPO DE ${unaPieza(item.herramienta).toUpperCase()}`, {
+        valor: item.tipo_pieza,
+        items: tipos.map((t) => ({ valor: t.valor, etiqueta: t.etiqueta })),
+        alCambiar: (v) => {
+          item.tipo_pieza = v
+          // Las medidas que el catálogo fija para ese tipo quedan puestas.
+          Object.assign(item, medidasDelTipoDePieza(item.herramienta, v))
+          refrescar()
+        },
+      }),
+      err.tipo_pieza ? h('span.campo-error-texto', { texto: err.tipo_pieza }) : null,
+    )
+  }
+
+  // A qué largo se rebaja: sólo tiene sentido en un rebaje. En el resto de las
+  // operaciones el campo existe pero no se dibuja.
+  if (c === 'largo_rebajado' && item.servicio !== 'rebaje') return null
+
   if (c === 'codigos_computo') {
     return h(
       'div',
@@ -2386,7 +2460,10 @@ async function crear(): Promise<void> {
     // comprobante.
     const detalle = notas
       .map((n) => {
-        const numero = n.numero === null ? 'sin número todavía' : `Nº ${String(n.numero).padStart(6, '0')}`
+        const numero =
+          n.numero === null
+            ? 'sin número todavía'
+            : `Nº ${numeroDeNotaImpreso(n.numero, borrador.encabezado.vendedor_numero)}`
         return `· ${ETIQUETA_GRUPO_NOTA[n.grupo]} — ${numero} — ${formatearPesos(n.total)}`
       })
       .join('\n')

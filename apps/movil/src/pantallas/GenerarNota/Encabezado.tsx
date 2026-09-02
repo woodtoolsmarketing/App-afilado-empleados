@@ -39,10 +39,29 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  * porque son las dos mitades del encabezado del talonario; se dibujan en
  * pantallas distintas porque completas no entran en un teléfono.
  *
- * Los tres campos de identificación —Cód. Cliente, Nombre y CUIT— buscan sobre
- * lo mismo y al elegir un cliente se completan los tres. El vendedor se acuerda
- * de uno u otro según el caso; obligarlo a saber cuál de antemano sería
- * trabajo suyo para comodidad nuestra.
+ * El cliente se busca por CÓDIGO o por NOMBRE, y al elegirlo se completan los
+ * dos. El vendedor se acuerda de uno u otro según el caso; obligarlo a saber
+ * cuál de antemano sería trabajo suyo para comodidad nuestra.
+ *
+ * **La primera página entra sin scrollear, y eso es un requisito, no un
+ * lujo.** Es la que se completa parado en la puerta de un taller, con el
+ * cliente enfrente: si hay que arrastrar para encontrar CONTINUAR, se carga
+ * mal. Por eso acá adentro hay tres campos que no siempre se dibujan:
+ *
+ *   * el **CUIT** aparece cuando el cliente tiene uno cargado. Se busca por
+ *     código y por nombre, así que como buscador no hacía falta, y como dato
+ *     no tiene nada que mostrar en la mitad de las fichas.
+ *   * la **ZONA** no se dibuja mientras la app la pueda deducir sola de la
+ *     localidad del cliente. Vuelve cuando la localidad está en más de una
+ *     —"Victoria" es Entre Ríos en la 136 y en la 143— cuando no se pudo
+ *     deducir ninguna, o cuando el vendedor toca CAMBIAR.
+ *   * el **DETALLE DEL CLIENTE** es una línea, y se abre al tocarlo. Es un
+ *     campo de cuatro renglones que casi siempre viene completo de la ficha y
+ *     casi nunca se edita: ocupaba un tercio de la pantalla para no hacer
+ *     nada.
+ *
+ * Ninguno de los tres se pierde: los tres se guardan y los tres se imprimen
+ * igual que antes. Lo que cambió es cuándo se preguntan.
  */
 
 /**
@@ -122,6 +141,33 @@ export function PasoCliente({
   const [zonaDudosa, setZonaDudosa] = useState<ZonaSugerida[]>([])
   /** De dónde salió el número de vendedor cuando lo puso la app. */
   const [origenVendedor, setOrigenVendedor] = useState<'usuario' | 'zona' | null>(null)
+  /**
+   * El vendedor tocó CAMBIAR sobre la zona.
+   *
+   * Mientras la app la deduce sola, el desplegable no se dibuja: son tres
+   * filas de alto para un dato que el vendedor no elige nunca. Pero tiene que
+   * poder corregirla —la localidad puede coincidir con la de otra zona— así
+   * que la línea de abajo abre el desplegable de verdad, no un cartel.
+   */
+  const [zonaAbierta, setZonaAbierta] = useState(false)
+  /**
+   * Si el cliente elegido trajo CUIT.
+   *
+   * No alcanza con mirar `form.cliente_cuit`: el campo se dibujaba mientras
+   * tuviera texto, así que al borrarlo para corregirlo **desaparecía a mitad
+   * de la edición**, con el teclado abierto y sin forma de volver a tipearlo.
+   *
+   * Esto se prende cuando el cliente trae uno y se apaga sólo al cambiar de
+   * cliente. Vaciar el casillero deja de esconderlo, que es lo que hay que
+   * poder hacer para escribir otro.
+   */
+  const [clienteTraeCuit, setClienteTraeCuit] = useState(false)
+
+  // Al corregir una nota o seguir un borrador, el encabezado llega después de
+  // montar la pantalla: el CUIT aparece ahí, no en el primer render.
+  useEffect(() => {
+    if (form.cliente_cuit.trim()) setClienteTraeCuit(true)
+  }, [form.cliente_cuit])
 
   /**
    * Quién manda sobre la lista.
@@ -216,6 +262,25 @@ export function PasoCliente({
    */
   function alTipear(campo: 'cliente_codigo' | 'cliente_nombre' | 'cliente_cuit', texto: string) {
     if (texto === form[campo]) return
+
+    /*
+     * El CUIT dejó de buscar, así que vaciarlo dejó de querer decir nada.
+     *
+     * Los otros dos campos son el buscador: vaciarlos es el gesto de "me
+     * equivoqué de cliente" y por eso sueltan el vínculo. El CUIT ya no busca
+     * —sólo se dibuja sobre un cliente que ya está elegido— y ahí vaciarlo es
+     * el primer teclazo de corregirlo: el vendedor selecciona todo, borra, y
+     * escribe el correcto.
+     *
+     * Sin esta rama, ese borrado mandaba `cliente_id: null` y soltaba el
+     * cliente en silencio; la nota dejaba de poder crearse y el vendedor se
+     * enteraba tres pantallas después.
+     */
+    if (campo === 'cliente_cuit') {
+      alCambiar({ cliente_cuit: texto })
+      return
+    }
+
     if (form.cliente_id && texto.trim()) {
       alCambiar({ [campo]: texto } as Partial<FormularioNotaEncabezado>)
       return
@@ -233,6 +298,8 @@ export function PasoCliente({
     setConsultaBuscada('')
     setBuscando(false)
     setFallo(null)
+    setZonaAbierta(false)
+    setClienteTraeCuit(false)
     alCambiar({
       cliente_id: null,
       cliente_codigo: '',
@@ -287,6 +354,9 @@ export function PasoCliente({
     if (!zona) return
     setZonaAuto(null)
     setZonaDudosa([])
+    // Elegida a mano, el desplegable se vuelve a guardar: ya no hay nada que
+    // preguntar y la pantalla recupera su alto.
+    setZonaAbierta(false)
     alCambiar({ zona: zona.codigo, zona_id: zona.id })
   }
 
@@ -359,6 +429,37 @@ export function PasoCliente({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.vendedor_numero, form.zona, codigoVendedorUsuario])
 
+  /**
+   * ¿Se dibuja el CUIT?
+   *
+   * Sólo si hay uno que mostrar. En la beta el cliente se escribe entero —así
+   * que también el CUIT— y un cliente nuevo se está cargando a mano, que es el
+   * otro caso en que el campo sirve para algo.
+   */
+  const muestraCuit = CLIENTE_A_MANO || form.cliente_nuevo || clienteTraeCuit
+
+  /** La zona que quedó puesta, para poder nombrarla en una línea. */
+  const zonaElegida = ZONAS.find((z) => z.id === form.zona_id) ?? null
+
+  /**
+   * ¿Se dibuja el desplegable de ZONA?
+   *
+   * Cuando hay algo que decidir: la localidad está en más de una zona, no se
+   * pudo deducir ninguna, el validador la está reclamando, o el vendedor tocó
+   * CAMBIAR. En la beta siempre, porque ahí no hay ficha de cliente de donde
+   * deducirla.
+   */
+  const muestraZona =
+    CLIENTE_A_MANO ||
+    zonaAbierta ||
+    zonaDudosa.length > 1 ||
+    !!errores.zona ||
+    // Recién cuando hay cliente elegido y aun así no se pudo deducir. Antes de
+    // elegirlo el desplegable no sirve para nada: `elegirCliente` llama a
+    // `asignarZona(..., forzar = true)` y pisa lo que se hubiera elegido a
+    // mano. Ofrecer un control cuyo valor se descarta es peor que no ofrecerlo.
+    (!!form.cliente_id && !zonaElegida)
+
   function elegirCliente(c: ClienteBuscado) {
     // Nada de lo que esté viajando puede volver a abrir la lista encima del
     // cliente que el vendedor acaba de elegir. Ver `vigente`.
@@ -379,6 +480,10 @@ export function PasoCliente({
     ]
       .filter(Boolean)
       .join(' — ')
+
+    // El CUIT se dibuja si ESTE cliente trae uno. Un cliente sin CUIT apaga
+    // el campo que había dejado abierto el anterior.
+    setClienteTraeCuit(!!c.cuit)
 
     alCambiar({
       cliente_id: c.cliente_id,
@@ -438,24 +543,61 @@ export function PasoCliente({
         </View>
       ) : null}
 
-      {/* La tecla del teclado dice BUSCAR y busca en el acto: el que sabe el
+      {/* El código del cliente y el número de vendedor, en una fila.
+          Son los dos campos cortos de la página y son los dos números que la
+          nota lleva arriba; uno debajo del otro comían una fila entera para
+          dejar media vacía cada uno.
+
+          La tecla del teclado dice BUSCAR y busca en el acto: el que sabe el
           código lo escribe y confirma, sin esperar a que la app adivine que
           terminó de tipear. `blurOnSubmit={false}` deja el teclado abierto,
           porque lo que sigue es tocar el cliente en la lista de abajo y
           cerrarlo la haría saltar justo cuando aparece. */}
-      <Campo
-        etiqueta="COD. CLIENTE"
-        value={form.cliente_codigo}
-        onChangeText={(t) => alTipear('cliente_codigo', t)}
-        placeholder="1003"
-        autoCapitalize="characters"
-        contenedorStyle={estilos.mitad}
-        editable={!form.cliente_nuevo}
-        returnKeyType="search"
-        blurOnSubmit={false}
-        onSubmitEditing={buscarYa}
-        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-      />
+      <View style={estilos.fila}>
+        <Campo
+          etiqueta="COD. CLIENTE"
+          value={form.cliente_codigo}
+          onChangeText={(t) => alTipear('cliente_codigo', t)}
+          placeholder="1003"
+          autoCapitalize="characters"
+          contenedorStyle={estilos.mitad}
+          editable={!form.cliente_nuevo}
+          returnKeyType="search"
+          blurOnSubmit={false}
+          onSubmitEditing={buscarYa}
+          accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+        />
+
+        {/* El número sale del perfil pero se puede corregir: hay altas sin
+            código cargado y el comprobante lo necesita igual. Se imprime sin
+            los ceros de relleno del Gestión ("007" sale 7), y ahora además va
+            adelante del número de nota: la 81 del vendedor 2 es la 02-0081.
+
+            De dónde salió el número se cuenta en la ayuda del propio campo y
+            no en una línea aparte: decía lo mismo y costaba una fila. */}
+        <Campo
+          etiqueta="VENDEDOR Nº"
+          obligatorio
+          value={form.vendedor_numero}
+          onChangeText={(t) => {
+            setOrigenVendedor(null)
+            alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })
+          }}
+          keyboardType="number-pad"
+          placeholder="7"
+          contenedorStyle={estilos.mitad}
+          error={errores.vendedor_numero}
+          ayuda={
+            origenVendedor === 'usuario' && form.vendedor_numero
+              ? 'Tuyo. Cambialo si es de otro.'
+              : origenVendedor === 'zona' && form.vendedor_numero
+                ? `De la zona ${form.zona}.`
+                : form.vendedor_numero
+                  ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
+                  : 'Va impreso en la nota.'
+          }
+        />
+      </View>
 
       {/* A lo ancho, y no a media fila junto al código: "MULTIPLACAS S.A" no
           entraba y el casillero mostraba "ULTIPLACAS S.A". El nombre estaba
@@ -488,20 +630,24 @@ export function PasoCliente({
         </Pressable>
       )}
 
-      {/* El VENDEDOR va abajo como dato fijo en vez de un campo deshabilitado:
-          no se edita nunca y ocupaba media pantalla. */}
-      <Campo
-        etiqueta="CUIT"
-        value={form.cliente_cuit}
-        onChangeText={(t) => alTipear('cliente_cuit', t)}
-        placeholder="30-12345678-9"
-        keyboardType="numbers-and-punctuation"
-        contenedorStyle={estilos.mitad}
-        returnKeyType="search"
-        blurOnSubmit={false}
-        onSubmitEditing={buscarYa}
-        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-      />
+      {/* El CUIT aparece cuando el cliente tiene uno: ahí es un dato que se
+          puede corregir. Cuando no lo tiene era un casillero vacío que no se
+          podía completar con nada, porque el CUIT lo carga Administración en
+          la ficha, no el vendedor en la nota. */}
+      {muestraCuit ? (
+        <Campo
+          etiqueta="CUIT"
+          value={form.cliente_cuit}
+          onChangeText={(t) => alTipear('cliente_cuit', t)}
+          placeholder="30-12345678-9"
+          keyboardType="numbers-and-punctuation"
+          contenedorStyle={estilos.mitad}
+          returnKeyType="search"
+          blurOnSubmit={false}
+          onSubmitEditing={buscarYa}
+          accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+        />
+      ) : null}
 
       {/* ── Resultados de la búsqueda ─────────────────────────────────────────
           Van JUSTO ABAJO de los tres campos que buscan —código, nombre y
@@ -570,69 +716,76 @@ export function PasoCliente({
         </Text>
       ) : null}
 
-      {/* El número sale del perfil pero se puede corregir: hay altas sin
-          código cargado y el comprobante lo necesita igual. Se imprime sin los
-          ceros de relleno del Gestión ("007" sale 7). */}
-      <View style={estilos.fila}>
-        <Text style={[estilos.vendedor, estilos.mitad]}>VENDEDOR: {form.vendedor}</Text>
-        <Campo
-          etiqueta="VENDEDOR Nº"
-          obligatorio
-          value={form.vendedor_numero}
-          onChangeText={(t) => {
-            setOrigenVendedor(null)
-            alCambiar({ vendedor_numero: t.replace(/\D/g, '').slice(0, 4) })
-          }}
-          keyboardType="number-pad"
-          placeholder="7"
-          contenedorStyle={estilos.mitad}
-          error={errores.vendedor_numero}
-          ayuda={
-            form.vendedor_numero
-              ? `En la nota sale: ${numeroDeVendedorImpreso(form.vendedor_numero, VENDEDORES_CON_CERO)}`
-              : 'Va impreso en la nota.'
-          }
-        />
-      </View>
+      {/* ── Vendedor y zona, en una línea ────────────────────────────────
+          Los dos son datos que la app pone sola y que el vendedor mira, no
+          completa. El nombre no se edita nunca, y la zona sale de la localidad
+          del cliente.
 
-      {origenVendedor && form.vendedor_numero ? (
-        <Text style={estilos.zonaAuto}>
-          {origenVendedor === 'usuario'
-            ? 'Puesto solo con tu número de vendedor. Cambialo si la nota es de otro.'
-            : `Puesto solo: es el vendedor a cargo de la zona ${form.zona}.`}
-        </Text>
-      ) : null}
+          El desplegable de zona son tres filas de alto, y hasta acá se
+          dibujaba siempre — también en el caso normal, que es el 90 %: la
+          localidad cae en una sola zona y no hay nada que elegir. Ahora sale
+          esta línea, y CAMBIAR abre el desplegable de verdad. */}
+      {!muestraZona ? (
+        <View style={estilos.pieFila}>
+          {/* `mitad` es `flex: 1`, y acá no es prolijidad: sin eso el texto se
+              queda con su ancho natural —en React Native `flexShrink` es 0— y
+              empuja a CAMBIAR ZONA fuera del borde derecho. Con la zona ya
+              deducida, ese botón es el ÚNICO acceso al desplegable: fuera de
+              pantalla, una zona mal deducida no se puede corregir. Es lo mismo
+              que hace la fila de CLIENTE ELEGIDO acá arriba. */}
+          <Text style={[estilos.vendedor, estilos.mitad]} numberOfLines={1}>
+            VENDEDOR: {form.vendedor || '—'}
+            {zonaElegida ? `   ·   ZONA ${zonaElegida.codigo}` : ''}
+          </Text>
+          <Pressable
+            onPress={() => setZonaAbierta(true)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Cambiar la zona"
+            style={({ pressed }) => [estilos.cambiarZona, pressed && estilos.tocado]}
+          >
+            <Text style={estilos.cambiarZonaTexto}>CAMBIAR ZONA</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <Text style={estilos.vendedor} numberOfLines={1}>
+            VENDEDOR: {form.vendedor || '—'}
+          </Text>
 
-      {/* ── Zona ───────────────────────────────────────────────────────────────
-          Dejó de ser texto libre: el número de zona es el que usa la oficina
-          para repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste" escritos a
-          mano son tres zonas distintas para cualquier planilla. */}
-      <Desplegable<string>
-        etiqueta="ZONA"
-        obligatorio
-        marcador="Elegí la zona"
-        valor={form.zona_id || null}
-        items={ZONAS.map((z) => ({
-          valor: z.id,
-          etiqueta: etiquetaZona(z),
-          descripcion: z.localidades.slice(0, 4).join(', '),
-          // Se busca por las treinta y seis localidades, no por las cuatro que
-          // entran en la línea.
-          buscarEn: [z.nombre, ...z.provincias, ...z.localidades].join(' '),
-        }))}
-        marcadorBusqueda="Buscá por número, zona o localidad…"
-        vacio="Ninguna zona coincide con eso."
-        alCambiar={elegirZona}
-        error={errores.zona}
-      />
+          {/* ── Zona ─────────────────────────────────────────────────────────
+              Dejó de ser texto libre: el número de zona es el que usa la
+              oficina para repartir el trabajo, y "Oeste", "oeste" y "Z. Oeste"
+              escritos a mano son tres zonas distintas para cualquier
+              planilla. */}
+          <Desplegable<string>
+            etiqueta="ZONA"
+            obligatorio
+            marcador="Elegí la zona"
+            valor={form.zona_id || null}
+            items={ZONAS.map((z) => ({
+              valor: z.id,
+              etiqueta: etiquetaZona(z),
+              descripcion: z.localidades.slice(0, 4).join(', '),
+              // Se busca por las treinta y seis localidades, no por las cuatro
+              // que entran en la línea.
+              buscarEn: [z.nombre, ...z.provincias, ...z.localidades].join(' '),
+            }))}
+            marcadorBusqueda="Buscá por número, zona o localidad…"
+            vacio="Ninguna zona coincide con eso."
+            alCambiar={elegirZona}
+            error={errores.zona}
+          />
 
-      {zonaAuto ? (
-        <Text style={estilos.zonaAuto}>
-          Asignada sola por {zonaAuto.localidad}
-          {zonaAuto.origen === 'direccion' ? ', que aparece en la dirección' : ''}. Cambiala si no
-          corresponde.
-        </Text>
-      ) : null}
+          {zonaAuto ? (
+            <Text style={estilos.zonaAuto}>
+              Asignada sola por {zonaAuto.localidad}
+              {zonaAuto.origen === 'direccion' ? ', que aparece en la dirección' : ''}. Cambiala si
+              no corresponde.
+            </Text>
+          ) : null}
+        </>
+      )}
 
       {zonaDudosa.length > 1 ? (
         <View style={estilos.zonaDudosa}>
@@ -667,16 +820,93 @@ export function PasoCliente({
 
       <MensajeError>{errores.cliente}</MensajeError>
 
-      <CampoDictado
-        etiqueta="DATOS DEL CLIENTE"
-        obligatorio
+      <DetalleDelCliente
         valor={form.datos_cliente}
         alCambiar={(t) => alCambiar({ datos_cliente: t })}
         alCambiarOrigen={(o) => alCambiar({ datos_cliente_origen: o })}
-        placeholder="Dirección, teléfono, contacto…"
         error={errores.datos_cliente}
       />
     </>
+  )
+}
+
+/**
+ * "DATOS DEL CLIENTE", achicado a una línea.
+ *
+ * Es un campo de cuatro renglones con micrófono, y en la práctica se completa
+ * solo: al elegir el cliente le entran la dirección, el CP, el teléfono, el
+ * mail y el contacto de la ficha. El vendedor lo lee y sigue de largo. Abierto
+ * siempre, se llevaba un tercio de la primera página para no hacer nada, y era
+ * la razón principal por la que había que scrollear para llegar a CONTINUAR.
+ *
+ * Cerrado muestra el contenido en una línea —cortado, pero se ve de qué
+ * cliente se trata— y se abre al tocarlo. Ahí adentro es el mismo campo de
+ * siempre, con el micrófono y todo.
+ *
+ * Se abre solo cuando hay un error: el validador lo reclama vacío y el
+ * vendedor tiene que poder verlo y arreglarlo sin adivinar dónde está.
+ */
+function DetalleDelCliente({
+  valor,
+  alCambiar,
+  alCambiarOrigen,
+  error,
+}: {
+  valor: string
+  alCambiar: (texto: string) => void
+  alCambiarOrigen: (origen: 'texto' | 'voz') => void
+  error?: string
+}) {
+  const estilos = usarEstilos()
+  const [abierto, setAbierto] = useState(false)
+
+  useEffect(() => {
+    if (error) setAbierto(true)
+  }, [error])
+
+  if (!abierto) {
+    return (
+      <Pressable
+        onPress={() => setAbierto(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Editar los datos del cliente"
+        style={({ pressed }) => [estilos.detalleCerrado, pressed && estilos.tocado]}
+      >
+        <Text style={estilos.detalleRotulo}>DATOS DEL CLIENTE</Text>
+        <Text
+          style={valor.trim() ? estilos.detalleTexto : estilos.detalleVacio}
+          numberOfLines={1}
+        >
+          {valor.trim() || 'Tocá para escribir la dirección, el teléfono y el contacto'}
+        </Text>
+      </Pressable>
+    )
+  }
+
+  return (
+    <View>
+      <CampoDictado
+        etiqueta="DATOS DEL CLIENTE"
+        obligatorio
+        valor={valor}
+        alCambiar={alCambiar}
+        alCambiarOrigen={alCambiarOrigen}
+        placeholder="Dirección, teléfono, contacto…"
+        error={error}
+        // Se abrió porque lo tocaron: el teclado tiene que estar listo.
+        autoFocus
+      />
+      {/* Volver a achicarlo. Sin esto, tocar el campo una vez dejaba la
+          pantalla larga para siempre. */}
+      <Pressable
+        onPress={() => setAbierto(false)}
+        hitSlop={10}
+        accessibilityRole="button"
+        style={({ pressed }) => [estilos.achicar, pressed && estilos.tocado]}
+      >
+        <Text style={estilos.achicarTexto}>▲ ACHICAR</Text>
+      </Pressable>
+    </View>
   )
 }
 
@@ -831,6 +1061,56 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.subtitulo,
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.tinta,
+  },
+
+  /* La línea de vendedor y zona: el texto a la izquierda y CAMBIAR ZONA a la
+     derecha, en el mismo alto de dedo que el resto de los toques. */
+  pieFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    marginTop: -espaciado.xs,
+  },
+  cambiarZona: { minHeight: 44, justifyContent: 'center', paddingHorizontal: espaciado.xs },
+  cambiarZonaTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
+  },
+
+  /* El detalle del cliente cerrado: una línea, con el mismo borde que un
+     campo para que se lea como un campo y no como un cartel. */
+  detalleCerrado: {
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campoBlanco,
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.sm,
+    minHeight: 56,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  detalleRotulo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
+  },
+  detalleTexto: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
+  },
+  detalleVacio: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
+  },
+  achicar: { alignSelf: 'flex-end', paddingVertical: espaciado.xs },
+  achicarTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
   },
 
   enlaceNuevo: { alignSelf: 'flex-start', paddingVertical: espaciado.xs },

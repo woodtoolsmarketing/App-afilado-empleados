@@ -25,6 +25,7 @@ import {
   describirCondicionVenta,
   lineasDeComputo,
   MAXIMO_RENGLONES,
+  numeroDeNotaImpreso,
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   type DatosComputo,
@@ -1128,7 +1129,19 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
 
   return {
     totales,
-    numero: nota.numero ? String(nota.numero).padStart(6, '0') : null,
+    /*
+      El vendedor va adelante: la 81 del vendedor 2 se escribe 02-0081.
+
+      Sale de `vendedor_numero` **y nada más**, sin caer al código del perfil
+      como sí hace el casillero "Vendedor Nº" de abajo. La diferencia importa
+      en una nota vieja con la columna en null: la base escribe el aviso
+      cruzado entre notas hermanas con `interno.numero_de_nota_impreso(numero,
+      vendedor_numero)` y las listas leen esa misma columna, así que caer al
+      perfil acá haría que la hoja diga `07-0081` mientras la cola de impresión
+      que la mandó a imprimir dice `000081`. Un comprobante con dos números es
+      peor que uno sin prefijo.
+    */
+    numero: numeroDeNotaImpreso(nota.numero, nota.vendedor_numero),
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],
     // Sin los ceros de relleno del Gestión: "007" se escribe 7 en el talonario.

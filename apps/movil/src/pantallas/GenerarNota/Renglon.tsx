@@ -5,11 +5,14 @@ import {
   esSinCargo,
   ETIQUETA_CUCHILLA_MATERIAL,
   ETIQUETA_CUCHILLA_TIPO,
+  ETIQUETA_SIERRA_CLASE,
+  QUE_ES_EL_DISCO,
   ETIQUETA_CUCHILLA_TRABAJO,
   totalAfiladoCuchilla,
   TRAMO_CUCHILLA_MM,
   type CuchillaMaterial,
   type CuchillaTipo,
+  type SierraClase,
   type CuchillaTrabajo,
   CAMPOS_POR_HERRAMIENTA,
   describirRango,
@@ -103,6 +106,7 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  * pregunta se sabe antes de tipear, que es cuando hace falta.
  */
 const ETIQUETAS: Record<CampoItem, string> = {
+  sierra_clase: '¿SIERRA O INCISOR?',
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR (mm)',
   diametro_interior: 'DIÁMETRO INTERIOR (mm, OPCIONAL)',
@@ -317,12 +321,14 @@ export function PasoRenglon({
   // queda.
   useEffect(() => {
     if (!item.herramienta) return
-    const sugerida = descripcionSugerida(item.herramienta, item.servicio)
+    // `sierra_clase` está en las dependencias porque un incisor se anuncia
+    // "Incisor" y no "S.C.": contestar el desplegable rehace la descripción.
+    const sugerida = descripcionSugerida(item.herramienta, item.servicio, item.sierra_clase)
     if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
       alCambiar({ descripcion: sugerida })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.herramienta, item.servicio])
+  }, [item.herramienta, item.servicio, item.sierra_clase])
 
   // ── La máquina se propone sola ───────────────────────────────────────────
   //
@@ -1178,6 +1184,37 @@ export function PasoRenglon({
           )
         }
         if (campo === 'tipo_mecha') return null
+
+        /*
+          SIERRA o INCISOR, primero de la lista y por eso primero en pantalla.
+
+          El incisor es el disco chico que va delante de la sierra. Se carga
+          acá adentro porque comparte la lista de precios y el ancho de corte
+          —el código de cómputo es el mismo— pero es otra pieza, va en su
+          propio renglón y en la hoja tiene que decir "Incisor".
+
+          Arranca sin contestar a propósito: poner "sierra" por defecto dejaría
+          la nota igual que antes, con la diferencia de que ahora afirmaría que
+          alguien lo miró.
+        */
+        if (campo === 'sierra_clase') {
+          return (
+            <Desplegable<SierraClase>
+              key={campo}
+              etiqueta={ETIQUETAS[campo]}
+              obligatorio
+              marcador="Elegí cuál de los dos es"
+              valor={item.sierra_clase}
+              items={(['sierra', 'incisor'] as SierraClase[]).map((c) => ({
+                valor: c,
+                etiqueta: ETIQUETA_SIERRA_CLASE[c],
+                descripcion: QUE_ES_EL_DISCO[c],
+              }))}
+              alCambiar={(c) => alCambiar({ sierra_clase: c })}
+              error={errores.sierra_clase}
+            />
+          )
+        }
 
         /*
           El tipo de pieza, primero de la lista y por eso primero en pantalla.

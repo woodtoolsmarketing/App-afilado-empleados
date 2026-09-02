@@ -9,10 +9,13 @@ import {
   formatearHora,
   formatearMoneda,
   formatearPesos,
+  herramientaEnLaDescripcion,
+  numeroDeNotaImpreso,
   radios,
   type EstadoNotaPedido,
   type Herramienta,
   type Paleta,
+  type SierraClase,
   type TipoMecha,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -206,7 +209,9 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
         />
 
         <TituloPanel>
-          {sinNumero ? 'NOTA DE PEDIDO' : `NOTA DE PEDIDO\nNº ${String(n.numero).padStart(6, '0')}`}
+          {sinNumero
+            ? 'NOTA DE PEDIDO'
+            : `NOTA DE PEDIDO\nNº ${numeroDeNotaImpreso(n.numero, n.vendedor_numero)}`}
         </TituloPanel>
 
         {sinNumero ? (
@@ -370,6 +375,12 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
     })
 
   const tipoMecha = item.detalle?.tipo_mecha as TipoMecha | undefined
+  // Un incisor se cargó en SIERRAS pero no es una sierra: se anuncia por lo
+  // que es, igual que en la hoja impresa.
+  const nombra = herramientaEnLaDescripcion(
+    item.herramienta,
+    (item.detalle?.sierra_clase as SierraClase | undefined) ?? null,
+  )
 
   return (
     <View style={estilos.renglon}>
@@ -377,7 +388,7 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
         <Text style={estilos.renglonNumero}>{item.orden}</Text>
         <View style={estilos.renglonTitulos}>
           <Text style={estilos.renglonHerramienta}>
-            {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'VENTA'}
+            {nombra ? ETIQUETA_HERRAMIENTA[nombra] : 'VENTA'}
             {tipoMecha ? ` · ${ETIQUETA_TIPO_MECHA[tipoMecha]}` : ''}
           </Text>
           <Text style={estilos.renglonServicio}>

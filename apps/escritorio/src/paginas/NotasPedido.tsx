@@ -2,6 +2,7 @@ import {
   ETIQUETA_ESTADO_NOTA,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
+  numeroDeNotaImpreso,
   type ClienteBuscado,
   type EstadoNotaPedido,
   type TipoNotaPedido,
@@ -25,6 +26,8 @@ import { supabase } from '../nucleo/supabase'
 interface NotaFila {
   id: string
   numero: number | null
+  /** Va adelante del número de nota: la 81 del vendedor 2 es la `02-0081`. */
+  vendedor_numero: string | null
   tipo_nota: TipoNotaPedido | null
   estado: EstadoNotaPedido
   cliente_id: string | null
@@ -87,7 +90,7 @@ export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'id, numero, tipo_nota, estado, cliente_id, cliente_codigo, cliente_nombre, cliente_cuit, zona, servicios, total, creado_en, vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor)',
+          'id, numero, vendedor_numero, tipo_nota, estado, cliente_id, cliente_codigo, cliente_nombre, cliente_cuit, zona, servicios, total, creado_en, vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor)',
         )
         .order('creado_en', { ascending: false })
         .limit(500)
@@ -232,7 +235,7 @@ export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
                         <small>(Pendiente)</small>
                       </span>
                     ) : (
-                      <code>{String(n.numero).padStart(6, '0')}</code>
+                      <code>{numeroDeNotaImpreso(n.numero, n.vendedor_numero)}</code>
                     )}
                   </td>
                   <td>

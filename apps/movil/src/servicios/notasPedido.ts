@@ -22,6 +22,7 @@ import {
   type CondicionVenta,
   type CuchillaMaterial,
   type CuchillaTipo,
+  type SierraClase,
   type CuchillaTrabajo,
   type EstadoNotaPedido,
   type FormularioItemNota,
@@ -748,6 +749,12 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         // al reabrir la nota el desplegable tiene que volver contestado, y de
         // un texto ya armado no se saca de vuelta el valor que lo generó.
         tipo_pieza: i.tipo_pieza,
+        // Sierra o incisor. Va guardado por lo mismo que el tipo de pieza: la
+        // descripción del renglón sale de acá —"Incisor" en vez de "S.C."— y
+        // de un texto ya armado no se saca de vuelta la respuesta que lo
+        // generó. Al reabrir la nota el desplegable tiene que volver
+        // contestado.
+        sierra_clase: i.sierra_clase,
         tipo_mecha: i.tipo_mecha,
         // Las dos respuestas que eligen el código de afilado de la mecha. Se
         // guardan por lo mismo que las tres de la cuchilla: al reabrir la nota
@@ -1097,6 +1104,9 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     paso: comoCadena(detalle.paso),
 
     tipo_pieza: (detalle.tipo_pieza as string | null) || null,
+    // En las notas cargadas antes de que existiera el desplegable no está, y
+    // vuelve en blanco: es honesto, nadie contestó esa pregunta todavía.
+    sierra_clase: (detalle.sierra_clase as SierraClase | null) ?? null,
     tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
     mecha_material: (detalle.mecha_material as MaterialMecha | null) ?? null,
     mecha_dientes: comoCadena(detalle.mecha_dientes),
@@ -1266,6 +1276,14 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
 export interface NotaResumen {
   id: string
   numero: number | null
+  /**
+   * El número de vendedor de la nota.
+   *
+   * No es un dato decorativo de la lista: el número de nota lo lleva adelante
+   * —`02-0081`— así que sin esto la lista escribiría un número distinto del
+   * que dice la hoja impresa. Ver `numeroDeNotaImpreso`.
+   */
+  vendedor_numero: string | null
   tipo_nota: TipoNotaPedido | null
   estado: string
   cliente_codigo: string | null
@@ -1278,7 +1296,7 @@ export interface NotaResumen {
 }
 
 const COLUMNAS_RESUMEN =
-  'id, numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios, impresa_en'
+  'id, numero, vendedor_numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios, impresa_en'
 
 export async function notasPendientes(): Promise<NotaResumen[]> {
   const { data, error } = await supabase
@@ -1319,6 +1337,8 @@ export interface DiaNotas {
   detalle: Array<{
     nota_id: string
     numero: number | null
+    /** Va adelante del número de nota. Lo agrega `historial_notas_pedido`. */
+    vendedor_numero: string | null
     tipo_nota: TipoNotaPedido | null
     estado: string
     cliente_codigo: string | null

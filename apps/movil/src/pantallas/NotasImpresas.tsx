@@ -3,6 +3,7 @@ import {
   ETIQUETA_TIPO_NOTA,
   formatearFechaCorta,
   formatearPesos,
+  numeroDeNotaImpreso,
   radios,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
@@ -104,7 +105,8 @@ function FilaImpresa({ nota, alVer }: { nota: NotaResumen; alVer: () => void }) 
       style={({ pressed }) => [estilos.fila, pressed && estilos.tocada]}
     >
       <Text style={[estilos.numero, sinNumero && estilos.numeroPendiente]}>
-        NOTA DE PEDIDO {sinNumero ? '— — —' : `Nº ${String(nota.numero).padStart(6, '0')}`}
+        NOTA DE PEDIDO{' '}
+          {sinNumero ? '— — —' : `Nº ${numeroDeNotaImpreso(nota.numero, nota.vendedor_numero)}`}
       </Text>
 
       <Text style={estilos.cliente} numberOfLines={1}>

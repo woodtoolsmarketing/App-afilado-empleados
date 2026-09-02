@@ -2,6 +2,7 @@ import {
   fechaLocalISO,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
+  numeroDeNotaImpreso,
   rolImprimibleDesdeFilas,
   type OpcionesImpresion,
   type ParadaCompleta,
@@ -51,7 +52,7 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
           // otra columna que apunte ahí, pedir "perfiles" a secas rompería la
           // consulta entera y en silencio. Ya pasó con `dispositivos`.
           'id, estado, con_rol_de_visita, motivo_fallo, creado_en, nota_id, pedida_por,' +
-            ' nota:notas_pedido(numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total),' +
+            ' nota:notas_pedido(numero, vendedor_numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total),' +
             ' pedida:perfiles!ordenes_impresion_pedida_por_fkey(nombre_completo, codigo_vendedor)',
         )
         .in('estado', ['pendiente', 'imprimiendo'])
@@ -241,6 +242,8 @@ interface OrdenFila {
   pedida_por: string
   nota: {
     numero: number | null
+    /** Va adelante del número: la nota 81 del vendedor 2 es la `02-0081`. */
+    vendedor_numero: string | null
     tipo_nota: string
     estado: string
     cliente_codigo: string | null
@@ -298,7 +301,9 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
 
 /** Una nota sin número todavía no la numeró Administración: se la nombra por el cliente. */
 function etiquetaNota(o: OrdenFila): string {
-  if (o.nota?.numero) return `N° ${String(o.nota.numero).padStart(6, '0')}`
+  if (o.nota?.numero) {
+    return `N° ${numeroDeNotaImpreso(o.nota.numero, o.nota.vendedor_numero)}`
+  }
   return `Sin numerar · ${o.nota?.cliente_nombre ?? 'cliente nuevo'}`
 }
 
