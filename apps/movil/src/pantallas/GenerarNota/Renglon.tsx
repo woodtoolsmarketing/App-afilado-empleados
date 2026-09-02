@@ -111,6 +111,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   largo: 'LARGO (mm)',
   ancho: 'ANCHO (mm)',
   largo_util: 'LARGO ÚTIL (mm)',
+  largo_rebajado: '¿A QUÉ LARGO SE REBAJA? (mm)',
   espesor: 'ESPESOR (mm)',
   paso: 'PASO (mm)',
   descripcion: 'DESCRIPCIÓN',
@@ -1066,11 +1067,49 @@ export function PasoRenglon({
       ) : null}
 
       {/*
-        El afilado de cuchillas.
-        El código no sale de una medida: sale de tres respuestas. El largo no
-        elige nada, multiplica, porque el precio de la lista es por cada 100 mm.
+        El TIPO DE CUCHILLA, que sirve para las dos operaciones.
+
+        Estaba adentro del bloque de afilado, y en un rebaje no se dibujaba
+        ninguno de los dos. De él salen las medidas que se sugieren —una plana
+        es de 30 ó 35 de ancho, una de dorso ranurado de 40 a 70— y eso hace
+        falta igual, se venga a afilar o a rebajar.
       */}
       {item.herramienta === 'cuchilla' && item.servicio !== 'venta' ? (
+        <Desplegable<CuchillaTipo>
+          etiqueta="TIPO DE CUCHILLA"
+          obligatorio
+          marcador="Elegí el tipo"
+          valor={item.cuchilla_tipo}
+          items={(['plana', 'dorso_ranurado'] as CuchillaTipo[]).map((t) => ({
+            valor: t,
+            etiqueta: ETIQUETA_CUCHILLA_TIPO[t],
+          }))}
+          alCambiar={(t) =>
+            alCambiar({
+              cuchilla_tipo: t,
+              // Una plana no se perfila: si venía elegido, se cae.
+              ...(t === 'plana' && item.cuchilla_trabajo === 'perfilado'
+                ? { cuchilla_trabajo: 'afilado' as const }
+                : {}),
+            })
+          }
+        />
+      ) : null}
+
+      {/*
+        El afilado de cuchillas.
+        El código no sale de una medida: sale de las respuestas de acá. El largo
+        no elige nada, multiplica, porque el precio de la lista es por cada
+        100 mm.
+
+        En un REBAJE no se dibuja, y ése es el arreglo: se dibujaba igual y le
+        ponía al renglón un código y una tarifa de AFILADO. Así quedaron
+        cotizadas dos notas reales. Un rebaje no tiene tarifa —no existe el
+        código en ninguna lista— y se cotiza a mano cada vez.
+      */}
+      {item.herramienta === 'cuchilla' &&
+      item.servicio !== 'venta' &&
+      item.servicio !== 'rebaje' ? (
         <SelectorAfiladoCuchilla item={item} alCambiar={alCambiar} />
       ) : null}
 
@@ -1155,6 +1194,19 @@ export function PasoRenglon({
               {elegido?.notas ? <Aviso>{elegido.notas}</Aviso> : null}
             </View>
           )
+        }
+
+        // A qué largo se rebaja: sólo en un rebaje. En el resto de las
+        // operaciones el campo no significa nada y no se dibuja.
+        if (campo === 'largo_rebajado') {
+          if (item.servicio !== 'rebaje') return null
+          return campoNumerico(campo, ETIQUETAS[campo], 'mitad')
+        }
+
+        // En un rebaje hay dos largos, y hay que distinguirlos: éste es el que
+        // la cuchilla tiene hoy.
+        if (campo === 'largo' && item.servicio === 'rebaje') {
+          return campoNumerico(campo, 'LARGO QUE TIENE HOY (mm)', 'mitad')
         }
 
         if (campo === 'cantidad') {
@@ -1512,6 +1564,24 @@ export function PasoRenglon({
 
               <MensajeError>{errores.codigo_reparacion}</MensajeError>
             </View>
+          )
+        }
+
+        /*
+          El REBAJE va sin código de cómputo.
+
+          No existe ninguno —no está en la lista de cuchillas ni en la de
+          afilado y reparación— y el precio se cotiza a mano. Mostrar el bloque
+          era invitar a poner cualquiera con tal de poder guardar, y eso fue lo
+          que pasó: hay una nota con el código de un CABEZAL en el renglón de
+          rebaje. La oficina le pone el código al facturar.
+        */
+        if (campo === 'codigos_computo' && item.servicio === 'rebaje') {
+          return (
+            <Aviso key={campo} titulo="El rebaje va sin código de cómputo">
+              No hay tarifa de rebaje en la lista: se cotiza cada uno. Escribí el
+              importe en PRECIO TOTAL y la oficina le pone el código al facturar.
+            </Aviso>
           )
         }
 
@@ -2299,26 +2369,8 @@ function SelectorAfiladoCuchilla({
 
   return (
     <View style={estilos.bloqueCodigos}>
-      <Desplegable<CuchillaTipo>
-        etiqueta="TIPO DE CUCHILLA"
-        obligatorio
-        marcador="Elegí el tipo"
-        valor={item.cuchilla_tipo}
-        items={(['plana', 'dorso_ranurado'] as CuchillaTipo[]).map((t) => ({
-          valor: t,
-          etiqueta: ETIQUETA_CUCHILLA_TIPO[t],
-        }))}
-        alCambiar={(t) =>
-          alCambiar({
-            cuchilla_tipo: t,
-            // Una plana no se perfila: si venía elegido, se cae.
-            ...(t === 'plana' && item.cuchilla_trabajo === 'perfilado'
-              ? { cuchilla_trabajo: 'afilado' as const }
-              : {}),
-          })
-        }
-      />
-
+      {/* El tipo se pregunta arriba: sirve también para el rebaje, que no pasa
+          por acá. */}
       <Desplegable<CuchillaMaterial>
         etiqueta="MATERIAL"
         obligatorio

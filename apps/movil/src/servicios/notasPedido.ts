@@ -716,6 +716,9 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         largo: i.largo,
         ancho: i.ancho,
         largo_util: i.largo_util,
+        // A qué largo se rebaja. Es la mitad del trabajo —la otra es el largo
+        // que tiene hoy— así que sin esto la fábrica no sabe qué hacer.
+        largo_rebajado: i.largo_rebajado,
         espesor: i.espesor,
         paso: i.paso,
         // Qué tipo de pieza es. Va guardado y no derivado de la descripción:
@@ -1066,6 +1069,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     largo: comoCadena(detalle.largo),
     ancho: comoCadena(detalle.ancho),
     largo_util: comoCadena(detalle.largo_util),
+    largo_rebajado: comoCadena(detalle.largo_rebajado),
     espesor: comoCadena(detalle.espesor),
     paso: comoCadena(detalle.paso),
 

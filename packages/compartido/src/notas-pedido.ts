@@ -255,6 +255,7 @@ export type CampoItem =
   | 'largo'
   | 'ancho'
   | 'largo_util'
+  | 'largo_rebajado'
   | 'espesor'
   | 'paso'
   | 'descripcion'
@@ -339,9 +340,16 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
     'tipo_mecha', 'mano', 'cantidad', 'diametro', 'largo_util',
     'codigos_computo', 'descripcion', 'precio_total',
   ],
+  /*
+   * El LARGO REBAJADO va pegado al largo, y sólo aparece en un rebaje.
+   *
+   * Rebajar una cuchilla es sacarle largo. Para cotizarlo hay que saber las dos
+   * puntas —de cuánto es y a cuánto la quiere— y con una sola no alcanza: no es
+   * lo mismo llevar una de 640 a 630 que a 320.
+   */
   cuchilla: [
-    'cantidad', 'largo', 'ancho', 'codigos_computo', 'descripcion', 'espesor',
-    'precio_total',
+    'cantidad', 'largo', 'largo_rebajado', 'ancho', 'codigos_computo',
+    'descripcion', 'espesor', 'precio_total',
   ],
 }
 
@@ -953,6 +961,15 @@ export interface FormularioItemNota {
   paso: string
 
   /**
+   * A qué largo se rebaja la cuchilla.
+   *
+   * Sólo en los renglones de REBAJE. El `largo` es el que tiene la cuchilla hoy
+   * y éste es el que va a tener cuando vuelva: los dos hacen falta para
+   * cotizar, porque el trabajo es la diferencia.
+   */
+  largo_rebajado: string
+
+  /**
    * Qué tipo de pieza es, dentro de su herramienta.
    *
    * Guarda el mismo valor que `catalogo_medidas.geometria`, así que el renglón
@@ -1114,6 +1131,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   largo_util: '',
   espesor: '',
   paso: '',
+  largo_rebajado: '',
   tipo_pieza: null,
   tipo_mecha: null,
   mecha_material: null,
@@ -1150,6 +1168,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   largo: 'el largo',
   ancho: 'el ancho',
   largo_util: 'el largo útil',
+  largo_rebajado: 'a qué largo se rebaja',
   espesor: 'el espesor',
   paso: 'el paso',
   descripcion: 'la descripción',
@@ -1195,7 +1214,7 @@ function esNumeroValido(v: string): boolean {
 
 const CAMPOS_NUMERICOS = new Set<CampoItem>([
   'cantidad', 'diametro_exterior', 'diametro_interior', 'diametro', 'ancho_corte',
-  'largo', 'ancho', 'largo_util', 'espesor', 'paso', 'cantidad_dientes',
+  'largo', 'ancho', 'largo_util', 'largo_rebajado', 'espesor', 'paso', 'cantidad_dientes',
   'precio_por_diente', 'precio_total', 'dientes_rotos_cantidad',
 ])
 
@@ -1305,9 +1324,32 @@ export function validarItemNota(
     }
 
     if (campo === 'codigos_computo') {
+      /*
+       * El REBAJE va sin código, y no es un olvido.
+       *
+       * No existe ninguno: no figura en la lista de cuchillas ni en la de
+       * afilado y reparación, y el precio se cotiza a mano cada vez. Exigirlo
+       * obligaba al vendedor a poner cualquiera con tal de guardar, y eso fue
+       * lo que pasó: hay una nota con el código de un CABEZAL en el renglón de
+       * rebaje, y dos cotizadas con la tarifa del afilado. La oficina le pone
+       * el código al facturar.
+       */
+      if (item.servicio === 'rebaje') continue
       if (item.codigos_computo.length === 0) {
         errores.codigos_computo =
           'Falta el código de cómputo. Completá la medida para que se busque solo, o elegilo de la lista.'
+      }
+      continue
+    }
+
+    // A qué largo se rebaja: sólo se pide —y sólo tiene sentido— en un rebaje.
+    if (campo === 'largo_rebajado') {
+      if (item.servicio !== 'rebaje') continue
+      if (!esNumeroValido(item.largo_rebajado)) {
+        errores.largo_rebajado = 'Ingresá a qué largo se rebaja'
+      } else if (aNumero(item.largo_rebajado) >= aNumero(item.largo)) {
+        // Rebajar es sacar material: el largo de vuelta tiene que ser menor.
+        errores.largo_rebajado = 'Tiene que ser menor que el largo que tiene hoy'
       }
       continue
     }
@@ -1396,6 +1438,8 @@ const ABREVIATURA_MEDIDA: Partial<Record<CampoItem, string>> = {
   largo: 'largo',
   ancho: 'ancho',
   largo_util: 'útil',
+  // "largo 640 · rebaja a 320": las dos puntas del trabajo en una línea.
+  largo_rebajado: 'rebaja a',
   espesor: 'esp',
   paso: 'paso',
 }
