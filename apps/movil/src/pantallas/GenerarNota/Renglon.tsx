@@ -820,6 +820,22 @@ export function PasoRenglon({
     alCambiar({ ...cambios, tipo_pieza: valor } as Partial<FormularioItemNota>)
   }
 
+  /**
+   * El rótulo de un campo, que a veces depende del renglón.
+   *
+   * Vale para las dos ramas del dibujo —la de a pares y la suelta—. Si el
+   * rótulo se resolviera sólo en la suelta, cualquiera que dependa del renglón
+   * se perdería en cuanto el campo cayera en un par, que es lo que pasaba con
+   * los dos largos del rebaje.
+   */
+  function rotulo(campo: CampoItem): string {
+    // En un rebaje hay dos largos y hay que distinguirlos. Corto, porque en un
+    // par entra en un tercio de fila: "LARGO QUE TIENE HOY" se parte en tres
+    // renglones.
+    if (campo === 'largo' && item.servicio === 'rebaje') return 'LARGO DE HOY (mm)'
+    return ETIQUETAS[campo]
+  }
+
   function campoNumerico(campo: CampoItem, etiqueta: string, ancho?: 'tercio' | 'mitad') {
     const valor = (item as unknown as Record<string, string>)[campo] ?? ''
     const esPrecio = campo === 'precio_por_diente' || campo === 'precio_total'
@@ -1179,7 +1195,7 @@ export function PasoRenglon({
         if (Array.isArray(campo)) {
           return (
             <View key={campo.join('+')} style={estilos.par}>
-              {campo.map((c) => campoNumerico(c, ETIQUETAS[c], 'tercio'))}
+              {campo.map((c) => campoNumerico(c, rotulo(c), 'tercio'))}
             </View>
           )
         }
@@ -1250,12 +1266,6 @@ export function PasoRenglon({
         if (campo === 'largo_rebajado') {
           if (item.servicio !== 'rebaje') return null
           return campoNumerico(campo, ETIQUETAS[campo], 'mitad')
-        }
-
-        // En un rebaje hay dos largos, y hay que distinguirlos: éste es el que
-        // la cuchilla tiene hoy.
-        if (campo === 'largo' && item.servicio === 'rebaje') {
-          return campoNumerico(campo, 'LARGO QUE TIENE HOY (mm)', 'mitad')
         }
 
         if (campo === 'cantidad') {
@@ -1810,10 +1820,12 @@ export function PasoRenglon({
           )
         }
 
-        // El resto son medidas y precios: todos numéricos.
+        // El resto son medidas y precios: todos numéricos. Por `rotulo` y no
+        // por `ETIQUETAS` a secas, para que las dos ramas del dibujo digan lo
+        // mismo caiga el campo suelto o en un par.
         const anchoCampo =
           campo === 'precio_total' || campo === 'precio_por_diente' ? 'mitad' : 'tercio'
-        return campoNumerico(campo, ETIQUETAS[campo], anchoCampo)
+        return campoNumerico(campo, rotulo(campo), anchoCampo)
       })}
 
       {/* El descuento va afuera de `CAMPOS_POR_HERRAMIENTA` y al final de todo.
