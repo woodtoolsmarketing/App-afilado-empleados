@@ -325,11 +325,34 @@ async function codigosDeLaHerramienta(
     .select(
       'codigo, descripcion, precio, moneda, precio_a_confirmar, rango_min, rango_max, rango_dimension, servicio_sugerido, herramienta_sugerida',
     )
-    .eq('familia', FAMILIA_CATALOGO[herramienta])
-    // Los que están a cotizar YA NO se esconden. Escondidos, la medida "no
-    // daba ningún código" y el vendedor no tenía forma de saber que el código
-    // existía y lo único que faltaba era el importe.
-    .or(`herramienta_sugerida.is.null,herramienta_sugerida.eq.${herramienta}`)
+    /**
+     * De qué herramienta es el código: primero lo que diga la columna, y si no
+     * dice nada, la familia.
+     *
+     * Antes exigía la familia SIEMPRE, y `herramienta_sugerida` sólo servía
+     * para achicar adentro de ella. El problema es que hay códigos que viven en
+     * una familia y son de otra herramienta: los seis del afilado de CUCHILLA
+     * están cargados con familia `mecha` porque vienen de esa lista de precios
+     * —el rubro se llama "Afil.Mechas Insertos Cuchillas"— y con la familia
+     * obligatoria no había forma de que aparecieran del lado de la cuchilla.
+     *
+     * Resultado: la lista "¿Qué códigos hay para CUCHILLAS?" no tenía UN SOLO
+     * servicio. Le ofrecía al vendedor los 143 productos de la familia, y así
+     * terminó una nota real con el código de un CABEZAL en el renglón.
+     *
+     * El cambio es quirúrgico y se puede comprobar: las otras seis herramientas
+     * devuelven exactamente lo mismo que antes, porque todos sus códigos
+     * marcados ya estaban dentro de su propia familia. La única que gana filas
+     * es la cuchilla, y gana justo esos seis.
+     *
+     * Los que están a cotizar no se esconden: escondidos, la medida "no daba
+     * ningún código" y el vendedor no tenía forma de saber que el código
+     * existía y que lo único que faltaba era el importe.
+     */
+    .or(
+      `herramienta_sugerida.eq.${herramienta},` +
+        `and(familia.eq.${FAMILIA_CATALOGO[herramienta]},herramienta_sugerida.is.null)`,
+    )
 
   consulta = conRango
     ? // Con rango la lista se lee por medida: es la respuesta a "¿y qué medidas

@@ -712,6 +712,21 @@ export function PasoRenglon({
       const unidades = Math.max(1, aNumero(item.cantidad) || 1)
       const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
 
+      /*
+        La cuchilla se cobra por cada 100 mm, no por unidad.
+
+        Importa desde que los seis códigos de afilado de cuchilla aparecen en
+        esta lista: multiplicar el precio de lista por las unidades cobraría
+        $ 4.099,60 por cuchilla en vez de por tramo, y una de 640 mm son 6,4
+        tramos. Es la misma cuenta que hace `SelectorAfiladoCuchilla`.
+      */
+      const total =
+        importe === null
+          ? 0
+          : item.herramienta === 'cuchilla'
+            ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
+            : Math.round(importe * unidades * 100) / 100
+
       alCambiar({
         codigos_computo: [m.codigo],
         ...(m.a_cotizar
@@ -722,10 +737,7 @@ export function PasoRenglon({
             ? porDiente
               ? { precio_por_diente: String(importe).replace('.', ',') }
               : {
-                  precio_total: String(Math.round(importe * unidades * 100) / 100).replace(
-                    '.',
-                    ',',
-                  ),
+                  precio_total: String(total).replace('.', ','),
                   // El servicio se cobra en pesos: `precio_pesos` ya viene
                   // convertido, y dejar la moneda en dólares lo volvería a
                   // convertir en la nota.
