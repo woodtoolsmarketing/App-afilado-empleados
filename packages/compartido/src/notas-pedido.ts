@@ -777,11 +777,15 @@ export const ETIQUETA_CUCHILLA_TRABAJO: Record<CuchillaTrabajo, string> = {
  *
  * ─── El espesor de las planas ────────────────────────────────────────────────
  *
- * Va 5 mm porque así lo indicó la oficina. **La lista dice 3 mm en las 69**, sin
- * una sola excepción: todas las descripciones terminan en "x3" —"100x30x3",
- * "1080x35x3"—. Los dos no pueden ser ciertos, y queda anotado acá para que se
- * resuelva: si mandan las planas de 5, hay 69 filas de `catalogo_medidas` para
- * corregir; si manda la lista, este número vuelve a 3.
+ * Va 5 mm por indicación de la oficina, que es la que tiene la cuchilla en la
+ * mano. La lista del 20/03/2026 dice 3 mm en las 69 —todas las descripciones
+ * terminan en "x3", "100x30x3", "1080x35x3"— así que los dos no podían ser
+ * ciertos y se resolvió a favor de la oficina.
+ *
+ * Las 69 filas de `catalogo_medidas` quedaron corregidas en la migración
+ * 20260902135928, que deja escrito de dónde sale el número. `catalogo_articulos`
+ * no se tocó: ahí vive la copia del documento, y tiene que seguir diciendo lo
+ * que dice el papel.
  *
  * No cambia ningún precio: el afilado de cuchilla se cobra por cada 100 mm de
  * LARGO. El espesor es un dato para el taller.
