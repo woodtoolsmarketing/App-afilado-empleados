@@ -1,0 +1,44 @@
+-- =============================================================================
+-- Los códigos de machimbre son de fresa, y sólo uno de los seis lo decía
+--
+-- El sub-rubro 094 de la lista del 02/06/2026 se llama "Afilado Fr de
+-- Machimbre" y tiene seis códigos: 9401 a 9406, tres de afilado y tres de
+-- rectificado del diámetro exterior. Son fresas de machimbre. `9404` estaba
+-- marcado `herramienta_sugerida = 'fresa'` y los otros cinco no.
+--
+-- Marcados a medias, los cinco sin marcar caían en la regla de respaldo —"si
+-- no dice de qué herramienta es, vale para toda su familia"— y `afilado_general`
+-- la comparten la sierra, la fresa, el cabezal y el incisor. Así que la lista
+-- de respaldo de una SIERRA venía ofreciendo "AFILADO FR MACHIMBRE ½ A 3/4" y
+-- "AFIL. D.EXT. MACH. 3/4 A 1¼'".
+--
+-- No es un problema estético: esa lista es la que el vendedor abre cuando su
+-- medida no cae en ningún rango, y de ahí sale el código que se factura. Ya
+-- hubo una nota real con el código de un cabezal en un renglón de cuchilla por
+-- exactamente este mecanismo.
+--
+-- ── Qué cambia para las sierras, dicho con todas las letras ──────────────────
+--
+-- La búsqueda POR MEDIDA de una sierra no se mueve: ninguno de estos seis
+-- tiene rango, así que nunca apareció por ahí. Comprobado sobre seis anchos
+-- (2,2 a 8 mm) en los tres servicios, antes y después:
+--
+--     afilado      8001, 8002, 8005, 8006
+--     rectificado  8003, 8007
+--     reparación   6001, 6002, 6007, 6008, 6106, 6107, 6108
+--
+-- Lo único que cambia es la lista de respaldo, que pierde exactamente estos
+-- códigos de fresa: afilado 33 → 30 (9401, 9403, 9405) y rectificado 18 → 16
+-- (9402, 9406; el 9404 ya estaba marcado). Reparación queda en 26, igual. Una
+-- sierra no se afila con una fresa de machimbre, así que perderlos es la
+-- corrección.
+--
+-- No se les carga rango a propósito. La lista los describe en pulgadas —"½ A
+-- 3/4", "½ A 1'", "3/4 A 1¼'"— y los tres se pisan entre sí, así que deducir
+-- de ahí un rango en milímetros sería inventar una regla de precio. Se elige
+-- de la lista, como hasta ahora.
+-- =============================================================================
+
+update public.catalogo_articulos
+   set herramienta_sugerida = 'fresa'
+ where codigo in ('9401', '9402', '9403', '9404', '9405', '9406');
