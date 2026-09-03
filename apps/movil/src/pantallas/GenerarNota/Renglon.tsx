@@ -366,6 +366,23 @@ export function PasoRenglon({
   const hayMedidaCargada = Object.keys(filtrosCascada).length > 0
 
   if (item.mano) filtrosCascada.mano = item.mano === 'derecha' ? 'derecha' : 'izquierda'
+
+  /*
+    El TIPO DE PIEZA también achica, y va después de `hayMedidaCargada` por lo
+    mismo que la mano: no es una medida.
+
+    `catalogo_medidas` guarda el tipo en `geometria` con los mismos valores que
+    el desplegable, y `medidas_en_cascada` ya sabía filtrar por ahí — la
+    pantalla era la que no se lo mandaba. Sin esto, elegir CABEZAL CEPILLADOR y
+    abrir el ancho de corte listaba los 59 cabezales del catálogo en vez de los
+    7 que son cepilladores.
+
+    Donde la geometría no está cargada no cambia nada: el filtro no encuentra
+    filas y la cascada devuelve lo de siempre. Hoy la tienen 38 de 59 cabezales
+    y 1 de 325 fresas, así que en las fresas todavía no se va a notar.
+  */
+  if (item.tipo_pieza) filtrosCascada.geometria = item.tipo_pieza
+
   const claveCascada = `${item.herramienta ?? ''}|${JSON.stringify(filtrosCascada)}`
 
   useEffect(() => {
@@ -1258,6 +1275,23 @@ export function PasoRenglon({
               />
               {elegido?.notas ? <Aviso>{elegido.notas}</Aviso> : null}
             </View>
+          )
+        }
+
+        /*
+          El precio del REBAJE no se tipea: va a cotizar.
+
+          No hay tarifa en ninguna lista —por eso el renglón tampoco lleva
+          código— y cuánto material hay que sacar lo mira la oficina. Un
+          casillero de precio acá obliga al vendedor a poner un número que no
+          tiene, y ese número sale impreso.
+        */
+        if (campo === 'precio_total' && item.servicio === 'rebaje') {
+          return (
+            <Aviso key={campo} titulo="El rebaje va a cotizar">
+              El importe lo pone la oficina cuando ve cuánto hay que sacarle. El
+              renglón se guarda sin precio y no suma al total de la nota.
+            </Aviso>
           )
         }
 
@@ -2277,6 +2311,31 @@ function SelectorModeloMecha({
     )
   }
 
+  /*
+    La lista se achica con lo que el vendedor ya midio.
+
+    `mechas_del_tipo` filtra por tipo y nada mas, asi que una ciega devuelve 50
+    modelos y siguen siendo 50 despues de cargar el diametro y el largo util.
+    El vendedor tiene la mecha en la mano y ya la midio: buscar su codigo entre
+    cincuenta que no le sirven es trabajo suyo para comodidad nuestra.
+
+    Se compara contra las caracteristicas que la lista trae escritas en la
+    descripcion, que son las mismas que `elegir` copia al renglon. Si el filtro
+    deja la lista vacia se muestran todos: una medida que no matchea puede ser
+    un error de tipeo o una mecha que la lista describe distinto, y esconderlo
+    todo seria peor que mostrar de mas.
+  */
+  const filtradas = modelos.filter((m) => {
+    const c = caracteristicasDeArticulo(m.descripcion, m.medida)
+    const coincide = (escrito: string, delModelo: string | undefined) =>
+      !escrito.trim() || !delModelo || aNumero(escrito) === aNumero(delModelo)
+    return (
+      coincide(item.diametro, c.diametro_exterior) && coincide(item.largo_util, c.largo)
+    )
+  })
+  const achicada = filtradas.length > 0 && filtradas.length < modelos.length
+  const visibles = achicada ? filtradas : modelos
+
   if (modelos.length === 0) {
     return (
       <Aviso tono="atencion" titulo="Sin modelos cargados">
@@ -2289,13 +2348,14 @@ function SelectorModeloMecha({
   return (
     <View style={estilos.bloqueCodigos}>
       <Text style={estilos.rotulo}>
-        ¿CUÁL ES? ({modelos.length} en la lista)
+        ¿CUÁL ES? ({visibles.length} de {modelos.length})
       </Text>
       <Text style={estilos.ayudaModelo}>
-        Para las medidas y para que el taller sepa qué le llegó. El precio del
-        afilado sale de arriba.
+        {achicada
+          ? 'Achicada con el diámetro y el largo que cargaste. Borralos para ver todos.'
+          : 'Para las medidas y para que el taller sepa qué le llegó. El precio del afilado sale de arriba.'}
       </Text>
-      {modelos.map((m) => {
+      {visibles.map((m) => {
         const marcado = m.codigo === elegido
         const c = caracteristicasDeArticulo(m.descripcion, m.medida)
         return (

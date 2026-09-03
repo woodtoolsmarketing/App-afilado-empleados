@@ -1450,6 +1450,18 @@ export function validarItemNota(
     // no el casillero, porque el casillero puede estar todavía vacío mientras
     // el formulario termina de calcular y eso no es un error del vendedor.
     if (campo === 'precio_total') {
+      /*
+       * El REBAJE va A COTIZAR, sin importe.
+       *
+       * No hay tarifa en ninguna lista —por eso tampoco tiene código— y el
+       * precio no lo pone el vendedor parado en el taller: lo cotiza la
+       * oficina, mirando cuánto material hay que sacar. Exigirle un número acá
+       * lo obligaba a inventar uno, y un importe inventado en un comprobante
+       * es peor que un renglón que dice que falta cotizarlo.
+       *
+       * La nota se guarda igual y el renglón suma cero al total.
+       */
+      if (item.servicio === 'rebaje') continue
       if (totalDelRenglon(item) <= 0) {
         errores.precio_total = 'Falta el precio total. Revisá el precio y las cantidades.'
       }
@@ -1577,6 +1589,9 @@ export function resumenRenglon(item: FormularioItemNota): string {
 
   const cantidad = aNumero(item.cantidad)
   if (cantidad > 1) partes.push(`× ${cantidad}`)
+
+  // El rebaje no lleva importe: lo cotiza la oficina.
+  if (item.servicio === 'rebaje') partes.push('a cotizar')
 
   return partes.join(' · ')
 }
