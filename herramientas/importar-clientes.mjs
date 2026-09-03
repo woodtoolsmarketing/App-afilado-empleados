@@ -11,8 +11,19 @@
  * la clave anónima Y el secreto puede escribir en `clientes`. Por eso se borra
  * apenas termina la carga — no queda dando vueltas.
  *
+ * La función está en `herramientas/importar-clientes.sql`, al lado de este
+ * archivo. Hay que pegarla en el SQL Editor de Supabase ANTES de correr esto, y
+ * borrarla después. Los pasos están escritos ahí arriba.
+ *
  * El secreto viaja en `SECRETO_IMPORTACION` y tiene que ser el mismo que quedó
  * escrito adentro de la función.
+ *
+ * ─── Se puede correr de nuevo ───────────────────────────────────────────────
+ *
+ * La función va por `codigo`: al que no está lo crea, y al que está le
+ * actualiza lo que trae el listado. Así que para poner el padrón al día alcanza
+ * con exportar el listado completo del Gestión y correr esto otra vez. No hace
+ * falta recortar el archivo a los clientes nuevos.
  *
  * ─── Qué se mapea y qué no ──────────────────────────────────────────────────
  *
@@ -174,6 +185,18 @@ for (let i = 0; i < registros.length; i += TANDA) {
   const { error } = await rpc('importar_clientes_temporal', { secreto: SECRETO, datos: tanda })
 
   if (error) {
+    // El 404 es el caso típico y no se entiende leyendo el error crudo: la
+    // función se borra después de cada importación, así que la primera tanda de
+    // la importación siguiente siempre la encuentra faltando.
+    if (error.message.startsWith('404')) {
+      console.error(
+        '\n  No existe `importar_clientes_temporal` en la base.\n' +
+          '  Pegá herramientas/importar-clientes.sql en el SQL Editor de Supabase\n' +
+          '  —con el secreto puesto adentro— y volvé a correr esto.\n',
+      )
+      process.exit(1)
+    }
+
     fallidasSeguidas++
     console.log(`  FALLÓ la tanda ${Math.floor(i / TANDA) + 1}: ${error.message}`)
     if (fallidasSeguidas > 2) {
