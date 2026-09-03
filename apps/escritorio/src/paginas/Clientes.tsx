@@ -2,6 +2,7 @@ import type { Cliente, Direccion, Perfil } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { filtrarPorPalabras } from '../nucleo/buscarClientes'
 import { supabase } from '../nucleo/supabase'
 
 type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
@@ -53,18 +54,10 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
         .limit(VENTANA)
 
       if (termino) {
-        // `or` de PostgREST separa por comas, así que una coma en el término
-        // partiría el filtro en dos condiciones inválidas.
-        const limpio = termino.replace(/[,()]/g, ' ')
-        consulta = consulta.or(
-          [
-            `codigo.ilike.%${limpio}%`,
-            `razon_social.ilike.%${limpio}%`,
-            `nombre_fantasia.ilike.%${limpio}%`,
-            `cuit.ilike.%${limpio}%`,
-            `localidad.ilike.%${limpio}%`,
-          ].join(','),
-        )
+        // Palabra por palabra contra `busqueda_plana`, igual que el buscador del
+        // teléfono: sin acentos, sin puntuación y en cualquier orden. El CUIT y
+        // la localidad van aparte porque no entran en esa columna.
+        consulta = filtrarPorPalabras(consulta, termino, ['cuit', 'localidad'])
       }
 
       const { data, error } = await consulta

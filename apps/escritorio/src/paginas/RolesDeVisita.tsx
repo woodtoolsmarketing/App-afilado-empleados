@@ -12,6 +12,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
+import { filtrarPorPalabras } from '../nucleo/buscarClientes'
 import { supabase } from '../nucleo/supabase'
 
 /** Cuántas filas se traen por consulta. El resto se alcanza buscando. */
@@ -114,16 +115,9 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
         .limit(VENTANA)
 
       if (termino) {
-        // `or` de PostgREST separa por comas, así que una coma en el término
-        // partiría el filtro en dos condiciones inválidas.
-        const limpio = termino.replace(/[,()]/g, ' ')
-        consulta = consulta.or(
-          [
-            `codigo.ilike.%${limpio}%`,
-            `razon_social.ilike.%${limpio}%`,
-            `nombre_fantasia.ilike.%${limpio}%`,
-          ].join(','),
-        )
+        // Palabra por palabra contra `busqueda_plana`, igual que el buscador del
+        // teléfono: sin acentos, sin puntuación y en cualquier orden.
+        consulta = filtrarPorPalabras(consulta, termino)
       }
 
       const { data, error: err } = await consulta
