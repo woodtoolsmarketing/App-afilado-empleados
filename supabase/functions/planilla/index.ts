@@ -40,6 +40,34 @@ import {
  * Si en la planilla alguien escribe una dirección pero no toca lat/lng, se
  * geocodifica acá contra Google antes de guardar. Es lo que hace que la oficina
  * pueda corregir una dirección tipeando, sin tener que averiguar coordenadas.
+ *
+ * ── Altas desde la planilla ─────────────────────────────────────────────────
+ *
+ * Una fila con un código que todavía no está en el padrón da de ALTA al
+ * cliente. Antes devolvía "No existe un cliente con ese código", y como la
+ * planilla se reescribe entera en cada sincronización, la fila tipeada se
+ * perdía: la oficina cargaba un cliente nuevo, no aparecía en la app, y no
+ * quedaba rastro de por qué.
+ *
+ * El padrón del Gestión entra por `herramientas/importar-clientes.mjs`, y entre
+ * exportación y exportación pasan meses. Esto es lo que tapa ese hueco: el
+ * cliente que se abrió ayer se carga acá y el vendedor lo tiene hoy. Cuando el
+ * listado del Gestión lo traiga, el importador lo va a encontrar por el código
+ * y le va a completar lo que la planilla no tiene (CUIT, contacto, teléfono).
+ * Por eso el código que se tipea acá tiene que ser EL DEL GESTIÓN: es lo que
+ * después une las dos cargas en una sola ficha.
+ *
+ * El alta no queda `provisorio`. Eso está para el cliente que levanta el
+ * vendedor desde la calle y la oficina todavía no validó; acá el que carga es
+ * la oficina, que es justamente quien valida.
+ *
+ * ── Qué puede hacer el que tenga el secreto ─────────────────────────────────
+ *
+ * Vale decirlo en voz alta, porque esto agranda lo que la función permite:
+ * hasta ahora, con el secreto se podían mover de lugar clientes existentes;
+ * ahora además se pueden crear. Sigue sin poder borrar, ni dar de baja, ni leer
+ * nada que la planilla no muestre. El tope de 500 filas por llamada sigue
+ * valiendo para las dos operaciones.
  */
 
 const GEOCODING_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
@@ -172,31 +200,146 @@ Deno.serve(async (req) => {
     // ── Guardar: lo que alguien editó en la planilla ────────────────────────
     if (operacion === 'guardar') {
       const filas = Array.isArray(cuerpo.filas) ? cuerpo.filas : []
-      if (filas.length === 0) return responder({ aplicados: 0, problemas: [] })
+      if (filas.length === 0) {
+        return responder({ aplicados: 0, codigos: [], altas: 0, codigos_alta: [], problemas: [] })
+      }
       if (filas.length > 500) throw new RespuestaError('Mandá hasta 500 filas por vez', 400)
 
       const claveGoogle = Deno.env.get('GOOGLE_MAPS_SERVER_KEY')
       const aplicados: string[] = []
+      const altas: string[] = []
       const problemas: Array<{ codigo: string; motivo: string }> = []
 
       for (const fila of filas) {
-        const codigo = String(fila.codigo ?? '').trim()
-        if (!codigo) continue
+        // Lo que mandó la planilla se conserva TAL CUAL para contestarle: es la
+        // clave con la que Apps Script decide qué fila quedó resuelta. Si le
+        // devolvemos otra cosa, esa fila queda rebotando abajo de todo para
+        // siempre aunque el cliente se haya cargado bien.
+        const codigoRecibido = String(fila.codigo ?? '').trim()
+        if (!codigoRecibido) continue
 
-        const { data: cliente } = await admin
-          .from('clientes')
-          .select('id')
-          .eq('codigo', codigo)
-          .maybeSingle()
-
-        if (!cliente) {
-          problemas.push({ codigo, motivo: 'No existe un cliente con ese código' })
-          continue
-        }
+        // Contra la base va el código normalizado como lo hace el importador
+        // del Gestión (herramientas/importar-clientes.sql): "00000001003" es
+        // "1003". Sin esto, el que copia el código del export crea una segunda
+        // ficha que el `on conflict (codigo)` del importador no fusiona nunca.
+        const codigo = codigoRecibido.replace(/^0+(?=\d)/, '')
 
         const lat = Number(fila.lat)
         const lng = Number(fila.lng)
         const texto = String(fila.direccion ?? '').trim()
+        const localidad = String(fila.localidad ?? '').trim()
+        const codigoPostal = String(fila.codigo_postal ?? '').trim()
+
+        // La planilla manda la razón social sólo en las filas nuevas; las de
+        // edición de ubicación no la llevan. Es lo que distingue "esto es un
+        // alta" de "esto es una corrección", incluso cuando el cliente ya
+        // existe porque otra sincronización se adelantó.
+        const razonSocial = String(fila.razon_social ?? '').trim()
+        const esFilaDeAlta = razonSocial !== ''
+
+        let { data: cliente } = await admin
+          .from('clientes')
+          .select('id, activo')
+          .eq('codigo', codigo)
+          .maybeSingle()
+
+        let recienCreado = false
+
+        if (!cliente) {
+          if (!razonSocial) {
+            problemas.push({
+              codigo: codigoRecibido,
+              motivo: 'Es un código nuevo y le falta la razón social para darlo de alta',
+            })
+            continue
+          }
+          if (razonSocial.length > 200) {
+            problemas.push({ codigo: codigoRecibido, motivo: 'La razón social es demasiado larga' })
+            continue
+          }
+          // Los 12.181 códigos del padrón son números de hasta cinco cifras.
+          // Cualquier otra cosa es un error de tipeo o una columna corrida, y
+          // conviene frenarla acá: un código inventado no lo va a encontrar el
+          // importador, y uno con forma de provisorio ("P-000004") le pisa el
+          // lugar a la secuencia del alta desde la calle.
+          if (!/^\d{1,6}$/.test(codigo)) {
+            problemas.push({
+              codigo: codigoRecibido,
+              motivo: 'El código tiene que ser el número del cliente en el Gestión, sin letras',
+            })
+            continue
+          }
+
+          const { data: creado, error: errAlta } = await admin
+            .from('clientes')
+            .insert({
+              codigo,
+              razon_social: razonSocial,
+              // Los mismos campos que carga el importador del Gestión: el
+              // domicilio del listado va en `clientes`, no en `direcciones`,
+              // porque esa tabla exige coordenadas.
+              direccion: texto || null,
+              localidad: localidad || null,
+              codigo_postal: codigoPostal || null,
+            })
+            .select('id, activo')
+            .single()
+
+          if (errAlta) {
+            // 23505 es la clave única del código: entre que preguntamos y
+            // escribimos, otra sincronización lo creó. No es un error para la
+            // oficina — el cliente existe, que es lo que quería.
+            if (errAlta.code === '23505') {
+              const { data: recuperado } = await admin
+                .from('clientes')
+                .select('id, activo')
+                .eq('codigo', codigo)
+                .maybeSingle()
+              if (!recuperado) {
+                problemas.push({ codigo: codigoRecibido, motivo: errAlta.message })
+                continue
+              }
+              cliente = recuperado
+            } else {
+              problemas.push({
+                codigo: codigoRecibido,
+                motivo: `No se pudo dar de alta: ${errAlta.message}`,
+              })
+              continue
+            }
+          } else {
+            cliente = creado
+            recienCreado = true
+            altas.push(codigoRecibido)
+          }
+        }
+
+        // Todos los caminos que dejan `cliente` en null hacen `continue`, pero
+        // dejarlo escrito evita que un cambio futuro lo rompa en silencio.
+        if (!cliente) continue
+
+        // Un cliente dado de baja no se ve en la planilla, así que la oficina lo
+        // vuelve a tipear como fila nueva. Sin esto el servidor lo encontraba
+        // por código, contestaba que salió todo bien, y la bajada le borraba la
+        // fila igual, porque `leer` sólo trae los activos.
+        //
+        // No se reactiva solo: la baja se hace a mano desde el panel, con un
+        // botón que dice "Dar de baja", y deshacer eso desde una planilla es
+        // demasiado. Se avisa y la fila queda pendiente, a la vista.
+        if (cliente.activo === false) {
+          problemas.push({
+            codigo: codigoRecibido,
+            motivo: 'Ese cliente está dado de baja. Reactivalo desde el panel de Clientes.',
+          })
+          continue
+        }
+
+        // Vale como alta tanto el que se creó recién como el que llegó en una
+        // fila de alta y ya existía —porque el disparador de 15 minutos y la
+        // sincronización a mano se encimaron—. Los dos casos tienen que
+        // contarse como resueltos: si no, la fila rebota abajo de todo para
+        // siempre con un cliente que ya está cargado.
+        const dadoDeAlta = recienCreado || esFilaDeAlta
 
         let resuelta: {
           direccion_formateada: string
@@ -215,19 +358,29 @@ Deno.serve(async (req) => {
             lat,
             lng,
             google_place_id: null,
-            localidad: String(fila.localidad ?? '').trim() || null,
+            localidad: localidad || null,
             provincia: null,
-            codigo_postal: String(fila.codigo_postal ?? '').trim() || null,
+            codigo_postal: codigoPostal || null,
           }
         } else if (texto.length >= 5) {
           // Sólo hay dirección escrita: la resolvemos contra Google.
           if (!claveGoogle) {
-            problemas.push({ codigo, motivo: 'Falta la clave de Google en el servidor' })
+            problemas.push({ codigo: codigoRecibido, motivo: 'Falta la clave de Google en el servidor' })
             continue
           }
           const g = await geocodificar(texto, claveGoogle)
           if (!g) {
-            problemas.push({ codigo, motivo: 'Google no encontró esa dirección' })
+            // El alta ya está hecha: el cliente existe y el vendedor lo va a
+            // encontrar buscándolo. Lo único que falta es la ubicación, y eso
+            // es lo que dice el mensaje. Decir "no se pudo" a secas haría que
+            // la oficina lo cargue de nuevo.
+            problemas.push({
+              codigo: codigoRecibido,
+              motivo: dadoDeAlta
+                ? 'Cliente dado de alta, pero Google no encontró esa dirección: quedó sin ubicar'
+                : 'Google no encontró esa dirección',
+            })
+            if (dadoDeAlta) aplicados.push(codigoRecibido)
             continue
           }
           resuelta = {
@@ -237,10 +390,17 @@ Deno.serve(async (req) => {
             google_place_id: g.google_place_id,
             localidad: g.localidad,
             provincia: g.provincia,
-            codigo_postal: g.codigo_postal ?? (String(fila.codigo_postal ?? '').trim() || null),
+            codigo_postal: g.codigo_postal ?? (codigoPostal || null),
           }
+        } else if (dadoDeAlta) {
+          // Un cliente nuevo sin dirección es un caso normal: la oficina sabe
+          // el nombre y todavía no el domicilio. Se da de alta igual y queda
+          // "Sin ubicar", que es exactamente lo que le pasa a los 129 del
+          // padrón que vinieron así del Gestión.
+          aplicados.push(codigoRecibido)
+          continue
         } else {
-          problemas.push({ codigo, motivo: 'Sin dirección ni coordenadas' })
+          problemas.push({ codigo: codigoRecibido, motivo: 'Sin dirección ni coordenadas' })
           continue
         }
 
@@ -258,14 +418,28 @@ Deno.serve(async (req) => {
         })
 
         if (error) {
-          problemas.push({ codigo, motivo: error.message })
+          problemas.push({
+            codigo: codigoRecibido,
+            motivo: dadoDeAlta
+              ? `Cliente dado de alta, pero no se pudo ubicar: ${error.message}`
+              : error.message,
+          })
+          // El alta salió bien aunque la ubicación no: se cuenta como aplicado
+          // para que la planilla no vuelva a mandarlo como fila nueva.
+          if (dadoDeAlta) aplicados.push(codigoRecibido)
           continue
         }
 
-        aplicados.push(codigo)
+        aplicados.push(codigoRecibido)
       }
 
-      return responder({ aplicados: aplicados.length, codigos: aplicados, problemas })
+      return responder({
+        aplicados: aplicados.length,
+        codigos: aplicados,
+        altas: altas.length,
+        codigos_alta: altas,
+        problemas,
+      })
     }
 
     throw new RespuestaError('Operación desconocida. Usá "leer" o "guardar".', 400)

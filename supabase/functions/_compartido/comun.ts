@@ -1,9 +1,13 @@
 /**
  * Utilidades comunes a todas las Edge Functions.
  *
- * Ninguna función de este proyecto se despliega con `--no-verify-jwt`: todas
- * manejan datos de clientes y ubicaciones de empleados, así que siempre se
- * valida quién llama.
+ * Todas manejan datos de clientes y ubicaciones de empleados, así que siempre
+ * se valida quién llama: `autenticar` contra el JWT de la sesión.
+ *
+ * La única que se despliega con `--no-verify-jwt` es `planilla`, porque del
+ * otro lado no hay un usuario logueado sino un Apps Script. Ésa se autentica
+ * con el secreto compartido `x-planilla-secreto`, comparado en tiempo
+ * constante, y no usa `autenticar`.
  */
 
 export const cors = {

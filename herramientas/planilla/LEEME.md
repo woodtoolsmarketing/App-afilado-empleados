@@ -81,9 +81,67 @@ Si escribís una dirección y dejás lat/lng vacías, el servidor la busca en Go
 y completa las coordenadas solo. Si escribís lat/lng a mano, mandan ésas y no se
 consulta a Google — útil cuando el lugar no figura en ningún mapa.
 
-**No agregues ni borres filas.** Cada sincronización reescribe la hoja completa
-desde la base, así que una fila agregada a mano se pierde. Para dar de alta un
-cliente, el panel de escritorio.
+**No borres filas.** Cada sincronización reescribe la hoja completa desde la
+base: borrar una fila no da de baja al cliente, vuelve sola en la próxima
+corrida. Las bajas se hacen desde el panel de escritorio.
+
+## Dar de alta un cliente
+
+Agregá una fila **abajo de todo** con el **código** y la **razón social**. La
+dirección, la localidad y el CP son opcionales: si los ponés queda ubicado, y si
+no, queda "Sin ubicar" hasta que alguien le cargue el domicilio.
+
+En la próxima sincronización el cliente entra a la base y el vendedor lo tiene
+en el teléfono.
+
+El código tiene que ser **el del Gestión**. No es un detalle: cuando la oficina
+exporte el listado y corra el importador, éste va a buscar ese código y va a
+completar la ficha con lo que la planilla no tiene — CUIT, contacto, teléfono.
+Si el código no coincide, quedan dos fichas del mismo taller.
+
+Sobre el código, dos cosas que el servidor resuelve solo:
+
+- Los ceros de relleno se sacan: pegar `00000001003` carga el cliente `1003`,
+  que es como lo dice la oficina y como lo va a traer el importador.
+- Sólo se aceptan números. Un código con letras se rechaza con el motivo a la
+  vista, porque un código inventado no lo va a encontrar nunca el importador.
+
+Si te olvidás el código, la fila **tampoco se borra**: vuelve abajo de todo
+diciendo que falta.
+
+Lo que se carga acá **no** queda como "provisorio". Ese estado es para el
+cliente que levanta el vendedor desde la calle y la oficina todavía no miró;
+acá el que carga es la oficina.
+
+Si algo falta —por ejemplo la razón social— la fila **no se borra**: queda abajo
+de todo con el motivo escrito en la columna Estado. Corregís y volvés a
+sincronizar.
+
+Para el alta de a muchos —un padrón entero del Gestión— esto no es el camino:
+está `herramientas/importar-clientes.mjs`, que carga miles de una.
+
+## Actualizar el script de una planilla que ya funciona
+
+Cuando `Codigo.gs` cambia acá, la planilla **no se entera sola**: el código vive
+adentro del archivo de Google. Hay que ir a **Extensiones → Apps Script**, borrar
+lo que haya y pegar el contenido nuevo.
+
+La primera sincronización después de pegarlo hace sola la conversión: agrega la
+columna que falte, y marca las filas que ya venían de la base para no confundirlas
+con altas. No hay que tocar nada a mano.
+
+## Probar el script sin Google
+
+`Codigo.gs` no se puede correr desde la computadora, así que un error se
+descubría con la planilla de producción delante. Para eso está el simulador:
+
+```bash
+npm run probar:planilla
+```
+
+Reemplaza la hoja por una matriz en memoria y el servidor por uno de mentira, y
+corre `sincronizar()` como lo correría el menú. Conviene pasarlo antes de pegar
+una versión nueva en Google.
 
 ## Cambiar la clave
 
