@@ -53,17 +53,37 @@ export function contactoInterno(
   const digitos = legible.replace(/\D/g, '')
 
   /*
-   * El 9 de los celulares.
+   * El 9 de los celulares, venga como venga escrito el número.
    *
-   * Argentina lo pide para hablar con un celular desde afuera del país, y para
-   * WhatsApp todos los mensajes vienen de afuera. Si el número ya viniera
-   * escrito con país —empieza con 54— se respeta lo que haya; si no, se le
-   * pone 549 adelante, que es lo que corresponde a un número de diez dígitos
-   * con característica de área.
+   * Argentina pide el 9 para hablar con un celular desde afuera del país, y
+   * para WhatsApp todos los mensajes vienen de afuera.
+   *
+   * Antes esto era `digitos.startsWith('54') ? digitos : '549' + digitos`, o
+   * sea: un número escrito CON el país se respetaba tal cual. Escrito
+   * "54 11 4180-0506" salía `541141800506`, sin el 9 — que es justamente el
+   * número que WhatsApp no encuentra. Ninguno de los cinco de hoy está escrito
+   * así, con lo cual la rama nunca se ejecutó y el error esperaba al sexto.
+   *
+   * Ahora se arma en dos pasos y el resultado es el mismo escriba quien
+   * escriba: se le pone el país si no lo tiene, y después el 9 si no lo tiene.
+   *
+   *   "11 4180-0506"      → 549 11 4180-0506
+   *   "54 11 4180-0506"   → 549 11 4180-0506
+   *   "549 11 4180-0506"  → 549 11 4180-0506
    */
-  const paraWhatsapp = digitos.startsWith('54') ? digitos : `549${digitos}`
+  const conPais = digitos.startsWith('54') ? digitos : `54${digitos}`
+  const paraWhatsapp = conPais.startsWith('549') ? conPais : `549${conPais.slice(2)}`
 
-  return { id, nombre, rol, legible, paraLlamar: digitos, paraWhatsapp }
+  /*
+   * Y para MARCAR, al revés: sin país y sin el 9.
+   *
+   * El teléfono del vendedor está en Argentina, así que un `tel:` con el país
+   * adelante no disca. Salía así por el mismo motivo: `paraLlamar` era
+   * `digitos` pelado, y con el país escrito se llevaba el 54 puesto.
+   */
+  const paraLlamar = conPais.startsWith('549') ? conPais.slice(3) : conPais.slice(2)
+
+  return { id, nombre, rol, legible, paraLlamar, paraWhatsapp }
 }
 
 /** Con quién se comunica el vendedor desde la calle. */

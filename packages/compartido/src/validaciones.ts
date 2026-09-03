@@ -120,7 +120,26 @@ export function observacionSugerida(
         hora ? `No se pudo visitar ahora: vuelvo a pasar a las ${hora}.` : 'No se pudo visitar ahora: vuelvo a pasar más tarde.',
       )
     } else if (form.motivo_no_visita) {
-      partes.push(`No se pudo visitar: ${ETIQUETA_MOTIVO_NO_VISITA[form.motivo_no_visita].toLowerCase()}.`)
+      /*
+        El `?? ''` no es de más.
+
+        `ETIQUETA_MOTIVO_NO_VISITA` es un `Record` del tipo, así que TypeScript
+        garantiza que la clave exista… mientras el valor venga del desplegable.
+        No viene siempre: al reabrir una visita vieja el motivo sale de la base,
+        y si algún día se saca un motivo de la lista —o se agrega uno del lado
+        del servidor antes que del lado de la app— acá llega un `string` que no
+        está en la tabla. Sin esto, `undefined.toLowerCase()` tiraba la pantalla
+        entera del parte de visita.
+
+        Con el motivo desconocido la frase queda igual de válida para el filtro
+        de la base: "No se pudo visitar al cliente." son cuatro palabras.
+      */
+      const motivo = ETIQUETA_MOTIVO_NO_VISITA[form.motivo_no_visita] ?? ''
+      partes.push(
+        motivo
+          ? `No se pudo visitar: ${motivo.toLowerCase()}.`
+          : 'No se pudo visitar al cliente.',
+      )
     } else {
       partes.push('No se pudo visitar al cliente.')
     }
