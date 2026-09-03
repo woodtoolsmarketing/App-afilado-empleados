@@ -170,7 +170,7 @@ const CORTOS = new Set<CampoItem>([
  * catálogo de producto, no de servicio. Buscar por medida ahí no devuelve nada
  * y nunca va a devolver nada.
  */
-const SIN_RANGOS = new Set<Herramienta>(['mecha', 'cuchilla'])
+const SIN_RANGOS = new Set<Herramienta>(['mecha', 'cuchilla', 'incisor'])
 
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
@@ -1769,7 +1769,9 @@ export function PasoRenglon({
                   <Aviso tono="atencion" titulo="Esta herramienta no se cotiza por medida">
                     {item.herramienta === 'mecha'
                       ? 'El afilado de mechas va por tipo, material y cantidad de filos, no por diámetro. Contestá el material acá arriba y el código sale solo.'
-                      : 'La lista de cuchillas es de producto, no de servicio. Abrí la lista de abajo y elegí el código.'}
+                      : item.herramienta === 'incisor'
+                        ? 'El diente del incisor se afila a un precio solo, mida lo que mida: la lista tiene un código y no depende del ancho. Abrí la lista de abajo y elegilo.'
+                        : 'La lista de cuchillas es de producto, no de servicio. Abrí la lista de abajo y elegí el código.'}
                   </Aviso>
                 ) : (
                   <Aviso tono="atencion">
