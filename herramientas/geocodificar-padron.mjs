@@ -5,8 +5,16 @@
  *   node herramientas/geocodificar-padron.mjs --limite 200    (ensayo más grande)
  *   node herramientas/geocodificar-padron.mjs --aplicar       (escribe de verdad)
  *
- * Medido sobre una muestra de 40 repartida por todo el padrón: 58% resuelve
- * con calle y altura, 40% sólo hasta la localidad y 2% no resuelve.
+ * Medido sobre 8.295 clientes reales el 04/09/2026: 30,7% resuelve con calle y
+ * altura y se guarda, 67% llega sólo hasta la localidad y se descarta, 2% no
+ * resuelve.
+ *
+ * Antes acá decía 58%, medido sobre una muestra de 40. Ese número era de cuando
+ * el padrón estaba entero por geocodificar. Ya no aplica: los clientes bien
+ * direccionados fueron los primeros en tener dirección —se la fue poniendo la
+ * gente, uno por uno— así que lo que queda pendiente es el resto, con
+ * domicilios como "CALLE 6 e/19 y 21" o una prolongación sin altura. No es que
+ * la herramienta ande peor: le tocan los casos difíciles.
  *
  * ─── Por qué hace falta ─────────────────────────────────────────────────────
  *
@@ -27,8 +35,15 @@
  * Cloud. Por eso el ensayo es lo que pasa por omisión y `--limite` existe.
  *
  * Se puede cortar y retomar cuando sea: cada corrida busca solamente los que
- * todavía no tienen dirección, así que volver a ejecutarlo no repite trabajo ni
- * vuelve a pagar por lo ya hecho.
+ * todavía no tienen dirección, así que lo ya GUARDADO no se vuelve a pagar.
+ *
+ * Pero ojo con la otra mitad de esa frase, que antes decía que no se repetía
+ * trabajo y era engañosa: las aproximadas NO se guardan, así que siguen contando
+ * como pendientes y la corrida siguiente las vuelve a consultar y las vuelve a
+ * pagar, para volver a descartarlas. Son dos de cada tres. Correr esto dos veces
+ * seguidas cuesta casi lo mismo la segunda vez y no agrega casi nada: lo que
+ * queda sin resolver no lo va a resolver Google, lo resuelve el vendedor desde
+ * la calle.
  *
  * ─── Qué NO hace ────────────────────────────────────────────────────────────
  *
