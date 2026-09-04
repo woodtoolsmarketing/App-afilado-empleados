@@ -10,7 +10,7 @@
  *
  * ─── Por qué hace falta ─────────────────────────────────────────────────────
  *
- * Los 12.181 clientes que vinieron del Gestión traen calle, localidad y CP en
+ * Los clientes que vinieron del Gestión traen calle, localidad y CP en
  * texto, sin coordenadas. El recorrido del vendedor se arma sobre `direcciones`,
  * y esa tabla exige lat/lng porque es la que alimenta el mapa y el optimizador
  * de ruta. Mientras un cliente no tenga fila ahí, no puede ser un destino.

@@ -94,7 +94,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
    * Los clientes que se pueden meter en un recorrido.
    *
    * Esto bajaba la tabla entera y filtraba en el navegador. PostgREST corta en
-   * 1.000 filas y la cartera son 12.181 desde que se importó el padrón, así que
+   * 1.000 filas y la cartera son 16.496 desde que se depuró el padrón, así que
    * el buscador sólo encontraba lo que cayera en ese primer millar por orden
    * alfabético: todo lo que empieza con una letra avanzada era invisible, y sin
    * ningún cartel que lo dijera. Es el mismo problema que ya estaba corregido

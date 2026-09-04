@@ -4,7 +4,7 @@
  * Este código va pegado DENTRO de la planilla (Extensiones → Apps Script).
  *
  * Qué hace
- *   · Baja de la base los 12.000 y pico de clientes con su ubicación.
+ *   · Baja de la base los 16.000 y pico de clientes con su ubicación.
  *   · Si alguien edita una dirección o unas coordenadas acá, las sube.
  *   · Si alguien agrega una fila con un código nuevo, da de alta al cliente.
  *   · Corre solo cada tanto, y también a mano desde el menú "WoodTools".
@@ -290,7 +290,7 @@ function prepararHoja() {
  *
  * Corre UNA sola vez: cuando se pega esta versión del código sobre una planilla
  * que ya venía funcionando, `_sync_codigo` es una columna recién creada y está
- * vacía en las 12.181 filas. Sin esto, la primera sincronización tomaría el
+ * vacía en todas las filas. Sin esto, la primera sincronización tomaría el
  * padrón ENTERO como filas nuevas y se lo mandaría al servidor — miles de
  * consultas a Google y una reescritura de todas las direcciones.
  *
@@ -533,7 +533,7 @@ function bajarPadron(hoja, pendientes) {
     ])
   }
 
-  // Una planilla nueva trae 1.000 filas y el padrón tiene 12.181. Pedir un
+  // Una planilla nueva trae 1.000 filas y el padrón tiene 16.496. Pedir un
   // rango más grande que la hoja no la agranda: tira "Those rows are out of
   // bounds" y corta la sincronización a la mitad. Se agranda a mano primero.
   var necesarias = matriz.length + 1

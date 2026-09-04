@@ -257,7 +257,8 @@ Deno.serve(async (req) => {
             problemas.push({ codigo: codigoRecibido, motivo: 'La razón social es demasiado larga' })
             continue
           }
-          // Los 12.181 códigos del padrón son números de hasta cinco cifras.
+          // Los códigos del padrón son números de hasta seis cifras: el listado
+          // del Gestión llega hasta 555564, y los reales hasta 17.337.
           // Cualquier otra cosa es un error de tipeo o una columna corrida, y
           // conviene frenarla acá: un código inventado no lo va a encontrar el
           // importador, y uno con forma de provisorio ("P-000004") le pisa el

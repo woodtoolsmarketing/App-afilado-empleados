@@ -90,7 +90,7 @@ export async function buscarClientes(
   // Sólo se guarda lo que salió bien: recordar un error dejaría al vendedor sin
   // poder reintentar durante un minuto, que es justo cuando quiere reintentar.
   recordadas.set(clave, { cuando: Date.now(), clientes })
-  // El padrón tiene 12.181 clientes y esto vive en memoria del teléfono: se
+  // El padrón tiene 16.496 clientes y esto vive en memoria del teléfono: se
   // corta antes de que crezca. Cien búsquedas son las de una jornada entera.
   if (recordadas.size > 100) {
     const masVieja = recordadas.keys().next().value
@@ -102,7 +102,7 @@ export async function buscarClientes(
 /**
  * Geolocaliza un cliente del padrón que sólo tiene el domicilio en texto.
  *
- * Los 12.181 clientes importados del Gestión traen calle, localidad y CP, pero
+ * Los clientes importados del Gestión traen calle, localidad y CP, pero
  * ninguna coordenada, y sin coordenadas no entran a un recorrido. Esto lo
  * resuelve desde la calle: el vendedor confirma la dirección contra las
  * sugerencias de Google y el cliente queda ubicado para siempre, no sólo para

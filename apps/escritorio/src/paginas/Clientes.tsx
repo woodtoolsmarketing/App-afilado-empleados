@@ -36,10 +36,11 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
   })
 
   /**
-   * La cartera son 12.181 clientes desde que se importó el padrón del Gestión.
+   * La cartera son 16.496 clientes desde la depuración contra el listado del
+   * Gestión del 03/09/2026.
    *
    * Antes esto bajaba la tabla entera y filtraba en el navegador. PostgREST
-   * corta en 1.000 filas, así que el panel mostraba 1.000 de 12.181 y el
+   * corta en 1.000 filas, así que el panel mostraba 1.000 de más de doce mil y el
    * buscador sólo encontraba lo que estuviera en ese primer millar por orden
    * alfabético: todo lo que empieza con una letra avanzada era invisible, sin
    * ningún cartel que lo dijera.
