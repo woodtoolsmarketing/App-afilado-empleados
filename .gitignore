@@ -76,3 +76,11 @@ apps/movil/ios/
 # `apps/movil/app.config.ts`; este archivo no significa nada y confunde a las
 # herramientas que lo encuentran primero. Ya lo borró 7537d83 una vez.
 /app.json
+
+# El informe que deja herramientas/depurar-padron.mjs: son datos de clientes
+depuracion-padron.csv
+altas-para-la-planilla.xlsx
+padron-completo.xlsx
+
+# Archivos de bloqueo que deja Excel al abrir un xlsx
+~$*
