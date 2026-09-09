@@ -930,9 +930,12 @@ html {
 .control-titulo { font-weight: bold; font-size: 13pt; text-align: center; background: #d9d9d9; margin: -1.5px -3px 2px; padding: 2px; }
 .control-linea { display: flex; justify-content: space-between; gap: 6px; padding: 0 2px; line-height: 1.05; }
 .fecha-vacia { letter-spacing: 1px; }
-/* El día de la entrega. Va en negrita porque es el dato que se lee de reojo:
-   la fecha de al lado hay que leerla entera para saber qué día cae. */
-.dia-entrega { font-weight: bold; }
+/* El día de la entrega, el dato que se lee de reojo: la fecha de al lado hay
+   que leerla entera para saber qué día cae. Grande —14 pt, contra los 10 del
+   resto de la caja— y en negrita, que es lo que se pidió. No más que eso: en la
+   nota más cargada, medida en Verdana, 14 pt dejan la hoja en 262,9 mm sobre
+   265, y cada punto de más se come el colchón (18 pt la clavan en 264,4). */
+.dia-entrega { font-weight: bold; font-size: 14pt; }
 
 .numero-caja { width: 28%; padding: 0; }
 .numero-titulo { font-weight: bold; text-align: center; background: #d9d9d9; padding: 2px; border-bottom: 1px solid #000; }
