@@ -231,7 +231,14 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
             />
           ) : null}
           <Text style={estilos.dato}>Emisión: {nota.emision}</Text>
+          {/* La vista previa muestra lo que se va a imprimir. El día va en su
+              propio renglón, como el "Día de entrega:" del papel: pegado a la
+              fecha ensanchaba esta columna y le partía el "Nº 02-0082" a la de
+              al lado. */}
           <Text style={estilos.dato}>Entrega: {nota.fecha_entrega ?? '—'}</Text>
+          {nota.fecha_entrega_dia ? (
+            <Text style={estilos.dato}>Día: {nota.fecha_entrega_dia}</Text>
+          ) : null}
         </View>
       </View>
 

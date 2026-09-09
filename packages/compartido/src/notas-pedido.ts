@@ -575,6 +575,75 @@ export const DIAS_CHEQUE_MAXIMO = 60
 export const PLAZO_DESDE_DIAS: number[] = [0, 15, 30]
 export const PLAZO_HASTA_DIAS: number[] = [15, 30, 45, 60]
 
+/**
+ * Los "hasta" que se pueden elegir para un "de" dado.
+ *
+ * Las dos listas se pisan —15 y 30 están en las dos— y por eso el desplegable
+ * del "hasta" no puede ofrecerlas enteras: elegir "de 30 a 30" es elegir un
+ * plazo que no existe.
+ */
+export function plazosHastaPara(desde: number | undefined | null): number[] {
+  const d = Number(desde ?? 0)
+  return PLAZO_HASTA_DIAS.filter((v) => v > d)
+}
+
+/**
+ * Los "hasta" para el desplegable, incluyendo el valor guardado aunque ya no
+ * sea elegible.
+ *
+ * ─── El caso que arregla ─────────────────────────────────────────────────────
+ *
+ * Hay notas viejas guardadas con las dos puntas iguales —"30-30"— de cuando la
+ * versión anterior las fabricaba sola. Al abrir una de esas para corregirla, o
+ * cuando la tendencia del cliente trae ese plazo a una nota nueva,
+ * `plazosHastaPara(30)` da [45, 60]: el "30" guardado no está en la lista y el
+ * desplegable quedaba EN BLANCO. El vendedor veía un campo vacío que él no
+ * tocó, y el error rojo ("el hasta tiene que ser mayor que el de") apuntaba a
+ * algo que no se veía.
+ *
+ * Con esto el campo muestra "30 días" —el valor real de la nota—, el error se
+ * corresponde con lo que está en pantalla, y el vendedor decide qué punta
+ * mueve. No se le cambia el plazo por atrás: la decisión es suya.
+ *
+ * En una nota nueva bien cargada esto nunca agrega nada: el "hasta" siempre
+ * sale de `armarPlazoDePago`, que jamás produce un valor fuera de la lista.
+ */
+export function opcionesHasta(
+  desde: number | undefined | null,
+  hastaActual: number | undefined | null,
+): number[] {
+  const validos = plazosHastaPara(desde)
+  const h = hastaActual === undefined || hastaActual === null ? null : Number(hastaActual)
+  return h !== null && !validos.includes(h) ? [h, ...validos] : validos
+}
+
+/**
+ * Arma el plazo guardado —"15-45"— a partir de las dos puntas elegidas.
+ *
+ * Vive acá y no adentro de cada formulario porque hay dos que lo arman, el de
+ * la app y el del probador, y la regla es una sola: el "hasta" tiene que ser
+ * MAYOR que el "de".
+ *
+ * Antes esto hacía `Math.max(hasta, desde)`, que corregía el caso al revés
+ * —"de 30 a 15"— dejando las dos puntas iguales: "30-30". O sea que la
+ * corrección FABRICABA el plazo inválido. Ahora sube el "hasta" al primer valor
+ * que de verdad esté más adelante.
+ */
+export function armarPlazoDePago(
+  desde: number | undefined | null,
+  hasta: number | undefined | null,
+): string {
+  const d = Number(desde ?? 0)
+  const posibles = plazosHastaPara(d)
+  const h =
+    hasta !== undefined && hasta !== null && Number(hasta) > d
+      ? Number(hasta)
+      : // Siempre hay uno: el "de" llega hasta 30 y el "hasta" hasta 60. El
+        // `?? d` es por si mañana alguien toca las listas y las deja sin salida.
+        (posibles[0] ?? d)
+  return `${d}-${h}`
+}
+
 /** El plazo guardado, "15-45", partido en sus dos números. */
 export function plazoDePago(detalle?: string | null): { desde: number; hasta: number } | null {
   const texto = String(detalle ?? '').trim()
@@ -1636,29 +1705,22 @@ export function fechaEntregaPorDefecto(desde: Date = new Date()): Date {
 }
 
 /**
- * Cuánto entra en un renglón de observaciones.
+ * Un tope de cordura para lo que el vendedor escribe en observaciones, NO una
+ * garantía de que todo se imprima.
  *
- * Es el ancho de la columna "Observaciones" del talonario: más que esto no se
- * imprime, se corta. Vale más frenarlo donde se escribe que descubrirlo cuando
- * la nota ya salió en papel.
+ * "Observaciones" es, por diseño, la columna que la maqueta deja recortar (ver
+ * COLUMNAS_COMERCIALES en nota-pedido-impresion.ts): se queda con lo que sobra
+ * después de repartir las columnas con dato duro, y lo que no entra sale con
+ * puntos suspensivos. No se puede prometer un número exacto de caracteres
+ * porque depende de la fuente del teléfono y de si el texto va en mayúscula.
  *
- * Los 60 de antes eran una estimación y nunca entraron: la columna mide 37 %
- * de la tabla —264 px— y sesenta caracteres piden 346. Todo lo que pasaba de
- * los cuarenta y pico se perdía en silencio, con el vendedor creyendo que lo
- * había escrito.
- *
- * Los 46 salen de medir sobre los 266 px que tiene la columna, con la letra que
- * el teléfono usa de verdad: 46 caracteres ocupan 235 px en Arial y la del
- * teléfono mide alrededor de un 4 % más —lo acota la nota 000060 impresa, donde
- * una cuenta de 82 px se cortó contra una casilla de 85—.
- *
- * Los 60 de antes eran una estimación y nunca entraron: pedían 346 px. Lo que
- * sobraba se perdía en silencio, con el vendedor creyendo que lo había escrito.
- *
- * En MAYÚSCULA entran unos 40, así que una observación gritada todavía puede
- * recortarse. No se baja el límite por eso: castigaría a todos por un caso que
- * casi no se da —de 25 observaciones cargadas, una sola está en mayúscula— y el
- * promedio real es de 24 caracteres.
+ * Con la columna en 31 % (223 px de casilla a 9 pt, ver el mismo archivo)
+ * entran del orden de 40 caracteres en minúscula y unos 33 en MAYÚSCULA. El
+ * tope se deja en 46 —un poco por encima— por dos razones: el promedio real es
+ * de 24 caracteres, y ya hay notas guardadas con observaciones más largas (una
+ * de 86) que se imprimen recortadas sin que eso rompa nada. Bajarlo no
+ * recuperaría esas ni cambiaría lo que se imprime; sólo le sacaría margen al
+ * caso raro que sí entra.
  */
 export const OBSERVACION_MAXIMO_CARACTERES = 46
 
@@ -1776,8 +1838,23 @@ export function validarEncabezadoNota(
       errores.condicion_venta_detalle = 'Elegí desde y hasta cuántos días'
     } else if (plazo.hasta > DIAS_CHEQUE_MAXIMO) {
       errores.condicion_venta_detalle = `El plazo llega hasta ${DIAS_CHEQUE_MAXIMO} días`
-    } else if (plazo.desde > plazo.hasta) {
-      errores.condicion_venta_detalle = 'El "hasta" no puede ser menor que el "de"'
+    } else if (plazo.desde >= plazo.hasta) {
+      /*
+       * Las dos puntas iguales no son un plazo.
+       *
+       * "De 30 a 30 días" no describe ninguna ventana: o el cheque se cobra el
+       * día 30 —y entonces no hay nada que negociar y va en el "hasta"— o el
+       * vendedor movió una punta y se olvidó de la otra, que es lo que pasaba.
+       * La pantalla ya no deja elegirlo (ver `cambiarPlazo`), pero se rechaza
+       * igual acá: el chequeo final es el que decide si la nota se crea, y el
+       * plazo también llega desde el borrador guardado y desde el probador.
+       *
+       * Cubre además el "de" mayor que el "hasta". Antes tenía su propio
+       * mensaje y no se podía llegar a él: `plazoDePago` devuelve null cuando
+       * el rango está al revés, así que el error que salía era el de más
+       * arriba.
+       */
+      errores.condicion_venta_detalle = 'El "hasta" tiene que ser mayor que el "de"'
     }
   } else if (extra.condicionVenta === 'otro' && !detalle) {
     errores.condicion_venta_detalle = 'Contá cuál es la condición'

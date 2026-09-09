@@ -11,8 +11,9 @@ import {
   CONDICIONES_CON_PLAZO,
   ETIQUETA_CONDICION_VENTA,
   plazoDePago,
+  opcionesHasta,
+  armarPlazoDePago,
   PLAZO_DESDE_DIAS,
-  PLAZO_HASTA_DIAS,
   ETIQUETA_GRUPO_NOTA,
   ETIQUETA_HERRAMIENTA,
   ETIQUETA_ORIGEN_FRESA,
@@ -148,14 +149,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    *
    * Si eligen primero el "hasta", el "de" arranca en 0 —es el caso normal, un
    * cheque que se puede cobrar en cualquier momento hasta esa fecha—. Y si el
-   * "de" queda por encima del "hasta", se corrige el "hasta" en el momento en
-   * vez de dejar que el validador lo rechace después: nadie quiere elegir un
-   * plazo imposible y enterarse tres pantallas más tarde.
+   * "de" se sube por encima del "hasta", el "hasta" se corre al primer plazo
+   * que quede más adelante, en el momento, en vez de dejar que el validador lo
+   * rechace después: nadie quiere elegir un plazo imposible y enterarse tres
+   * pantallas más tarde. La regla vive en el paquete compartido porque el
+   * probador arma el mismo dato.
    */
   function cambiarPlazo(desde: number | undefined, hasta: number | undefined) {
-    const d = desde ?? 0
-    const h = Math.max(hasta ?? PLAZO_HASTA_DIAS[0], d)
-    setCondicionDetalle(`${d}-${h}`)
+    setCondicionDetalle(armarPlazoDePago(desde, hasta))
     if (intentado) revalidarEncabezado(encabezado, servicios)
   }
   /**
@@ -1571,7 +1572,12 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                       obligatorio
                       marcador="Hasta"
                       valor={plazoElegido?.hasta !== undefined ? String(plazoElegido.hasta) : null}
-                      items={PLAZO_HASTA_DIAS.map((d) => ({
+                      // Sólo los que están más adelante que el "de" —un plazo que
+                      // termina el mismo día en que empieza no es un plazo—, más
+                      // el valor guardado si es uno viejo que ya no se puede
+                      // elegir, para que el campo no quede en blanco. Ver
+                      // opcionesHasta.
+                      items={opcionesHasta(plazoElegido?.desde, plazoElegido?.hasta).map((d) => ({
                         valor: String(d),
                         etiqueta: `${d} días`,
                       }))}

@@ -27,6 +27,7 @@ import {
   MAXIMO_RENGLONES,
   numeroDeNotaImpreso,
   numeroDeVendedorImpreso,
+  OBSERVACION_HERMANAS,
   VENDEDORES_CON_CERO,
   type DatosComputo,
 } from './notas-pedido'
@@ -140,6 +141,15 @@ export interface NotaParaImprimir {
    * leer.
    */
   fecha_entrega?: string
+  /**
+   * Qué día de la semana cae la entrega: "Martes".
+   *
+   * Va en su propio renglón, debajo de la fecha. Nadie mira un 15/09 y sabe
+   * qué día es: el cliente pregunta "¿el martes?" y el vendedor tiene que
+   * abrir el calendario del teléfono para contestarle. Impreso al lado de la
+   * fecha, la nota se contesta sola.
+   */
+  fecha_entrega_dia?: string
 }
 
 export interface OpcionesImpresion {
@@ -206,7 +216,7 @@ export const A4_ALTO_PT = 842
  * es lo que trae el padrón— empujaban toda la nota fuera de la hoja. En el
  * papel ese recuadro tampoco crece: lo que no entra, no entra.
  */
-const ALTO_DATOS_CLIENTE_MM = 17
+const ALTO_DATOS_CLIENTE_MM = 21
 /**
  * Lo mismo, pero cuando el pie lleva subtotal Y total con IVA.
  *
@@ -218,25 +228,27 @@ const ALTO_DATOS_CLIENTE_MM = 17
  * está. Sacárselos a la descripción, en cambio, taparía lo que hay que hacer.
  */
 /**
- * El recuadro de la descripción general: cuatro renglones.
+ * El recuadro de la descripción general: cuatro renglones, 16 mm.
  *
- * ─── Por qué 13 y no más ─────────────────────────────────────────────────────
+ * ─── Por qué el alto es de verdad ────────────────────────────────────────────
  *
- * Porque más no hay. La hoja está llena: las dos tablas se llevan todo lo que
- * sobra y NO devuelven nada —tienen `flex-basis: 0`, así que su peso de encogido
- * es cero y el reparto negativo cae entero sobre los recuadros de texto—. Medido
- * subiendo este número de a un milímetro, el alto real se clava en 13,2 mm y de
- * ahí no se mueve: declarar 18 o 20 da exactamente lo mismo que declarar 13.
- * Un número más grande sería mentira en el código.
+ * Antes esta caja valía 13 y crecer no servía de nada: las dos tablas tienen
+ * `flex-basis: 0`, no devuelven nada, y el reparto negativo caía entero sobre
+ * los recuadros de texto, que se encogían hasta el contenido. Declarar 18 daba
+ * lo mismo que 13.
  *
- * El cuarto renglón se gana con la letra, no con la caja: a 7,5 pt (ver los
- * estilos) el renglón mide 3,04 mm en vez de 3,25 y entran cuatro en el mismo
- * lugar. Hace falta porque la descripción ya no es sólo del vendedor: la
- * encabeza la línea que arma la app ("AFILADO DE SIERRAS Y FRESAS") y abajo
- * pueden ir hasta dos avisos de agujero. Con tres renglones, lo que el vendedor
- * agregaba se recortaba sin que nadie se enterara.
+ * Ahora el alto se respeta porque el recuadro dejó de encogerse: lleva
+ * `flex-shrink: 0` (ver `.texto-libre`). Con eso 16 mm son 16 mm, y hacen falta:
+ * a 9,5 pt entran los cuatro renglones que hoy conviven acá —la línea que arma
+ * la app ("AFILADO DE SIERRAS Y FRESAS"), lo que agrega el vendedor y hasta dos
+ * avisos de agujero—. Con la caja encogible de antes, y la letra más grande de
+ * este cambio, la descripción se aplastaba a un renglón y el resto se recortaba
+ * sin que nadie se enterara.
+ *
+ * OJO: bajar este número NO libera espacio para otra cosa —la hoja entra medida,
+ * ver ALTO_HOJA_MM— sólo recorta renglones de la descripción.
  */
-const ALTO_DESCRIPCION_MM = 13
+const ALTO_DESCRIPCION_MM = 16
 
 /**
  * El duplicado tiene el chrome apretado —encabezado, rótulos y cajas chicas—
@@ -279,18 +291,18 @@ const FILAS_COMERCIALES_DUPLICADO = MAXIMO_RENGLONES
  * desbordar. Los porcentajes son sobre los 190 mm de `.nota`.
  */
 const COLUMNAS_TECNICAS = [
-  30, // Descripción — el texto libre, y por eso la más ancha: 57 mm
+  29.5, // Descripción — el texto libre, y por eso la más ancha; recorta con ellipsis
   5.5, // Afil.
   5.5, // Rect.
   5.5, // Rep.
   5.5, // Tens.
   5.5, // Rell
-  7, // Otro
-  6, // Cantidad
+  7, // Otro — un servicio ("reclamo", "hermanado"): "hermanado" no entra ni entró nunca
+  6, // Cantidad — la manda su encabezado, que ya se derrama (preexistente)
   7.5, // ØExt.-Largo
   7.5, // ØInt.-Ancho
   7.5, // Ancho Corte / Espesor
-  7, // Z-Paso
+  7.5, // Z-Paso — "120+4" (dientes+rascadores) a 10 pt pide 51 px; 7,5 % = 54
 ]
 
 /**
@@ -317,18 +329,29 @@ const COLUMNAS_TECNICAS = [
  * entra su palabra más larga, y además se les puso el mismo recorte que a las
  * celdas para que no pueda volver a pasar.
  *
- *                   celda                        encabezado
- *   Código          "CLGNMFS3940MCAJA" a 6pt 86  "Cómputo"   51  → 13 % = 93 px
- *   Cantidad        "1.240"                  33  "Cantidad"  50  →  8 % = 57 px
- *   Unitario        "$ 2.971.600,00"         88  "unitario"  78  → 13 % = 93 px
- *   Dto.            "65 %"                   31  "Dto."      24  →  5 % = 36 px
- *   Condición       "Cta. cte. 15-45 días"  124  "Condicion" 55  → 18 % = 129 px
- *   Anticipo        vacía                     —  "Anticipo"  45  →  7 % = 50 px
- *   Observaciones   hasta 46 caracteres     259  "Observ…"   83  → 36 % = 258 px
+ * Medido en Verdana, con la celda a 9 pt (ver `.comercial td`) y los 6 px de
+ * padding incluidos, sobre la tabla de 718 px:
  *
- * El unitario bajó de 17 % a 12 % porque ya no lleva debajo la multiplicación
- * escrita: se sacó por pedido, la cuenta se rehace con la cantidad y el
- * unitario, que están en la misma fila.
+ *                   celda                        encabezado
+ *   Código          16 caracteres a 6 pt     93  "Cómputo"   51  → 13 % = 93 px
+ *   Cantidad        "1.240"                  35  "Cantidad"  57  →  8 % = 57 px
+ *   Unitario        "$ 2.971.600,00"        100  "unitario"  85  → 15 % = 108 px
+ *   Dto.            "65 %"                   39  "Dto."      27  →  6 % = 43 px
+ *   Condición       "Cta. cte. 15-60 días"  138  "Condicion" 62  → 20 % = 144 px
+ *   Anticipo        vacía                    —   "Anticipo"  52  →  7 % = 50 px
+ *   Observaciones   "NP 02-0082, 02-0083…"  217  "Observ…"   90  → 31 % = 223 px
+ *
+ * La celda va a 9 pt y no a los 10 del resto: la condición con su plazo, el
+ * precio de siete cifras y hasta tres notas hermanas, medidos en Verdana, no
+ * entran todos a 10 pt —la tabla pediría 113 % de su ancho— y sí a 9. Sigue
+ * siendo más grande que los 8,5 pt de antes.
+ *
+ * Observaciones se dimensiona contra "NP 02-0082, 02-0083, 02-0084" —las tres
+ * notas hermanas, que son texto del sistema y no se pueden perder— y no contra
+ * el texto libre del vendedor: ése recorta con puntos suspensivos si se pasa,
+ * que es el trato de siempre para esa columna (ver más abajo). "Anticipo" en su
+ * encabezado pide 52 px sobre 50 y pierde el último píxel en Verdana; es una
+ * columna vacía y el dato no está ahí, así que se acepta.
  *
  * El encabezado del descuento dice "Dto." y no "Descuento": la palabra entera
  * pedía 60 px —más que el "65 %" que va debajo— y se llevaba 4 % que le hacen
@@ -348,13 +371,13 @@ const COLUMNAS_TECNICAS = [
  * algún carácter. En la letra que el teléfono usa de verdad, entra.
  */
 const COLUMNAS_COMERCIALES = [
-  13, // Código de Cómputo — hasta 16 caracteres, ver `celdaCodigo`
-  8, // Cantidad — la manda su encabezado, no el número
-  13, // Precio unitario — el artículo más caro del catálogo son 7 cifras
-  5, // Dto. — con el título abreviado lo manda la celda, "65 %"
-  18, // Condición de Venta — con el plazo, ya en su forma compacta
+  13, // Código de Cómputo — ≤10 caracteres a 9 pt; los más largos a 6 pt, ver `celdaCodigo`
+  8, // Cantidad — la manda su encabezado
+  15, // Precio unitario — "$ 2.971.600,00", el artículo más caro del catálogo
+  6, // Dto. — "65 %", todo descuento de dos cifras con su signo
+  20, // Condición de Venta — "Cta. cte. 15-60 días" en negrita, el plazo más largo
   7, // Anticipo — se imprime vacía; la manda su encabezado
-  36, // Observaciones — se queda con lo que sobra
+  31, // Observaciones — hasta tres notas hermanas; el texto libre puede recortar
 ]
 
 /** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
@@ -371,11 +394,95 @@ const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
  * Se achican SÓLO esos: los códigos corrientes —`8001`, `LU3F 0300`— se siguen
  * leyendo en cuerpo normal, que es lo que se mira primero al recibir la pieza.
  */
-const CODIGO_LARGO = 11
+/**
+ * A partir de cuántos caracteres el código se imprime en cuerpo chico.
+ *
+ * Diez, no once. Con la celda comercial a 9 pt un código de 11 caracteres
+ * —`CHC100HSSAF`— pide 95 px sobre los 93 de la columna y se cortaba
+ * `CHC100HSS…`; un código cortado es un renglón que Administración no puede
+ * facturar. Los de hasta 10 caracteres (89 px) entran a 9 pt; de 11 en adelante
+ * bajan a 6 pt, donde `CHC100HSSAF` mide 66 px y el de 16 mide 93, igual que
+ * antes. Son del orden de cien códigos del catálogo, casi todos los que ya
+ * bajaban con el umbral viejo de once más la familia de once caracteres.
+ *
+ * OJO con bajarlo más: 6 pt son 8 px, el piso de tamaño de letra del WebView de
+ * Android. Con el ajuste de letra del sistema en "chico" (escala 0,85) esos
+ * códigos se dibujan MÁS grandes de lo pedido en vez de más chicos —es el único
+ * punto donde la compensación de escala no cierra— pero siguen entrando.
+ */
+const CODIGO_LARGO = 10
 
 function celdaCodigo(codigo: string): string {
   const texto = escapar(codigo)
   return codigo.length > CODIGO_LARGO ? `<span class="codigo-largo">${texto}</span>` : texto
+}
+
+/**
+ * Los días de la semana, escritos acá y no sacados de `Intl`.
+ *
+ * `toLocaleDateString('es-AR', { weekday: 'long' })` da lo mismo en esta PC,
+ * pero el nombre del día lo resuelve el ICU del aparato que arma el PDF: en un
+ * Android viejo, o con el idioma del sistema en otra cosa, la misma nota podría
+ * imprimir "Tuesday". Son siete palabras y no cambian nunca; escritas acá, la
+ * hoja dice lo mismo salga del teléfono del vendedor o del panel de la oficina.
+ */
+const DIAS_DE_LA_SEMANA = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+]
+
+/**
+ * Separa el nombre del cliente del resto de su ficha.
+ *
+ * El nombre se imprime grande arriba de todo —es lo primero que se busca al
+ * recibir la herramienta— y la ficha va abajo, en cuerpo chico. Pero los dos
+ * salen del mismo lugar: cuando el cliente se elige del padrón, `datos_cliente`
+ * se arma como "RAZÓN SOCIAL — dirección — CP — teléfono…" y `cliente_nombre`
+ * es esa misma razón social. Impresos los dos enteros, el nombre salía dos
+ * veces.
+ *
+ * Se saca el prefijo sólo cuando la ficha ARRANCA con el nombre tal cual. Lo
+ * que el vendedor escribió a mano, o dictó, no se toca: puede empezar con
+ * cualquier cosa y perderle una palabra es peor que repetir el nombre.
+ */
+function partirFichaDelCliente(
+  nombre: string | null | undefined,
+  ficha: string,
+): { nombre: string; resto: string } {
+  const n = String(nombre ?? '').trim()
+  const f = String(ficha ?? '').trim()
+  if (!n) return { nombre: '', resto: f }
+  if (!f.toLowerCase().startsWith(n.toLowerCase())) return { nombre: n, resto: f }
+  // El separador que viene atrás del nombre —el " — " del padrón o el salto de
+  // línea de lo dictado— se va con él.
+  return { nombre: n, resto: f.slice(n.length).replace(/^[\s—–-]+/, '') }
+}
+
+/**
+ * La observación de las notas hermanas, con el número resaltado.
+ *
+ * "Va con nota de pedido 02-0082, 02-0083" lo escribe el servidor cuando una
+ * carga se reparte en varios comprobantes, y lo único que se usa de esa frase
+ * son los números: es con ellos que en la oficina se juntan las hojas del mismo
+ * cliente. El resto es la explicación.
+ *
+ * Las demás observaciones son del vendedor y salen tal cual.
+ */
+function celdaObservacion(texto: string): string {
+  const t = String(texto ?? '')
+  if (!t.trimStart().startsWith(OBSERVACION_HERMANAS)) return escapar(t)
+  const corte = t.indexOf(OBSERVACION_HERMANAS) + OBSERVACION_HERMANAS.length
+  // "NP " y no "Va con NP ": con el prefijo entero, tres notas hermanas piden
+  // 262 px sobre los 230 de la casilla en Verdana y se pierde el tercer número,
+  // que es lo único que la casilla existe para mostrar. "NP" es la abreviatura
+  // de esta misma hoja —la caja de fechas dice "Emision NP:"— así que no hay
+  // que explicarla en la oficina.
+  return `NP <strong class="hermanas">${escapar(t.slice(corte))}</strong>`
 }
 
 const colgroup = (anchos: number[]): string =>
@@ -478,6 +585,15 @@ export function generarHtmlNotaPedido(
     ? escapar(nota.numero)
     : '<span class="pendiente">— — —<small>(Pendiente)</small></span>'
 
+  const ficha = partirFichaDelCliente(nota.cliente_nombre, nota.datos_cliente)
+  /**
+   * El duplicado lleva sólo el nombre y tira el resto de la ficha (ver el
+   * comentario del bloque). Pero si no hay nombre —datos tipeados a mano— la
+   * ficha entera es lo único que dice de quién es la herramienta, y ahí va:
+   * fea, pero identifica la pieza.
+   */
+  const fichaResto = esDuplicado && ficha.nombre ? '' : ficha.resto
+
   const logo = opciones.logoDataUri ?? LOGO_WOODTOOLS
   const celdaLogo = opciones.conLogo
     ? `<img src="${escapar(logo)}" alt="WoodTools S.R.L." class="logo">`
@@ -531,7 +647,7 @@ export function generarHtmlNotaPedido(
         <td class="num">${escapar(c.descuento)}</td>
         <td>${condicion}</td>
         <td class="num">${escapar(c.anticipo)}</td>
-        <td>${escapar(c.observaciones)}</td>
+        <td>${celdaObservacion(c.observaciones)}</td>
       </tr>`
     })
     .join('')
@@ -654,6 +770,18 @@ export function generarHtmlNotaPedido(
         <div class="control-linea"><span>Fecha de entrega:</span><span class="fecha-vacia">${
           nota.fecha_entrega ? escapar(nota.fecha_entrega) : '___/___/___'
         }</span></div>
+        <!--
+          El día sólo aparece si hay fecha. Sin ella no hay nada que decir, y un
+          renglón "Día de entrega: ___" en una caja que ya tiene cinco es un
+          renglón que empuja al resto de la hoja para no informar nada.
+        -->${
+          nota.fecha_entrega_dia
+            ? `
+        <div class="control-linea"><span>Día de entrega:</span><span class="dia-entrega">${escapar(
+          nota.fecha_entrega_dia,
+        )}</span></div>`
+            : ''
+        }
       </td>
       <td class="numero-caja">
         <div class="numero-titulo">NOTA DE PEDIDO</div>
@@ -682,9 +810,9 @@ export function generarHtmlNotaPedido(
       el teléfono y el mail son para el original, que es el que va al cliente y
       a administración. Y de paso libera renglones en la copia más apretada.
     -->
-    <div class="texto-libre">${escapar(
-      esDuplicado ? nota.cliente_nombre || nota.datos_cliente : nota.datos_cliente,
-    )}</div>
+    <div class="texto-libre">${
+      ficha.nombre ? `<div class="cliente-nombre">${escapar(ficha.nombre)}</div>` : ''
+    }${fichaResto ? `<div class="cliente-ficha">${escapar(fichaResto)}</div>` : ''}</div>
   </div>
 
   <div class="bloque-titulo">DESCRIPCION GENERAL DE LAS HERRAMIENTAS</div>
@@ -761,7 +889,7 @@ html {
    de las firmas— y desbordar no lo es. */
 .nota {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 9.5pt;
+  font-size: 11.5pt;
   color: #000;
   width: 190mm;
   height: ${ALTO_HOJA_MM}mm;
@@ -782,7 +910,7 @@ html {
 /* El bloque de firmas se va al pie. El aire de arriba es suyo y no sobrante:
    con las tablas repartiéndose todo lo que queda, dejarlo librado al sobrante
    pegaba las líneas de firma contra el borde de la hoja. */
-.firmas { margin-top: auto; padding-top: 7mm; }
+.firmas { margin-top: auto; padding-top: 2mm; }
 
 .nota table { border-collapse: collapse; width: 100%; }
 .nota td, .nota th { border: 1px solid #000; padding: 1.5px 3px; }
@@ -792,46 +920,105 @@ html {
 .logo { max-width: 90%; max-height: 24mm; }
 
 .control { width: 40%; }
-.control-titulo { font-weight: bold; font-size: 12pt; text-align: center; background: #d9d9d9; margin: -1.5px -3px 2px; padding: 2px; }
-.control-linea { display: flex; justify-content: space-between; gap: 6px; padding: 0 2px; }
+/* Cuerpo propio, más chico que el de la hoja: esta caja tiene cinco renglones
+   —seis cuando hay día de entrega— y tres los completa la fábrica a mano
+   (Emisión Plano, Recibido, Finalizado), así que lo que se lee es el rótulo, no
+   el dato. Con el cuerpo de la nota se llevaba varios milímetros de más, y
+   salían de los renglones donde se escribe. */
+.control { font-size: 10pt; }
+.control-titulo { font-weight: bold; font-size: 13pt; text-align: center; background: #d9d9d9; margin: -1.5px -3px 2px; padding: 2px; }
+.control-linea { display: flex; justify-content: space-between; gap: 6px; padding: 0 2px; line-height: 1.05; }
 .fecha-vacia { letter-spacing: 1px; }
+/* El día de la entrega. Va en negrita porque es el dato que se lee de reojo:
+   la fecha de al lado hay que leerla entera para saber qué día cae. */
+.dia-entrega { font-weight: bold; }
 
 .numero-caja { width: 28%; padding: 0; }
 .numero-titulo { font-weight: bold; text-align: center; background: #d9d9d9; padding: 2px; border-bottom: 1px solid #000; }
-.numero { font-size: 15pt; text-align: center; padding: 3px 0 6px; border-bottom: 1px solid #000; }
+.numero { font-size: 16pt; text-align: center; padding: 3px 0 6px; border-bottom: 1px solid #000; }
 .pendiente { color: #999; }
-.pendiente small { display: block; font-size: 8pt; }
-.comprobantes { padding: 6px 4px; line-height: 2.1; }
+/* Al lado de los guiones y no debajo: en renglón aparte, esta casilla se hacía
+   más alta que la de las fechas y empujaba a toda la hoja para decir una
+   palabra que entra al costado. */
+.pendiente small { font-size: 8pt; margin-left: 4px; }
+.comprobantes { padding: 6px 4px; line-height: 1.35; }
 
-.identificacion { display: flex; gap: 10mm; border: 1px solid #000; border-top: 0; padding: 2px 4px; }
-.identificacion u { min-width: 18mm; display: inline-block; }
+/* Los tres números con los que se archiva la nota: quién la hizo, para quién y
+   de qué zona. Grandes y en negrita porque es por donde se busca la hoja en un
+   fajo, y hasta ahora iban en el mismo cuerpo que todo lo demás. */
+.identificacion {
+  display: flex;
+  gap: 10mm;
+  border: 1px solid #000;
+  border-top: 0;
+  padding: 2px 4px;
+  font-size: 13pt;
+  font-weight: bold;
+}
+.identificacion u { min-width: 22mm; display: inline-block; }
 
 .bloque-cliente { border: 1px solid #000; border-top: 0; }
-.rotulo { padding: 2px 4px; }
+/* La única cosa de la hoja que se achicó: es la etiqueta del recuadro, y
+   adentro ahora está el nombre del cliente en 17 pt. Dos cosas grandes seguidas
+   compiten entre sí, y de las dos la que hay que leer es el nombre. */
+.rotulo { padding: 0 4px; font-size: 8.5pt; }
 /* Alto FIJO y no mínimo: es el recuadro del talonario, y crecer con el texto
-   era lo que empujaba la nota a una segunda hoja. */
+   era lo que empujaba la nota a una segunda hoja.
+
+   Y tampoco ACHICARSE. El flex-shrink en cero no es un detalle: de todos los
+   bloques de la hoja, este recuadro y el de la descripción son los únicos que
+   pueden encogerse —tienen alto declarado y recorte, así que su
+   mínimo automático es cero—, y por eso se comían ELLOS SOLOS cualquier
+   milímetro que faltara. Con la letra grande, la caja de la descripción general
+   se aplastaba de 16 mm a 1,3 y la nota salía sin decir qué había que hacer con
+   la herramienta, sin ningún aviso. La hoja entra medida (ver ALTO_HOJA_MM),
+   así que acá no hay nada que repartir; si algún día vuelve a faltar, que se
+   note en el pie y no en lo que el taller tiene que leer. */
 .texto-libre {
   border-top: 1px solid #000;
   height: ${ALTO_DATOS_CLIENTE_MM}mm;
+  flex-shrink: 0;
   padding: 2px 4px;
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
   /* Letra chica y renglones juntos: lo que se busca acá es que entren las
      cinco líneas que trae la ficha del padrón —dirección, CP, teléfono, mail
-     y contacto— y no que se lea de lejos. */
-  font-size: 8pt;
+     y contacto— y no que se lea de lejos. El nombre del cliente, que sí se lee
+     de lejos, tiene su propio cuerpo abajo. */
+  font-size: 9.5pt;
   line-height: 1.15;
 }
+
+/* ── El nombre del cliente ───────────────────────────────────────────────────
+   Es el dato más buscado de la hoja: quien recibe la herramienta en fábrica, o
+   quien archiva el comprobante en la oficina, busca el nombre y nada más. Iba
+   metido adentro de la ficha, en 8 pt, indistinguible del mail y del código
+   postal.
+
+   El renglón NO envuelve: una razón social larga se corta con puntos
+   suspensivos. Envolver le comería el renglón a la ficha de abajo —la caja
+   tiene alto fijo, ver ALTO_DATOS_CLIENTE_MM— y perder la dirección entera
+   para mostrar el final de un "S.A.I.C. y F." no es un buen cambio. */
+.cliente-nombre {
+  font-size: 17pt;
+  font-weight: bold;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* El resto de la ficha: dirección, CP, teléfonos, mail y contacto. */
+.cliente-ficha { padding-top: 0.6mm; font-size: 9pt; }
 .texto-libre.alto-2 {
   height: ${ALTO_DESCRIPCION_MM}mm;
   border: 1px solid #000;
   border-top: 0;
-  /* Medio punto menos que el recuadro de arriba, y es lo que hace entrar el
-     cuarto renglón: la caja no puede crecer (ver ALTO_DESCRIPCION_MM) y acá
-     ahora conviven la línea del servicio, lo que agrega el vendedor y los
-     avisos de agujero. */
-  font-size: 7.5pt;
+  /* Acá conviven la línea del servicio, lo que agrega el vendedor y los avisos
+     de agujero: son hasta cuatro renglones y la caja no crece (ver
+     ALTO_DESCRIPCION_MM), así que el cuerpo se eligió midiendo cuántos entran,
+     no a ojo. */
+  font-size: 9.5pt;
 }
 
 .bloque-titulo {
@@ -840,7 +1027,8 @@ html {
   border-top: 0;
   text-align: center;
   font-weight: bold;
-  padding: 2px;
+  padding: 1.5px;
+  font-size: 9.5pt;
 }
 
 .tabla th { background: #d9d9d9; font-weight: normal; font-size: 8.5pt; text-align: center; }
@@ -848,7 +1036,31 @@ html {
 /* 4.4 mm es el PISO, no el alto: con el reparto de arriba las filas crecen
    hasta llenar la hoja, y sólo bajan hasta acá cuando la nota viene cargada
    hasta el tope. Menos que esto ya no se puede escribir a mano. */
-.tabla td { height: 4.4mm; font-size: 8.5pt; }
+.tabla td { height: 4.4mm; font-size: 10pt; }
+
+/* ── De dónde salió el cuerpo más grande ─────────────────────────────────────
+   Estas filas son veinticuatro —doce técnicas y doce comerciales— así que cada
+   punto de cuerpo que se les agrega cuesta seis milímetros de hoja, y la hoja
+   no da. El milímetro que faltaba salió del AIRE de la celda, no de la letra:
+   el relleno vertical baja de 1,5 px a 0,5 y la fila queda tan alta como
+   estaba, con la letra un 18 % más grande adentro.
+
+   Medido: con el relleno de antes la nota más cargada pedía 274,4 mm sobre una
+   hoja de ${ALTO_HOJA_MM}. Con éste pide 258,5 y sobran seis, que las filas se
+   reparten y terminan midiendo lo mismo que siempre.
+
+   El relleno horizontal no se toca: es lo que separa el texto de la línea de
+   la columna de al lado. */
+.nota .tabla td { padding-top: 0.5px; padding-bottom: 0.5px; }
+
+/* ── Por qué la comercial va un punto más chica que la técnica ────────────────
+   La técnica lleva números cortos —diámetros, cantidades, dientes— que entran
+   holgados a 10 pt. La comercial lleva el precio de siete cifras, la condición
+   con su plazo y hasta tres notas hermanas, y esos tres, medidos en Verdana (la
+   fuente del teléfono, no la Arial de esta PC), NO entran a 10 pt: la tabla
+   entera pediría 113 % de su ancho. A 9 pt entran con los anchos de
+   COLUMNAS_COMERCIALES, y 9 pt sigue siendo más grande que los 8,5 de antes. */
+.nota .comercial td { font-size: 9pt; }
 
 /* ── Una fila, un renglón ────────────────────────────────────────────────────
    El ancho de cada columna lo fija el <colgroup> (ver COLUMNAS_TECNICAS) y no
@@ -873,8 +1085,10 @@ html {
    montan: pasaba con "Descuento" sobre "Condicion de Venta". Los anchos ya
    estan calculados para que ninguno lo necesite; esto es la red por si manana
    cambia un titulo.
-   Solo la comercial: en la tecnica los titulos nunca se pisaron, y ponerles
-   el recorte les comia letras que hasta ahora se leian enteras. */
+   Solo la comercial: en la tecnica el unico titulo que se derrama es
+   "Cantidad" (rowspan, columna del 6 %), y ya lo hacia antes de este cambio;
+   ponerle el recorte a los <th> tecnicos les comeria letras que se leen
+   enteras, y no arregla el de "Cantidad", que es de ancho de columna. */
 .nota .comercial th { overflow: hidden; text-overflow: ellipsis; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
@@ -882,7 +1096,10 @@ html {
    arma "colgroup()", porque con "table-layout: fixed" el ancho lo fija la
    primera fila o las columnas, y los <th> de este talonario tienen colspan y
    rowspan —el reparto por encabezado no era posible—. */
-.tabla .tick { font-size: 8pt; }
+/* La casilla de operación lleva la cantidad de dientes —hasta 120 en el
+   catálogo real, tres cifras— o una X. "120" a 10 pt mide 27 px sobre los 39 de
+   la columna (5,5 %), así que va al mismo cuerpo que el resto de la técnica. */
+.tabla .tick { font-size: 10pt; }
 .comercial th { line-height: 1.1; }
 .cambio { letter-spacing: 1px; }
 
@@ -906,33 +1123,56 @@ html {
   gap: 8mm;
   border: 1px solid #000;
   border-top: 0;
-  padding: 2px 6px;
-  font-size: 9pt;
+  padding: 1px 6px;
+  font-size: 12pt;
 }
-.resumen strong { font-size: 10pt; }
+.resumen strong { font-size: 14pt; }
 /* La cuenta de la fila, debajo del unitario y más chica: acompaña al precio sin
    competir con él, que es el número que el cliente busca primero. */
 /* Ver celdaCodigo(): solo para los codigos que no entran en cuerpo normal.
    Sin acentos ni comillas invertidas: esto vive adentro de un template
    literal y una comilla invertida lo termina. Ya paso tres veces. */
+/* Este NO sube con el resto: es la salida de emergencia de los codigos de 11+
+   caracteres (ver CODIGO_LARGO). "CLGNMFS3940MCAJA", el mas largo del catalogo,
+   mide 93 px a 6 pt contra los 93 de la columna (13 %) y entra; a 9 pt pediria
+   136 y se cortaria, que es lo que este cuerpo existe para evitar. Es el piso:
+   6 pt son 8 px, el minimo que dibuja el WebView de Android. */
 .codigo-largo { font-size: 6pt; }
+/* Los números de las notas hermanas, en negrita: es lo único que se usa de esa
+   observación —con ellos en la oficina se juntan las hojas del mismo cliente— y
+   antes se leían igual que la frase que los explica.
+   El cuerpo NO sube más allá del de la celda (9 pt): una nota puede listar
+   hasta tres hermanas (cuatro grupos de facturación ⇒ cuatro notas), y
+   "02-0082, 02-0083, 02-0084" en 9 pt negrita mide 210 px sobre los 223 de la
+   columna. A 10 pt son 231 y se pierde el tercer número, que es justo lo que la
+   casilla existe para mostrar. La negrita es el énfasis; agrandarla, no. */
+.hermanas { font-weight: bold; }
+/* La casilla NO envuelve —recorta con puntos suspensivos— y los números van al
+   final, así que resaltarlos no sirve si la frase que los precede se come el
+   ancho. Por eso al imprimir se escribe "NP " y no "Va con nota de pedido ":
+   con el prefijo entero, tres hermanas piden 262 px sobre los 223 de la columna
+   (medido en Verdana) y se pierde el tercer número. Con "NP " miden 210 y
+   entran las tres. Ver celdaObservacion, que arma el texto.
+
+   "NP" es la abreviatura de esta misma hoja: la caja de fechas dice "Emision
+   NP:". No hay que explicarla en la oficina. */
 
 .firmas { display: flex; justify-content: space-around; text-align: center; }
 .firmas .linea { border-top: 1px dotted #000; width: 55mm; margin: 0 auto 2px; }
 
 .deposito { display: flex; justify-content: flex-end; gap: 4mm; margin-top: 2mm; }
 .caja { width: 52mm; }
-.caja td { height: 5mm; font-size: 8pt; }
+.caja td { height: 5mm; font-size: 9.5pt; }
 .caja .alto { height: 14mm; vertical-align: top; }
-.pie-firma { text-align: center; font-size: 8pt; }
+.pie-firma { text-align: center; font-size: 9pt; }
 
 .talon { display: flex; align-items: stretch; gap: 0; margin-top: 4mm; border-top: 1px dashed #000; padding-top: 3mm; }
-.talon-num { border: 1px solid #000; padding: 3px 6px; font-size: 8.5pt; line-height: 1.2; }
+.talon-num { border: 1px solid #000; padding: 3px 6px; font-size: 10pt; line-height: 1.2; }
 .talon .caja { flex: 0 0 52mm; }
-.talon-num strong { font-size: 13pt; }
+.talon-num strong { font-size: 16pt; }
 .talon-medio { flex: 1; border: 1px solid #000; border-left: 0; border-right: 0; }
 
-.copia { text-align: right; font-size: 8pt; margin-top: 2mm; }
+.copia { text-align: right; font-size: 10pt; margin-top: 1.5mm; }
 
 /* ── El duplicado, apretado ──────────────────────────────────────────────────
    Es la copia del taller: no lleva precios ni condiciones, así que el aire del
@@ -943,26 +1183,34 @@ html {
    siendo renglones para escribir y no aire entre bloques. */
 /* El alto ya lo pone la caja de la hoja para las dos copias: acá sólo queda lo
    que distingue al duplicado, que es la letra apretada. */
-.duplicado { font-size: 8.5pt; }
+.duplicado { font-size: 10.5pt; }
 /* En el duplicado la tabla comercial va angosta al costado, así que el bloque
    entero es el que se estira; adentro, la tabla llena su alto. */
 .duplicado .comercial-duplicado { flex: 1 1 0; }
 .duplicado .comercial-duplicado .comercial { height: 100%; }
 .duplicado .tabla.comercial { flex: none; }
-.duplicado .control-titulo, .duplicado .numero-titulo { font-size: 10pt; padding: 1px; }
+.duplicado .control-titulo, .duplicado .numero-titulo { font-size: 11.5pt; padding: 1px; }
 .duplicado .control-linea { line-height: 1.25; }
-.duplicado .numero { font-size: 13pt; padding: 2px 0 3px; }
+.duplicado .numero { font-size: 15pt; padding: 2px 0 3px; }
 .duplicado .comprobantes { line-height: 1.6; padding: 3px 4px; }
 .duplicado .logo { max-height: 18mm; }
-.duplicado .texto-libre { height: 10mm; }
-.duplicado .texto-libre.alto-2 { height: 12mm; }
-.duplicado .bloque-titulo { padding: 1px; font-size: 9pt; }
-.duplicado .tabla th { font-size: 7.5pt; }
+.duplicado .texto-libre { height: 12mm; }
+/* En el duplicado el nombre es lo único que lleva el recuadro, y es todo lo
+   que el taller necesita para saber de quién es la pieza. */
+.duplicado .cliente-nombre { font-size: 16pt; }
+/* El mismo alto que en el original, y no uno propio: adentro va el mismo texto
+   con el mismo cuerpo. Con 15 mm le faltaban ocho centésimas para el cuarto
+   renglón y la última línea de la descripción se cortaba —sólo en el duplicado,
+   sólo con el ajuste de letra del sistema en grande—. Se escribe igual y no se
+   borra porque la regla de al lado viene después y le pisaría el alto. */
+.duplicado .texto-libre.alto-2 { height: ${ALTO_DESCRIPCION_MM}mm; }
+.duplicado .bloque-titulo { padding: 1px; font-size: 10.5pt; }
+.duplicado .tabla th { font-size: 8.5pt; }
 /* Igual que en el original: es el piso. El reparto de la hoja las estira
    hasta llenarla. */
-.duplicado .tabla td { height: 4.2mm; font-size: 8pt; }
+.duplicado .tabla td { height: 4.2mm; font-size: 10pt; }
 .duplicado .deposito { margin-top: 1.5mm; }
-.duplicado .caja td { height: 4.2mm; font-size: 7.5pt; }
+.duplicado .caja td { height: 4.2mm; font-size: 9pt; }
 .duplicado .caja .alto { height: 10mm; }
 .duplicado .talon { margin-top: 2.5mm; padding-top: 2mm; }
 
@@ -1096,6 +1344,8 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
   const lineas = consolidarLineasDeComputo(
     items.flatMap((i) => lineasDeComputo(computoDeFila(i))),
   )
+
+  const entrega = nota.fecha_entrega ? new Date(`${nota.fecha_entrega}T12:00:00`) : null
 
   /**
    * El total, separado por moneda.
@@ -1272,10 +1522,11 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     ),
     emision: new Date(nota.creado_en).toLocaleDateString('es-AR'),
     // `fecha_entrega` es un `date` de Postgres: al mediodía, para que el huso
-    // no la corra un día para atrás al pasarla por Date.
-    fecha_entrega: nota.fecha_entrega
-      ? new Date(`${nota.fecha_entrega}T12:00:00`).toLocaleDateString('es-AR')
-      : undefined,
+    // no la corra un día para atrás al pasarla por Date. Vale para las dos
+    // lecturas —la fecha y el día de la semana—, que salen del mismo Date para
+    // que no puedan discrepar.
+    fecha_entrega: entrega ? entrega.toLocaleDateString('es-AR') : undefined,
+    fecha_entrega_dia: entrega ? DIAS_DE_LA_SEMANA[entrega.getDay()] : undefined,
   }
 }
 

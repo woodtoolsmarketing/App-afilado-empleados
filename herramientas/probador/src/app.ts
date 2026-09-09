@@ -32,7 +32,8 @@ import {
   CONDICIONES_CON_PLAZO,
   plazoDePago,
   PLAZO_DESDE_DIAS,
-  PLAZO_HASTA_DIAS,
+  opcionesHasta,
+  armarPlazoDePago,
   etiquetaZona,
   ETIQUETA_CONDICION_VENTA,
   formatearMedida,
@@ -1347,9 +1348,7 @@ function pasoEncabezado(): HTMLElement {
       ? (() => {
           const plazo = plazoDePago(borrador.condicionDetalle)
           const fijar = (desde: number | undefined, hasta: number | undefined) => {
-            const d = desde ?? 0
-            const h = Math.max(hasta ?? PLAZO_HASTA_DIAS[0], d)
-            borrador.condicionDetalle = `${d}-${h}`
+            borrador.condicionDetalle = armarPlazoDePago(desde, hasta)
             refrescar()
           }
           return [
@@ -1360,7 +1359,13 @@ function pasoEncabezado(): HTMLElement {
             }),
             desplegable('HASTA', {
               valor: plazo ? String(plazo.hasta) : null,
-              items: PLAZO_HASTA_DIAS.map((d) => ({ valor: String(d), etiqueta: `${d} días` })),
+              // Sólo los que están más adelante que el "de", más el valor
+              // guardado si es uno viejo fuera de lista, para que el campo no
+              // quede en blanco. Ver opcionesHasta.
+              items: opcionesHasta(plazo?.desde, plazo?.hasta).map((d) => ({
+                valor: String(d),
+                etiqueta: `${d} días`,
+              })),
               alCambiar: (v) => fijar(plazo?.desde, Number(v)),
             }),
             err.condicion_venta_detalle
