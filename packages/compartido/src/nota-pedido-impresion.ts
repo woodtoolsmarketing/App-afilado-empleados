@@ -1459,9 +1459,20 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         // trae diámetros y una cuchilla trae largo y ancho.
         diametro_exterior: d(i, 'diametro_exterior') || d(i, 'diametro') || d(i, 'largo'),
         // El agujero manda sobre las otras dos lecturas de esta columna: si se
-        // cargó (o vino del catálogo), es el dato que la fábrica necesita.
+        // cargó, es el dato que la fábrica necesita.
+        //
+        // En las FRESAS, si no se cargó uno distinto, se imprime el de fábrica
+        // (`diametro_interior_catalogo`): TODAS las fresas del catálogo llevan
+        // 40, así que ése es el estándar y tiene que salir en el papel aunque el
+        // vendedor no lo toque. En el resto de las herramientas NO se cae al de
+        // fábrica —una sierra puede tener cinco agujeros posibles y poner uno
+        // que nadie eligió es peor que dejarlo en blanco—, así que la caída sólo
+        // vale para fresas.
         diametro_interior:
-          d(i, 'diametro_interior') || d(i, 'ancho') || d(i, 'largo_util'),
+          d(i, 'diametro_interior') ||
+          (i.herramienta === 'fresa' ? d(i, 'diametro_interior_catalogo') : '') ||
+          d(i, 'ancho') ||
+          d(i, 'largo_util'),
         ancho_corte: d(i, 'ancho_corte') || d(i, 'espesor'),
         /**
          * "18+4", como lo escribe la lista de Franzoi.

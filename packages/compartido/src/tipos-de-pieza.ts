@@ -110,6 +110,22 @@ const FRESAS: TipoDePieza[] = [
     descripcion: '4 ó 6 cortantes rectos para ranurar, cepillar o rebajar. Con ángulo axial a partir de 20 mm de ancho.',
     fijas: { diametro_exterior: 150, diametro_interior: AGUJERO_DE_FRESA } },
 
+  /**
+   * La salida para cualquier fresa que no sea recta.
+   *
+   * Por pedido, el desplegable de fresa quedó en dos: FRESA RECTA, que trae sus
+   * medidas del catálogo, y ésta, para todo lo demás —una moldura, un machimbre,
+   * un portacuchillas—, que se carga a mano. Los otros tipos siguen definidos
+   * más abajo para que una nota vieja guardada con "machimbre_simple" se siga
+   * leyendo bien; sólo dejan de ofrecerse al elegir (ver tiposDePiezaElegibles).
+   *
+   * Lo único que trae puesto es el agujero: TODAS las fresas del catálogo llevan
+   * 40, así que va aunque el resto se cargue a mano.
+   */
+  { valor: 'fresa_otra', etiqueta: 'OTRA FRESA (a mano)',
+    descripcion: 'Cualquier fresa que no sea recta. Se cargan las medidas a mano; el agujero viene en 40, cambialo si es distinto.',
+    fijas: { diametro_interior: AGUJERO_DE_FRESA } },
+
   { valor: 'fresa_recta_incisores', etiqueta: 'FRESA RECTA CON INCISORES',
     descripcion: '4 ó 6 cortantes con ángulo axial e incisores, para ranurar sin astillar.',
     fijas: { diametro_exterior: 150, diametro_interior: AGUJERO_DE_FRESA },
@@ -332,6 +348,23 @@ export const TIPOS_DE_PIEZA: Partial<Record<Herramienta, TipoDePieza[]>> = {
 /** Los tipos de una herramienta, o una lista vacía si todavía no se cargaron. */
 export function tiposDePieza(herramienta: Herramienta | null): TipoDePieza[] {
   return herramienta ? (TIPOS_DE_PIEZA[herramienta] ?? []) : []
+}
+
+/**
+ * Los tipos que se OFRECEN en el desplegable, que no son todos los que existen.
+ *
+ * En las fresas el desplegable quedó en dos —FRESA RECTA y OTRA FRESA (a
+ * mano)—, por pedido: en la práctica se cargan rectas o se carga a mano, y
+ * cuarenta opciones eran cuarenta para scrollear. Los demás tipos siguen en la
+ * lista completa (`tiposDePieza`) para que `tipoDePieza` los resuelva cuando una
+ * nota vieja los tiene guardados; sólo no se ofrecen al cargar una nota nueva.
+ *
+ * El resto de las herramientas ofrece todo lo que tiene.
+ */
+const FRESAS_ELEGIBLES = new Set(['fresa_recta', 'fresa_otra'])
+export function tiposDePiezaElegibles(herramienta: Herramienta | null): TipoDePieza[] {
+  const todos = tiposDePieza(herramienta)
+  return herramienta === 'fresa' ? todos.filter((t) => FRESAS_ELEGIBLES.has(t.valor)) : todos
 }
 
 /** El tipo elegido, con todo lo que el catálogo sabe de él. */

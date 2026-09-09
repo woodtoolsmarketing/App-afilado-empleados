@@ -1183,7 +1183,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           CONTINUAR, el "Atrás", y los dos rescates de `alCrear` que mandan a
           buscar un campo en rojo que justamente está arriba—.
         */}
-        <Panel contentStyle={estilos.contenido} subirAlTopeCuando={paso}>
+        {/*
+          Sube al tope cuando cambia el paso Y cuando cambia el renglón activo o
+          cuántos hay: al tocar "AGREGAR RENGLÓN" —que está al pie— el renglón
+          nuevo pasa a ser el activo, y sin esto el vendedor quedaba parado abajo
+          mirando el final de un formulario nuevo en vez de empezarlo desde la
+          herramienta. Es un string simple (no un objeto) para no saltar al tope
+          en cada dibujado; ver el Panel. */}
+        <Panel
+          contentStyle={estilos.contenido}
+          subirAlTopeCuando={`${paso}·${activo}·${items.length}`}
+        >
           <BarraPanel
             alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
           />

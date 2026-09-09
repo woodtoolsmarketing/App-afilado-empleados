@@ -42,7 +42,7 @@ import {
   medidasDelTipoDePieza,
   pideDientesLaMecha,
   tipoDePieza,
-  tiposDePieza,
+  tiposDePiezaElegibles,
   totalAfiladoMecha,
   totalDeListaDelRenglon,
   unaPieza,
@@ -1255,7 +1255,8 @@ export function PasoRenglon({
           tipo, así que los campos de abajo llegan con la mitad hecha.
         */
         if (campo === 'tipo_pieza') {
-          const tipos = tiposDePieza(item.herramienta)
+          // La lista ELEGIBLE, no todos: en fresas son dos (recta y a mano).
+          const tipos = tiposDePiezaElegibles(item.herramienta)
           if (tipos.length === 0) return null
           const elegido = tipoDePieza(item.herramienta, item.tipo_pieza)
           return (

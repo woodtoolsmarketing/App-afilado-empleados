@@ -47,7 +47,7 @@ import {
   ETIQUETA_SIERRA_CLASE,
   herramientaEnLaDescripcion,
   QUE_ES_EL_DISCO,
-  tiposDePieza,
+  tiposDePiezaElegibles,
   unaPieza,
   medidasDelTipoDePieza,
   ETIQUETA_MOTIVO_NO_VISITA,
@@ -2218,7 +2218,7 @@ function dibujarCampo(
     las medidas que el catálogo fija para ese tipo.
   */
   if (c === 'tipo_pieza') {
-    const tipos = tiposDePieza(item.herramienta)
+    const tipos = tiposDePiezaElegibles(item.herramienta)
     if (!tipos.length) return null
     return h(
       'div',
