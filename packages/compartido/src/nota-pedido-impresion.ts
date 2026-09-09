@@ -329,11 +329,12 @@ const COLUMNAS_TECNICAS = [
  * entra su palabra más larga, y además se les puso el mismo recorte que a las
  * celdas para que no pueda volver a pasar.
  *
- * Medido en Verdana, con la celda a 9 pt (ver `.comercial td`) y los 6 px de
- * padding incluidos, sobre la tabla de 718 px:
+ * Medido en Verdana con los 6 px de padding, sobre la tabla de 718 px. La
+ * celda va a 9 pt (ver `.comercial td`), salvo el código de cómputo, que va a
+ * 10 pt negrita (ver `.computo`):
  *
  *                   celda                        encabezado
- *   Código          16 caracteres a 6 pt     93  "Cómputo"   51  → 13 % = 93 px
+ *   Código          8 car. a 10 pt negrita   89  "Cómputo"   51  → 13 % = 93 px
  *   Cantidad        "1.240"                  35  "Cantidad"  57  →  8 % = 57 px
  *   Unitario        "$ 2.971.600,00"        100  "unitario"  85  → 15 % = 108 px
  *   Dto.            "65 %"                   39  "Dto."      27  →  6 % = 43 px
@@ -371,7 +372,7 @@ const COLUMNAS_TECNICAS = [
  * algún carácter. En la letra que el teléfono usa de verdad, entra.
  */
 const COLUMNAS_COMERCIALES = [
-  13, // Código de Cómputo — ≤10 caracteres a 9 pt; los más largos a 6 pt, ver `celdaCodigo`
+  13, // Código de Cómputo — a 10 pt negrita (ver .computo); 9+ caracteres bajan a 6 pt, ver `celdaCodigo`
   8, // Cantidad — la manda su encabezado
   15, // Precio unitario — "$ 2.971.600,00", el artículo más caro del catálogo
   6, // Dto. — "65 %", todo descuento de dos cifras con su signo
@@ -397,20 +398,20 @@ const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
 /**
  * A partir de cuántos caracteres el código se imprime en cuerpo chico.
  *
- * Diez, no once. Con la celda comercial a 9 pt un código de 11 caracteres
- * —`CHC100HSSAF`— pide 95 px sobre los 93 de la columna y se cortaba
- * `CHC100HSS…`; un código cortado es un renglón que Administración no puede
- * facturar. Los de hasta 10 caracteres (89 px) entran a 9 pt; de 11 en adelante
- * bajan a 6 pt, donde `CHC100HSSAF` mide 66 px y el de 16 mide 93, igual que
- * antes. Son del orden de cien códigos del catálogo, casi todos los que ya
- * bajaban con el umbral viejo de once más la familia de once caracteres.
+ * Ocho. El código de cómputo se imprime a 10 pt NEGRITA (ver .computo), para
+ * que se vea igual que las casillas de operación —fue un pedido explícito—, y a
+ * ese cuerpo entran en los 93 px de la columna hasta 8 caracteres
+ * (`CHCRPERM` = 89 px). De 9 en adelante bajan a 6 pt, donde el más largo del
+ * catálogo, `CLGNMFS3940MCAJA` (16), mide 93 y entra justo. Son los códigos de
+ * artículo de las notas de VENTA; los de cómputo de un servicio son de cuatro
+ * dígitos ("6005") y se imprimen grandes.
  *
  * OJO con bajarlo más: 6 pt son 8 px, el piso de tamaño de letra del WebView de
  * Android. Con el ajuste de letra del sistema en "chico" (escala 0,85) esos
  * códigos se dibujan MÁS grandes de lo pedido en vez de más chicos —es el único
  * punto donde la compensación de escala no cierra— pero siguen entrando.
  */
-const CODIGO_LARGO = 10
+const CODIGO_LARGO = 8
 
 function celdaCodigo(codigo: string): string {
   const texto = escapar(codigo)
@@ -623,7 +624,7 @@ export function generarHtmlNotaPedido(
       if (esDuplicado) {
         // El duplicado sólo lleva código y cantidad.
         return `<tr>
-          <td>${celdaCodigo(c.codigo_computo)}</td>
+          <td class="computo">${celdaCodigo(c.codigo_computo)}</td>
           <td class="num">${escapar(c.cantidad)}</td>
         </tr>`
       }
@@ -641,7 +642,7 @@ export function generarHtmlNotaPedido(
           ? `<strong>${escapar(nota.condicion_venta)}</strong>${propia ? `<br>${propia}` : ''}`
           : propia
       return `<tr>
-        <td>${celdaCodigo(c.codigo_computo)}</td>
+        <td class="computo">${celdaCodigo(c.codigo_computo)}</td>
         <td class="num">${escapar(c.cantidad)}</td>
         <td class="num">${escapar(c.precio_unitario)}</td>
         <td class="num">${escapar(c.descuento)}</td>
@@ -1092,6 +1093,14 @@ html {
 .nota .comercial th { overflow: hidden; text-overflow: ellipsis; }
 .tabla .num { text-align: right; }
 .tabla .tick { text-align: center; font-weight: bold; }
+/* La descripción de la herramienta y el código de cómputo van en el MISMO
+   cuerpo y peso que las casillas de operación (10 pt negrita). Es lo que se
+   pidió: "Fresa", "6005" y "7701" tienen que verse igual que el "126" y el "2"
+   de las columnas de operación, que son los tres datos con los que en fábrica
+   se identifica la pieza y su cómputo. El código está en la tabla comercial,
+   que va a 9 pt, así que se lo sube expresamente. */
+.tabla .desc { font-weight: bold; }
+.nota .comercial td.computo { font-size: 10pt; font-weight: bold; }
 /* Los anchos de columna ya no se declaran acá: viven en los <colgroup> que
    arma "colgroup()", porque con "table-layout: fixed" el ancho lo fija la
    primera fila o las columnas, y los <th> de este talonario tienen colspan y
@@ -1137,7 +1146,10 @@ html {
    mide 93 px a 6 pt contra los 93 de la columna (13 %) y entra; a 9 pt pediria
    136 y se cortaria, que es lo que este cuerpo existe para evitar. Es el piso:
    6 pt son 8 px, el minimo que dibuja el WebView de Android. */
-.codigo-largo { font-size: 6pt; }
+/* Sin negrita a propósito: a 6 pt negrita el código de 16 caracteres se pasa
+   de los 93 px de la columna. El resto de la columna va en negrita (ver
+   .computo), pero acá la prioridad es que entre entero. */
+.codigo-largo { font-size: 6pt; font-weight: normal; }
 /* Los números de las notas hermanas, en negrita: es lo único que se usa de esa
    observación —con ellos en la oficina se juntan las hojas del mismo cliente— y
    antes se leían igual que la frase que los explica.
