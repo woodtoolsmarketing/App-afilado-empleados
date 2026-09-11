@@ -52,7 +52,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
    */
   const estaAbierto = (clave: string, indice: number) => abiertos[clave] ?? indice === 0
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['historial', periodo, desde.toDateString(), hasta.toDateString()],
     queryFn: () => obtenerHistorial(periodo, { desde, hasta }),
   })
@@ -114,9 +114,12 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
         {isLoading ? (
           <Cargando texto="Buscando tu historial…" />
         ) : error ? (
-          <Aviso tono="error" titulo="No pudimos cargar el historial">
-            Revisá la conexión y volvé a intentar.
-          </Aviso>
+          <>
+            <Aviso tono="error" titulo="No pudimos cargar el historial">
+              Revisá la conexión y volvé a intentar.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
         ) : !data || data.length === 0 ? (
           <Vacio
             titulo="Sin visitas en este período"

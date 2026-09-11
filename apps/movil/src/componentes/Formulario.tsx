@@ -468,7 +468,7 @@ export interface ItemDesplegable<T extends string> {
 const OPCIONES_PARA_BUSCADOR = 8
 
 /** Sin tildes y en minúsculas, para que "Morón" se encuentre escribiendo "moron". */
-function comparable(texto: string): string {
+export function comparable(texto: string): string {
   return texto
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -842,11 +842,13 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.blanco,
     backgroundColor: t.colores.rojoAccion,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    // La placa escala con la letra (no queda fija en 20): con la fuente al
+    // máximo el "!" salía recortado por el overflow:'hidden' de una placa chica.
+    width: Math.round(t.tipografia.tamano.sm * 1.3),
+    height: Math.round(t.tipografia.tamano.sm * 1.3),
+    borderRadius: Math.round((t.tipografia.tamano.sm * 1.3) / 2),
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: Math.round(t.tipografia.tamano.sm * 1.3),
     overflow: 'hidden',
   },
   errorTexto: {

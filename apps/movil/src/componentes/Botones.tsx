@@ -114,6 +114,7 @@ export function BotonSecundario({
   deshabilitado,
   cargando,
   style,
+  accessibilityLabel,
 }: PropsBase) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -123,7 +124,7 @@ export function BotonSecundario({
       onPress={alTocar}
       disabled={inactivo}
       accessibilityRole="button"
-      accessibilityLabel={titulo}
+      accessibilityLabel={accessibilityLabel ?? titulo}
       style={({ pressed }) => [
         estilos.secundario,
         pressed && estilos.secundarioPresionado,

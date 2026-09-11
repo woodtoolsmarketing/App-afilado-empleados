@@ -74,7 +74,7 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   const dias = useMemo(() => diasDeLaSemana(lunes), [lunes])
   const domingo = dias[6]
 
-  const { data: agenda, isLoading, error } = useQuery({
+  const { data: agenda, isLoading, error, refetch } = useQuery({
     queryKey: ['agenda', fechaLocalISO(lunes)],
     queryFn: () => agendaEntre(lunes, domingo),
   })
@@ -272,9 +272,12 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
         {isLoading ? (
           <Cargando texto="Armando la semana…" />
         ) : error ? (
-          <Aviso tono="error" titulo="No pudimos traer la agenda">
-            Revisá la conexión. Lo agendado sigue guardado: esto es un problema para leerlo.
-          </Aviso>
+          <>
+            <Aviso tono="error" titulo="No pudimos traer la agenda">
+              Revisá la conexión. Lo agendado sigue guardado: esto es un problema para leerlo.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
         ) : delDia.length === 0 ? (
           <Vacio
             titulo={esPasado ? 'Ese día no tuviste destinos' : 'Ese día está libre'}

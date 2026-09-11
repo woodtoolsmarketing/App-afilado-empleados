@@ -2,7 +2,7 @@ import { espaciado, formatearDistancia, formatearDuracion } from '@woodtools/com
 import { useQuery } from '@tanstack/react-query'
 import { Text, View } from 'react-native'
 
-import { BotonMenu } from '../componentes/Botones'
+import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -26,6 +26,7 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
     data: resumen,
     isLoading,
     error,
+    refetch,
   } = useQuery({
     queryKey: ['resumen-hoy', perfil?.id],
     queryFn: () => obtenerResumenDeHoy(perfil!.id),
@@ -46,9 +47,12 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
         {isLoading ? (
           <Cargando texto="Buscando tus visitas de hoy…" />
         ) : error ? (
-          <Aviso tono="error" titulo="No pudimos cargar tus visitas">
-            Revisá la conexión y volvé a entrar. Si el problema sigue, avisá a la oficina.
-          </Aviso>
+          <>
+            <Aviso tono="error" titulo="No pudimos cargar tus visitas">
+              Revisá la conexión y volvé a intentar. Si el problema sigue, avisá a la oficina.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
         ) : (
           <>
             <TituloPanel destacado={String(resumen?.total_paradas ?? 0)}>

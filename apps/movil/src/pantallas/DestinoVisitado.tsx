@@ -380,6 +380,23 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
             <View style={estilos.bloque}>
               <Text style={estilos.bloqueTitulo}>TIPO DE VISITA</Text>
 
+              {/*
+                Si ya se cargó una nota DESDE esta parada pero no se tildó nada,
+                se recuerda. No se auto-tilda: el mapeo servicio→casilla no es
+                exacto (un "afilado" puede ser recepción o entrega), así que
+                marcar a ciegas contaría algo que no pasó. El vendedor decide;
+                esto sólo evita que se olvide y la oficina no cuente la venta.
+              */}
+              {resumenDeNotas.length > 0 &&
+              !form.vendio &&
+              !form.cobro &&
+              !form.retiro_afilado &&
+              !form.entrego ? (
+                <Aviso tono="info">
+                  {`En esta visita ya cargaste una nota de pedido (${resumenDeNotas.join('; ')}). Marcá acá qué pasó, así la oficina lo cuenta.`}
+                </Aviso>
+              ) : null}
+
               <Casilla
                 etiqueta="VENDIÓ"
                 valor={form.vendio}
@@ -462,7 +479,10 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
               titulo="📝 HACER LA NOTA DE PEDIDO"
               alTocar={() => {
                 guardarBorradorDeVisita(paradaId, form, escritaAMano.current)
-                navigation.navigate('GenerarNota', { paradaId })
+                navigation.navigate('GenerarNota', {
+                  paradaId,
+                  clienteCodigo: parada?.cliente?.codigo ?? undefined,
+                })
               }}
             />
           ) : null}

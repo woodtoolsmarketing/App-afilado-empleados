@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
-import { Desplegable } from '../componentes/Formulario'
+import { Campo, comparable, Desplegable } from '../componentes/Formulario'
 import { Aviso, Cargando, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -32,6 +32,7 @@ export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialN
   const estilos = usarEstilos()
   const [periodo, setPeriodo] = useState<PeriodoHistorial>('semana')
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({})
+  const [busqueda, setBusqueda] = useState('')
 
   /**
    * El primer día arranca abierto. Entrar y ver una pila de títulos sin un solo
@@ -51,6 +52,38 @@ export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialN
     queryFn: () => historialNotas(desde, hasta),
   })
 
+  // Con pocas notas no hace falta buscador; con muchas, encontrar una a ojo
+  // entre los días es peor que escribir el número o el cliente. El umbral es
+  // el mismo que en PENDIENTES e IMPRESAS.
+  const dias = data ?? []
+  const totalNotas = dias.reduce((acc, d) => acc + d.detalle.length, 0)
+  const mostrarBuscador = totalNotas > 5
+
+  /**
+   * El filtro sólo achica lo que YA bajó `historialNotas` para el período
+   * elegido —nunca sale a buscar fuera de ese rango— y mira el nombre del
+   * cliente aunque el renglón no lo muestre (ver el comentario de arriba
+   * sobre por qué la fila calla el nombre): buscarlo sigue siendo la forma
+   * más rápida de encontrar la nota, aunque no se lea en pantalla.
+   *
+   * `cantidad` se recalcula sobre lo filtrado: si no, el lector de pantalla
+   * anunciaría "5 notas" en un día donde sólo se ve 1 porque las otras cuatro
+   * no coincidieron.
+   */
+  const filtro = comparable(busqueda)
+  const diasVisibles = filtro
+    ? dias
+        .map((dia) => {
+          const detalle = dia.detalle.filter(
+            (n) =>
+              comparable(n.cliente_nombre).includes(filtro) ||
+              comparable(numeroDeNotaImpreso(n.numero, n.vendedor_numero) ?? '').includes(filtro),
+          )
+          return { ...dia, detalle, cantidad: detalle.length }
+        })
+        .filter((dia) => dia.detalle.length > 0)
+    : dias
+
   return (
     <Pantalla>
       <Encabezado />
@@ -69,7 +102,13 @@ export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialN
             { valor: 'mes', etiqueta: 'MES ANTERIOR' },
             { valor: 'noventa', etiqueta: 'ÚLTIMOS 90 DÍAS' },
           ]}
-          alCambiar={setPeriodo}
+          // Cambiar de período borra la búsqueda: si no, un filtro puesto para
+          // la semana queda pegado sobre otro rango, y si ese rango trae ≤5
+          // notas el campo se esconde y no hay con qué borrarlo.
+          alCambiar={(p) => {
+            setPeriodo(p)
+            setBusqueda('')
+          }}
         />
 
         {isLoading ? (
@@ -81,17 +120,35 @@ export function PantallaHistorialNotas({ navigation }: PropsPantalla<'HistorialN
         ) : !data || data.length === 0 ? (
           <Vacio titulo="Sin notas en este período" detalle="Probá con otro rango." icono="📄" />
         ) : (
-          data.map((dia, i) => (
-            <DiaAcordeon
-              key={dia.fecha}
-              dia={dia}
-              abierto={estaAbierto(dia.fecha, i)}
-              alAlternar={() =>
-                setAbiertos((a) => ({ ...a, [dia.fecha]: !(a[dia.fecha] ?? i === 0) }))
-              }
-              alElegir={(notaId) => navigation.navigate('DetalleNota', { notaId })}
-            />
-          ))
+          <>
+            {mostrarBuscador || filtro ? (
+              <Campo
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Buscar por cliente o número…"
+                autoCorrect={false}
+              />
+            ) : null}
+
+            {filtro && diasVisibles.length === 0 ? (
+              <Aviso tono="info">Ninguna nota coincide con “{busqueda}”.</Aviso>
+            ) : null}
+
+            {diasVisibles.map((dia, i) => (
+              <DiaAcordeon
+                key={dia.fecha}
+                dia={dia}
+                // Buscando, el día se fuerza abierto: ya viene filtrado a las
+                // notas que coinciden, y esconderlas detrás de un acordeón
+                // cerrado obligaría a un toque de más para ver lo que se buscó.
+                abierto={filtro ? true : estaAbierto(dia.fecha, i)}
+                alAlternar={() =>
+                  setAbiertos((a) => ({ ...a, [dia.fecha]: !(a[dia.fecha] ?? i === 0) }))
+                }
+                alElegir={(notaId) => navigation.navigate('DetalleNota', { notaId })}
+              />
+            ))}
+          </>
         )}
 
         <Text style={estilos.nota}>

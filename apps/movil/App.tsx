@@ -6,7 +6,7 @@ import {
   Poppins_800ExtraBold,
   useFonts,
 } from '@expo-google-fonts/poppins'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
@@ -75,9 +75,19 @@ export default function App() {
 
   // Sin esto, el token deja de renovarse cuando la app queda en segundo plano
   // y el vendedor vuelve a una sesión vencida a mitad del recorrido.
+  //
+  // Y de paso avisamos a React Query cuándo la app vuelve al frente: en React
+  // Native, `refetchOnWindowFocus` (ya puesto en Menu y NotasPedido) no hace
+  // nada hasta que se conecta el focusManager a AppState. Con esto, al volver
+  // de una llamada o del bolsillo, las pantallas montadas se refrescan solas si
+  // los datos ya están viejos (staleTime 30s) — por ejemplo si la oficina movió
+  // un destino mientras tanto. Reusamos este mismo listener para no suscribir
+  // AppState dos veces.
   useEffect(() => {
     const suscripcion = AppState.addEventListener('change', (siguiente) => {
-      if (siguiente === 'active') supabase.auth.startAutoRefresh()
+      const activo = siguiente === 'active'
+      focusManager.setFocused(activo)
+      if (activo) supabase.auth.startAutoRefresh()
       else supabase.auth.stopAutoRefresh()
     })
     supabase.auth.startAutoRefresh()

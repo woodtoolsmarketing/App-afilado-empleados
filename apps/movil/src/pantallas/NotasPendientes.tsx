@@ -12,7 +12,7 @@ import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
-import { Casilla } from '../componentes/Formulario'
+import { Campo, Casilla, comparable } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import {
@@ -37,6 +37,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   const cliente = useQueryClient()
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
   const [conRolDeVisita, setConRolDeVisita] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
 
   const { data: notas, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['notas-pendientes'],
@@ -48,6 +49,19 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   // Sin selección explícita se opera sobre todas: es lo que espera alguien que
   // entra y toca "imprimir" de una.
   const objetivo = seleccionadas.length > 0 ? seleccionadas : todas
+
+  // El buscador sólo filtra lo que se ve en la lista, para encontrar una nota
+  // entre muchas. La selección y el "imprimir todas" siguen operando sobre el
+  // total: buscar ayuda a ubicar, no cambia qué se manda a imprimir.
+  const filtro = comparable(busqueda)
+  const visibles = filtro
+    ? todas.filter(
+        (n) =>
+          comparable(n.cliente_nombre).includes(filtro) ||
+          comparable(n.cliente_codigo ?? '').includes(filtro) ||
+          comparable(numeroDeNotaImpreso(n.numero, n.vendedor_numero) ?? '').includes(filtro),
+      )
+    : todas
 
   function alternar(id: string) {
     setElegidas((s) => {
@@ -162,10 +176,11 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
 
         {/*
           El contador sólo se muestra cuando efectivamente se contaron. Si la
-          consulta falló, un "0" grande al lado del título es una afirmación
+          consulta falló —o todavía está cargando, cuando `todas` es [] porque
+          `data` no llegó—, un "0" grande al lado del título es una afirmación
           falsa sobre el trabajo del vendedor.
         */}
-        <TituloPanel destacado={error ? undefined : String(todas.length)}>
+        <TituloPanel destacado={isLoading || error ? undefined : String(todas.length)}>
           NOTAS DE PEDIDO PENDIENTES:
         </TituloPanel>
 
@@ -201,7 +216,25 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               PEDIDO IMPRESAS y ya no se puede tocar.
             </Aviso>
 
-            {todas.map((n) => (
+            {/* Con pocas notas no hace falta; con muchas, ubicar la de un
+                cliente a ojo es peor que escribir su nombre o su número. El
+                `|| filtro` es para no esconder el campo si la lista bajó de 5
+                con una búsqueda puesta: dejaría el filtro pegado sin nada para
+                borrarlo. */}
+            {todas.length > 5 || filtro ? (
+              <Campo
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Buscar por cliente o número…"
+                autoCorrect={false}
+              />
+            ) : null}
+
+            {filtro && visibles.length === 0 ? (
+              <Aviso tono="info">Ninguna nota pendiente coincide con “{busqueda}”.</Aviso>
+            ) : null}
+
+            {visibles.map((n) => (
               <FilaNota
                 key={n.id}
                 nota={n}
@@ -292,7 +325,7 @@ function FilaNota({
         accessibilityRole="checkbox"
         accessibilityState={{ checked: elegida }}
         accessibilityLabel={`Seleccionar nota ${nota.numero ?? 'pendiente'}`}
-        hitSlop={8}
+        hitSlop={10}
         style={[estilos.casilla, elegida && estilos.casillaMarcada]}
       >
         {elegida ? <Text style={estilos.tilde}>✓</Text> : null}
@@ -369,8 +402,8 @@ const usarEstilos = hojaDeTema((t) => ({
   filaElegida: { backgroundColor: t.colores.panelClaro, borderColor: t.colores.rojo },
 
   casilla: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     borderWidth: 2.5,
     borderColor: t.colores.borde,
     borderRadius: radios.sm,

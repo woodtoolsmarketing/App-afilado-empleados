@@ -25,9 +25,33 @@ import { Aviso } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { crearClienteProvisorio } from '../servicios/clientes'
-import { detallarDireccion, sugerirDirecciones, type SugerenciaDireccion } from '../servicios/mapas'
+import {
+  detallarDireccion,
+  sugerirDirecciones,
+  ubicacionComoDireccion,
+  type DireccionResuelta,
+  type SugerenciaDireccion,
+} from '../servicios/mapas'
+import { permisoDeUbicacionPuntual, ubicacionActual } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
+
+/**
+ * Arma el guión del DNI o CUIT a medida que se tipea.
+ *
+ * Hasta el octavo dígito todavía podría ser un DNI (7 u 8 dígitos, sin
+ * guiones), así que no se toca. Recién al noveno dígito queda claro que es un
+ * CUIT: ahí se sabe que van 11 en total y el XX-XXXXXXXX-X se arma solo, tramo
+ * por tramo, sin que el vendedor tenga que ir tipeando los guiones.
+ */
+function formatearDocumento(digitos: string): string {
+  const limitados = digitos.slice(0, 11)
+  if (limitados.length <= 8) return limitados
+  const prefijo = limitados.slice(0, 2)
+  const cuerpo = limitados.slice(2, 10)
+  const verificador = limitados.slice(10, 11)
+  return [prefijo, cuerpo, verificador].filter(Boolean).join('-')
+}
 
 /**
  * "GENERAR NUEVO CLIENTE"
@@ -128,6 +152,41 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
     }
   }
 
+  /**
+   * "UTILIZAR MI UBICACIÓN ACTUAL": el mismo recurso que ya tiene AGREGAR
+   * DESTINO para ubicar clientes en el mapa.
+   *
+   * Hace falta acá porque la dirección es obligatoria y exige lat/lng, y hay
+   * talleres que Google no encuentra —una ruta, un camino de tierra—. Sin
+   * esto, ese cliente no se podía dar de alta.
+   */
+  const desdeGps = useMutation<DireccionResuelta, Error, void>({
+    mutationFn: async () => {
+      if (!(await permisoDeUbicacionPuntual())) {
+        throw new Error(
+          'Necesitamos permiso de ubicación para usar dónde estás. Podés activarlo en los ajustes del teléfono.',
+        )
+      }
+      const coords = await ubicacionActual()
+      return ubicacionComoDireccion({ lat: coords.lat, lng: coords.lng })
+    },
+    onSuccess: (d) => {
+      setElegida(true)
+      setSugerencias([])
+      setTexto(d.direccion_formateada)
+      actualizar({
+        direccion: d.direccion_formateada,
+        codigo_postal: d.codigo_postal ?? '',
+        lat: d.lat,
+        lng: d.lng,
+        google_place_id: d.google_place_id,
+        localidad: d.localidad,
+        provincia: d.provincia,
+      })
+    },
+    onError: (e) => Alert.alert('No pudimos usar tu ubicación', e.message),
+  })
+
   // ── Teléfonos: se agregan de a uno con el ⊕ ──────────────────────────────
   function cambiarTelefono(indice: number, valor: string) {
     const telefonos = [...form.telefonos]
@@ -205,7 +264,27 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
             etiqueta="DNI O CUIT"
             obligatorio
             value={form.documento}
-            onChangeText={(t) => actualizar({ documento: t.replace(/[^\d-]/g, '') })}
+            onChangeText={(t) => {
+              // Si el texto se achicó es un borrado: se deja pasar tal cual.
+              // Reformatear ahí reinserta el guión que se acaba de borrar y el
+              // cursor queda trabado antes de él en vez de seguir tipeando.
+              if (t.length < form.documento.length) {
+                actualizar({ documento: t.replace(/[^\d-]/g, '') })
+                return
+              }
+              // Sólo reformateamos cuando se agrega al final (el tipeo normal,
+              // de izquierda a derecha): ahí el cursor queda bien puesto al
+              // final. Si se editó un dígito del MEDIO, reordenar el string
+              // saltaría el cursor al final; en ese caso se deja lo tipeado
+              // filtrado y se reacomoda en el próximo agregado.
+              const digitosNuevos = t.replace(/\D/g, '')
+              const digitosPrevios = form.documento.replace(/\D/g, '')
+              if (digitosNuevos.startsWith(digitosPrevios)) {
+                actualizar({ documento: formatearDocumento(digitosNuevos) })
+              } else {
+                actualizar({ documento: t.replace(/[^\d-]/g, '') })
+              }
+            }}
             placeholder="30-12345678-9"
             keyboardType="numbers-and-punctuation"
             contenedorStyle={estilos.medio}
@@ -227,7 +306,7 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
             placeholder="Calle, número, localidad"
             autoCapitalize="words"
             error={errores.direccion}
-            ayuda="Elegí una de las sugerencias para que se cargue el CP y la ubicación."
+            ayuda="Elegí una sugerencia, o usá tu ubicación actual si el taller no aparece en Google."
             accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
           />
 
@@ -252,6 +331,25 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
                 </Pressable>
               ))}
             </View>
+          ) : null}
+
+          {/*
+            Para los talleres que no figuran en ningún mapa: una ruta, un
+            camino de tierra. Ahí el buscador de Google no ayuda, y estar
+            parado en la puerta es el único dato bueno que hay. Se oculta una
+            vez confirmada la dirección: ya no hace falta.
+          */}
+          {form.lat === null ? (
+            <>
+              <Text style={estilos.separadorO}>— o —</Text>
+              <BotonMenu
+                titulo="UTILIZAR MI UBICACIÓN ACTUAL"
+                subtitulo="Guarda el punto donde estás parado ahora"
+                alTocar={() => desdeGps.mutate()}
+                cargando={desdeGps.isPending}
+                deshabilitado={buscando}
+              />
+            </>
           ) : null}
 
           {form.lat !== null ? (
@@ -361,6 +459,14 @@ const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   medio: { maxWidth: 240 },
   corto: { maxWidth: 180 },
+
+  separadorO: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaTenue,
+    textAlign: 'center',
+    marginVertical: -espaciado.xs,
+  },
 
   bloque: { gap: espaciado.xs },
   rotulo: {

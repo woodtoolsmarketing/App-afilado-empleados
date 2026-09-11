@@ -1,13 +1,21 @@
-import { aNumero, espaciado, formatearPesos, radios, soloNumeros } from '@woodtools/compartido'
+import {
+  aNumero,
+  espaciado,
+  formatearPesos,
+  radios,
+  soloNumeros,
+  type ClienteBuscado,
+} from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Alert, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Campo, Desplegable } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { buscarClientes, ESPERA_TECLEO, LIMITE_CLIENTES } from '../servicios/clientes'
 import { cobranzasDelDia, registrarCobranza } from '../servicios/cobranzas'
 import { imprimirPlanillaCobranzas } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -147,6 +155,7 @@ function FormularioCobro({
   tipoSugerido: 'factura' | 'presupuesto'
   alGuardar: () => void
 }) {
+  const { colores } = usarTema()
   const estilos = usarEstilos()
   const [abierto, setAbierto] = useState(!!clienteNombre)
   const [nombre, setNombre] = useState(clienteNombre)
@@ -156,13 +165,130 @@ function FormularioCobro({
   const [efectivo, setEfectivo] = useState('')
   const [comentarios, setComentarios] = useState('')
 
+  /**
+   * El cliente ya viene resuelto desde "COBRÉ ESTA NOTA" — con su cliente_id —
+   * y ahí no hace falta buscar nada. Arranca con la misma condición que
+   * `abierto`, y se apaga después del primer guardado: un segundo cobro
+   * cargado desde esta misma pantalla ya es un caso "abierto desde el menú",
+   * aunque la pantalla se haya abierto originalmente desde la nota.
+   */
+  const [precargado, setPrecargado] = useState(!!clienteNombre)
+
+  /**
+   * El cliente_id que viaja a `registrarCobranza`.
+   *
+   * Antes de este cambio, abierto desde el menú, CLIENTE y CÓDIGO eran texto
+   * libre y el cobro quedaba sin cliente_id: no había forma de cruzarlo contra
+   * la cuenta corriente del cliente en la oficina. Ahora se completa al elegir
+   * un cliente de la búsqueda de abajo, igual que en el Paso 1 de la nota.
+   */
+  const [clienteIdElegido, setClienteIdElegido] = useState<string | null>(clienteId)
+
+  // ── Búsqueda de cliente ───────────────────────────────────────────────────
+  // Mismo patrón que `PasoCliente` en GenerarNota/Encabezado.tsx —debounce,
+  // sólo la última búsqueda escribe en pantalla— pero sin zona ni CUIT: acá
+  // sólo hacen falta el nombre y el código.
+  const [consulta, setConsulta] = useState('')
+  const [resultados, setResultados] = useState<ClienteBuscado[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [consultaBuscada, setConsultaBuscada] = useState('')
+  const [fallo, setFallo] = useState<string | null>(null)
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const vigente = useRef(0)
+
+  async function buscar(texto: string) {
+    const mia = ++vigente.current
+    setBuscando(true)
+    setFallo(null)
+    try {
+      const encontrados = await buscarClientes(texto)
+      if (mia !== vigente.current) return
+      setResultados(encontrados)
+      setConsultaBuscada(texto)
+    } catch (e) {
+      if (mia !== vigente.current) return
+      setFallo((e as Error).message)
+    } finally {
+      if (mia === vigente.current) setBuscando(false)
+    }
+  }
+
+  useEffect(() => {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    if (precargado || clienteIdElegido || consulta.trim().length < 2) {
+      vigente.current++
+      setResultados([])
+      setConsultaBuscada('')
+      setBuscando(false)
+      setFallo(null)
+      return
+    }
+    temporizador.current = setTimeout(() => void buscar(consulta.trim()), ESPERA_TECLEO)
+    return () => {
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consulta, clienteIdElegido])
+
+  /** La tecla "Listo" del teclado: busca ya, sin esperar la pausa del tecleo. */
+  function buscarYa() {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    const texto = consulta.trim()
+    if (precargado || texto.length < 2) return
+    void buscar(texto)
+  }
+
+  /**
+   * Escribir en CLIENTE o CÓDIGO busca. Si el cobro vino precargado de una
+   * nota no busca nada: el vendedor sólo corrige el texto, como antes de este
+   * cambio.
+   */
+  function alTipear(campo: 'nombre' | 'codigo', texto: string) {
+    const valorPrevio = campo === 'nombre' ? nombre : codigo
+    if (campo === 'nombre') setNombre(texto)
+    else setCodigo(texto)
+
+    if (precargado || texto === valorPrevio) return
+    setClienteIdElegido(null)
+    setConsulta(texto)
+  }
+
+  function elegirCliente(c: ClienteBuscado) {
+    vigente.current++
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setBuscando(false)
+    setResultados([])
+    setConsultaBuscada('')
+    setFallo(null)
+    setConsulta('')
+    setNombre(c.razon_social)
+    setCodigo(c.codigo)
+    setClienteIdElegido(c.cliente_id)
+  }
+
+  /**
+   * "No lo encontré" y "no pude preguntar" son cosas distintas: con la señal
+   * cortada en la calle el cartel de "ningún cliente coincide" da a entender
+   * que el cliente no está cargado, y acá eso no tiene arreglo —no se da de
+   * alta un cliente desde este formulario—, así que hay que decir qué pasó de
+   * verdad.
+   */
+  const sinResultados =
+    !precargado &&
+    !clienteIdElegido &&
+    !buscando &&
+    !fallo &&
+    consulta.trim().length >= 2 &&
+    consultaBuscada === consulta.trim() &&
+    resultados.length === 0
+
   const total = aPesos(cheque) + aPesos(efectivo)
 
   const guardar = useMutation({
     mutationFn: () =>
       registrarCobranza({
         notaId,
-        clienteId,
+        clienteId: clienteIdElegido,
         clienteCodigo: codigo.trim() || null,
         clienteNombre: nombre.trim(),
         tipoComprobante: tipo,
@@ -176,6 +302,12 @@ function FormularioCobro({
       setCheque('')
       setEfectivo('')
       setComentarios('')
+      setClienteIdElegido(null)
+      setConsulta('')
+      setResultados([])
+      // A partir de acá cualquier otro cobro que se cargue en esta pantalla
+      // arranca en blanco, así que ya puede buscar.
+      setPrecargado(false)
       setAbierto(false)
       alGuardar()
     },
@@ -198,18 +330,76 @@ function FormularioCobro({
         etiqueta="CLIENTE"
         obligatorio
         value={nombre}
-        onChangeText={setNombre}
+        onChangeText={(t) => alTipear('nombre', t)}
         placeholder="Razón social"
         autoCapitalize="words"
+        returnKeyType="search"
+        blurOnSubmit={false}
+        onSubmitEditing={buscarYa}
+        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
       />
       <Campo
         etiqueta="CÓDIGO DE CLIENTE"
         value={codigo}
-        onChangeText={(t) => setCodigo(soloNumeros(t))}
+        onChangeText={(t) => alTipear('codigo', soloNumeros(t))}
         keyboardType="number-pad"
         placeholder="11067"
         ayuda="Es el que va en la primera columna de la planilla."
+        returnKeyType="search"
+        blurOnSubmit={false}
+        onSubmitEditing={buscarYa}
       />
+
+      {/* Resultados de la búsqueda. Elegir uno completa CLIENTE y CÓDIGO y
+          guarda el cliente_id; si el cliente no aparece, se sigue pudiendo
+          cargar el cobro con lo que se haya tipeado —a mano, sin cliente_id—,
+          porque un cliente fuera de la búsqueda igual se tiene que poder
+          cobrar. */}
+      {!precargado && resultados.length > 0 ? (
+        <View style={estilos.sugerencias}>
+          {resultados.map((c) => (
+            <Pressable
+              key={c.cliente_id}
+              onPress={() => elegirCliente(c)}
+              accessibilityRole="button"
+              accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
+              style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
+            >
+              <View style={estilos.sugerenciaFila}>
+                <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
+                {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
+              </View>
+              <Text style={estilos.sugerenciaNombre} numberOfLines={1}>
+                {c.razon_social}
+              </Text>
+              {c.direccion ? (
+                <Text style={estilos.sugerenciaDato} numberOfLines={1}>
+                  {c.direccion}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {!precargado && resultados.length >= LIMITE_CLIENTES ? (
+        <Text style={estilos.sinResultados}>
+          {`Hay más de ${LIMITE_CLIENTES} que coinciden. Escribí un poco más —otro dígito del código, o más letras del nombre— para achicar la lista.`}
+        </Text>
+      ) : null}
+
+      {!precargado && fallo && !buscando ? (
+        <Aviso tono="atencion" titulo="No pudimos consultar el padrón">
+          {fallo}
+          {'\n\n'}Esto NO quiere decir que el cliente no exista. Podés cargar el cobro igual
+          escribiendo los datos a mano, pero quedará sin enganchar a su ficha.
+        </Aviso>
+      ) : !precargado && sinResultados ? (
+        <Text style={estilos.sinResultados}>
+          Ningún cliente coincide con “{consulta.trim()}”. Podés cargar el cobro igual con lo que
+          escribiste.
+        </Text>
+      ) : null}
 
       {/* Viene propuesto por la nota, pero se puede corregir: un cobro puede ir
           contra un comprobante distinto del que se imprimió. */}
@@ -263,9 +453,21 @@ function FormularioCobro({
       <BotonPrincipal
         titulo="GUARDAR EL COBRO"
         alTocar={() => guardar.mutate()}
+        cargando={guardar.isPending}
         deshabilitado={guardar.isPending || total <= 0 || !nombre.trim()}
       />
-      <BotonSecundario titulo="Cancelar" alTocar={() => setAbierto(false)} />
+      {/*
+        Con mala señal el guardado puede tardar. Sin el spinner de arriba y con
+        "Cancelar" activo, el vendedor no ve que algo está pasando, toca
+        Cancelar, la petición igual se completa en segundo plano y él vuelve a
+        cargar el mismo cobro: duplicado en la planilla que la oficina compara
+        contra la plata que entrega. Mientras guarda, no se puede cancelar.
+      */}
+      <BotonSecundario
+        titulo="Cancelar"
+        alTocar={() => setAbierto(false)}
+        deshabilitado={guardar.isPending}
+      />
     </Panel>
   )
 }
@@ -326,4 +528,44 @@ const usarEstilos = hojaDeTema((t) => ({
   totalMonto: { fontFamily: t.tipografia.familia.fuerte, fontSize: t.tipografia.tamano.lg, color: t.colores.rojo },
   par: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
+
+  // ── Búsqueda de cliente (ver FormularioCobro) ─────────────────────────────
+  sugerencias: {
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campoBlanco,
+    overflow: 'hidden',
+  },
+  sugerencia: {
+    paddingHorizontal: espaciado.md,
+    paddingVertical: espaciado.md,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colores.panelOscuro,
+    minHeight: 60,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  sugerenciaTocada: { backgroundColor: t.colores.panelClaro },
+  sugerenciaFila: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
+  sugerenciaCodigo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
+  },
+  sugerenciaNombre: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  sugerenciaDato: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  sinResultados: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
 }))

@@ -1,10 +1,12 @@
 import {
+  fechaLocalISO,
   formatearFechaCorta,
   formatearPesos,
   type PlanillaCobranzasParaImprimir,
   type RenglonCobranza,
 } from '@woodtools/compartido'
 
+import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
 import { supabase } from '../nucleo/supabase'
 
 /**
@@ -72,7 +74,18 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
     .select()
     .single()
 
-  if (error) throw error
+  if (error) {
+    // Los CHECK de la tabla `cobranzas` (cheque + efectivo = total, total > 0,
+    // montos no negativos) devuelven 23514 con el texto crudo de Postgres en
+    // inglés —a diferencia de las RPC de otros servicios, que arman el mensaje
+    // en castellano con RAISE EXCEPTION—. Como es una pantalla de plata, lo
+    // traducimos a mano en vez de mostrar el crudo. El resto de los errores: si
+    // fue falta de señal, salen en castellano en lugar del crudo de la red.
+    if (error.code === '23514') {
+      throw new Error('No pudimos guardar el cobro: los montos no cierran. Revisá cheque y efectivo.')
+    }
+    throw conMensajeDeSenal(error)
+  }
   return data as Cobranza
 }
 
@@ -132,9 +145,11 @@ export function planillaDesdeCobranzas(
 
 /** La fecha de hoy en Argentina, que es la que usa la base por defecto. */
 export function hoyLocal(): string {
-  const ahora = new Date()
-  const local = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 10)
+  // Una sola forma de calcular "hoy en hora local" en toda la app: la de
+  // `fechaLocalISO` del paquete compartido. Acá había una cuenta a mano con
+  // `toISOString()` que podía correrse un día cerca de medianoche; jornada.ts
+  // ya la había abandonado por esto mismo.
+  return fechaLocalISO(new Date())
 }
 
 function redondear(n: number): number {

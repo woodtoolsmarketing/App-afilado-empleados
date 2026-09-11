@@ -1,8 +1,15 @@
-import { espaciado, radios } from '@woodtools/compartido'
+import {
+  CONTACTOS_INTERNOS,
+  enlaceLlamada,
+  enlaceWhatsapp,
+  espaciado,
+  radios,
+  TOQUE_MINIMO,
+} from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
-import { Text, View } from 'react-native'
+import { Alert, Linking, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Pantalla } from '../componentes/Pantalla'
@@ -76,6 +83,40 @@ export function PantallaEstadoCuenta() {
 
   const contenido = CONTENIDOS[estado] ?? ESPERANDO_APROBACION
 
+  /*
+   * A quién se avisa.
+   *
+   * Administración es quien aprueba las cuentas y habilita los teléfonos
+   * desde el panel: es a quien corresponde escribirle en cualquiera de estos
+   * estados. Si ese rol no estuviera cargado el día de mañana, cualquiera de
+   * los cinco de la oficina llega igual a la misma gente.
+   */
+  const contactoOficina =
+    CONTACTOS_INTERNOS.find((c) => c.rol === 'Administración') ?? CONTACTOS_INTERNOS[0]
+
+  /*
+   * El mensaje viene con el nombre puesto —del otro lado no saben quién
+   * escribe, como en Comunicación Interna— y, si lo que falta es habilitar
+   * el teléfono, con el código ya adentro: es el único dato de esta pantalla
+   * que el vendedor tendría que dictar letra por letra.
+   */
+  const saludo = perfil ? `Hola, soy ${perfil.nombre_completo}. ` : ''
+  const mensajeWhatsapp =
+    estado === 'dispositivo_no_autorizado'
+      ? `${saludo}Necesito que habiliten este teléfono, código ${instalacion}.`
+      : saludo
+
+  async function abrirContacto(url: string, queFalta: string) {
+    try {
+      await Linking.openURL(url)
+    } catch {
+      // No se pregunta antes con `canOpenURL`: Android 11+ contesta que no a
+      // esto aunque la app esté instalada, y el botón quedaría muerto en
+      // teléfonos donde WhatsApp anda perfecto.
+      Alert.alert('No pudimos abrir eso', queFalta)
+    }
+  }
+
   return (
     <Pantalla>
       <View style={estilos.centro}>
@@ -110,6 +151,48 @@ export function PantallaEstadoCuenta() {
                 {instalacion}
               </Text>
             ) : null}
+          </View>
+        ) : null}
+
+        {perfil ? (
+          <View style={estilos.contacto}>
+            <Pressable
+              onPress={() =>
+                void abrirContacto(
+                  enlaceWhatsapp(contactoOficina, mensajeWhatsapp),
+                  'Parece que este teléfono no tiene WhatsApp instalado. Probá con el botón de llamar.',
+                )
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Escribirle por WhatsApp a ${contactoOficina.nombre}`}
+              style={({ pressed }) => [
+                estilos.botonContacto,
+                estilos.whatsapp,
+                pressed && estilos.contactoTocado,
+              ]}
+            >
+              <Text style={estilos.iconoContacto}>💬</Text>
+              <Text style={estilos.textoContacto}>WhatsApp</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() =>
+                void abrirContacto(
+                  enlaceLlamada(contactoOficina),
+                  `No se pudo abrir el teléfono. El número de ${contactoOficina.nombre} es ${contactoOficina.legible}.`,
+                )
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Llamar a ${contactoOficina.nombre}`}
+              style={({ pressed }) => [
+                estilos.botonContacto,
+                estilos.llamar,
+                pressed && estilos.contactoTocado,
+              ]}
+            >
+              <Text style={estilos.iconoContacto}>📞</Text>
+              <Text style={estilos.textoContacto}>Llamar</Text>
+            </Pressable>
           </View>
         ) : null}
 
@@ -239,5 +322,34 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.blanco,
   },
   fichaEtiqueta: { fontFamily: t.tipografia.familia.subtitulo },
+
+  contacto: {
+    flexDirection: 'row',
+    gap: espaciado.sm,
+    alignSelf: 'stretch',
+  },
+  botonContacto: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: espaciado.xs,
+    minHeight: TOQUE_MINIMO,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Mismos dos colores que en Comunicación Interna: se reconocen por el color
+  // antes de leer nada.
+  whatsapp: { backgroundColor: '#25D366' },
+  llamar: { backgroundColor: '#0B4F8A' },
+  contactoTocado: { opacity: 0.75 },
+  iconoContacto: { fontSize: 20 },
+  textoContacto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.blanco,
+  },
+
   salir: { alignSelf: 'stretch', marginTop: espaciado.md },
 }))

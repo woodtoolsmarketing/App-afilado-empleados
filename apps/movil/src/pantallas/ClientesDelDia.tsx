@@ -1,4 +1,4 @@
-import { espaciado, radios } from '@woodtools/compartido'
+import { espaciado, radios, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
@@ -45,7 +45,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   const cliente = useQueryClient()
   const [elegidos, setElegidos] = useState<Set<string>>(new Set())
 
-  const { data: candidatos, isLoading, error } = useQuery({
+  const { data: candidatos, isLoading, error, refetch } = useQuery({
     queryKey: ['candidatos-del-dia'],
     queryFn: candidatosDelDia,
   })
@@ -53,6 +53,9 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   const lista = candidatos ?? []
   const seleccionados = lista.filter((c) => elegidos.has(c.cliente_id))
   const sinUbicar = lista.filter((c) => c.lat === null).length
+  const ubicados = lista.filter((c) => c.lat !== null)
+  const todosUbicadosElegidos =
+    ubicados.length > 0 && ubicados.every((c) => elegidos.has(c.cliente_id))
 
   function alternar(id: string) {
     setElegidos((previos) => {
@@ -61,6 +64,16 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
       else nuevos.add(id)
       return nuevos
     })
+  }
+
+  /**
+   * Atajo para cuando el vendedor va a hacer casi todos: tildar de a uno es
+   * mucho toque si el rol trajo veinte candidatos y noventa por ciento entra.
+   * No toca el arranque sin nada tildado —sigue siendo la regla—, es una
+   * acción explícita más que el vendedor elige tocar.
+   */
+  function alternarTodosLosUbicados() {
+    setElegidos(todosUbicadosElegidos ? new Set() : new Set(ubicados.map((c) => c.cliente_id)))
   }
 
   const armar = useMutation({
@@ -141,9 +154,12 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
         {isLoading ? (
           <Cargando texto="Buscando a quién te toca ver…" />
         ) : error ? (
-          <Aviso tono="error" titulo="No pudimos traer la lista">
-            Revisá la conexión. El plan sigue cargado: esto es un problema para leerlo.
-          </Aviso>
+          <>
+            <Aviso tono="error" titulo="No pudimos traer la lista">
+              Revisá la conexión. El plan sigue cargado: esto es un problema para leerlo.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
         ) : lista.length === 0 ? (
           <Vacio
             titulo="Hoy no te toca nadie"
@@ -159,8 +175,20 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
 
             {sinUbicar > 0 ? (
               <Aviso tono="atencion" titulo="Hay clientes sin ubicar">
-                {`${sinUbicar} de estos no tienen dirección en el mapa y no pueden entrar al recorrido. Ubicalos desde AGREGAR DESTINO o pedile a la oficina que les cargue la dirección.`}
+                {`${sinUbicar} de estos no tienen dirección en el mapa y no pueden entrar al recorrido. Tocá el cliente para ubicarlo, o pedile a la oficina que le cargue la dirección.`}
               </Aviso>
+            ) : null}
+
+            {ubicados.length > 0 ? (
+              <Pressable
+                onPress={alternarTodosLosUbicados}
+                accessibilityRole="button"
+                style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
+              >
+                <Text style={estilos.atajoTexto}>
+                  {todosUbicadosElegidos ? 'Ninguno' : 'Tildar todos los ubicados'}
+                </Text>
+              </Pressable>
             ) : null}
 
             <View style={estilos.lista}>
@@ -170,6 +198,18 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
                   candidato={c}
                   elegido={elegidos.has(c.cliente_id)}
                   alTocar={() => alternar(c.cliente_id)}
+                  alUbicar={() =>
+                    // El cliente viaja escrito: la fila ya lo nombra, y
+                    // hacerlo buscar de nuevo en AGREGAR DESTINO sería no
+                    // haberlo escuchado. Mismo patrón que CalendarioVisitas
+                    // para "UBICARLO EN EL MAPA". `volverA` para caer de vuelta
+                    // acá y no en el recorrido, donde quedaron otros tildados.
+                    navigation.navigate('AgregarDestino', {
+                      modo: 'existente',
+                      buscarA: c.codigo ?? c.razon_social,
+                      volverA: 'ClientesDelDia',
+                    })
+                  }
                 />
               ))}
             </View>
@@ -202,10 +242,12 @@ function Fila({
   candidato,
   elegido,
   alTocar,
+  alUbicar,
 }: {
   candidato: CandidatoDelDia
   elegido: boolean
   alTocar: () => void
+  alUbicar: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -213,10 +255,15 @@ function Fila({
 
   return (
     <Pressable
-      onPress={sinUbicar ? undefined : alTocar}
-      style={[estilos.fila, elegido && estilos.filaElegida, sinUbicar && estilos.filaApagada]}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: elegido, disabled: sinUbicar }}
+      // Sin ubicar ya no es "deshabilitado": tocarlo lleva a ubicarlo en el
+      // mapa en vez de tildarlo, así que no es un checkbox para esta fila.
+      onPress={sinUbicar ? alUbicar : alTocar}
+      // No se atenúa aunque esté sin ubicar: ahora es accionable (tocarla lleva
+      // a ubicarla), y el gris de antes leía como "no se puede tocar". La
+      // pastilla "SIN UBICAR" ya comunica el estado. Mismo criterio que CalendarioVisitas.
+      style={[estilos.fila, elegido && estilos.filaElegida]}
+      accessibilityRole={sinUbicar ? 'button' : 'checkbox'}
+      accessibilityState={sinUbicar ? undefined : { checked: elegido }}
     >
       <View style={[estilos.tilde, elegido && estilos.tildeMarcado]}>
         {elegido ? <Text style={estilos.tildeTexto}>✓</Text> : null}
@@ -263,6 +310,19 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tintaSuave,
   },
   lista: { gap: espaciado.xs },
+  atajo: {
+    minHeight: TOQUE_MINIMO,
+    alignSelf: 'flex-end',
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.xs,
+  },
+  atajoTocado: { opacity: 0.6 },
+  atajoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
+    textDecorationLine: 'underline',
+  },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',

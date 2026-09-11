@@ -44,7 +44,12 @@ export function PantallaIniciarSesion() {
   const refContrasena = useRef<TextInput>(null)
 
   useEffect(() => {
-    if (usuarioRecordado) setUsuario(usuarioRecordado)
+    if (usuarioRecordado) {
+      setUsuario(usuarioRecordado)
+      // Ya sabe el usuario: el foco pasa directo a la contraseña, como si
+      // hubiera tocado "siguiente" en el teclado.
+      refContrasena.current?.focus()
+    }
   }, [usuarioRecordado])
 
   // Una vez que el usuario intentó entrar, los errores se recalculan mientras

@@ -130,6 +130,8 @@ export function usarCandado(habilitado: boolean) {
   const [bloqueado, setBloqueado] = useState(false)
   const [verificando, setVerificando] = useState(false)
   const seFueAlFondo = useRef<number | null>(null)
+  /** Que el desbloqueo automático salte una sola vez por candado, no en cada dibujado. */
+  const pedidoAuto = useRef(false)
 
   const desbloquear = useCallback(async () => {
     setVerificando(true)
@@ -187,6 +189,25 @@ export function usarCandado(habilitado: boolean) {
       sub.remove()
     }
   }, [habilitado])
+
+  /**
+   * El diálogo de huella/cara/PIN salta solo apenas se pone el candado.
+   *
+   * El vendedor ya desbloqueó el teléfono para llegar hasta acá; obligarlo a
+   * tocar "DESBLOQUEAR" antes de que aparezca el diálogo nativo es un toque de
+   * más que se repite muchas veces en una jornada de doce horas. Si cancela o
+   * falla, el candado sigue puesto y el botón queda como reintento. Una sola vez
+   * por candado (`pedidoAuto`), para no reabrir el diálogo en cada render.
+   */
+  useEffect(() => {
+    if (!bloqueado) {
+      pedidoAuto.current = false
+      return
+    }
+    if (pedidoAuto.current) return
+    pedidoAuto.current = true
+    void desbloquear()
+  }, [bloqueado, desbloquear])
 
   return { bloqueado, verificando, desbloquear }
 }

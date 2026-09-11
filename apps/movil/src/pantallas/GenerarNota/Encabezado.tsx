@@ -92,6 +92,8 @@ export function PasoCliente({
   form,
   alCambiar,
   alCrearCliente,
+  alReiniciarFacturacion,
+  clienteInicialCodigo,
   errores,
   ubicacionInicial,
   codigoVendedorUsuario,
@@ -100,6 +102,25 @@ export function PasoCliente({
   alCambiar: (cambios: Partial<FormularioNotaEncabezado>) => void
   /** Abre "GENERAR NUEVO CLIENTE" con lo que ya se escribió. */
   alCrearCliente: () => void
+  /**
+   * Soltar o cambiar de cliente borra el tipo de nota y la condición de venta.
+   *
+   * Viven fuera del encabezado, así que hay que avisarle a la pantalla. Si no,
+   * la costumbre de facturación de un cliente elegido por error queda pegada
+   * —ya no está vacía, y la tendencia del cliente correcto no la pisa—, y la
+   * nota puede salir con otro tipo de comprobante o con otro plazo de pago sin
+   * ninguna señal. Reseteadas a null, la tendencia del cliente correcto las
+   * vuelve a sugerir sola.
+   */
+  alReiniciarFacturacion?: () => void
+  /**
+   * Código del cliente con el que arrancar el Paso 1 ya elegido.
+   *
+   * Lo usa la nota que nace de una parada del rol de visita: en vez de una
+   * pantalla vacía, se autoselecciona ese cliente con la misma búsqueda de
+   * siempre (trae CUIT, provincia, contacto y zona). Queda cambiable.
+   */
+  clienteInicialCodigo?: string
   errores: Record<string, string | undefined>
   /** La del cliente que acaba de crearse, para asignarle la zona al volver. */
   ubicacionInicial?: UbicacionCliente | null
@@ -291,6 +312,7 @@ export function PasoCliente({
 
   /** Soltar el cliente elegido para buscar otro. Es el "✕ CAMBIAR". */
   function soltarCliente() {
+    intervenido.current = true
     vigente.current++
     if (temporizador.current) clearTimeout(temporizador.current)
     setConsulta('')
@@ -307,6 +329,7 @@ export function PasoCliente({
       cliente_cuit: '',
       cliente_provisorio: false,
     })
+    alReiniciarFacturacion?.()
   }
 
   /**
@@ -374,6 +397,38 @@ export function PasoCliente({
     if (ubicacionInicial.provincia) alCambiar({ cliente_provincia: ubicacionInicial.provincia })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ubicacionClave])
+
+  /**
+   * La nota que nace de una parada arranca con ese cliente ya elegido.
+   *
+   * Se autoselecciona con la misma búsqueda de siempre —una sola vez, y sólo si
+   * todavía no hay cliente—, así trae CUIT, provincia, contacto y zona igual que
+   * si el vendedor lo hubiera buscado a mano. Si la señal falla o el código no
+   * aparece, el campo queda vacío y se busca a mano: no rompe nada.
+   */
+  /** El vendedor eligió o soltó un cliente a mano: su decisión le gana al auto-select de la parada. */
+  const intervenido = useRef(false)
+  const autoElegido = useRef(false)
+  useEffect(() => {
+    if (autoElegido.current) return
+    if (!clienteInicialCodigo || CLIENTE_A_MANO || form.cliente_id) return
+    autoElegido.current = true
+    let vigenteAuto = true
+    buscarClientes(clienteInicialCodigo)
+      .then((encontrados) => {
+        // Si el vendedor ya eligió o soltó un cliente a mano mientras el fetch
+        // viajaba (señal mala), su decisión manda: no la pisamos con la de la
+        // parada. Ver `intervenido`.
+        if (!vigenteAuto || intervenido.current) return
+        const exacto = encontrados.find((c) => c.codigo === clienteInicialCodigo)
+        if (exacto) elegirCliente(exacto, false)
+      })
+      .catch(() => undefined)
+    return () => {
+      vigenteAuto = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteInicialCodigo])
 
   /**
    * El número de vendedor, cuando no lo completan.
@@ -460,7 +515,9 @@ export function PasoCliente({
     // mano. Ofrecer un control cuyo valor se descarta es peor que no ofrecerlo.
     (!!form.cliente_id && !zonaElegida)
 
-  function elegirCliente(c: ClienteBuscado) {
+  function elegirCliente(c: ClienteBuscado, manual = true) {
+    // Una elección a mano le gana al auto-select de la parada (ver `intervenido`).
+    if (manual) intervenido.current = true
     // Nada de lo que esté viajando puede volver a abrir la lista encima del
     // cliente que el vendedor acaba de elegir. Ver `vigente`.
     vigente.current++
@@ -505,6 +562,10 @@ export function PasoCliente({
       { localidad: c.localidad, provincia: c.provincia, direccion: c.direccion },
       true,
     )
+
+    // Y borra la facturación del cliente anterior: la tendencia de este cliente
+    // la vuelve a sugerir sola, en vez de quedar pegada la del que se cambió.
+    alReiniciarFacturacion?.()
   }
 
   return (
@@ -1114,7 +1175,9 @@ const usarEstilos = hojaDeTema((t) => ({
   cambiarZona: { minHeight: 44, justifyContent: 'center', paddingHorizontal: espaciado.xs },
   cambiarZonaTexto: {
     fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.micro,
+    // Un escalón más que el resto de las ayudas: es el único camino para
+    // corregir una zona mal deducida, y al sol la letra más chica no se lee.
+    fontSize: t.tipografia.tamano.xs,
     color: t.colores.rojo,
   },
 
@@ -1194,7 +1257,8 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   cambiarClienteTexto: {
     fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.micro,
+    // Un escalón más: es el único camino para corregir un cliente mal elegido.
+    fontSize: t.tipografia.tamano.xs,
     color: t.colores.rojo,
   },
   tocado: { opacity: 0.7 },

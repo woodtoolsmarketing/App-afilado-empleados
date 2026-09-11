@@ -7,10 +7,12 @@ import {
   radios,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
+import { Campo, comparable } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { notasImpresas, type NotaResumen } from '../servicios/notasPedido'
@@ -32,12 +34,22 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  */
 export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpresas'>) {
   const estilos = usarEstilos()
+  const [busqueda, setBusqueda] = useState('')
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['notas-impresas'],
     queryFn: notasImpresas,
   })
 
   const notas = data ?? []
+  const filtro = comparable(busqueda)
+  const visibles = filtro
+    ? notas.filter(
+        (n) =>
+          comparable(n.cliente_nombre).includes(filtro) ||
+          comparable(n.cliente_codigo ?? '').includes(filtro) ||
+          comparable(numeroDeNotaImpreso(n.numero, n.vendedor_numero) ?? '').includes(filtro),
+      )
+    : notas
 
   return (
     <Pantalla>
@@ -46,7 +58,12 @@ export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpres
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
 
-        <TituloPanel destacado={error ? undefined : String(notas.length)}>
+        {/*
+          Mientras carga, `notas` es [] porque `data` no llegó: mostrar "0" ahí
+          es una afirmación falsa. Igual que en PENDIENTES, sólo se cuenta
+          cuando efectivamente se contó.
+        */}
+        <TituloPanel destacado={isLoading || error ? undefined : String(notas.length)}>
           NOTAS DE PEDIDO IMPRESAS:
         </TituloPanel>
 
@@ -73,7 +90,22 @@ export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpres
               se anula y se carga una nueva.
             </Aviso>
 
-            {notas.map((n) => (
+            {/* `|| filtro`: si la lista baja de 5 con una búsqueda puesta, no
+                escondemos el campo o el filtro queda pegado sin nada para borrarlo. */}
+            {notas.length > 5 || filtro ? (
+              <Campo
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Buscar por cliente o número…"
+                autoCorrect={false}
+              />
+            ) : null}
+
+            {filtro && visibles.length === 0 ? (
+              <Aviso tono="info">Ninguna nota impresa coincide con “{busqueda}”.</Aviso>
+            ) : null}
+
+            {visibles.map((n) => (
               <FilaImpresa
                 key={n.id}
                 nota={n}
@@ -81,10 +113,12 @@ export function PantallaNotasImpresas({ navigation }: PropsPantalla<'NotasImpres
               />
             ))}
 
-            <Text style={estilos.pie}>
-              Se muestran las últimas {notas.length}. Para buscar por fecha está HISTORIAL DE NOTAS
-              DE PEDIDO.
-            </Text>
+            {!filtro ? (
+              <Text style={estilos.pie}>
+                Se muestran las últimas {notas.length}. Para notas más viejas está HISTORIAL DE
+                NOTAS DE PEDIDO.
+              </Text>
+            ) : null}
           </>
         )}
       </Panel>

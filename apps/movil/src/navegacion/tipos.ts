@@ -25,7 +25,7 @@ export type ParametrosApp = {
    * mapa—, sólo cambia en qué jornada cae.
    */
   AgregarDestino: {
-    volverA?: 'Visitas' | 'Recorrido' | 'CalendarioEnvios' | 'CalendarioVisitas'
+    volverA?: 'Visitas' | 'Recorrido' | 'CalendarioEnvios' | 'CalendarioVisitas' | 'ClientesDelDia'
     modo?: ModoDestino
     fecha?: string
     /**
@@ -93,6 +93,13 @@ export type ParametrosApp = {
          * en el lugar.
          */
         paradaId?: string
+        /**
+         * El código del cliente de la parada, para que el Paso 1 arranque con
+         * ese cliente ya elegido en vez de una pantalla vacía. Se autoselecciona
+         * con la misma búsqueda de siempre (trae CUIT, provincia y zona) y queda
+         * cambiable con "✕ CAMBIAR" por si la nota es para otro.
+         */
+        clienteCodigo?: string
         clienteCreadoId?: string
         clienteCreadoNombre?: string
         clienteCreadoCuit?: string

@@ -428,6 +428,15 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    */
   const [creadas, setCreadas] = useState<string[]>([])
   /**
+   * Cuántas veces se intentó sumar un renglón con un dato faltante.
+   *
+   * Va en la clave de `subirAlTopeCuando`: cuando `sumarRenglon` no valida, no
+   * cambia el paso ni el renglón activo, así que sin este contador la pantalla
+   * no se movía y el error en rojo podía quedar arriba del scroll —el vendedor
+   * tocaba "SUMAR OTRA" y parecía que no pasaba nada—.
+   */
+  const [intentosFallidos, setIntentosFallidos] = useState(0)
+  /**
    * Ya se guardó: el aviso de "salís sin guardar" no tiene que aparecer cuando
    * la salida es justamente la que sigue a haber guardado.
    */
@@ -710,7 +719,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setIntentado(true)
     const { valido, errores: e } = validarItemNota(renglon, { pedirServicio })
     setErrores(e as Record<string, string | undefined>)
-    if (!valido) return
+    if (!valido) {
+      // Sube al tope para que el campo en rojo quede a la vista (ver `intentosFallidos`).
+      setIntentosFallidos((n) => n + 1)
+      return
+    }
 
     // La operación del renglón nuevo la decidió el botón que se tocó, así que
     // no hay nada que volver a preguntar.
@@ -1192,7 +1205,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           en cada dibujado; ver el Panel. */}
         <Panel
           contentStyle={estilos.contenido}
-          subirAlTopeCuando={`${paso}·${activo}·${items.length}`}
+          subirAlTopeCuando={`${paso}·${activo}·${items.length}·${intentosFallidos}`}
         >
           <BarraPanel
             alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
@@ -1251,6 +1264,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     documentoInicial: encabezado.cliente_cuit,
                   })
                 }
+                alReiniciarFacturacion={() => {
+                  setTipoNota(null)
+                  setCondicionVenta(null)
+                  setCondicionDetalle('')
+                }}
+                // Sólo en una nota nueva: al corregir una ya existente, el
+                // cliente lo trae el borrador, no la parada.
+                clienteInicialCodigo={notaId ? undefined : route.params?.clienteCodigo}
                 errores={errores}
                 ubicacionInicial={ubicacionNueva}
                 codigoVendedorUsuario={perfil?.codigo_vendedor}

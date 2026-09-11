@@ -1,5 +1,5 @@
 import { espaciado, radios, sombras, TOQUE_MINIMO } from '@woodtools/compartido'
-import { useNavigation } from '@react-navigation/native'
+import { useNavigation, useNavigationState } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useEffect, useRef } from 'react'
 import {
@@ -42,7 +42,12 @@ import type { ParametrosApp } from '../navegacion/tipos'
 /** Adónde lleva cada opción. Son las del mockup, en el mismo orden. */
 interface Destino {
   etiqueta: string
-  ir: (navegacion: NativeStackNavigationProp<ParametrosApp>) => void
+  /**
+   * `pantallaActual` es el nombre de la ruta desde la que se abrió el menú.
+   * Sólo lo usa "REPORTAR UN PROBLEMA", igual que Configuración: el resto lo
+   * ignora.
+   */
+  ir: (navegacion: NativeStackNavigationProp<ParametrosApp>, pantallaActual?: string) => void
 }
 
 const OPCIONES: Destino[] = [
@@ -73,7 +78,9 @@ const OPCIONES: Destino[] = [
   },
   {
     etiqueta: 'REPORTAR UN PROBLEMA',
-    ir: (n) => n.navigate('ReportarProblema', {}),
+    // La pantalla de origen viaja con el reporte, igual que en Configuración:
+    // sin ella, Marketing sólo sabe que alguien reportó algo, no desde dónde.
+    ir: (n, pantallaActual) => n.navigate('ReportarProblema', { pantalla: pantallaActual }),
   },
   {
     etiqueta: 'COMUNICACIÓN INTERNA',
@@ -98,11 +105,44 @@ const AL_PIE: Destino[] = [
   { etiqueta: 'CONFIGURACIÓN', ir: (n) => n.navigate('Configuracion', {}) },
 ]
 
+/**
+ * Nombre legible de cada pantalla, para el campo que ve Marketing en un
+ * reporte. Sin esto viajaba el nombre interno de la ruta ("NotasPendientes"),
+ * que además quedaba mezclado con las etiquetas a mano que ya arma Configuración.
+ */
+const ETIQUETA_PANTALLA: Record<string, string> = {
+  Menu: 'Menú',
+  Visitas: 'Visitas',
+  Recorrido: 'Mapa del recorrido',
+  DestinoVisitado: 'Destino visitado',
+  AgregarDestino: 'Agregar destino',
+  Historial: 'Historial de visitas',
+  DetalleVisita: 'Detalle de visita',
+  Configuracion: 'Configuración',
+  NotasPedido: 'Notas de pedido',
+  GenerarNota: 'Generar nota de pedido',
+  NuevoCliente: 'Nuevo cliente',
+  NotasPendientes: 'Notas pendientes',
+  Cobranzas: 'Cobranzas del día',
+  CalendarioEnvios: 'Calendario de envíos',
+  CalendarioVisitas: 'Calendario de visitas',
+  ComunicacionInterna: 'Comunicación interna',
+  ClientesDelDia: 'Clientes de hoy',
+  NotasImpresas: 'Notas impresas',
+  HistorialNotas: 'Historial de notas de pedido',
+  DetalleNota: 'Detalle de nota',
+  VistaPrevia: 'Vista previa de impresión',
+  EnPreparacion: 'En preparación',
+}
+
 export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void }) {
   const estilos = usarEstilos()
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
+  // Desde dónde se abrió el menú, para "REPORTAR UN PROBLEMA", con nombre legible.
+  const rutaActual = useNavigationState((state) => state.routes[state.index]?.name)
+  const pantallaActual = rutaActual ? (ETIQUETA_PANTALLA[rutaActual] ?? rutaActual) : undefined
 
   // 300 es el ancho del panel del mockup en un teléfono común. El tope por
   // proporción es para que en una pantalla angosta no ocupe todo y deje ver que
@@ -130,7 +170,7 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
    */
   function irA(destino: Destino) {
     alCerrar()
-    requestAnimationFrame(() => destino.ir(navegacion))
+    requestAnimationFrame(() => destino.ir(navegacion, pantallaActual))
   }
 
   return (

@@ -106,3 +106,19 @@ export function pareceFaltaDeSenal(error: unknown): boolean {
     texto.includes('abort')
   )
 }
+
+/**
+ * El mismo error, pero en castellano cuando fue falta de señal.
+ *
+ * Los servicios que muestran el mensaje crudo al vendedor (la búsqueda de
+ * cliente, una mutación que falla) le tiraban "TypeError: Network request
+ * failed" en inglés y sin decir qué hacer. Esto lo cambia por un texto que sí
+ * dice qué pasó, y deja pasar cualquier otro error tal cual —un rechazo del
+ * servidor no es lo mismo que no tener señal—.
+ */
+export function conMensajeDeSenal(error: unknown): Error {
+  if (pareceFaltaDeSenal(error)) {
+    return new Error('No hay conexión. Probá de nuevo cuando tengas señal.')
+  }
+  return error instanceof Error ? error : new Error(String(error))
+}

@@ -7,6 +7,7 @@ import type {
   PrioridadParada,
 } from '@woodtools/compartido'
 
+import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
 import { supabase } from '../nucleo/supabase'
 import type { DireccionResuelta } from './mapas'
 
@@ -84,7 +85,10 @@ export async function buscarClientes(
     p_limite: limite,
   })
 
-  if (error) throw error
+  // El vendedor busca clientes parado en un taller sin señal: el mensaje crudo
+  // de la red ("Network request failed") aparece como "ningún cliente coincide"
+  // en el buscador. Con esto dice que es la conexión, no que el cliente no está.
+  if (error) throw conMensajeDeSenal(error)
   const clientes = (data ?? []) as ClienteBuscado[]
 
   // Sólo se guarda lo que salió bien: recordar un error dejaría al vendedor sin

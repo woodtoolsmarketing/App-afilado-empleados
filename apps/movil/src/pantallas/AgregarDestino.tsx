@@ -1,7 +1,6 @@
 import {
-  DESCRIPCION_PRIORIDAD,
   espaciado,
-  ETIQUETA_PRIORIDAD,
+  fechaLocalISO,
   FORMULARIO_DESTINO_EXISTENTE_VACIO,
   FORMULARIO_DESTINO_NUEVO_VACIO,
   radios,
@@ -27,7 +26,7 @@ import {
   View,
 } from 'react-native'
 
-import { BotonMenu } from '../componentes/Botones'
+import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Campo, Desplegable } from '../componentes/Formulario'
 import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
@@ -89,6 +88,21 @@ export function PantallaAgregarDestino({ navigation, route }: PropsPantalla<'Agr
   )
 }
 
+const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+
+/**
+ * "jueves 12", para avisar en qué día real queda el destino.
+ *
+ * La barra de arriba ya cambia para mostrar la fecha correcta cuando se
+ * agenda para otro día, pero el cartel de éxito es lo último que el vendedor
+ * lee antes de volver a lo suyo: si no dice el día, un destino para el
+ * jueves queda anotado como si fuera del recorrido de hoy.
+ */
+function nombrarDia(fechaISO: string): string {
+  const d = new Date(`${fechaISO}T12:00:00`)
+  return `${NOMBRES_DIA[d.getDay()]} ${d.getDate()}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Paso 1 — elegir el camino
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +149,16 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
+
+  /**
+   * Si `fecha` viene seteada y no es la de hoy, el destino se agenda para
+   * OTRO día. Sin esto la barra de arriba marcaba hoy igual —el default de
+   * `BarraPanel` es `new Date()`— y el cartel de éxito no lo mencionaba, así
+   * que un destino cargado para el jueves parecía uno más del recorrido de
+   * hoy.
+   */
+  const fechaAgenda = route.params?.fecha
+  const esOtroDia = !!fechaAgenda && fechaAgenda !== fechaLocalISO(new Date())
 
   /*
    * El formulario arranca con lo que se vino a buscar ya escrito.
@@ -299,11 +323,19 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     },
     onSuccess: async (parada) => {
       await cliente.invalidateQueries()
+      // La variante "próximo destino: estás cerca" sólo tiene sentido para el
+      // recorrido de HOY. Agendando para otro día, la cercanía de ahora no dice
+      // nada del orden de esa jornada futura, y "estás cerca" + "es para el
+      // jueves" se contradicen: ahí va siempre el mensaje neutro de posición.
+      const mensaje =
+        parada.prioridad === 'alta' && !esOtroDia
+          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}): estás cerca.`
+          : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`
       Alert.alert(
         'Destino agregado',
-        parada.prioridad === 'alta'
-          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}): estás cerca.`
-          : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`,
+        // Sin esta línea, un destino agendado para otro día no se distingue
+        // del recorrido de hoy hasta que el vendedor lo va a buscar y no está.
+        esOtroDia ? `${mensaje}\n\nQueda agendado para el ${nombrarDia(fechaAgenda!)}.` : mensaje,
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
     },
@@ -326,7 +358,12 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Panel contentStyle={estilos.contenido}>
-          <BarraPanel alVolver={() => navigation.setParams({ modo: undefined })} />
+          <BarraPanel
+            alVolver={() => navigation.setParams({ modo: undefined })}
+            // Sin esto la barra marcaba siempre hoy, aunque se estuviera
+            // agendando para otro día.
+            fecha={fechaAgenda ? new Date(`${fechaAgenda}T12:00:00`) : undefined}
+          />
 
           <TituloPanel>{'CLIENTE\nEXISTENTE'}</TituloPanel>
 
@@ -430,6 +467,21 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             <Aviso tono="atencion" titulo="Sin resultados">
               No encontramos ese cliente. Si es la primera vez que lo visitás, cargalo como cliente
               nuevo.
+              <BotonSecundario
+                titulo={`CARGAR "${consulta.trim()}" COMO CLIENTE NUEVO`}
+                alTocar={() =>
+                  navigation.navigate('AgregarDestino', {
+                    modo: 'nuevo',
+                    volverA: route.params?.volverA,
+                    fecha: route.params?.fecha,
+                    // Mismo criterio que separa código de razón social al
+                    // arrancar el formulario (línea de `aBuscar` más arriba):
+                    // si es todo dígitos es un código mal tipeado, no un
+                    // nombre, y no tiene sentido cargarlo como razón social.
+                    buscarA: /^\d+$/.test(consulta.trim()) ? undefined : consulta.trim(),
+                  })
+                }
+              />
             </Aviso>
           ) : null}
 
@@ -749,7 +801,26 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
-  const [form, setForm] = useState<FormularioDestinoNuevo>(FORMULARIO_DESTINO_NUEVO_VACIO)
+  /**
+   * Si `fecha` viene seteada y no es la de hoy, el destino se agenda para
+   * OTRO día. Mismo criterio que en CLIENTE EXISTENTE: la barra tiene que
+   * mostrarlo y el cartel de éxito tiene que decirlo.
+   */
+  const fechaAgenda = route.params?.fecha
+  const esOtroDia = !!fechaAgenda && fechaAgenda !== fechaLocalISO(new Date())
+
+  /**
+   * Puede arrancar con la razón social ya escrita: es lo que usa "Sin
+   * resultados" de CLIENTE EXISTENTE cuando el vendedor busca a alguien que
+   * no está en el padrón y decide cargarlo de cero, para no hacerle retipear
+   * lo que ya había puesto.
+   */
+  const [form, setForm] = useState<FormularioDestinoNuevo>(() => {
+    const nombreInicial = (route.params?.buscarA ?? '').trim()
+    return nombreInicial
+      ? { ...FORMULARIO_DESTINO_NUEVO_VACIO, razon_social: nombreInicial }
+      : FORMULARIO_DESTINO_NUEVO_VACIO
+  })
   const [errores, setErrores] = useState<Partial<Record<CampoDestinoNuevo, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
@@ -852,7 +923,10 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       await cliente.invalidateQueries()
       Alert.alert(
         'Cliente y destino creados',
-        `${form.razon_social} quedó en la posición Nº ${parada.orden}.\n\nSe cargó como cliente provisorio: la oficina le va a completar el código y los datos que falten.`,
+        `${form.razon_social} quedó en la posición Nº ${parada.orden}.\n\nSe cargó como cliente provisorio: la oficina le va a completar el código y los datos que falten.` +
+          // Sin esto, un destino agendado para otro día no se distingue del
+          // recorrido de hoy hasta que el vendedor lo va a buscar y no está.
+          (esOtroDia ? `\n\nQueda agendado para el ${nombrarDia(fechaAgenda!)}.` : ''),
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
     },
@@ -875,7 +949,12 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Panel contentStyle={estilos.contenido}>
-          <BarraPanel alVolver={() => navigation.setParams({ modo: undefined })} />
+          <BarraPanel
+            alVolver={() => navigation.setParams({ modo: undefined })}
+            // Sin esto la barra marcaba siempre hoy, aunque se estuviera
+            // agendando para otro día.
+            fecha={fechaAgenda ? new Date(`${fechaAgenda}T12:00:00`) : undefined}
+          />
 
           <TituloPanel>{'CLIENTE\nNUEVO'}</TituloPanel>
 
@@ -981,12 +1060,6 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
     </Pantalla>
   )
 }
-
-const ITEMS_PRIORIDAD = (['alta', 'media', 'baja'] as const).map((p) => ({
-  valor: p,
-  etiqueta: ETIQUETA_PRIORIDAD[p],
-  descripcion: DESCRIPCION_PRIORIDAD[p],
-}))
 
 const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
