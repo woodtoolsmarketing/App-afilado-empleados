@@ -749,6 +749,11 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         // al reabrir la nota el desplegable tiene que volver contestado, y de
         // un texto ya armado no se saca de vuelta el valor que lo generó.
         tipo_pieza: i.tipo_pieza,
+        // Que este cabezal se afila como cuchillas. Se guarda para reabrir el
+        // renglón con la forma correcta y —clave— para que la reimpresión sepa
+        // que se cobra por largo y no por diente. Sólo cuando es cierto: el
+        // filtro de abajo descarta el `null`.
+        cabezal_de_cuchillas: i.cabezal_de_cuchillas ? true : null,
         // Sierra o incisor. Va guardado por lo mismo que el tipo de pieza: la
         // descripción del renglón sale de acá —"Incisor" en vez de "S.C."— y
         // de un texto ya armado no se saca de vuelta la respuesta que lo
@@ -1104,6 +1109,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     paso: comoCadena(detalle.paso),
 
     tipo_pieza: (detalle.tipo_pieza as string | null) || null,
+    cabezal_de_cuchillas: detalle.cabezal_de_cuchillas === true,
     // En las notas cargadas antes de que existiera el desplegable no está, y
     // vuelve en blanco: es honesto, nadie contestó esa pregunta todavía.
     sierra_clase: (detalle.sierra_clase as SierraClase | null) ?? null,

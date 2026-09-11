@@ -420,6 +420,50 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
 }
 
 /**
+ * Los campos de un cabezal que se afila como cuchillas.
+ *
+ * Son los de la cuchilla —largo, ancho, espesor, precio por 100 mm— sin el
+ * `largo_rebajado`, que es sólo del rebaje. Deja afuera el ancho de corte, los
+ * dientes y el precio por diente del cabezal: acá no se cobra por diente. El
+ * TIPO DE CABEZAL no va en la lista porque, cuando está tildado "es de
+ * cuchillas", ya no hace falta elegirlo para cotizar; si el vendedor lo eligió
+ * antes de tildar, queda guardado igual.
+ */
+const CAMPOS_CABEZAL_CUCHILLA: CampoItem[] = [
+  'cantidad', 'largo', 'ancho', 'codigos_computo',
+  'descripcion', 'espesor', 'precio_total',
+]
+
+/**
+ * ¿Este renglón es un cabezal que se afila como cuchillas?
+ *
+ * Sólo en el afilado: en venta, reparación o rectificado el cabezal sigue
+ * siendo un cabezal. Es la única señal que hace que el renglón —sus campos, su
+ * código y su precio— tome la forma de una cuchilla en vez de la del cabezal.
+ */
+export function cabezalAfiladoComoCuchilla(item: FormularioItemNota): boolean {
+  return (
+    item.herramienta === 'cabezal' &&
+    item.servicio === 'afilado' &&
+    item.cabezal_de_cuchillas === true
+  )
+}
+
+/**
+ * Qué campos tiene ESTE renglón, que no siempre son los de su herramienta.
+ *
+ * Es la fuente única que tienen que mirar el formulario, el validador y la
+ * impresión: si la forma del renglón dependiera de una condición que sólo
+ * conoce la pantalla, el validador terminaría exigiendo un campo que no se
+ * mostró —o al revés—. El único caso hoy es el cabezal portacuchillas, que se
+ * carga como cuchilla.
+ */
+export function camposDelItem(item: FormularioItemNota): CampoItem[] {
+  if (cabezalAfiladoComoCuchilla(item)) return CAMPOS_CABEZAL_CUCHILLA
+  return item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
+}
+
+/**
  * En qué máquina trabaja la herramienta.
  *
  * La lista sale de la que usa la página pública para clasificar el catálogo
@@ -1123,6 +1167,18 @@ export interface FormularioItemNota {
    */
   tipo_pieza: string | null
 
+  /**
+   * Este cabezal es un portacuchillas y se afila como cuchillas.
+   *
+   * Un cabezal portacuchillas entra como cabezal —eso es lo que trae el
+   * cliente— pero lo que se afila son sus cuchillas, y en la lista de precios el
+   * afilado de cuchilla se cotiza por largo, no por diente. Con esto en `true`
+   * el renglón toma la forma y la cuenta de una cuchilla suelta (tipo, material,
+   * trabajo, largo × cada 100 mm) en vez de la del cabezal entero. Sólo cuenta
+   * en el afilado; ver `cabezalAfiladoComoCuchilla`.
+   */
+  cabezal_de_cuchillas: boolean
+
   // Mechas
   tipo_mecha: TipoMecha | null
 
@@ -1278,6 +1334,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   largo_rebajado: '',
   sierra_clase: null,
   tipo_pieza: null,
+  cabezal_de_cuchillas: false,
   tipo_mecha: null,
   mecha_material: null,
   mecha_dientes: '',
@@ -1423,7 +1480,7 @@ export function validarItemNota(
   // ── Dientes rotos ─────────────────────────────────────────────────────────
   // Se valida aparte porque es condicional: los campos existen siempre pero
   // sólo se exigen cuando el vendedor marcó que hay dientes rotos.
-  if (item.dientes_rotos && CAMPOS_POR_HERRAMIENTA[item.herramienta].includes('dientes_rotos')) {
+  if (item.dientes_rotos && camposDelItem(item).includes('dientes_rotos')) {
     const rotos = aNumero(item.dientes_rotos_cantidad)
     const totales = aNumero(item.cantidad_dientes) * Math.max(1, aNumero(item.cantidad))
 
@@ -1450,7 +1507,7 @@ export function validarItemNota(
     }
   }
 
-  for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {
+  for (const campo of camposDelItem(item)) {
     if (NO_OBLIGATORIOS.includes(campo)) continue
 
     /*
@@ -1649,7 +1706,7 @@ export function resumenRenglon(item: FormularioItemNota): string {
   if (tipo) partes.push(tipo)
   if (item.tipo_mecha) partes.push(ETIQUETA_TIPO_MECHA[item.tipo_mecha])
 
-  for (const campo of CAMPOS_POR_HERRAMIENTA[item.herramienta]) {
+  for (const campo of camposDelItem(item)) {
     const abreviatura = ABREVIATURA_MEDIDA[campo]
     if (!abreviatura) continue
     const valor = (item as unknown as Record<string, string>)[campo]
@@ -2306,7 +2363,11 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
           ? 'rectificado'
           : 'afilado',
     cantidad: Math.max(1, Math.round(aNumero(esVenta ? item.unidades : item.cantidad)) || 1),
-    dientesPorHerramienta: esVenta ? 0 : aNumero(item.cantidad_dientes),
+    // Un cabezal que se afila como cuchillas se cobra por largo, no por diente:
+    // aunque el tipo de pieza haya dejado un número de dientes cargado, acá vale
+    // 0 para que la cuenta caiga en la rama del precio total (por 100 mm).
+    dientesPorHerramienta:
+      esVenta || cabezalAfiladoComoCuchilla(item) ? 0 : aNumero(item.cantidad_dientes),
     precioUnitario: aNumero(esVenta ? item.precio : item.precio_por_diente),
     codigos: esVenta
       ? item.codigo_herramienta

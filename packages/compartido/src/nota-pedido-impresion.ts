@@ -1303,7 +1303,18 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // vende, no algo que se cobre por unidad: lo que se computa son las
     // unidades. Sin esta condición, vender 3 sierras de 72 dientes computaba
     // 216 y multiplicaba el precio unitario por eso.
-    dientesPorHerramienta: i.servicio === 'venta' ? 0 : Number(i.cantidad_dientes) || 0,
+    // Un cabezal afilado como cuchillas se cobra por largo, no por diente: los
+    // dientes valen 0 para que la reimpresión caiga en la misma rama (precio
+    // total directo) que vio el vendedor. Espeja `cabezalAfiladoComoCuchilla`
+    // sobre la fila guardada; sin esto, una fila con dientes cargados cotizaría
+    // el cabezal entero al reimprimir.
+    dientesPorHerramienta:
+      i.servicio === 'venta' ||
+      (i.herramienta === 'cabezal' &&
+        i.servicio === 'afilado' &&
+        i.detalle?.cabezal_de_cuchillas === true)
+        ? 0
+        : Number(i.cantidad_dientes) || 0,
     precioUnitario: Number(i.precio_unitario) || 0,
     // Media lista de precios está en dólares y el renglón se cotiza así.
     moneda: (i.moneda === 'USD' ? 'USD' : 'ARS') as Moneda,

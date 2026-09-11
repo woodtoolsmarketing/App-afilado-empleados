@@ -14,7 +14,8 @@ import {
   type CuchillaTipo,
   type SierraClase,
   type CuchillaTrabajo,
-  CAMPOS_POR_HERRAMIENTA,
+  cabezalAfiladoComoCuchilla,
+  camposDelItem,
   describirRango,
   descripcionSugerida,
   dientesAAfilar,
@@ -289,7 +290,62 @@ export function PasoRenglon({
   const propuesto = useRef<string | null>(null)
 
   const herramientas = HERRAMIENTAS_POR_SERVICIO[item.servicio]
-  const campos = item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
+  /**
+   * Un cabezal portacuchillas se afila como cuchillas: mismos campos, mismo
+   * código y misma cuenta por largo. `comoCuchilla` es la señal que hace que
+   * todo lo que abajo estaba atado a `herramienta === 'cuchilla'` también valga
+   * para ese cabezal. `esCabezalAfilado` decide sólo dónde se ofrece el tilde.
+   */
+  const comoCuchilla = cabezalAfiladoComoCuchilla(item)
+  const esCabezalAfilado = item.herramienta === 'cabezal' && item.servicio === 'afilado'
+  const campos = camposDelItem(item)
+  // No se cotiza por medida: el código lo elige el selector, no la búsqueda por
+  // ancho. El cabezal portacuchillas se suma a los de siempre (mecha, cuchilla).
+  const sinRangos = comoCuchilla || SIN_RANGOS.has(item.herramienta as Herramienta)
+
+  /**
+   * Tildar (o destildar) "es de cuchillas" cambia la forma del renglón, así que
+   * limpia lo del otro flujo. Al pasar a cuchilla borra lo que se cobra por
+   * diente —los dientes sobre todo, que si quedan cargados harían cotizar el
+   * cabezal entero— y al volver a cabezal borra lo de la cuchilla. En los dos
+   * casos suelta el código y el total para que se recalculen desde cero.
+   */
+  function alTildarDeCuchillas(v: boolean) {
+    propuesto.current = null
+    if (v) {
+      alCambiar({
+        cabezal_de_cuchillas: true,
+        cantidad_dientes: '',
+        precio_por_diente: '',
+        ancho_corte: '',
+        diametro_exterior: '',
+        diametro_interior: '',
+        diametro_interior_catalogo: '',
+        dientes_rotos: false,
+        dientes_rotos_cantidad: '',
+        reparar_dientes: null,
+        codigo_reparacion: '',
+        precio_reparacion_por_diente: '',
+        rascadores: '',
+        codigo_rascador: '',
+        precio_rascador_unitario: '',
+        codigos_computo: [],
+        precio_total: '',
+      })
+    } else {
+      alCambiar({
+        cabezal_de_cuchillas: false,
+        largo: '',
+        ancho: '',
+        espesor: '',
+        cuchilla_tipo: null,
+        cuchilla_material: null,
+        cuchilla_trabajo: null,
+        codigos_computo: [],
+        precio_total: '',
+      })
+    }
+  }
 
   /**
    * El código elegido ya no está entre los que cubren la medida. Pasa al
@@ -699,15 +755,17 @@ export function PasoRenglon({
 
   useEffect(() => {
     if (!verMedidas || !item.herramienta || medidas) return
-    void medidasDisponibles(item.herramienta, item.servicio)
+    // Un cabezal portacuchillas usa los códigos de la cuchilla, no los del
+    // cabezal: la lista de "¿qué códigos hay?" tiene que traer ésos.
+    void medidasDisponibles(comoCuchilla ? 'cuchilla' : item.herramienta, item.servicio)
       .then(setMedidas)
       .catch(() => setMedidas([]))
-  }, [verMedidas, item.herramienta, item.servicio, medidas])
+  }, [verMedidas, item.herramienta, item.servicio, medidas, comoCuchilla])
 
   useEffect(() => {
     setMedidas(null)
     setVerMedidas(false)
-  }, [item.herramienta, item.servicio])
+  }, [item.herramienta, item.servicio, comoCuchilla])
 
   /**
    * Tocar una medida de la lista carga su piso en el campo correspondiente.
@@ -746,7 +804,7 @@ export function PasoRenglon({
       const total =
         importe === null
           ? 0
-          : item.herramienta === 'cuchilla'
+          : item.herramienta === 'cuchilla' || comoCuchilla
             ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
             : Math.round(importe * unidades * 100) / 100
 
@@ -897,7 +955,8 @@ export function PasoRenglon({
       entra alguna que no es de medida estándar, y ahí lo que hace falta es
       poder tipearla, no que la app la rechace.
     */
-    const delTipo = item.herramienta === 'cuchilla' ? medidasDeLaCuchilla(item.cuchilla_tipo) : null
+    const delTipo =
+      item.herramienta === 'cuchilla' || comoCuchilla ? medidasDeLaCuchilla(item.cuchilla_tipo) : null
     const estandar =
       delTipo && campo === 'ancho'
         ? delTipo.anchos
@@ -994,6 +1053,9 @@ export function PasoRenglon({
             alCambiar({
               herramienta: h,
               codigos_computo: [],
+              // "Es de cuchillas" es del cabezal: al cambiar de herramienta se
+              // apaga, para que no reviva sola si más tarde se vuelve a cabezal.
+              cabezal_de_cuchillas: false,
               ...(item.maquina && !maquinasDeLaHerramienta(h).includes(item.maquina)
                 ? { maquina: '' }
                 : {}),
@@ -1118,6 +1180,21 @@ export function PasoRenglon({
       ) : null}
 
       {/*
+        ¿El cabezal es de cuchillas? Un portacuchillas entra como cabezal, pero
+        lo que se afila son sus cuchillas y en la lista eso se cobra por largo.
+        Con el tilde puesto, el renglón se carga y se cotiza como una cuchilla.
+        Sólo se ofrece en el afilado; en venta o reparación el cabezal es un
+        cabezal.
+      */}
+      {esCabezalAfilado ? (
+        <Casilla
+          etiqueta="¿ES DE CUCHILLAS?"
+          valor={item.cabezal_de_cuchillas}
+          alCambiar={alTildarDeCuchillas}
+        />
+      ) : null}
+
+      {/*
         El TIPO DE CUCHILLA, que sirve para las dos operaciones.
 
         Estaba adentro del bloque de afilado, y en un rebaje no se dibujaba
@@ -1125,7 +1202,7 @@ export function PasoRenglon({
         es de 30 ó 35 de ancho, una de dorso ranurado de 40 a 70— y eso hace
         falta igual, se venga a afilar o a rebajar.
       */}
-      {item.herramienta === 'cuchilla' && item.servicio !== 'venta' ? (
+      {(item.herramienta === 'cuchilla' || comoCuchilla) && item.servicio !== 'venta' ? (
         <Desplegable<CuchillaTipo>
           etiqueta="TIPO DE CUCHILLA"
           obligatorio
@@ -1158,7 +1235,7 @@ export function PasoRenglon({
         cotizadas dos notas reales. Un rebaje no tiene tarifa —no existe el
         código en ninguna lista— y se cotiza a mano cada vez.
       */}
-      {item.herramienta === 'cuchilla' &&
+      {(item.herramienta === 'cuchilla' || comoCuchilla) &&
       item.servicio !== 'venta' &&
       item.servicio !== 'rebaje' ? (
         <SelectorAfiladoCuchilla item={item} alCambiar={alCambiar} />
@@ -1304,11 +1381,14 @@ export function PasoRenglon({
         }
 
         if (campo === 'cantidad') {
-          return campoNumerico(
-            campo,
-            `CANTIDAD DE ${item.herramienta ? SINGULAR_HERRAMIENTA[item.herramienta] : 'HERRAMIENTAS'}`,
-            'tercio',
-          )
+          // En un cabezal portacuchillas se cobra por cuchilla, no por cabezal:
+          // el largo va por cada 100 mm y la cantidad son las cuchillas.
+          const queCosa = comoCuchilla
+            ? SINGULAR_HERRAMIENTA.cuchilla
+            : item.herramienta
+              ? SINGULAR_HERRAMIENTA[item.herramienta]
+              : 'HERRAMIENTAS'
+          return campoNumerico(campo, `CANTIDAD DE ${queCosa}`, 'tercio')
         }
 
         if (campo === 'cantidad_dientes') {
@@ -1758,15 +1838,11 @@ export function PasoRenglon({
                   Pasa en las mechas y las cuchillas, donde el código no sale de
                   la medida sino de las respuestas de más arriba: se elegía bien
                   y abajo seguía avisando que no se había encontrado nada. */}
-              {sinCodigo &&
-              !(
-                SIN_RANGOS.has(item.herramienta as Herramienta) &&
-                item.codigos_computo.length > 0
-              ) ? (
+              {sinCodigo && !(sinRangos && item.codigos_computo.length > 0) ? (
                 // Mechas y cuchillas no tienen un solo código con rango: no se
                 // cotizan por medida. Decirle "probá otra medida" sería mandarlo
                 // a buscar algo que no existe.
-                SIN_RANGOS.has(item.herramienta as Herramienta) ? (
+                sinRangos ? (
                   <Aviso tono="atencion" titulo="Esta herramienta no se cotiza por medida">
                     {item.herramienta === 'mecha'
                       ? 'El afilado de mechas va por tipo, material y cantidad de filos, no por diámetro. Contestá el material acá arriba y el código sale solo.'
@@ -1792,9 +1868,13 @@ export function PasoRenglon({
               >
                 <Text style={estilos.verMedidasTexto}>
                   {verMedidas ? '▲' : '▼'}{' '}
-                  {SIN_RANGOS.has(item.herramienta as Herramienta) ? '¿Qué códigos' : '¿Qué medidas'}{' '}
+                  {sinRangos ? '¿Qué códigos' : '¿Qué medidas'}{' '}
                   hay para{' '}
-                  {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'esta herramienta'}?
+                  {comoCuchilla
+                    ? 'CUCHILLAS'
+                    : item.herramienta
+                      ? ETIQUETA_HERRAMIENTA[item.herramienta]
+                      : 'esta herramienta'}?
                 </Text>
               </Pressable>
 
