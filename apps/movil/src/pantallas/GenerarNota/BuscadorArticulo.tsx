@@ -13,9 +13,19 @@ import {
   type FormularioItemNota,
 } from '@woodtools/compartido'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { Campo } from '../../componentes/Formulario'
+import { Campo, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   buscarArticulos,
@@ -34,15 +44,17 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  * —diámetro, ancho de corte y cantidad de dientes—, que son justamente las que
  * después hay que copiar a la columna técnica de la nota.
  *
- * Antes el código se escribía a mano y el precio también. Dos lugares donde
- * equivocarse, con la lista abierta al lado.
+ * ── Por qué la búsqueda vive en una ventana (modal) ──────────────────────────
+ *
+ * En el renglón, el buscador quedaba abajo de una pila de campos y, al tocarlo,
+ * el teclado le tapaba los resultados: había que tipear a ciegas. En la ventana
+ * el buscador y los filtros quedan arriba y la lista ocupa el resto, arriba del
+ * teclado. Y de paso caben los filtros por Ø y dientes y la lista compacta con
+ * el código y la medida, que es lo que el vendedor mira para elegir.
  *
  * **La lista arranca filtrada por lo que se eligió en QUÉ SE VENDE.** Elegir
  * "MECHA" y tener que tipear igual para que aparecieran las mechas era pedirle
- * al vendedor que supiera de memoria cómo las nombra la lista de precios: hay
- * mechas que se llaman "BROCA", "AVELL." o "Punta Plegado" y no aparecen
- * buscando "mecha". Con la familia puesta se muestran solas y el texto sirve
- * para achicar, no para encontrar.
+ * al vendedor que supiera de memoria cómo las nombra la lista de precios.
  */
 export function BuscadorArticulo({
   item,
@@ -58,156 +70,7 @@ export function BuscadorArticulo({
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
-  const [consulta, setConsulta] = useState('')
-  const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
-  const [buscando, setBuscando] = useState(false)
-  const [sinResultados, setSinResultados] = useState(false)
-  const [fallo, setFallo] = useState<string | null>(null)
-  /**
-   * La salida de emergencia del filtro.
-   *
-   * Hay cosas que se venden y están archivadas en otra familia: una muela de
-   * diamante, un bidón de resinol, el pote de soldadura. Filtrar sin manera de
-   * salir las volvería imposibles de cargar en una nota, y el vendedor no
-   * tendría forma de saber por qué el código que tiene en la mano "no existe".
-   */
-  const [todaLaLista, setTodaLaLista] = useState(false)
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
-  const tope = familia ? LISTA_POR_FAMILIA : LISTA_SUELTA
-  const texto = consulta.trim()
-  // Con familia alcanza cualquier texto, que es filtrar una lista corta. Sin
-  // familia hacen falta dos letras, porque si no la consulta es el catálogo
-  // entero.
-  const hayTexto = familia ? texto.length > 0 : texto.length >= 2
-  /**
-   * La lista de entrada va SÓLO mientras no haya artículo elegido.
-   *
-   * `elegir` limpia el texto, así que sin esta condición el efecto vuelve a
-   * correr con el texto vacío y repuebla las cuarenta filas: el artículo que se
-   * acaba de elegir queda abajo de todas ellas, y para llegar a UNIDADES y al
-   * precio hay que volver a pasar por la lista entera. Se ve enseguida en el
-   * teléfono y es molesto en cada renglón.
-   *
-   * Para cambiar el artículo se escribe, y la lista vuelve.
-   */
-  const listarTodo = familia !== null && !item.codigo_herramienta
-  const hayQueBuscar = hayTexto || listarTodo
-
-  // Al cambiar la herramienta el filtro vuelve a estar puesto: la salida de
-  // emergencia era para el renglón anterior, no una preferencia.
-  useEffect(() => {
-    setTodaLaLista(false)
-  }, [item.herramienta])
-
-  useEffect(() => {
-    if (temporizador.current) clearTimeout(temporizador.current)
-    if (!hayQueBuscar) {
-      setResultados([])
-      setSinResultados(false)
-      setFallo(null)
-      return
-    }
-    /**
-     * La respuesta vieja no pinta.
-     *
-     * `clearTimeout` no alcanza: una vez que el temporizador disparó, la
-     * consulta ya salió y va a volver igual. Y acá hay dos que se pisan de
-     * verdad, porque la lista sin texto sale a los 0 ms y queda en vuelo
-     * mientras el vendedor tipea.
-     *
-     * Lo peor no es el orden entre dos búsquedas: es tocar "BUSCAR EN TODA LA
-     * LISTA" mientras la de la familia está viajando. La pantalla se vacía
-     * —sin familia hacen falta dos letras— y un segundo después se repuebla
-     * con las sierras, abajo de un rótulo que dice "toda la lista de precios".
-     * El vendedor concluye que la muela no está en el catálogo.
-     *
-     * Es la misma bandera que usan los otros efectos de esta carpeta.
-     */
-    let cancelado = false
-
-    temporizador.current = setTimeout(async () => {
-      setBuscando(true)
-      // Se limpian ANTES de preguntar. Si no, un error dejaba en pantalla el
-      // "sin resultados" de la búsqueda anterior, que dice justo lo que no es.
-      setSinResultados(false)
-      setFallo(null)
-      try {
-        const encontrados = await buscarArticulos(texto, familia)
-        if (cancelado) return
-        setResultados(encontrados)
-        setSinResultados(encontrados.length === 0)
-      } catch (e) {
-        // "Ese código no existe" y "no pude consultar la lista" son cosas
-        // distintas. Sin señal el buscador se quedaba mudo y el renglón no se
-        // podía completar de ninguna forma: el código sólo se carga eligiendo
-        // de esta lista.
-        if (cancelado) return
-        setResultados([])
-        setFallo((e as Error).message)
-      } finally {
-        if (!cancelado) setBuscando(false)
-      }
-      // Sin texto no hay nada que esperar: es la lista de entrada, y media
-      // pantalla en blanco por 300 ms parece que no funcionó.
-    }, texto ? 300 : 0)
-
-    return () => {
-      cancelado = true
-      if (temporizador.current) clearTimeout(temporizador.current)
-    }
-  }, [texto, familia, hayQueBuscar])
-
-  /**
-   * Carga el artículo en el renglón.
-   *
-   * Las características van a los mismos campos que usa el afilado, así que
-   * salen impresas en la columna técnica sin que nadie las vuelva a tipear.
-   *
-   * Se escriben TODAS, también las que este artículo no trae. En la venta
-   * estos campos no se tipean —salen sólo de acá—, así que dejarlas puestas
-   * cuando el artículo nuevo no las tiene significa imprimir las medidas del
-   * anterior: elegir una sierra de Z=72 y después cambiarla por una sin Z
-   * dejaba la nota diciendo 72 dientes sobre una pieza que no los tiene.
-   */
-  function elegir(a: ArticuloCatalogo) {
-    const c = caracteristicasDeArticulo(a.descripcion, a.medida)
-    setConsulta('')
-    setResultados([])
-    alElegir({
-      codigo_herramienta: a.codigo,
-      // La descripción del renglón NO se pisa con el texto de la lista.
-      //
-      // "SIERRA CIRCULAR WIDIA D=300 d=30 B=3.2 Z=72 DER." es lo que la lista
-      // dice, y no entra en la columna del talonario: la desborda y empuja
-      // todo lo demás. Lo que va impreso es la descripción corta —"SC nueva"—
-      // que ya puso `descripcionSugerida`; el artículo exacto queda
-      // identificado por el código, que va en su propia columna.
-      //
-      // Sólo se completa si el vendedor no escribió nada suyo.
-      ...(esDescripcionSugerida(item.descripcion)
-        ? { descripcion: descripcionSugerida(item.herramienta, item.servicio) }
-        : {}),
-      descripcion_catalogo: a.descripcion,
-      precio: String(a.precio),
-      moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
-      diametro_exterior: c.diametro_exterior ?? '',
-      // El agujero de fábrica va a su propio campo: el que se carga a mano es
-      // el de la pieza que trae el cliente, y la diferencia entre los dos es
-      // lo que decide si hubo agrandado o buje reductor.
-      diametro_interior_catalogo: c.diametro_interior ?? '',
-      ancho_corte: c.ancho_corte ?? '',
-      // Los dientes de una sierra que se VENDE. No se cobran por diente —eso
-      // lo atajan `computoDeRenglon` y `computoDeFila`, que ponen cero en la
-      // venta— pero sí van a la columna Z-Paso del talonario: es lo que la
-      // fábrica lee para saber qué pieza salió.
-      cantidad_dientes: c.dientes ?? '',
-      largo: c.largo ?? '',
-      ancho: c.ancho ?? '',
-      espesor: c.espesor ?? '',
-    })
-  }
+  const [abierto, setAbierto] = useState(false)
 
   // Las características se leen del texto de la lista, no de la descripción
   // corta: "SC nueva" no tiene adentro ningún D=, ningún Z=.
@@ -215,104 +78,34 @@ export function BuscadorArticulo({
     ? caracteristicasDeArticulo(item.descripcion_catalogo || item.descripcion, null)
     : null
 
-  // "las mechas", "las sierras": el nombre de lo que se está listando, para
-  // poder decirlo en los carteles sin repetir el desplegable de arriba.
-  const loQueSeLista = item.herramienta
-    ? ETIQUETA_HERRAMIENTA[item.herramienta].toLowerCase()
-    : 'la lista'
-
   return (
     <View style={estilos.bloque}>
-      <Campo
-        etiqueta={familia ? 'BUSCAR ENTRE LO QUE SE VENDE' : 'BUSCAR EN LA LISTA DE PRECIOS'}
-        obligatorio
-        value={consulta}
-        onChangeText={setConsulta}
-        placeholder={
-          familia ? `Achicá la lista — ej. 300 o bisagra` : 'Código o descripción — ej. LG2B'
-        }
-        autoCapitalize="characters"
-        error={error}
-        accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-        ayuda={
-          listarTodo
-            ? `Abajo está lo que hay de ${loQueSeLista}. Al elegir se completan solos el precio y las características.`
-            : item.codigo_herramienta
-              ? 'Escribí para cambiar el artículo.'
-              : 'Al elegir se completan solos el precio y las características.'
-        }
-      />
-
-      {resultados.length > 0 ? (
-        <View style={estilos.lista}>
-          {resultados.map((a) => (
-            <FilaArticulo key={`${a.codigo}|${a.descripcion}`} articulo={a} alTocar={() => elegir(a)} />
-          ))}
-        </View>
-      ) : null}
-
-      {/* La lista quedó cortada. Se dice, en vez de mostrar el tope y hacer
-          creer que ésos son todos los que hay.
-
-          El corte NO es sólo el de la lista sin escribir nada: el límite se
-          aplica igual cuando hay texto —"HSS" da 105 cuchillas y se ven 40— y
-          el aviso estaba condicionado a que el texto estuviera vacío, así que
-          justo ahí no aparecía. Sin familia el tope es otro, y también corta:
-          "300" da 57 en toda la lista. */}
-      {resultados.length >= tope ? (
-        <Text style={estilos.nota}>
-          {texto
-            ? `Hay más de ${tope} que coinciden y se muestran las primeras. Escribí un poco más para achicar la lista.`
-            : `Se muestran las primeras ${tope}. Escribí parte del código o de la descripción para achicar la lista.`}
+      {/* El botón que abre la ventana de búsqueda. Muestra qué se está por
+          buscar o, si ya hay algo elegido, invita a cambiarlo. */}
+      <Pressable
+        onPress={() => setAbierto(true)}
+        accessibilityRole="button"
+        accessibilityLabel={item.codigo_herramienta ? 'Cambiar el artículo' : 'Buscar el artículo'}
+        style={({ pressed }) => [
+          estilos.abrir,
+          !!error && estilos.abrirConError,
+          pressed && estilos.tocada,
+        ]}
+      >
+        <Text style={estilos.abrirTexto}>
+          {item.codigo_herramienta ? '🔎  CAMBIAR EL ARTÍCULO' : '🔎  BUSCAR EL ARTÍCULO EN LA LISTA'}
         </Text>
-      ) : null}
+      </Pressable>
+      <MensajeError>{error}</MensajeError>
 
-      {fallo && !buscando ? (
-        <Aviso tono="atencion" titulo="No pudimos consultar la lista de precios">
-          {fallo}
-          {'\n\n'}Revisá la señal y escribí de nuevo. Sin la lista no se puede cargar el código del
-          artículo: si estás sin señal, anotá el pedido en la observación y cargá la nota cuando
-          vuelvas a tener.
-        </Aviso>
-      ) : null}
-
-      {sinResultados ? (
-        <Aviso tono="atencion">
-          {familia
-            ? `No hay ninguna ${loQueSeLista} con eso. Probá con menos letras, o mirá toda la lista acá abajo: hay cosas que se venden y están archivadas en otro rubro.`
-            : 'No hay ningún artículo con eso. Probá con menos letras, o con parte de la descripción en vez del código.'}
-        </Aviso>
-      ) : null}
-
-      {/* La salida del filtro. Va siempre visible cuando el filtro está puesto
-          y no sólo cuando la búsqueda falla: el vendedor puede saber de entrada
-          que lo que busca está en otro rubro y no tiene por qué averiguarlo
-          escribiendo hasta que no aparezca nada. */}
-      {item.herramienta ? (
-        <Pressable
-          onPress={() => setTodaLaLista((v) => !v)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: todaLaLista }}
-          style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
-        >
-          <Text style={estilos.salidaTexto}>
-            {todaLaLista
-              ? `◂ VOLVER A ${ETIQUETA_HERRAMIENTA[item.herramienta].toUpperCase()}`
-              : 'BUSCAR EN TODA LA LISTA DE PRECIOS'}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {/* Lo que quedó cargado, para poder revisarlo sin volver a buscar. */}
+      {/* Lo que quedó cargado, para poder revisarlo sin volver a abrir la lista. */}
       {item.codigo_herramienta ? (
         <View style={estilos.elegido}>
           <View style={estilos.elegidoFila}>
             <Pastilla texto={item.codigo_herramienta} color={colores.verdeOscuro} />
             {item.moneda === 'USD' ? <Pastilla texto="LISTA EN US$" color={colores.azul} /> : null}
           </View>
-          <Text style={estilos.elegidoDesc}>
-            {item.descripcion_catalogo || item.descripcion}
-          </Text>
+          <Text style={estilos.elegidoDesc}>{item.descripcion_catalogo || item.descripcion}</Text>
           {elegido && resumenCaracteristicas(elegido) ? (
             <Text style={estilos.elegidoCaract}>{resumenCaracteristicas(elegido)}</Text>
           ) : null}
@@ -323,21 +116,308 @@ export function BuscadorArticulo({
           ) : null}
         </View>
       ) : null}
+
+      <Modal
+        visible={abierto}
+        animationType="slide"
+        onRequestClose={() => setAbierto(false)}
+        statusBarTranslucent
+      >
+        <VentanaBusqueda
+          item={item}
+          tipoCambio={tipoCambio}
+          alElegir={(cambios) => {
+            alElegir(cambios)
+            setAbierto(false)
+          }}
+          alCerrar={() => setAbierto(false)}
+        />
+      </Modal>
     </View>
   )
 }
 
-function FilaArticulo({
+/**
+ * El contenido de la ventana: buscador + filtros arriba (fijos) y la lista de
+ * resultados abajo (desplazable, arriba del teclado).
+ */
+function VentanaBusqueda({
+  item,
+  alElegir,
+  alCerrar,
+  tipoCambio,
+}: {
+  item: FormularioItemNota
+  alElegir: (cambios: Partial<FormularioItemNota>) => void
+  alCerrar: () => void
+  tipoCambio: number
+}) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
+  const insets = useSafeAreaInsets()
+
+  const [consulta, setConsulta] = useState('')
+  const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [sinResultados, setSinResultados] = useState(false)
+  const [fallo, setFallo] = useState<string | null>(null)
+  /**
+   * La salida de emergencia del filtro. Hay cosas que se venden y están
+   * archivadas en otra familia: una muela de diamante, un bidón de resinol.
+   * Sin manera de salir del filtro serían imposibles de cargar.
+   */
+  const [todaLaLista, setTodaLaLista] = useState(false)
+  /** Filtros por característica: se aplican sobre lo que ya se trajo. */
+  const [filtroDiametro, setFiltroDiametro] = useState('')
+  const [filtroDientes, setFiltroDientes] = useState('')
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
+  const tope = familia ? LISTA_POR_FAMILIA : LISTA_SUELTA
+  const texto = consulta.trim()
+  // Con familia alcanza cualquier texto, que es filtrar una lista corta. Sin
+  // familia hacen falta dos letras, porque si no la consulta es el catálogo entero.
+  const hayTexto = familia ? texto.length > 0 : texto.length >= 2
+  // Con familia puesta se listan solas al abrir; sin familia, sólo al escribir.
+  const listarTodo = familia !== null
+  const hayQueBuscar = hayTexto || listarTodo
+
+  useEffect(() => {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    if (!hayQueBuscar) {
+      setResultados([])
+      setSinResultados(false)
+      setFallo(null)
+      return
+    }
+    // La respuesta vieja no pinta: la lista sin texto sale a los 0 ms y queda en
+    // vuelo mientras el vendedor tipea. Misma bandera que el resto de la carpeta.
+    let cancelado = false
+
+    temporizador.current = setTimeout(async () => {
+      setBuscando(true)
+      setSinResultados(false)
+      setFallo(null)
+      try {
+        const encontrados = await buscarArticulos(texto, familia)
+        if (cancelado) return
+        setResultados(encontrados)
+        setSinResultados(encontrados.length === 0)
+      } catch (e) {
+        // "Ese código no existe" y "no pude consultar la lista" son cosas distintas.
+        if (cancelado) return
+        setResultados([])
+        setFallo((e as Error).message)
+      } finally {
+        if (!cancelado) setBuscando(false)
+      }
+    }, texto ? 300 : 0)
+
+    return () => {
+      cancelado = true
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+  }, [texto, familia, hayQueBuscar])
+
+  /**
+   * Carga el artículo en el renglón. Las características van a los mismos campos
+   * que usa el afilado, así que salen impresas en la columna técnica sin que
+   * nadie las vuelva a tipear. Se escriben TODAS, también las que este artículo
+   * no trae, para no dejar puestas las medidas del anterior.
+   */
+  function elegir(a: ArticuloCatalogo) {
+    const c = caracteristicasDeArticulo(a.descripcion, a.medida)
+    alElegir({
+      codigo_herramienta: a.codigo,
+      ...(esDescripcionSugerida(item.descripcion)
+        ? { descripcion: descripcionSugerida(item.herramienta, item.servicio) }
+        : {}),
+      descripcion_catalogo: a.descripcion,
+      precio: String(a.precio),
+      moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
+      diametro_exterior: c.diametro_exterior ?? '',
+      diametro_interior_catalogo: c.diametro_interior ?? '',
+      ancho_corte: c.ancho_corte ?? '',
+      cantidad_dientes: c.dientes ?? '',
+      largo: c.largo ?? '',
+      ancho: c.ancho ?? '',
+      espesor: c.espesor ?? '',
+    })
+  }
+
+  // ── Filtros por característica sobre lo ya traído ──────────────────────────
+  // El vendedor achica una familia larga por diámetro exterior o cantidad de
+  // dientes en vez de leer código por código.
+  const caractDe = (a: ArticuloCatalogo) => caracteristicasDeArticulo(a.descripcion, a.medida)
+  const nd = (s: string) => s.replace(',', '.').replace(/[^\d.]/g, '')
+  const fDiam = nd(filtroDiametro)
+  const fDientes = nd(filtroDientes)
+  const visibles = resultados.filter((a) => {
+    if (!fDiam && !fDientes) return true
+    const c = caractDe(a)
+    if (fDiam && nd(c.diametro_exterior ?? '') !== fDiam) return false
+    if (fDientes && nd(c.dientes ?? '') !== fDientes) return false
+    return true
+  })
+
+  // El prefijo de familia común ("LU3F ") se saca del código para mostrarlo
+  // corto: "LU3F 0200" queda "0200". Sólo si todos lo comparten.
+  const prefijo = prefijoComun(visibles.map((a) => a.codigo))
+
+  const loQueSeLista = item.herramienta
+    ? ETIQUETA_HERRAMIENTA[item.herramienta].toLowerCase()
+    : 'la lista'
+
+  const hayFiltroCaract = !!(fDiam || fDientes)
+
+  return (
+    <View style={[estilos.ventana, { paddingTop: insets.top }]}>
+      <KeyboardAvoidingView
+        style={estilos.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+      <View style={estilos.cabecera}>
+        <Text style={estilos.titulo} numberOfLines={1}>
+          {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta].toUpperCase() : 'LISTA DE PRECIOS'}
+        </Text>
+        <Pressable
+          onPress={alCerrar}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar"
+          hitSlop={10}
+          style={({ pressed }) => [estilos.cerrar, pressed && estilos.tocada]}
+        >
+          <Text style={estilos.cerrarTexto}>✕</Text>
+        </Pressable>
+      </View>
+
+      <View style={estilos.controles}>
+        <Campo
+          etiqueta={familia ? 'BUSCAR ENTRE LO QUE SE VENDE' : 'BUSCAR EN LA LISTA DE PRECIOS'}
+          value={consulta}
+          onChangeText={setConsulta}
+          placeholder={familia ? 'Achicá la lista — ej. LU3F o 300' : 'Código o descripción — ej. LG2B'}
+          autoCapitalize="characters"
+          autoFocus
+          accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+        />
+
+        {/* Otros filtros: por Ø exterior y por cantidad de dientes. */}
+        <View style={estilos.filtros}>
+          <View style={estilos.filtroMitad}>
+            <Campo
+              etiqueta="Ø EXTERIOR"
+              value={filtroDiametro}
+              onChangeText={setFiltroDiametro}
+              placeholder="250"
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <View style={estilos.filtroMitad}>
+            <Campo
+              etiqueta="DIENTES (Z)"
+              value={filtroDientes}
+              onChangeText={setFiltroDientes}
+              placeholder="80"
+              keyboardType="number-pad"
+            />
+          </View>
+        </View>
+      </View>
+
+      <ScrollView
+        style={estilos.listaScroll}
+        contentContainerStyle={estilos.listaContenido}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {visibles.length > 0 ? (
+          <View style={estilos.lista}>
+            {visibles.map((a) => (
+              <FilaMedida
+                key={`${a.codigo}|${a.descripcion}`}
+                articulo={a}
+                prefijo={prefijo}
+                tipoCambio={tipoCambio}
+                alTocar={() => elegir(a)}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {/* Con filtros de característica el corte que importa es el de lo visible. */}
+        {!hayFiltroCaract && resultados.length >= tope ? (
+          <Text style={estilos.nota}>
+            {texto
+              ? `Hay más de ${tope} que coinciden y se muestran los primeros. Escribí un poco más, o usá los filtros de arriba.`
+              : `Se muestran los primeros ${tope}. Escribí parte del código o usá los filtros de arriba para achicar.`}
+          </Text>
+        ) : null}
+
+        {hayFiltroCaract && resultados.length > 0 && visibles.length === 0 ? (
+          <Aviso tono="atencion">
+            {`Ninguno de los ${resultados.length} que se cargaron coincide con esos filtros. Probá con otra medida, o borrá los filtros.`}
+          </Aviso>
+        ) : null}
+
+        {fallo && !buscando ? (
+          <Aviso tono="atencion" titulo="No pudimos consultar la lista de precios">
+            {fallo}
+            {'\n\n'}Revisá la señal y escribí de nuevo. Sin la lista no se puede cargar el código: si
+            estás sin señal, anotá el pedido en la observación y cargá la nota cuando vuelvas a tener.
+          </Aviso>
+        ) : null}
+
+        {sinResultados ? (
+          <Aviso tono="atencion">
+            {familia
+              ? `No hay ninguna ${loQueSeLista} con eso. Probá con menos letras, o mirá toda la lista con el botón de abajo: hay cosas que se venden y están en otro rubro.`
+              : 'No hay ningún artículo con eso. Probá con menos letras, o con parte de la descripción en vez del código.'}
+          </Aviso>
+        ) : null}
+
+        {/* La salida del filtro, siempre visible cuando el filtro está puesto. */}
+        {item.herramienta ? (
+          <Pressable
+            onPress={() => setTodaLaLista((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: todaLaLista }}
+            style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+          >
+            <Text style={estilos.salidaTexto}>
+              {todaLaLista
+                ? `◂ VOLVER A ${ETIQUETA_HERRAMIENTA[item.herramienta].toUpperCase()}`
+                : 'BUSCAR EN TODA LA LISTA DE PRECIOS'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  )
+}
+
+/**
+ * Una fila compacta de la lista: el código corto (sin el prefijo de familia) y
+ * la medida en una línea —"0200: Ø250 Z80"—, con el precio a la derecha.
+ */
+function FilaMedida({
   articulo,
+  prefijo,
+  tipoCambio,
   alTocar,
 }: {
   articulo: ArticuloCatalogo
+  prefijo: string
+  tipoCambio: number
   alTocar: () => void
 }) {
   const estilos = usarEstilos()
   const c: CaracteristicasArticulo = caracteristicasDeArticulo(articulo.descripcion, articulo.medida)
-  const resumen = resumenCaracteristicas(c)
+  const compacto = resumenCompacto(c)
   const moneda = articulo.moneda === 'USD' ? 'USD' : 'ARS'
+  const codigoCorto =
+    prefijo && articulo.codigo.startsWith(prefijo) ? articulo.codigo.slice(prefijo.length) : articulo.codigo
 
   return (
     <Pressable
@@ -347,26 +427,120 @@ function FilaArticulo({
       style={({ pressed }) => [estilos.fila, pressed && estilos.tocada]}
     >
       <View style={estilos.filaCabecera}>
-        <Text style={estilos.codigo}>{articulo.codigo}</Text>
+        <Text style={estilos.codigo}>
+          {codigoCorto}
+          {compacto ? <Text style={estilos.medida}>{`  ${compacto}`}</Text> : null}
+        </Text>
         <Text style={estilos.precio}>
           {articulo.sin_precio ? 'a confirmar' : formatearMoneda(Number(articulo.precio), moneda)}
         </Text>
       </View>
-      <Text style={estilos.descripcion} numberOfLines={2}>
+      <Text style={estilos.descripcion} numberOfLines={1}>
         {articulo.descripcion}
       </Text>
-      {/* Las características son lo que deja reconocer la herramienta que el
-          cliente tiene en la mano sin abrir la lista en papel. */}
-      {resumen ? <Text style={estilos.caracteristicas}>{resumen}</Text> : null}
       {moneda === 'USD' && articulo.precio_pesos ? (
         <Text style={estilos.enPesos}>{`≈ ${formatearPesos(Number(articulo.precio_pesos))}`}</Text>
+      ) : moneda === 'USD' && tipoCambio > 0 ? (
+        <Text style={estilos.enPesos}>{`≈ ${formatearPesos(Number(articulo.precio) * tipoCambio)}`}</Text>
       ) : null}
     </Pressable>
   )
 }
 
+/** "Ø250 Z80" — la medida en corto, para la fila de la ventana. */
+function resumenCompacto(c: CaracteristicasArticulo): string {
+  return [
+    c.diametro_exterior ? `Ø${c.diametro_exterior}` : null,
+    c.dientes ? `Z${c.dientes}` : null,
+    c.ancho_corte ? `${c.ancho_corte}mm` : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/**
+ * El prefijo de familia común, hasta el último espacio: de `["LU3F 0100",
+ * "LU3F 0200"]` sale `"LU3F "`. Sirve para mostrar el código corto. Devuelve ""
+ * si no todos comparten un prefijo terminado en espacio.
+ */
+function prefijoComun(codigos: string[]): string {
+  if (codigos.length < 2) return ''
+  let comun = codigos[0]
+  for (const c of codigos.slice(1)) {
+    let i = 0
+    while (i < comun.length && i < c.length && comun[i] === c[i]) i++
+    comun = comun.slice(0, i)
+    if (!comun) return ''
+  }
+  const corte = comun.lastIndexOf(' ')
+  return corte > 0 ? comun.slice(0, corte + 1) : ''
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   bloque: { gap: espaciado.xs },
+
+  abrir: {
+    minHeight: 56,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campo,
+    paddingHorizontal: espaciado.base,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  abrirConError: { borderColor: t.colores.rojoAccion, borderWidth: 3 },
+  abrirTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  tocada: { opacity: 0.7 },
+
+  // ── Ventana ────────────────────────────────────────────────────────────────
+  ventana: { flex: 1, backgroundColor: t.colores.fondo },
+  flex: { flex: 1 },
+  cabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: espaciado.base,
+    paddingVertical: espaciado.sm,
+    gap: espaciado.sm,
+  },
+  titulo: {
+    flex: 1,
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.blanco,
+    letterSpacing: 0.6,
+  },
+  cerrar: {
+    width: 44,
+    height: 44,
+    borderRadius: radios.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.colores.panelClaro,
+  },
+  cerrarTexto: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
+  },
+  controles: {
+    paddingHorizontal: espaciado.base,
+    paddingBottom: espaciado.sm,
+    gap: espaciado.xs,
+    backgroundColor: t.colores.panelClaro,
+    borderBottomWidth: 2,
+    borderBottomColor: t.colores.borde,
+  },
+  filtros: { flexDirection: 'row', gap: espaciado.sm },
+  filtroMitad: { flex: 1 },
+
+  listaScroll: { flex: 1, backgroundColor: t.colores.fondo },
+  listaContenido: { padding: espaciado.base, gap: espaciado.sm },
 
   lista: {
     borderWidth: 2,
@@ -380,36 +554,21 @@ const usarEstilos = hojaDeTema((t) => ({
     paddingVertical: espaciado.sm,
     borderBottomWidth: 1,
     borderBottomColor: t.colores.panelOscuro,
-    minHeight: 64,
+    minHeight: 60,
     justifyContent: 'center',
     gap: 2,
   },
-  tocada: { opacity: 0.7 },
-
-  nota: {
-    fontFamily: t.tipografia.familia.liviana,
-    fontSize: t.tipografia.tamano.micro,
-    color: t.colores.tintaSuave,
-  },
-  salida: {
-    alignSelf: 'flex-start',
-    paddingVertical: espaciado.xs,
-    // Alto de dedo: se toca parado en un taller, no con el mouse.
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  salidaTexto: {
-    fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.micro,
-    color: t.colores.rojo,
-    textDecorationLine: 'underline',
-  },
-
   filaCabecera: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   codigo: {
     fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.sm,
+    fontSize: t.tipografia.tamano.base,
     color: t.colores.tinta,
+    flexShrink: 1,
+  },
+  medida: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
   },
   precio: {
     fontFamily: t.tipografia.familia.fuerte,
@@ -419,17 +578,30 @@ const usarEstilos = hojaDeTema((t) => ({
   descripcion: {
     fontFamily: t.tipografia.familia.cuerpo,
     fontSize: t.tipografia.tamano.xs,
-    color: t.colores.tinta,
-  },
-  caracteristicas: {
-    fontFamily: t.tipografia.familia.liviana,
-    fontSize: t.tipografia.tamano.micro,
     color: t.colores.tintaSuave,
   },
   enPesos: {
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.micro,
     color: t.colores.tintaTenue,
+  },
+
+  nota: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
+  },
+  salida: {
+    alignSelf: 'flex-start',
+    paddingVertical: espaciado.xs,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  salidaTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
+    textDecorationLine: 'underline',
   },
 
   elegido: {
