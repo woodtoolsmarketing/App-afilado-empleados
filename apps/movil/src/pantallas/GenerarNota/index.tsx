@@ -1429,7 +1429,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                       {renglon.servicio === 'venta' ? (
                         <BotonSecundario
                           titulo="⊕  AGREGAR OTRO ARTÍCULO"
-                          alTocar={() => sumarRenglon(null)}
+                          // Hereda el artículo del renglón anterior, igual que
+                          // "SUMAR OTRA" en un servicio: el caso más común de
+                          // agregar otro es llevar otra unidad de lo mismo (dos
+                          // mechas iguales). Queda cambiable con un toque.
+                          alTocar={() => sumarRenglon(renglon.herramienta)}
                         />
                       ) : (
                         <>
