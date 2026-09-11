@@ -15,9 +15,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -270,12 +268,13 @@ function VentanaBusqueda({
 
   const hayFiltroCaract = !!(fDiam || fDientes)
 
+  // En Android la ventana ya se achica sola cuando sube el teclado —adjustResize,
+  // el modo por defecto de Expo— así que la lista, que ocupa el resto con flex:1,
+  // queda siempre arriba del teclado sin ayuda de nadie. Un KeyboardAvoidingView
+  // encima duplicaba ese ajuste y, al bajar el teclado, dejaba la lista en blanco
+  // hasta volver a tipear. Por eso NO lleva: el sistema solo hace lo correcto.
   return (
     <View style={[estilos.ventana, { paddingTop: insets.top }]}>
-      <KeyboardAvoidingView
-        style={estilos.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
       <View style={estilos.cabecera}>
         <Text style={estilos.titulo} numberOfLines={1}>
           {item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta].toUpperCase() : 'LISTA DE PRECIOS'}
@@ -392,7 +391,6 @@ function VentanaBusqueda({
           </Pressable>
         ) : null}
       </ScrollView>
-      </KeyboardAvoidingView>
     </View>
   )
 }
@@ -499,7 +497,6 @@ const usarEstilos = hojaDeTema((t) => ({
 
   // ── Ventana ────────────────────────────────────────────────────────────────
   ventana: { flex: 1, backgroundColor: t.colores.fondo },
-  flex: { flex: 1 },
   cabecera: {
     flexDirection: 'row',
     alignItems: 'center',
