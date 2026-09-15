@@ -8,7 +8,7 @@ import { supabase } from '../nucleo/supabase'
  * "CARGAR ROL MAESTRO"
  *
  * El plan de visitas de un vendedor, cargado de un Excel: a qué clientes tiene
- * que ver y cada cuántos días.
+ * que ver.
  *
  * ── Qué NO hace ─────────────────────────────────────────────────────────────
  *
@@ -18,19 +18,31 @@ import { supabase } from '../nucleo/supabase'
  * Es a propósito: el vendedor no tiene permiso de borrar paradas, así que si el
  * Excel las creara directamente, "deseleccionar" no podría deshacerlo.
  *
+ * ── Cómo se lee el Excel ────────────────────────────────────────────────────
+ *
+ * Los Excel de la oficina son planillas de recorrido por día y zona: arriba
+ * tienen el logo y un título, después una fila de encabezados —"Hora", "Cod",
+ * "Razon Social", "Direccion"…— y recién abajo los clientes. La columna que
+ * importa es "Cod": ahí está el CÓDIGO del cliente. NO es la primera columna
+ * (esa suele ser un número de orden 1, 2, 3…), y por eso el código no se busca
+ * por posición sino por el nombre del encabezado. Buscarlo por posición fue lo
+ * que hacía que se cargara el número de orden como si fuera el código y todo
+ * saliera cruzado.
+ *
+ * El resto de las columnas se ignora. La razón social sale del padrón, cruzando
+ * por el código, así que la del Excel no hace falta.
+ *
  * ── Por qué muestra todo antes de guardar ───────────────────────────────────
  *
- * Porque un Excel de la oficina trae códigos que no existen, filas en blanco en
- * el medio y frecuencias tipeadas como "15 dias". Guardar primero y avisar
- * después deja media carga hecha y la otra media perdida, y nadie sabe cuál fue
- * cuál. Acá se ve el resultado completo —lo que entra y lo que no— y recién
- * entonces se decide.
+ * Porque un Excel de la oficina trae códigos que no existen y filas en blanco
+ * en el medio. Guardar primero y avisar después deja media carga hecha y la
+ * otra media perdida, y nadie sabe cuál fue cuál. Acá se ve el resultado
+ * completo —lo que entra y lo que no— y recién entonces se decide.
  */
 
 interface FilaLeida {
   linea: number
   codigo: string
-  cadaCuantosDias: number | null
   /** Null hasta que se cruza contra el padrón. */
   clienteId: string | null
   razonSocial: string | null
@@ -151,7 +163,9 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
         validas.map((f, i) => ({
           vendedor_id: vendedorId,
           cliente_id: f.clienteId!,
-          cada_cuantos_dias: f.cadaCuantosDias!,
+          // Sin frecuencia: el Excel de recorrido no la trae. La columna es
+          // opcional en la base y un cliente sin frecuencia es candidato
+          // siempre. Ver la migración 20260915130000.
           orden: i + 1,
           activo: true,
           cargado_por: sesion.session?.user.id ?? null,
@@ -175,8 +189,8 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
       <div className="encabezado-pagina">
         <h1>Rol maestro</h1>
         <p>
-          A qué clientes tiene que visitar cada vendedor y cada cuántos días. De acá salen los
-          candidatos que le aparecen en el teléfono, todos deseleccionados.
+          A qué clientes tiene que visitar cada vendedor. De acá salen los candidatos que le
+          aparecen en el teléfono, todos deseleccionados.
         </p>
       </div>
 
@@ -217,9 +231,9 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
             disabled={soloLectura || !vendedorId}
           />
           <small>
-            Una fila por cliente. Primera columna: el código de cliente. Segunda: cada cuántos días
-            visitarlo. La primera fila puede ser el encabezado — si no tiene un número en la segunda
-            columna, se saltea.
+            El Excel tiene que tener una columna con el encabezado <b>Cod</b> (el código de cliente).
+            El resto de las columnas se ignora, y las filas de arriba —logo, título— se saltean
+            solas.
           </small>
         </div>
 
@@ -246,7 +260,6 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
                 <th style={{ width: 60 }}>Fila</th>
                 <th style={{ width: 90 }}>Código</th>
                 <th>Cliente</th>
-                <th style={{ width: 120 }}>Cada</th>
                 <th>Estado</th>
               </tr>
             </thead>
@@ -261,7 +274,6 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
                     <code>{f.codigo || '—'}</code>
                   </td>
                   <td>{f.razonSocial ?? '—'}</td>
-                  <td>{f.cadaCuantosDias ? `${f.cadaCuantosDias} días` : '—'}</td>
                   <td>
                     {f.problema ? (
                       <span className="pastilla roja">{f.problema}</span>
@@ -292,43 +304,94 @@ export function PaginaRolMaestro({ soloLectura }: { soloLectura: boolean }) {
   )
 }
 
+/** Deja un encabezado comparable: sin acentos, sin puntuación, en minúscula. */
+function normalizarEncabezado(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** ¿Este encabezado es la columna del código de cliente? "Cod", "Código", … */
+function esEncabezadoCodigo(texto: string): boolean {
+  return /^cod(igo)?( de)?( cliente)?$/.test(normalizarEncabezado(texto))
+}
+
 /**
- * Lee el archivo y devuelve las filas crudas.
+ * Lee el archivo y devuelve las filas crudas (una por código de cliente).
  *
- * Acepta .xlsx y .csv por el mismo camino: ExcelJS lee los dos, y sostener dos
- * lectores para el mismo formato de datos es sostener dos formas de fallar.
+ * Acepta .xlsx y .csv por el mismo camino: se arma una grilla de texto y se
+ * busca la columna "Cod" por su nombre, no por su posición. La razón de leer
+ * TODA la grilla y no sólo las primeras columnas es justamente esa: el código
+ * puede estar en la tercera columna, después de un número de orden y de "Hora".
  */
-async function leerPlanilla(archivo: File): Promise<Array<Omit<FilaLeida, 'clienteId' | 'razonSocial'>>> {
-  const libro = new ExcelJS.Workbook()
+async function leerPlanilla(archivo: File): Promise<Array<Pick<FilaLeida, 'linea' | 'codigo'>>> {
+  const grilla = await grillaDeTexto(archivo)
+
+  // La fila de encabezados es la primera que tenga una celda "Cod". Todo lo de
+  // arriba —logo, título, filas en blanco— queda descartado solo.
+  let filaEncabezado = -1
+  let columnaCodigo = -1
+  for (let i = 0; i < grilla.length && filaEncabezado < 0; i++) {
+    const fila = grilla[i] ?? []
+    for (let j = 0; j < fila.length; j++) {
+      if (esEncabezadoCodigo(fila[j] ?? '')) {
+        filaEncabezado = i
+        columnaCodigo = j
+        break
+      }
+    }
+  }
+
+  if (columnaCodigo < 0) {
+    throw new Error(
+      'No encontramos la columna del código. El Excel tiene que tener un encabezado "Cod" (o "Código") arriba de la columna con los códigos de cliente.',
+    )
+  }
+
+  const filas: Array<Pick<FilaLeida, 'linea' | 'codigo'>> = []
+  for (let i = filaEncabezado + 1; i < grilla.length; i++) {
+    const codigo = (grilla[i]?.[columnaCodigo] ?? '').trim()
+    if (!codigo) continue
+    // La numeración que se muestra es la del Excel (1-based), para que "fila 7"
+    // sea la fila 7 de la planilla y se pueda ir a mirarla.
+    filas.push({ linea: i + 1, codigo })
+  }
+
+  if (filas.length === 0) {
+    throw new Error(
+      'Encontramos la columna "Cod" pero no hay ninguna fila con código debajo. Revisá el archivo.',
+    )
+  }
+  return filas
+}
+
+/** Arma una grilla de celdas de texto, fila por fila, desde .xlsx o .csv. */
+async function grillaDeTexto(archivo: File): Promise<string[][]> {
   const buffer = await archivo.arrayBuffer()
 
   if (archivo.name.toLowerCase().endsWith('.csv')) {
     const texto = new TextDecoder('utf-8').decode(buffer)
-    return texto
-      .split(/\r?\n/)
-      .map((linea, i) => {
-        const celdas = linea.split(/[;,\t]/)
-        return interpretar(celdas[0] ?? '', celdas[1] ?? '', i + 1)
-      })
-      .filter((f): f is Omit<FilaLeida, 'clienteId' | 'razonSocial'> => f !== null)
+    return texto.split(/\r?\n/).map((linea) => linea.split(/[;,\t]/).map((c) => c.trim()))
   }
 
+  const libro = new ExcelJS.Workbook()
   await libro.xlsx.load(buffer)
   const hoja = libro.worksheets[0]
   if (!hoja) throw new Error('El archivo no tiene ninguna hoja.')
 
-  const filas: Array<Omit<FilaLeida, 'clienteId' | 'razonSocial'>> = []
-  hoja.eachRow((fila, numero) => {
-    const leida = interpretar(textoDeCelda(fila.getCell(1)), textoDeCelda(fila.getCell(2)), numero)
-    if (leida) filas.push(leida)
+  const grilla: string[][] = []
+  hoja.eachRow({ includeEmpty: true }, (fila, numero) => {
+    const celdas: string[] = []
+    fila.eachCell({ includeEmpty: true }, (celda, columna) => {
+      celdas[columna - 1] = textoDeCelda(celda)
+    })
+    grilla[numero - 1] = celdas
   })
-
-  if (filas.length === 0) {
-    throw new Error(
-      'No encontramos ninguna fila con código de cliente y cantidad de días. Revisá que sean las dos primeras columnas.',
-    )
-  }
-  return filas
+  return grilla
 }
 
 /** Una celda de ExcelJS puede traer número, texto, fórmula o texto enriquecido. */
@@ -343,43 +406,6 @@ function textoDeCelda(celda: ExcelJS.Cell): string {
 }
 
 /**
- * De dos celdas a una fila, o null si la fila no dice nada.
- *
- * Se saltean en silencio las vacías y la del encabezado. Marcarlas como error
- * llenaría la lista de problemas que no son problemas: toda planilla de oficina
- * tiene un título arriba y filas en blanco en el medio.
- */
-function interpretar(
-  celdaCodigo: string,
-  celdaDias: string,
-  linea: number,
-): Omit<FilaLeida, 'clienteId' | 'razonSocial'> | null {
-  const codigo = celdaCodigo.trim()
-  const dias = celdaDias.trim()
-  if (!codigo && !dias) return null
-
-  // "15 días", "15", "15,0" — se busca el número y se ignora lo demás.
-  const n = /(\d+)/.exec(dias)
-  const cadaCuantosDias = n ? Number(n[1]) : null
-
-  // Encabezado: la segunda columna no tiene ningún número.
-  if (!cadaCuantosDias && !/^\d+$/.test(codigo)) return null
-
-  return {
-    linea,
-    codigo,
-    cadaCuantosDias,
-    problema: !codigo
-      ? 'Sin código de cliente'
-      : !cadaCuantosDias
-        ? 'Sin cada cuántos días'
-        : cadaCuantosDias < 1 || cadaCuantosDias > 365
-          ? 'La frecuencia tiene que estar entre 1 y 365 días'
-          : null,
-  }
-}
-
-/**
  * Cruza los códigos contra el padrón.
  *
  * Se hace en una sola consulta y no una por fila: un rol maestro son cientos de
@@ -387,10 +413,12 @@ function interpretar(
  * como para que alguien crea que se colgó.
  */
 async function cruzarContraElPadron(
-  filas: Array<Omit<FilaLeida, 'clienteId' | 'razonSocial'>>,
+  filas: Array<Pick<FilaLeida, 'linea' | 'codigo'>>,
 ): Promise<FilaLeida[]> {
   const codigos = [...new Set(filas.map((f) => f.codigo).filter(Boolean))]
-  if (codigos.length === 0) return filas.map((f) => ({ ...f, clienteId: null, razonSocial: null }))
+  if (codigos.length === 0) {
+    return filas.map((f) => ({ ...f, clienteId: null, razonSocial: null, problema: 'Sin código de cliente' }))
+  }
 
   const { data, error } = await supabase
     .from('clientes')
@@ -411,13 +439,11 @@ async function cruzarContraElPadron(
       ...f,
       clienteId: c?.id ?? null,
       razonSocial: c?.razon_social ?? null,
-      problema:
-        f.problema ??
-        (!c
-          ? 'Ese código no está en el padrón'
-          : !c.activo
-            ? 'El cliente está dado de baja'
-            : null),
+      problema: !c
+        ? 'Ese código no está en el padrón'
+        : !c.activo
+          ? 'El cliente está dado de baja'
+          : null,
     }
   })
 }

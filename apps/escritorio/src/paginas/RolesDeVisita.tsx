@@ -2,18 +2,23 @@ import {
   ETIQUETA_ESTADO_PARADA,
   fechaLocalISO,
   formatearHora,
-  type Cliente,
-  type Direccion,
   type ParadaCompleta,
   type Perfil,
-  type PrioridadParada,
   type RolVisita,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
-import { filtrarPorPalabras } from '../nucleo/buscarClientes'
 import { supabase } from '../nucleo/supabase'
+
+/** Un cliente que se puede meter en el recorrido: ya tiene dirección con coordenadas. */
+interface Candidato {
+  cliente_id: string
+  codigo: string
+  razon_social: string
+  direccion_id: string
+  direccion: string
+}
 
 /** Cuántas filas se traen por consulta. El resto se alcanza buscando. */
 const VENTANA = 200
@@ -93,44 +98,92 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
   /**
    * Los clientes que se pueden meter en un recorrido.
    *
-   * Esto bajaba la tabla entera y filtraba en el navegador. PostgREST corta en
-   * 1.000 filas y la cartera son 16.496 desde que se depuró el padrón, así que
-   * el buscador sólo encontraba lo que cayera en ese primer millar por orden
-   * alfabético: todo lo que empieza con una letra avanzada era invisible, y sin
-   * ningún cartel que lo dijera. Es el mismo problema que ya estaba corregido
-   * en la pantalla de Clientes.
+   * ── Con texto: el buscador rápido ─────────────────────────────────────────
    *
-   * `direcciones!inner` reemplaza al filtro en memoria: un cliente sin
-   * coordenadas no entra a un recorrido —la ruta se calcula sobre lat/lng— así
-   * que los descarta la base y no gastan lugar de la ventana.
+   * Cuando hay algo tipeado, se usa `buscar_clientes` —la misma función de
+   * Postgres que usa el teléfono—, que encuentra sin acentos, con las palabras
+   * en cualquier orden, por índice y ordenado por relevancia. Antes esta
+   * pantalla armaba el filtro a mano y comparaba también contra `localidad`,
+   * que no tiene índice: eso barría los 16.496 clientes en cada tecla y por eso
+   * "no aparecía o tardaba". La función devuelve la dirección principal con
+   * coordenadas; sin coordenadas no se puede rutear —la ruta se calcula sobre
+   * lat/lng— así que esos se descartan.
+   *
+   * ── Sin texto: una tanda para elegir a mano ───────────────────────────────
+   *
+   * Con el campo vacío se trae una ventana de clientes con dirección, ordenada
+   * por nombre, para poder agregar sin buscar. `direcciones!inner` deja afuera
+   * a los que no tienen ninguna dirección.
    */
-  const { data: clientes } = useQuery({
-    queryKey: ['clientes-con-direccion', termino],
-    queryFn: async () => {
-      let consulta = supabase
+  const { data: candidatosCrudos } = useQuery({
+    queryKey: ['clientes-para-ruta', termino],
+    enabled: !!vendedorId,
+    queryFn: async (): Promise<Candidato[]> => {
+      if (termino) {
+        const { data, error: err } = await supabase.rpc('buscar_clientes', {
+          p_texto: termino,
+          p_limite: 50,
+        })
+        if (err) throw err
+        return ((data ?? []) as Array<{
+          cliente_id: string
+          codigo: string
+          razon_social: string
+          direccion_id: string | null
+          direccion: string | null
+          lat: number | null
+          lng: number | null
+        }>)
+          .filter((c) => c.direccion_id && c.lat != null && c.lng != null)
+          .map((c) => ({
+            cliente_id: c.cliente_id,
+            codigo: c.codigo,
+            razon_social: c.razon_social,
+            direccion_id: c.direccion_id as string,
+            direccion: c.direccion ?? '',
+          }))
+      }
+
+      const { data, error: err } = await supabase
         .from('clientes')
-        .select('*, direcciones!inner ( * )')
+        .select('id, codigo, razon_social, direcciones!inner ( id, direccion_formateada, principal, lat, lng )')
         .eq('activo', true)
         .order('razon_social')
         .limit(VENTANA)
-
-      if (termino) {
-        // Palabra por palabra contra `busqueda_plana`, igual que el buscador del
-        // teléfono: sin acentos, sin puntuación y en cualquier orden.
-        consulta = filtrarPorPalabras(consulta, termino)
-      }
-
-      const { data, error: err } = await consulta
       if (err) throw err
-      return data as Array<Cliente & { direcciones: Direccion[] }>
+      return ((data ?? []) as Array<{
+        id: string
+        codigo: string
+        razon_social: string
+        direcciones: Array<{
+          id: string
+          direccion_formateada: string
+          principal: boolean
+          lat: number | null
+          lng: number | null
+        }>
+      }>)
+        .map((c) => {
+          const con = c.direcciones.filter((d) => d.lat != null && d.lng != null)
+          const d = con.find((x) => x.principal) ?? con[0]
+          return d
+            ? {
+                cliente_id: c.id,
+                codigo: c.codigo,
+                razon_social: c.razon_social,
+                direccion_id: d.id,
+                direccion: d.direccion_formateada,
+              }
+            : null
+        })
+        .filter((c): c is Candidato => c !== null)
     },
-    enabled: !!vendedorId,
   })
 
   const disponibles = useMemo(() => {
     const yaCargados = new Set((jornada?.paradas ?? []).map((p) => p.cliente_id))
-    return (clientes ?? []).filter((c) => !yaCargados.has(c.id))
-  }, [clientes, jornada])
+    return (candidatosCrudos ?? []).filter((c) => !yaCargados.has(c.cliente_id))
+  }, [candidatosCrudos, jornada])
 
   const candidatos = useMemo(() => disponibles.slice(0, MOSTRAR), [disponibles])
   /** Cuántos quedaron afuera. Recortar sin decirlo se lee como "no hay más". */
@@ -148,17 +201,17 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
   })
 
   const agregar = useMutation({
-    mutationFn: async (params: { cliente: Cliente & { direcciones: Direccion[] }; prioridad: PrioridadParada }) => {
+    mutationFn: async (cand: Candidato) => {
       if (!jornada) throw new Error('Creá primero el rol de visita del día')
-
-      const direccion =
-        params.cliente.direcciones.find((d) => d.principal) ?? params.cliente.direcciones[0]
 
       const { error: err } = await supabase.rpc('agregar_parada', {
         p_rol_visita_id: jornada.rol.id,
-        p_direccion_id: direccion.id,
-        p_prioridad: params.prioridad,
-        p_cliente_id: params.cliente.id,
+        p_direccion_id: cand.direccion_id,
+        // Prioridad fija: la elección ALTA/MEDIA/BAJA se sacó de la pantalla.
+        // 'media' ubica la parada en un lugar razonable del recorrido (ver la
+        // función `agregar_parada`); el orden fino lo da "Ordenar por cercanía".
+        p_prioridad: 'media',
+        p_cliente_id: cand.cliente_id,
       })
       if (err) throw err
     },
@@ -381,38 +434,30 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                     <th>Cliente Nº</th>
                     <th>Razón social</th>
                     <th>Dirección</th>
-                    <th style={{ width: 280 }}>Agregar con prioridad</th>
+                    <th style={{ width: 120 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {candidatos.map((c) => {
-                    const d = c.direcciones.find((x) => x.principal) ?? c.direcciones[0]
-                    return (
-                      <tr key={c.id}>
-                        <td>
-                          <code>{c.codigo}</code>
-                        </td>
-                        <td>{c.razon_social}</td>
-                        <td>
-                          <small>{d.direccion_formateada}</small>
-                        </td>
-                        <td>
-                          <div className="acciones">
-                            {(['alta', 'media', 'baja'] as const).map((p) => (
-                              <button
-                                key={p}
-                                className="chico"
-                                disabled={soloLectura || agregar.isPending}
-                                onClick={() => agregar.mutate({ cliente: c, prioridad: p })}
-                              >
-                                {p.toUpperCase()}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {candidatos.map((c) => (
+                    <tr key={c.cliente_id}>
+                      <td>
+                        <code>{c.codigo}</code>
+                      </td>
+                      <td>{c.razon_social}</td>
+                      <td>
+                        <small>{c.direccion}</small>
+                      </td>
+                      <td>
+                        <button
+                          className="chico primario"
+                          disabled={soloLectura || agregar.isPending}
+                          onClick={() => agregar.mutate(c)}
+                        >
+                          Agregar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
