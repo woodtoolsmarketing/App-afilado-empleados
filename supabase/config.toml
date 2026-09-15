@@ -55,6 +55,17 @@ verify_jwt = true
 [functions.archivar-historial]
 verify_jwt = true
 
+# Las dos de restablecer contraseña van SIN verificar el JWT a propósito: quien
+# las llama es alguien que no puede entrar —se olvidó la clave—, así que no hay
+# sesión que verificar. El amarre de seguridad es otro: el pedido no hace nada
+# hasta que un administrador lo habilita a mano, y completarlo exige un token de
+# un solo uso que sólo tiene el aparato que pidió (ver las propias funciones).
+[functions.pedir-restablecer-contrasena]
+verify_jwt = false
+
+[functions.restablecer-contrasena]
+verify_jwt = false
+
 [storage]
 enabled = true
 file_size_limit = "50MiB"

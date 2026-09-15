@@ -2,7 +2,6 @@ import { espaciado, radios, validarLogin, type CampoLogin } from '@woodtools/com
 import { Image } from 'expo-image'
 import { useEffect, useRef, useState } from 'react'
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,12 +11,22 @@ import {
   View,
 } from 'react-native'
 
-import { BotonPrincipal } from '../componentes/Botones'
+import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Campo } from '../componentes/Formulario'
 import { Aviso } from '../componentes/Estado'
 import { Pantalla } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { hojaDeTema } from '../nucleo/tema'
+import {
+  completarRestablecer,
+  olvidarPedido,
+  pedidoGuardado,
+  pedirRestablecer,
+  type PedidoGuardado,
+} from '../servicios/restablecerContrasena'
+
+/** Lo mismo que exige la pantalla de cambio y la función del servidor. */
+const LARGO_MINIMO = 6
 
 /**
  * Pantalla de inicio de sesión.
@@ -25,15 +34,16 @@ import { hojaDeTema } from '../nucleo/tema'
  * Reglas de la consigna:
  *  · Usuario y contraseña son obligatorios: si falta alguno, no deja avanzar y
  *    señala cuál es.
- *  · "Recordar mi cuenta por 30 días" evita volver a pedir el login durante ese
- *    plazo; cumplidos los 30 días se vuelve a pedir.
  *  · El acceso además tiene que estar aprobado por un administrador; eso se
  *    resuelve después del login, en `usarSesion`.
+ *
+ * Además atiende el olvido de contraseña sin salir de acá: es un trámite que
+ * pasa ANTES de tener sesión, así que vive en esta pantalla y no en la máquina
+ * de estados de `usarSesion`. Ver `servicios/restablecerContrasena.ts`.
  */
 export function PantallaIniciarSesion() {
   const estilos = usarEstilos()
-  const { iniciarSesion, procesando, errorAcceso, usuarioRecordado, recuperarContrasena } =
-    usarSesion()
+  const { iniciarSesion, procesando, errorAcceso, usuarioRecordado } = usarSesion()
 
   const [usuario, setUsuario] = useState('')
   const [contrasena, setContrasena] = useState('')
@@ -41,19 +51,26 @@ export function PantallaIniciarSesion() {
   const [errores, setErrores] = useState<Partial<Record<CampoLogin, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
+  /** El pedido de restablecimiento en curso. Si hay uno, se muestra ese panel. */
+  const [pedido, setPedido] = useState<PedidoGuardado | null>(null)
+  const [pidiendo, setPidiendo] = useState(false)
+  const [avisoRecuperar, setAvisoRecuperar] = useState<string | null>(null)
+
   const refContrasena = useRef<TextInput>(null)
 
   useEffect(() => {
     if (usuarioRecordado) {
       setUsuario(usuarioRecordado)
-      // Ya sabe el usuario: el foco pasa directo a la contraseña, como si
-      // hubiera tocado "siguiente" en el teclado.
       refContrasena.current?.focus()
     }
   }, [usuarioRecordado])
 
-  // Una vez que el usuario intentó entrar, los errores se recalculan mientras
-  // escribe: así ve desaparecer el mensaje en cuanto corrige el campo.
+  // Si el vendedor ya había pedido el restablecimiento y cerró la app mientras
+  // esperaba, al volver retoma el pedido donde lo dejó.
+  useEffect(() => {
+    void pedidoGuardado().then(setPedido)
+  }, [])
+
   useEffect(() => {
     if (!intentado) return
     setErrores(validarLogin(usuario, contrasena).errores)
@@ -65,7 +82,6 @@ export function PantallaIniciarSesion() {
     setErrores(nuevos)
 
     if (!valido) {
-      // Lleva el foco al primer campo con problema.
       if (nuevos.contrasena && !nuevos.usuario) refContrasena.current?.focus()
       return
     }
@@ -74,26 +90,50 @@ export function PantallaIniciarSesion() {
   }
 
   /**
-   * La contraseña la restablece la oficina.
+   * Pide a la oficina que le restablezcan la contraseña.
    *
-   * Antes esto mandaba un correo de recuperación de Supabase con un enlace a
-   * `woodtoolsvisitas://recuperar`. El esquema abre la app, pero no hay ninguna
-   * pantalla ni ninguna ruta que atienda ese enlace, y el cliente está creado
-   * con `detectSessionInUrl: false`, así que el token no se consume nunca. El
-   * vendedor hacía todo bien, la app le confirmaba éxito dos veces, tocaba el
-   * enlace del correo y volvía a la misma pantalla de login.
-   *
-   * Terminaba llamando a la oficina igual, que es justo lo que el botón
-   * prometía evitar. Mejor decirlo de entrada que hacerle perder el viaje.
-   *
-   * Cuando exista la pantalla que atienda el enlace, esto vuelve a ser un envío
-   * de correo de verdad.
+   * Antes esto mostraba un cartel muerto ("llamá a la oficina") porque no había
+   * a dónde mandar el pedido. Ahora crea uno de verdad: la oficina lo ve en el
+   * panel, lo habilita, y recién ahí el vendedor elige su clave nueva —sin que
+   * nadie le dicte ninguna provisoria—.
    */
-  function alRecuperar() {
-    Alert.alert(
-      '¿Olvidaste la contraseña?',
-      'Pedile a la oficina que te la restablezca desde el panel. Te van a dar una contraseña provisoria y la app te va a pedir que elijas una nueva al entrar.',
-      [{ text: 'Entendido' }],
+  async function alRecuperar() {
+    setAvisoRecuperar(null)
+    if (!usuario.trim()) {
+      setAvisoRecuperar('Escribí primero tu usuario arriba y después tocá acá.')
+      return
+    }
+
+    setPidiendo(true)
+    try {
+      await pedirRestablecer(usuario)
+      setPedido(await pedidoGuardado())
+    } catch (e) {
+      setAvisoRecuperar(e instanceof Error ? e.message : 'No pudimos registrar el pedido.')
+    } finally {
+      setPidiendo(false)
+    }
+  }
+
+  // ── Panel de "elegí tu contraseña nueva" ─────────────────────────────────
+  if (pedido) {
+    return (
+      <PantallaElegirNueva
+        usuario={pedido.usuario}
+        alCancelar={async () => {
+          await olvidarPedido()
+          setPedido(null)
+        }}
+        alListo={async () => {
+          await olvidarPedido()
+          setPedido(null)
+          setUsuario(pedido.usuario)
+          setContrasena('')
+          setIntentado(false)
+          setErrores({})
+          refContrasena.current?.focus()
+        }}
+      />
     )
   }
 
@@ -170,19 +210,23 @@ export function PantallaIniciarSesion() {
             }
           />
 
+          {avisoRecuperar ? (
+            <Aviso tono="atencion" titulo="Para restablecer la contraseña">
+              {avisoRecuperar}
+            </Aviso>
+          ) : null}
+
           <Pressable
             onPress={alRecuperar}
+            disabled={pidiendo}
             hitSlop={12}
             style={estilos.olvide}
             accessibilityRole="link"
           >
-            <Text style={estilos.olvideTexto}>Olvidé mi contraseña</Text>
+            <Text style={estilos.olvideTexto}>
+              {pidiendo ? 'Enviando el pedido…' : 'Olvidé mi contraseña'}
+            </Text>
           </Pressable>
-
-          {/* Acá estaba "Recordar mi cuenta por 30 días". La sesión ya no
-              vence: lo que protege la app es el desbloqueo del teléfono, que es
-              más seguro que una contraseña que hay que tipear seguido en la
-              calle —esas terminan escritas en un papel adentro de la funda—. */}
 
           <BotonPrincipal
             titulo="INICIAR SESIÓN"
@@ -194,6 +238,154 @@ export function PantallaIniciarSesion() {
           <Text style={estilos.pie}>
             Uso interno de WoodTools S.R.L. El acceso lo habilita un administrador.
           </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Pantalla>
+  )
+}
+
+/**
+ * "Elegí tu contraseña nueva", después de pedir el restablecimiento.
+ *
+ * Vive deslogueado: no se puede usar `usarSesion().cambiarContrasena`, que
+ * necesita sesión. El cambio lo aplica la función del servidor, que sólo lo deja
+ * pasar si la oficina ya habilitó el pedido. Por eso el botón puede volver con
+ * "todavía no te habilitaron": no es un error, es que falta el paso de la
+ * oficina, y se dice tal cual.
+ */
+function PantallaElegirNueva({
+  usuario,
+  alCancelar,
+  alListo,
+}: {
+  usuario: string
+  alCancelar: () => void | Promise<void>
+  alListo: () => void | Promise<void>
+}) {
+  const estilos = usarEstilos()
+  const [nueva, setNueva] = useState('')
+  const [repetida, setRepetida] = useState('')
+  const [ver, setVer] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [listo, setListo] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const refRepetida = useRef<TextInput>(null)
+
+  async function guardar() {
+    setError(null)
+    if (nueva.length < LARGO_MINIMO) {
+      setError(`La contraseña tiene que tener al menos ${LARGO_MINIMO} caracteres.`)
+      return
+    }
+    if (nueva !== repetida) {
+      setError('Las dos contraseñas no son iguales.')
+      return
+    }
+
+    setGuardando(true)
+    try {
+      await completarRestablecer(nueva)
+      setListo(true)
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : 'No pudimos cambiarla. Probá de nuevo en un momento.',
+      )
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <Pantalla>
+      <KeyboardAvoidingView
+        style={estilos.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={estilos.contenido}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Image
+            source={require('../../assets/logo-woodtools.png')}
+            style={estilos.logo}
+            contentFit="contain"
+            accessibilityLabel="WoodTools S.R.L."
+          />
+
+          <Text style={estilos.titulo} accessibilityRole="header">
+            ELEGÍ TU CONTRASEÑA
+          </Text>
+
+          {listo ? (
+            <>
+              <Aviso tono="exito" titulo="Contraseña cambiada">
+                Listo. Entrá con tu contraseña nueva.
+              </Aviso>
+              <BotonPrincipal titulo="IR A INICIAR SESIÓN" alTocar={() => void alListo()} style={estilos.boton} />
+            </>
+          ) : (
+            <>
+              <Aviso tono="info" titulo={`Pedido enviado para ${usuario}`}>
+                Pedile a la oficina que lo habilite. Cuando te avisen que ya está, elegí acá tu
+                contraseña nueva y tocá cambiar.
+              </Aviso>
+
+              {error ? (
+                <Aviso tono="error" titulo="No pudimos cambiarla">
+                  {error}
+                </Aviso>
+              ) : null}
+
+              <Campo
+                etiqueta="Contraseña nueva"
+                sobreRojo
+                obligatorio
+                value={nueva}
+                onChangeText={setNueva}
+                secureTextEntry={!ver}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                textContentType="newPassword"
+                returnKeyType="next"
+                onSubmitEditing={() => refRepetida.current?.focus()}
+                editable={!guardando}
+                ayuda={`Al menos ${LARGO_MINIMO} caracteres.`}
+              />
+
+              <Campo
+                ref={refRepetida}
+                etiqueta="Repetila"
+                sobreRojo
+                obligatorio
+                value={repetida}
+                onChangeText={setRepetida}
+                secureTextEntry={!ver}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                textContentType="newPassword"
+                returnKeyType="go"
+                onSubmitEditing={guardar}
+                editable={!guardando}
+              />
+
+              <BotonSecundario
+                titulo={ver ? 'Ocultar las contraseñas' : 'Ver lo que escribo'}
+                alTocar={() => setVer((v) => !v)}
+              />
+
+              <BotonPrincipal
+                titulo="CAMBIAR MI CONTRASEÑA"
+                alTocar={guardar}
+                cargando={guardando}
+                style={estilos.boton}
+              />
+
+              <BotonSecundario titulo="Cancelar el pedido" alTocar={() => void alCancelar()} />
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </Pantalla>
@@ -250,37 +442,6 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.blanco,
     textDecorationLine: 'underline',
-  },
-  recordarFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: espaciado.md,
-    paddingVertical: espaciado.md,
-  },
-  recordarCaja: {
-    width: 32,
-    height: 32,
-    borderWidth: 2.5,
-    borderColor: t.colores.borde,
-    borderRadius: radios.sm,
-    backgroundColor: t.colores.campo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recordarMarcada: {
-    backgroundColor: t.colores.verde,
-  },
-  recordarTilde: {
-    fontFamily: t.tipografia.familia.titulo,
-    fontSize: 20,
-    lineHeight: 24,
-    color: t.colores.negro,
-  },
-  recordarTexto: {
-    flex: 1,
-    fontFamily: t.tipografia.familia.cuerpo,
-    fontSize: t.tipografia.tamano.base,
-    color: t.colores.blanco,
   },
   boton: {
     marginTop: espaciado.sm,

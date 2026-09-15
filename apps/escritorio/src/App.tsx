@@ -100,7 +100,14 @@ function BarraLateral({
         .from('dispositivos')
         .select('id', { count: 'exact', head: true })
         .eq('autorizado', false)
-      return (count ?? 0) + (dispositivos ?? 0)
+      // También los pedidos de contraseña esperando que alguien los habilite:
+      // es otra cosa que, si no salta un globo, se queda sin atender con un
+      // vendedor afuera de la app.
+      const { count: contrasenas } = await supabase
+        .from('pedidos_contrasena')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente')
+      return (count ?? 0) + (dispositivos ?? 0) + (contrasenas ?? 0)
     },
     refetchInterval: 30_000,
   })

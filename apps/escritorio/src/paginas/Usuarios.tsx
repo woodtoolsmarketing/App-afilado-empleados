@@ -186,9 +186,75 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
     },
   })
 
+  /*
+   * Pedidos de restablecer contraseña.
+   *
+   * El que se olvidó la clave no tiene sesión, así que no puede cambiarla solo:
+   * pide desde el celular (o desde el login del panel), esto lo muestra, y un
+   * administrador lo habilita. Recién ahí el vendedor elige su contraseña nueva
+   * —nadie le dicta ninguna provisoria—. Se ven también los ya usados, para
+   * saber que el vendedor efectivamente la cambió.
+   */
+  const { data: pedidos } = useQuery({
+    queryKey: ['pedidos-contrasena'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pedidos_contrasena')
+        .select('*')
+        .in('estado', ['pendiente', 'habilitado', 'usada'])
+        .order('creado_en', { ascending: false })
+        .limit(30)
+      if (error) throw error
+      return data as Array<{
+        id: string
+        usuario: string
+        estado: 'pendiente' | 'habilitado' | 'usada' | 'cancelada'
+        origen: string
+        dispositivo_desc: string | null
+        habilitado_en: string | null
+        vence_en: string | null
+        usada_en: string | null
+        creado_en: string
+      }>
+    },
+    refetchInterval: 30_000,
+  })
+
+  /** Cuánto vale la habilitación antes de vencer. */
+  const MINUTOS_HABILITADO = 30
+
+  const habilitarPedido = useMutation({
+    mutationFn: async (id: string) => {
+      const { data: yo } = await supabase.auth.getUser()
+      const ahora = Date.now()
+      const { error } = await supabase
+        .from('pedidos_contrasena')
+        .update({
+          estado: 'habilitado',
+          habilitado_por: yo.user?.id ?? null,
+          habilitado_en: new Date(ahora).toISOString(),
+          vence_en: new Date(ahora + MINUTOS_HABILITADO * 60_000).toISOString(),
+        })
+        .eq('id', id)
+        // Sólo se habilita lo que está pendiente: si alguien ya lo tocó desde
+        // otra pantalla, esto no lo pisa.
+        .eq('estado', 'pendiente')
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje(
+        `Habilitado. El vendedor tiene ${MINUTOS_HABILITADO} minutos para elegir su contraseña nueva desde la app.`,
+      )
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo habilitar: ${e.message}`),
+  })
+
   const pendientes = (perfiles ?? []).filter((p) => p.estado === 'pendiente')
   const resto = (perfiles ?? []).filter((p) => p.estado !== 'pendiente')
   const telefonosPendientes = (dispositivos ?? []).filter((d) => !d.autorizado)
+  const resetsPendientes = (pedidos ?? []).filter((p) => p.estado === 'pendiente')
+  const resetsResueltos = (pedidos ?? []).filter((p) => p.estado !== 'pendiente')
 
   return (
     <>
@@ -307,6 +373,91 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                     >
                       Habilitar
                     </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* ── Contraseñas olvidadas ──────────────────────────────────────────── */}
+      <section className="tarjeta">
+        <h2>Contraseñas olvidadas ({resetsPendientes.length})</h2>
+        <p className="vacio" style={{ marginTop: 0 }}>
+          Cuando alguien pide restablecer la contraseña, aparece acá. Al habilitarlo, tiene{' '}
+          {MINUTOS_HABILITADO} minutos para elegir una nueva desde la app; no se dicta ninguna
+          contraseña provisoria.
+        </p>
+
+        {resetsPendientes.length === 0 ? (
+          <p className="vacio">No hay pedidos esperando.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Pidió desde</th>
+                <th>Cuándo</th>
+                <th style={{ width: 140 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {resetsPendientes.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <strong>{p.usuario}</strong>
+                  </td>
+                  <td>
+                    {p.origen === 'panel' ? 'el panel' : 'el celular'}
+                    {p.dispositivo_desc ? (
+                      <>
+                        <br />
+                        <small style={{ color: 'var(--tinta-tenue)' }}>{p.dispositivo_desc}</small>
+                      </>
+                    ) : null}
+                  </td>
+                  <td>{new Date(p.creado_en).toLocaleString('es-AR')}</td>
+                  <td>
+                    <button
+                      className="primario chico"
+                      disabled={soloLectura || habilitarPedido.isPending}
+                      onClick={() => habilitarPedido.mutate(p.id)}
+                    >
+                      Permitir cambio
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* Los ya resueltos: para ver que el vendedor efectivamente la cambió. */}
+        {resetsResueltos.length > 0 && (
+          <table style={{ marginTop: 'var(--espacio-3, 12px)' }}>
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Estado</th>
+                <th>Cuándo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resetsResueltos.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.usuario}</td>
+                  <td>
+                    {p.estado === 'usada' ? (
+                      <span style={{ color: 'var(--verde, green)' }}>Ya la cambió</span>
+                    ) : p.estado === 'habilitado' ? (
+                      `Habilitado${p.vence_en && new Date(p.vence_en).getTime() < Date.now() ? ' (vencido)' : ' · esperando que la cambie'}`
+                    ) : (
+                      'Cancelado'
+                    )}
+                  </td>
+                  <td>
+                    {new Date(p.usada_en ?? p.habilitado_en ?? p.creado_en).toLocaleString('es-AR')}
                   </td>
                 </tr>
               ))}

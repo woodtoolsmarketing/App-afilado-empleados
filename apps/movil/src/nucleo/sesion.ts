@@ -105,7 +105,6 @@ interface EstadoSesion {
   iniciarSesion: (usuario: string, contrasena: string) => Promise<void>
   cerrarSesion: () => Promise<void>
   refrescarPerfil: () => Promise<void>
-  recuperarContrasena: (usuario: string) => Promise<void>
   cambiarContrasena: (nueva: string) => Promise<void>
 }
 
@@ -334,14 +333,6 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     }
 
     await get().refrescarPerfil()
-  },
-
-  async recuperarContrasena(usuario) {
-    const email = await resolverEmailDeIngreso(usuario)
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'woodtoolsvisitas://recuperar',
-    })
-    if (error) throw error
   },
 }))
 
