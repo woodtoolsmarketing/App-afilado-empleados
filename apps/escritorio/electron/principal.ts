@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import electronUpdater from 'electron-updater'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+
+const { autoUpdater } = electronUpdater
 
 /**
  * Proceso principal de Electron.
@@ -18,6 +21,111 @@ import path from 'node:path'
  */
 
 let ventana: BrowserWindow | null = null
+
+/**
+ * Auto-actualización del panel, desde la nube.
+ *
+ * ─── Por qué desde GitHub Releases ───────────────────────────────────────────
+ *
+ * El panel se instala en varias máquinas de la oficina, y hasta ahora
+ * actualizarlo era mandar el .exe a mano por cada una. Ahora se publica una
+ * versión y todas la bajan solas. El instalador pesa ~85 MB —no entra en el
+ * bucket de Supabase, que corta en 50— así que la nube es GitHub Releases del
+ * repo, que es público: no hace falta ningún token adentro del programa para
+ * leer las versiones.
+ *
+ * ─── Cómo funciona para el que lo tiene instalado ────────────────────────────
+ *
+ * Al abrir el panel se fija si hay una versión nueva y, si la hay, la baja sola
+ * en segundo plano. Cuando termina, ofrece reiniciar para instalarla; si se
+ * dice que no, se instala igual la próxima vez que se cierre el panel. Nadie
+ * tiene que buscar ni bajar nada a mano.
+ */
+let ultimoEstadoActualizacion:
+  | { estado: 'al-dia'; version: string }
+  | { estado: 'hay'; version: string }
+  | { estado: 'error'; detalle: string }
+  | { estado: 'dev' }
+  | null = null
+
+/** ¿`a` es una versión más nueva que `b`? Comparación numérica por tramo. */
+function esMasNueva(a: string, b: string): boolean {
+  const na = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const nb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+    const da = na[i] ?? 0
+    const db = nb[i] ?? 0
+    if (da !== db) return da > db
+  }
+  return false
+}
+
+function configurarAutoActualizacionDelPanel(): void {
+  // En `npm run dev` no hay `app-update.yml` ni release contra la cual comparar:
+  // buscar actualizaciones ahí sólo tira errores que no le importan a nadie.
+  if (process.env.VITE_DEV_SERVER_URL) return
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    ultimoEstadoActualizacion = { estado: 'hay', version: info.version }
+  })
+  autoUpdater.on('update-not-available', () => {
+    ultimoEstadoActualizacion = { estado: 'al-dia', version: app.getVersion() }
+  })
+  autoUpdater.on('error', (e) => {
+    console.error('[actualizacion-panel] error', e)
+    ultimoEstadoActualizacion = { estado: 'error', detalle: (e as Error)?.message ?? String(e) }
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    void dialog
+      .showMessageBox({
+        type: 'info',
+        buttons: ['Reiniciar e instalar', 'Después'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Actualización del panel',
+        message: `Hay una versión nueva del panel (${info.version}) lista para instalar.`,
+        detail:
+          'Se instala reiniciando el panel. Si elegís "Después", se instala sola la próxima vez que lo cierres.',
+      })
+      .then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall()
+      })
+      .catch((e) => console.error('[actualizacion-panel]', e))
+  })
+
+  // Una al arrancar y otra cada seis horas: el panel de la oficina suele quedar
+  // abierto todo el día.
+  void autoUpdater.checkForUpdates().catch((e) => console.error('[actualizacion-panel]', e))
+  setInterval(() => void autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000)
+}
+
+/**
+ * Buscar la actualización a mano, desde la pantalla de Actualizaciones.
+ *
+ * La descarga y el aviso los maneja `configurarAutoActualizacionDelPanel`; acá
+ * sólo se dispara el chequeo y se contesta qué se encontró, para que el que
+ * tocó el botón vea algo en vez de un botón que no responde.
+ */
+ipcMain.handle('buscar-actualizacion-panel', async () => {
+  if (process.env.VITE_DEV_SERVER_URL) {
+    return { estado: 'dev' as const, version: app.getVersion() }
+  }
+  try {
+    const r = await autoUpdater.checkForUpdates()
+    const nueva = r?.updateInfo?.version
+    if (nueva && esMasNueva(nueva, app.getVersion())) {
+      // autoDownload ya la está bajando; el aviso sale al terminar.
+      return { estado: 'hay' as const, version: nueva }
+    }
+    return { estado: 'al-dia' as const, version: app.getVersion() }
+  } catch (e) {
+    return { estado: 'error' as const, detalle: (e as Error)?.message ?? 'No pudimos consultar.' }
+  }
+})
 
 function crearVentana() {
   ventana = new BrowserWindow({
@@ -61,6 +169,10 @@ app.whenReady().then(() => {
   // la oficina no tiene por qué esperar a que en administración abran una
   // pantalla para poder bajarse la app.
   arrancarServidorDeInstaladores()
+
+  // El panel se actualiza solo desde la nube (GitHub Releases). Ver
+  // `configurarAutoActualizacionDelPanel`.
+  configurarAutoActualizacionDelPanel()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) crearVentana()

@@ -17,6 +17,13 @@ interface Window {
     imprimirDocumento?: (html: string) => Promise<{ impreso: boolean; motivo?: string }>
     abrirExterno: (url: string) => Promise<boolean>
     version: () => Promise<string>
+    /** Busca a mano una actualización del panel en la nube (GitHub Releases). */
+    buscarActualizacionPanel?: () => Promise<
+      | { estado: 'al-dia'; version: string }
+      | { estado: 'hay'; version: string }
+      | { estado: 'error'; detalle: string }
+      | { estado: 'dev'; version: string }
+    >
     /** Sólo con el panel abierto desde la carpeta del proyecto. */
     proyectoDisponible?: () => Promise<boolean>
     /** false cuando la app se compila sin poder recibir actualizaciones. */

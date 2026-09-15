@@ -17,6 +17,20 @@ contextBridge.exposeInMainWorld('woodtools', {
     ipcRenderer.invoke('imprimir-documento', html),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),
+
+  /**
+   * Busca a mano una actualización del PANEL (no del celular) en la nube.
+   *
+   * El panel se actualiza solo al arrancar; esto es el botón para forzar el
+   * chequeo. La descarga y el aviso de reiniciar los maneja el proceso
+   * principal.
+   */
+  buscarActualizacionPanel: (): Promise<
+    | { estado: 'al-dia'; version: string }
+    | { estado: 'hay'; version: string }
+    | { estado: 'error'; detalle: string }
+    | { estado: 'dev'; version: string }
+  > => ipcRenderer.invoke('buscar-actualizacion-panel'),
   // Sólo existe cuando el panel está abierto desde la carpeta del proyecto:
   // publicar necesita el código y una sesión de Expo, que en una máquina donde
   // sólo se instaló el panel no están.

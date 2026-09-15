@@ -276,6 +276,8 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
         </div>
       )}
 
+      <ActualizacionDelPanel />
+
       {/* ── Versión mínima ──────────────────────────────────────────────── */}
       <section className="tarjeta">
         <h2>Versión mínima exigida</h2>
@@ -691,5 +693,70 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
         )}
       </section>
     </>
+  )
+}
+
+/**
+ * Actualización del PANEL (no del celular), desde la nube.
+ *
+ * El panel se fija solo al arrancar y baja la versión nueva en segundo plano;
+ * esto es apenas la parte visible: mostrar en qué versión está y un botón para
+ * forzar el chequeo. El aviso de "reiniciar e instalar" lo maneja el proceso
+ * principal cuando la descarga termina.
+ */
+function ActualizacionDelPanel() {
+  const [version, setVersion] = useState<string | null>(null)
+  const [estado, setEstado] = useState<string | null>(null)
+  const [buscando, setBuscando] = useState(false)
+
+  useEffect(() => {
+    void window.woodtools?.version().then(setVersion)
+  }, [])
+
+  // Sólo tiene sentido dentro del panel instalado: en el navegador no hay puente.
+  if (!window.woodtools?.buscarActualizacionPanel) return null
+
+  async function buscar() {
+    setBuscando(true)
+    setEstado(null)
+    try {
+      const r = await window.woodtools!.buscarActualizacionPanel!()
+      if (r.estado === 'hay') {
+        setEstado(`Hay una versión nueva (${r.version}). Se está bajando; cuando termine te vamos a avisar para reiniciar.`)
+      } else if (r.estado === 'al-dia') {
+        setEstado(`Estás en la última versión (${r.version}).`)
+      } else if (r.estado === 'dev') {
+        setEstado('Estás corriendo el panel desde el proyecto: las actualizaciones automáticas son sólo para el panel instalado.')
+      } else {
+        setEstado(`No pudimos consultar: ${r.detalle}`)
+      }
+    } finally {
+      setBuscando(false)
+    }
+  }
+
+  return (
+    <section className="tarjeta">
+      <h2>Este panel</h2>
+      <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginBottom: 12 }}>
+        El panel se actualiza solo desde la nube: al abrirlo, si hay una versión nueva la baja y te
+        ofrece reiniciar para instalarla. No hace falta bajar ni instalar nada a mano.
+      </p>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <span>
+          Versión instalada: <code>{version ?? '—'}</code>
+        </span>
+        <button className="chico" disabled={buscando} onClick={buscar}>
+          {buscando ? 'Buscando…' : 'Buscar actualización'}
+        </button>
+      </div>
+
+      {estado && (
+        <p style={{ marginTop: 10, fontSize: 13 }} role="status">
+          {estado}
+        </p>
+      )}
+    </section>
   )
 }

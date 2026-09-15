@@ -1,6 +1,6 @@
 {
   "name": "@woodtools/escritorio",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Panel de administración de escritorio de WoodTools",
   "author": "WoodTools S.R.L.",
@@ -9,12 +9,14 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build && electron-builder",
     "empaquetar": "vite build && electron-builder --win --publish never",
+    "publicar-panel": "vite build && electron-builder --win --publish always",
     "vista-previa": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",
     "@tanstack/react-query": "^5.62.7",
     "@woodtools/compartido": "*",
+    "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "leaflet": "^1.9.4",
     "react": "^18.3.1",
@@ -61,6 +63,11 @@
       "createDesktopShortcut": true,
       "shortcutName": "WoodTools Panel"
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "woodtoolsmarketing",
+      "repo": "App-afilado-empleados",
+      "releaseType": "release"
+    }
   }
 }
