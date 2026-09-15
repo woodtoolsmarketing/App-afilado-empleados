@@ -182,17 +182,25 @@ export async function navegarHacia(destino: { lat: number; lng: number }): Promi
 }
 
 /**
- * Vista previa del recorrido en la app de Google Maps.
+ * Abre el recorrido completo en la app de Google Maps.
  *
- * Sólo se usa para ver el trazado general: por el límite de la URL universal
- * se mandan como máximo las primeras paradas. La navegación real siempre va
- * tramo a tramo con `navegarHacia`.
+ * Con `navegar: true` entra directo al modo navegación para manejar el
+ * recorrido entero de una; sin él sólo muestra el trazado. Las paradas se
+ * mandan en el orden en que vienen —que es el que ya optimizó la Edge
+ * Function—, así que Maps recibe la MEJOR ruta, no una cualquiera.
+ *
+ * El techo lo pone la URL universal de Maps, no nosotros: acepta como máximo
+ * MAX_PARADAS_EN_URL waypoints intermedios más el destino. Si el recorrido
+ * tiene más, entran las primeras y el que llama avisa cuántas quedaron afuera;
+ * el resto se completa desde la app, destino por destino con `navegarHacia`, o
+ * abriendo Maps de nuevo al llegar a la última.
  */
 export const MAX_PARADAS_EN_URL = 9
 
 export async function previsualizarRecorrido(
   origen: { lat: number; lng: number },
   paradas: ParadaCompleta[],
+  opciones: { navegar?: boolean } = {},
 ): Promise<{ abierto: boolean; incluidas: number; total: number }> {
   const conCoordenadas = paradas.filter((p) => p.direccion)
   if (conCoordenadas.length === 0) return { abierto: false, incluidas: 0, total: 0 }
@@ -206,6 +214,8 @@ export async function previsualizarRecorrido(
   url.searchParams.set('origin', `${origen.lat},${origen.lng}`)
   url.searchParams.set('destination', `${destino.lat},${destino.lng}`)
   url.searchParams.set('travelmode', 'driving')
+  // Entra directo a manejar en vez de quedarse en la previsualización.
+  if (opciones.navegar) url.searchParams.set('dir_action', 'navigate')
   if (intermedias.length > 0) {
     url.searchParams.set(
       'waypoints',

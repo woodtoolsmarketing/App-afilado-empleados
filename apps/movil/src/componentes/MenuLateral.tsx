@@ -69,7 +69,7 @@ const OPCIONES: Destino[] = [
     ir: (n) => n.navigate('NotasPendientes'),
   },
   {
-    etiqueta: 'HISTORIAL DE ENVÍOS',
+    etiqueta: 'HISTORIAL DE VISITAS',
     ir: (n) => n.navigate('Historial'),
   },
   {
@@ -124,7 +124,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   NuevoCliente: 'Nuevo cliente',
   NotasPendientes: 'Notas pendientes',
   Cobranzas: 'Cobranzas del día',
-  CalendarioEnvios: 'Calendario de envíos',
+  CalendarioEnvios: 'Próximas visitas',
   CalendarioVisitas: 'Calendario de visitas',
   ComunicacionInterna: 'Comunicación interna',
   ClientesDelDia: 'Clientes de hoy',

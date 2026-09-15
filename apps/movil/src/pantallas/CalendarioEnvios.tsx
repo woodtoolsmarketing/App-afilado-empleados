@@ -14,7 +14,7 @@ import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
- * "CALENDARIO DE ENVÍOS"
+ * "PRÓXIMAS VISITAS"
  *
  * Qué hay comprometido para los próximos días, y desde dónde se agenda algo
  * nuevo.
@@ -55,7 +55,7 @@ export function PantallaCalendarioEnvios({ navigation }: PropsPantalla<'Calendar
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>CALENDARIO DE ENVÍOS</TituloPanel>
+        <TituloPanel>PRÓXIMAS VISITAS</TituloPanel>
 
         {isLoading ? (
           <Cargando texto="Buscando lo agendado…" />
@@ -97,7 +97,7 @@ export function PantallaCalendarioEnvios({ navigation }: PropsPantalla<'Calendar
           </View>
         )}
 
-        <Aviso tono="info" titulo="Cómo entra un envío al recorrido">
+        <Aviso tono="info" titulo="Cómo entra una visita al recorrido">
           Lo que se agrega para hoy no pide prioridad: si estás cerca del destino se pone como
           próximo y te desvía; si estás lejos entra a la ruta y el mapa lo ubica donde menos te
           cuesta.

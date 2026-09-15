@@ -7,13 +7,14 @@ import {
   formatearDuracion,
   radios,
   todaviaNoLeToca,
+  TOQUE_MINIMO,
   type EstadoParada,
   type Paleta,
   type ParadaCompleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, AppState, Pressable, Text, View } from 'react-native'
+import { Alert, AppState, Modal, Pressable, Text, View } from 'react-native'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -26,7 +27,12 @@ import {
   iniciarRecorrido,
   obtenerJornadaDeHoy,
 } from '../servicios/jornada'
-import { decodificarPolilinea, navegarHacia, optimizarRecorrido } from '../servicios/mapas'
+import {
+  decodificarPolilinea,
+  navegarHacia,
+  optimizarRecorrido,
+  previsualizarRecorrido,
+} from '../servicios/mapas'
 import {
   detenerSeguimiento,
   iniciarSeguimiento,
@@ -50,7 +56,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
   const mapa = useRef<MapView>(null)
-  const [avisoRuta, setAvisoRuta] = useState<string | null>(null)
+  // Dos carteles separados a propósito: el de la JORNADA (permiso de ubicación,
+  // tránsito) es una advertencia que tiene que quedar mientras dure el
+  // recorrido; el de MAPS (tope de destinos, no se pudo abrir) es puntual del
+  // último toque a Google Maps. Compartir un solo estado hacía que el segundo
+  // pisara al primero.
+  const [avisoJornada, setAvisoJornada] = useState<string | null>(null)
+  const [avisoMaps, setAvisoMaps] = useState<string | null>(null)
+  // La ventana que pregunta CÓMO arrancar: con Google Maps o guiado por la app.
+  const [eligiendoModo, setEligiendoModo] = useState(false)
   const debeIniciar = route.params?.iniciar === true
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -166,8 +180,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
 
   // ── Iniciar recorrido ──────────────────────────────────────────────────────
   const arrancar = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ irAGoogleMaps }: { irAGoogleMaps: boolean }) => {
       if (!jornada || !perfil) throw new Error('Todavía no cargó la jornada')
+
+      // Cada arranque empieza con los dos carteles limpios. Los avisos de la
+      // jornada (tránsito, permiso) son varios y se juntan en una lista para
+      // mostrarlos de una en `avisoJornada`.
+      setAvisoJornada(null)
+      setAvisoMaps(null)
+      const avisos: string[] = []
 
       const permiso = await pedirPermisosUbicacion()
       if (!permiso.concedido) throw new Error(permiso.motivo)
@@ -190,37 +211,140 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
        */
       await iniciarRecorrido(jornada.id, pos.lat, pos.lng)
 
+      // El orden óptimo recién calculado: es la secuencia de IDs que hay que
+      // pasarle a Google Maps para que reciba la MEJOR ruta y no una cualquiera.
+      let ordenOptimo: string[] | null = null
       try {
-        await optimizarRecorrido(jornada.id, { lat: pos.lat, lng: pos.lng })
+        const r = await optimizarRecorrido(jornada.id, { lat: pos.lat, lng: pos.lng })
+        ordenOptimo = r.orden ?? null
       } catch {
-        setAvisoRuta(
+        avisos.push(
           'No pudimos consultar el tránsito de Google. El recorrido queda ordenado por cercanía.',
         )
       }
       await iniciarSeguimiento({ vendedorId: perfil.id, rolVisitaId: jornada.id })
 
       if (!permiso.segundoPlano) {
-        setAvisoRuta(
+        avisos.push(
           'Diste permiso de ubicación sólo con la app abierta. Si apagás la pantalla, la oficina va a dejar de verte.',
         )
       }
-      return true
+      if (avisos.length) setAvisoJornada(avisos.join('\n\n'))
+
+      // "IR A GOOGLE MAPS": se abre el recorrido completo, ya optimizado, en la
+      // app de Google Maps para manejar. Se arranca igual la jornada y el
+      // seguimiento —de eso vive la oficina—; esto sólo cambia con qué se navega.
+      //
+      // Todo lo de abrir Maps va envuelto: la jornada YA arrancó y el
+      // seguimiento está prendido, así que si falla releer o abrir el mapa se
+      // degrada a un aviso, no se tira por la borda un arranque que sí funcionó.
+      if (irAGoogleMaps) {
+        try {
+          let enOrden: ParadaCompleta[]
+          if (ordenOptimo) {
+            // Reordeno las paradas locales según el orden que devolvió la
+            // optimización (las coordenadas no cambian, sólo la secuencia).
+            enOrden = ordenOptimo
+              .map((id) => paradas.find((p) => p.id === id))
+              .filter(Boolean) as ParadaCompleta[]
+          } else {
+            // Sin optimización, releo la jornada para tomar el orden por
+            // cercanía que `iniciarRecorrido` acaba de escribir en el servidor:
+            // el `paradas` del closure todavía tiene el orden previo al arranque,
+            // y abrir Maps con ése dejaría la app y el mapa con dos secuencias.
+            let base = paradas
+            try {
+              const fresca = await obtenerJornadaDeHoy(perfil.id)
+              if (fresca?.paradas) base = fresca.paradas
+            } catch {
+              // Sin relectura usamos lo que hay: peor el orden que ningún mapa.
+            }
+            enOrden = base.filter(
+              (p) => p.estado === 'pendiente' || p.estado === 'en_camino',
+            )
+          }
+          const maps = await previsualizarRecorrido(
+            { lat: pos.lat, lng: pos.lng },
+            enOrden,
+            { navegar: true },
+          )
+          return { maps }
+        } catch {
+          // La jornada ya arrancó y el seguimiento está prendido; sólo falló
+          // abrir Maps. Va al cartel de Maps, sin pisar el de la jornada.
+          setAvisoMaps(
+            'No pudimos abrir Google Maps. Seguí el recorrido desde la app, o tocá VER RECORRIDO EN GOOGLE MAPS para reintentar.',
+          )
+          return { maps: null }
+        }
+      }
+
+      return { maps: null }
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       void cliente.invalidateQueries({ queryKey: ['jornada-hoy'] })
       void cliente.invalidateQueries({ queryKey: ['resumen-hoy'] })
+      // El techo de destinos por enlace lo pone Google, no nosotros: mejor
+      // avisar que abrir un mapa al que le faltan paradas sin decir nada. Va en
+      // su propio cartel (avisoMaps), así no pisa el de permiso/tránsito de la
+      // jornada, y manda a un botón que sí existe con la jornada en curso.
+      if (r?.maps?.abierto && r.maps.incluidas < r.maps.total) {
+        setAvisoMaps(
+          `Google Maps abre hasta ${r.maps.incluidas} destinos por vez y tu recorrido tiene ${r.maps.total}. ` +
+            'Cuando llegues al último, tocá VER RECORRIDO EN GOOGLE MAPS para seguir con el resto.',
+        )
+      }
     },
     onError: (e: Error) => Alert.alert('No pudimos iniciar el recorrido', e.message),
   })
 
-  // Llegó desde "INICIAR RECORRIDO": arranca sin pedir un toque más.
+  /**
+   * "VER RECORRIDO EN GOOGLE MAPS", con la jornada ya en curso.
+   *
+   * Reabre en Maps lo que FALTA visitar, en el orden que muestra la lista
+   * (ya optimizado). Sirve para retomar tras cerrar Maps y, sobre todo, para
+   * seguir con el resto cuando el recorrido no entró entero en un solo enlace:
+   * es el botón al que apunta el aviso del tope de destinos.
+   */
+  const abrirMaps = useMutation({
+    mutationFn: async () => {
+      const pendientes = paradas.filter(
+        (p) => p.estado === 'pendiente' || p.estado === 'en_camino',
+      )
+      if (pendientes.length === 0) throw new Error('No te quedan destinos por visitar.')
+      const pos = await ubicacionActual()
+      return previsualizarRecorrido(pos, pendientes, { navegar: true })
+    },
+    onSuccess: (maps) => {
+      // Al cartel de Maps (su propio estado): no pisa el aviso de permiso de la
+      // jornada, y al reemplazarse no se apilan avisos si se toca varias veces.
+      if (maps.abierto && maps.incluidas < maps.total) {
+        setAvisoMaps(
+          `Google Maps abre hasta ${maps.incluidas} destinos por vez y te quedan ${maps.total}. ` +
+            'Al llegar al último, tocá de nuevo VER RECORRIDO EN GOOGLE MAPS para el resto.',
+        )
+      }
+    },
+    onError: (e: Error) => Alert.alert('No pudimos abrir Google Maps', e.message),
+  })
+
+  // Llegó desde "INICIAR RECORRIDO": se pregunta cómo arrancar.
   useEffect(() => {
     if (debeIniciar && jornada && !enCurso && !finalizada && !arrancar.isPending) {
-      arrancar.mutate()
+      setEligiendoModo(true)
       navigation.setParams({ iniciar: false })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debeIniciar, jornada?.id, enCurso, finalizada])
+
+  // Cierra la ventana y arranca del modo elegido.
+  const elegirModo = useCallback(
+    (irAGoogleMaps: boolean) => {
+      setEligiendoModo(false)
+      arrancar.mutate({ irAGoogleMaps })
+    },
+    [arrancar],
+  )
 
   /**
    * Cerrar la jornada.
@@ -315,7 +439,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
           <>
             <TituloPanel>{'ESTE ES TU RECORRIDO\nDEL DÍA DE HOY'}</TituloPanel>
 
-            {avisoRuta ? <Aviso tono="atencion">{avisoRuta}</Aviso> : null}
+            {avisoJornada ? <Aviso tono="atencion">{avisoJornada}</Aviso> : null}
+            {avisoMaps ? <Aviso tono="info">{avisoMaps}</Aviso> : null}
 
             {/*
               Sin paradas no se monta el mapa. Antes se montaba igual y caía al
@@ -403,6 +528,14 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               </View>
             ) : null}
 
+            {enCurso ? (
+              <BotonSecundario
+                titulo="🗺️  Ver recorrido en Google Maps"
+                alTocar={() => abrirMaps.mutate()}
+                cargando={abrirMaps.isPending}
+              />
+            ) : null}
+
             {paradas.length > 0 ? (
               <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
             ) : null}
@@ -427,7 +560,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             {!enCurso && !finalizada ? (
               <BotonPrincipal
                 titulo="INICIAR RECORRIDO"
-                alTocar={() => arrancar.mutate()}
+                alTocar={() => setEligiendoModo(true)}
                 cargando={arrancar.isPending}
               />
             ) : null}
@@ -456,7 +589,74 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
           </>
         )}
       </Panel>
+
+      <ModalInicioRecorrido
+        visible={eligiendoModo}
+        alElegir={elegirModo}
+        alCerrar={() => setEligiendoModo(false)}
+      />
     </Pantalla>
+  )
+}
+
+/**
+ * "¿CÓMO QUERÉS HACER EL RECORRIDO?"
+ *
+ * La ventana que sale al tocar INICIAR RECORRIDO. Es un modal propio y no un
+ * `Alert.alert`: los dos caminos necesitan un renglón de explicación abajo del
+ * título, y un Alert no lo da. Los dos arrancan la jornada y el seguimiento por
+ * igual —de eso vive la oficina—; lo único que cambia es con qué se navega.
+ */
+function ModalInicioRecorrido({
+  visible,
+  alElegir,
+  alCerrar,
+}: {
+  visible: boolean
+  alElegir: (irAGoogleMaps: boolean) => void
+  alCerrar: () => void
+}) {
+  const estilos = usarEstilos()
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={alCerrar}>
+      <Pressable style={estilos.velo} onPress={alCerrar} accessibilityLabel="Cerrar">
+        <Pressable style={estilos.hoja} onPress={() => undefined}>
+          <Text style={estilos.hojaTitulo}>¿CÓMO QUERÉS HACER EL RECORRIDO?</Text>
+          <Text style={estilos.hojaNota}>
+            En los dos casos arranca la jornada y la oficina ve tu ubicación mientras dure.
+          </Text>
+
+          <Pressable
+            onPress={() => alElegir(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Ir a Google Maps"
+            style={({ pressed }) => [estilos.accion, pressed && estilos.accionTocada]}
+          >
+            <Text style={estilos.accionTexto}>IR A GOOGLE MAPS</Text>
+            <Text style={estilos.accionDetalle}>Abre el recorrido completo para manejar</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => alElegir(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Seguir mi propio recorrido"
+            style={({ pressed }) => [estilos.accion, pressed && estilos.accionTocada]}
+          >
+            <Text style={estilos.accionTexto}>SEGUIR MI PROPIO RECORRIDO</Text>
+            <Text style={estilos.accionDetalle}>Te guío destino por destino desde la app</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={alCerrar}
+            accessibilityRole="button"
+            style={({ pressed }) => [estilos.cancelar, pressed && estilos.accionTocada]}
+          >
+            <Text style={estilos.cancelarTexto}>VOLVER</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   )
 }
 
@@ -637,5 +837,67 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.titulo,
     fontSize: 22,
     color: t.colores.verdeOscuro,
+  },
+
+  // ── Ventana "¿cómo querés hacer el recorrido?" ─────────────────────────────
+  velo: {
+    flex: 1,
+    backgroundColor: t.colores.velo,
+    justifyContent: 'flex-end',
+  },
+  hoja: {
+    backgroundColor: t.colores.panel,
+    borderTopWidth: 2.5,
+    borderTopColor: t.colores.borde,
+    borderTopLeftRadius: radios.lg,
+    borderTopRightRadius: radios.lg,
+    padding: espaciado.base,
+    gap: espaciado.sm,
+  },
+  hojaTitulo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+    letterSpacing: 0.6,
+  },
+  hojaNota: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  accion: {
+    minHeight: TOQUE_MINIMO,
+    justifyContent: 'center',
+    paddingVertical: espaciado.sm,
+    paddingHorizontal: espaciado.md,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+    gap: 2,
+  },
+  accionTocada: { opacity: 0.7 },
+  accionTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    letterSpacing: 0.5,
+  },
+  accionDetalle: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
+  },
+  cancelar: {
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: espaciado.xs,
+  },
+  cancelarTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
+    letterSpacing: 1,
   },
 }))
