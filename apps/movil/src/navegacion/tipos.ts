@@ -51,6 +51,8 @@ export type ParametrosApp = {
   ComunicacionInterna: undefined
   /** A quién toca visitar hoy según el rol maestro, para armar el recorrido. */
   ClientesDelDia: undefined
+  /** Todos los clientes ubicados sobre el mapa, agrupados, centrado en el GPS. */
+  MapaClientes: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   /**

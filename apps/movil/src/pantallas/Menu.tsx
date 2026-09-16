@@ -97,6 +97,12 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         />
 
         <BotonMenu
+          titulo="MAPA"
+          subtitulo="Todos los clientes ubicados, alrededor tuyo"
+          alTocar={() => navigation.navigate('MapaClientes')}
+        />
+
+        <BotonMenu
           titulo="CLIENTES DE HOY"
           subtitulo="A quién te toca visitar, para armar el recorrido"
           alTocar={() => navigation.navigate('ClientesDelDia')}
