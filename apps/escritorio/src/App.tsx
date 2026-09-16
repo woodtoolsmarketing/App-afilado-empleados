@@ -10,6 +10,7 @@ import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaClientes } from './paginas/Clientes'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
+import { PaginaMapaClientes } from './paginas/MapaClientes'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
 import { PaginaNotasPedido } from './paginas/NotasPedido'
 import { PaginaProblemas } from './paginas/Problemas'
@@ -65,6 +66,7 @@ export function App() {
           <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
           <Route path="/rol-maestro" element={<PaginaRolMaestro soloLectura={!sesion.esAdmin} />} />
           <Route path="/mapa" element={<PaginaMapaEnVivo />} />
+          <Route path="/clientes-mapa" element={<PaginaMapaClientes />} />
           <Route path="/problemas" element={<PaginaProblemas soloLectura={!sesion.esAdmin} />} />
           <Route
             path="/actualizaciones"
@@ -177,6 +179,7 @@ function BarraLateral({
   const enlaces = [
     { a: '/', icono: '▦', texto: 'Tablero' },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
+    { a: '/clientes-mapa', icono: '🗺', texto: 'Mapa' },
     { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente },
     { a: '/cola-impresion', icono: '🖨', texto: 'Cola de impresión', globo: aImprimir },
     { a: '/roles', icono: '▤', texto: 'Roles de visita' },
