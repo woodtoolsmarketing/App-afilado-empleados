@@ -14,11 +14,12 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet'
 import { supabase } from '../nucleo/supabase'
 
 /**
- * Cuánto puede tardar la última señal antes de que dejemos de mostrar al
- * vendedor. Cubre el vendedor parado un rato en un cliente sin arrastrar el pin
- * de alguien cuya app se murió: pasado esto, se lo saca del mapa.
+ * Cuánto puede tardar la última señal antes de dejar de mostrar al vendedor.
+ * Es sólo una red de seguridad contra pines fantasma (una app que se murió a
+ * mitad del recorrido y quedó marcada como activa): un vendedor de verdad en
+ * recorrido reporta mucho más seguido, así que esto nunca lo oculta.
  */
-const FRESCURA_MINUTOS = 60
+const FRESCURA_MINUTOS = 180
 
 /**
  * Mapa en vivo.

@@ -2,13 +2,7 @@ import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 
-import {
-  distanciaEnMetros,
-  enHorarioDeSeguimiento,
-  horarioSeguimientoDesde,
-  HORARIO_SEGUIMIENTO_DEFECTO,
-  type HorarioSeguimiento,
-} from '@woodtools/compartido'
+import { distanciaEnMetros } from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
 
@@ -31,27 +25,17 @@ import { cacheLocal, supabase } from '../nucleo/supabase'
 export const TAREA_UBICACION = 'woodtools-seguimiento-recorrido'
 const CLAVE_CONTEXTO = 'woodtools.contexto_seguimiento'
 const CLAVE_COLA = 'woodtools.cola_posiciones'
-/** Guarda la fecha (YYYY-MM-DD local) en que el vendedor pausó el seguimiento a mano. */
-const CLAVE_PAUSA = 'woodtools.seguimiento_pausado'
 
 /** Tope de la cola: si se pasa, se descartan los puntos más viejos. */
 const MAX_EN_COLA = 500
 
-/**
- * Contexto del seguimiento en curso.
- *
- * `rolVisitaId` presente = seguimiento de RECORRIDO (escribe el histórico y no
- * se apaga por horario). `rolVisitaId` en null = seguimiento de JORNADA (sólo el
- * pin en vivo, y la tarea se apaga sola al salir del horario laboral).
- */
 interface ContextoSeguimiento {
   vendedorId: string
-  rolVisitaId: string | null
-  horario: HorarioSeguimiento
+  rolVisitaId: string
 }
 
 interface PuntoEncolado {
-  rol_visita_id: string | null
+  rol_visita_id: string
   vendedor_id: string
   lat: number
   lng: number
@@ -70,41 +54,6 @@ async function leerContexto(): Promise<ContextoSeguimiento | null> {
   } catch {
     return null
   }
-}
-
-/** El horario de seguimiento vigente, de `configuracion` o el default. */
-export async function horarioDeSeguimiento(): Promise<HorarioSeguimiento> {
-  try {
-    const { data } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'seguimiento_horario')
-      .maybeSingle()
-    return horarioSeguimientoDesde((data as { valor: unknown } | null)?.valor)
-  } catch {
-    return HORARIO_SEGUIMIENTO_DEFECTO
-  }
-}
-
-/** La fecha local de hoy, como YYYY-MM-DD, para la pausa manual del día. */
-function hoyLocal(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-/** ¿El vendedor detuvo el seguimiento a mano hoy? Hasta mañana no se reanuda solo. */
-export async function seguimientoPausadoHoy(): Promise<boolean> {
-  const v = await cacheLocal.getItem(CLAVE_PAUSA).catch(() => null)
-  return v === hoyLocal()
-}
-
-/** Qué se está rastreando ahora, si algo. */
-export async function modoSeguimiento(): Promise<'recorrido' | 'jornada' | null> {
-  const corriendo = await Location.hasStartedLocationUpdatesAsync(TAREA_UBICACION).catch(() => false)
-  if (!corriendo) return null
-  const ctx = await leerContexto()
-  if (!ctx) return null
-  return ctx.rolVisitaId ? 'recorrido' : 'jornada'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,8 +164,8 @@ async function arrancarTarea(): Promise<void> {
     distanceInterval: distanciaMin,
     // Sin esto, Android mata el seguimiento apenas se apaga la pantalla.
     foregroundService: {
-      notificationTitle: 'WoodTools · seguimiento activo',
-      notificationBody: 'La oficina puede ver tu ubicación durante la jornada.',
+      notificationTitle: 'WoodTools · recorrido en curso',
+      notificationBody: 'La oficina puede ver tu ubicación mientras dure el recorrido.',
       notificationColor: '#B30F0F',
       killServiceOnDestroy: false,
     },
@@ -226,55 +175,18 @@ async function arrancarTarea(): Promise<void> {
   })
 }
 
-/**
- * Seguimiento de RECORRIDO: escribe el histórico y no se apaga por horario.
- *
- * Si ya venía corriendo el seguimiento de jornada, esto sólo le suma el
- * `rolVisitaId` al contexto —para que empiece a guardar la traza— sin reiniciar
- * la tarea.
- */
-export async function iniciarSeguimiento(contexto: {
-  vendedorId: string
-  rolVisitaId: string
-}): Promise<void> {
-  const horario = await horarioDeSeguimiento()
-  await cacheLocal.setItem(
-    CLAVE_CONTEXTO,
-    JSON.stringify({ vendedorId: contexto.vendedorId, rolVisitaId: contexto.rolVisitaId, horario }),
-  )
-  // Arrancar el recorrido levanta cualquier pausa manual del día.
-  await cacheLocal.removeItem(CLAVE_PAUSA).catch(() => undefined)
+/** Seguimiento de recorrido: se prende al iniciar un viaje y guarda la traza. */
+export async function iniciarSeguimiento(contexto: ContextoSeguimiento): Promise<void> {
+  await cacheLocal.setItem(CLAVE_CONTEXTO, JSON.stringify(contexto))
   await arrancarTarea()
 }
 
-/**
- * Seguimiento de JORNADA: la ubicación queda visible en el panel durante el
- * horario laboral, sin recorrido. Sólo el pin en vivo (sin traza). Si ya hay un
- * recorrido en curso, se respeta su `rolVisitaId`.
- */
-export async function iniciarSeguimientoDeJornada(vendedorId: string): Promise<void> {
-  const horario = await horarioDeSeguimiento()
-  const previo = await leerContexto()
-  const rolVisitaId = previo?.rolVisitaId ?? null
-  await cacheLocal.setItem(
-    CLAVE_CONTEXTO,
-    JSON.stringify({ vendedorId, rolVisitaId, horario }),
-  )
-  await arrancarTarea()
-}
-
-export async function detenerSeguimiento(
-  vendedorId?: string,
-  opts?: { pausar?: boolean },
-): Promise<void> {
+export async function detenerSeguimiento(vendedorId?: string): Promise<void> {
   const corriendo = await Location.hasStartedLocationUpdatesAsync(TAREA_UBICACION).catch(() => false)
   if (corriendo) await Location.stopLocationUpdatesAsync(TAREA_UBICACION)
 
   await cacheLocal.removeItem(CLAVE_CONTEXTO)
   await vaciarCola()
-
-  // Pausa manual: hasta mañana el seguimiento de jornada no se reanuda solo.
-  if (opts?.pausar) await cacheLocal.setItem(CLAVE_PAUSA, hoyLocal()).catch(() => undefined)
 
   if (vendedorId) {
     await supabase
@@ -305,15 +217,6 @@ TaskManager.defineTask(TAREA_UBICACION, async ({ data, error }) => {
 
   const contexto = await leerContexto()
   if (!contexto) return
-
-  // El seguimiento de JORNADA (sin recorrido) se apaga solo al salir del horario
-  // laboral. Es lo que corta a las 17 aunque la app esté en segundo plano: la
-  // tarea es lo único que sigue vivo con la pantalla apagada. El recorrido, que
-  // es explícito, no se corta por horario.
-  if (!contexto.rolVisitaId && !enHorarioDeSeguimiento(new Date(), contexto.horario)) {
-    await detenerSeguimiento(contexto.vendedorId)
-    return
-  }
 
   let bateria: number | null = null
   try {
@@ -351,18 +254,14 @@ async function publicarPunto(punto: PuntoEncolado): Promise<void> {
       velocidad_mps: punto.velocidad_mps,
       rumbo: punto.rumbo,
       bateria_pct: punto.bateria_pct,
-      // `activo` es lo que el panel muestra; `en_recorrido` distingue si además
-      // tiene un recorrido en curso (para la traza y el rótulo).
+      // `activo` es lo que el panel muestra (acotado por el horario 8-17 según su
+      // reloj); `en_recorrido` marca que además tiene un recorrido en curso.
       activo: true,
-      en_recorrido: punto.rol_visita_id != null,
+      en_recorrido: true,
       actualizado_en: punto.registrado_en,
     },
     { onConflict: 'vendedor_id' },
   )
-
-  // El histórico (la traza) sólo se escribe durante un recorrido: la tabla
-  // `posiciones` exige `rol_visita_id`. En jornada alcanza con el pin en vivo.
-  if (punto.rol_visita_id == null) return
 
   const { error: errHistorico } = await supabase.from('posiciones').insert(punto)
 
