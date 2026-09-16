@@ -393,7 +393,7 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
                   siguiendo
                     ? Alert.alert(
                         'Detener el seguimiento',
-                        'La oficina va a dejar de ver tu ubicación. El recorrido sigue abierto y lo podés reanudar desde acá mismo.',
+                        'La oficina va a dejar de ver tu ubicación por el resto del día. El recorrido sigue abierto y lo podés reanudar cuando quieras desde acá mismo.',
                         [
                           { text: 'Volver', style: 'cancel' },
                           {
@@ -402,7 +402,7 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
                             onPress: async () => {
                               setCambiandoSeguimiento(true)
                               try {
-                                await detenerSeguimiento(perfil?.id)
+                                await detenerSeguimiento(perfil?.id, { pausar: true })
                                 setSiguiendo(false)
                               } finally {
                                 setCambiandoSeguimiento(false)

@@ -35,6 +35,7 @@ import { PantallaRecorrido } from '../pantallas/Recorrido'
 import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarCandado } from '../servicios/presencia'
+import { usarSeguimientoDeJornada } from '../servicios/seguimientoJornada'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
@@ -77,6 +78,7 @@ function temaDeLaNavegacion(tema: Tema): Theme {
  */
 export function Navegacion() {
   const estado = usarSesion((s) => s.estado)
+  const perfil = usarSesion((s) => s.perfil)
   const tema = usarTema()
 
   /**
@@ -97,6 +99,14 @@ export function Navegacion() {
    * quedar del otro lado de un return.
    */
   const candado = usarCandado(estado === 'habilitado')
+
+  /**
+   * Seguimiento de jornada: durante el horario laboral (lun-vie 8-17) la oficina
+   * ve la ubicación del vendedor en el mapa en vivo, tenga o no un recorrido.
+   * Va acá por lo mismo que el candado: es de la app entera, no de una pantalla,
+   * y un hook no puede quedar del otro lado del return de abajo.
+   */
+  usarSeguimientoDeJornada(perfil, estado === 'habilitado')
 
   if (estado === 'cargando') {
     return (

@@ -1,10 +1,24 @@
-import { urlesDeFotos, type PosicionActual } from '@woodtools/compartido'
+import {
+  describirHorarioSeguimiento,
+  enHorarioDeSeguimiento,
+  HORARIO_SEGUIMIENTO_DEFECTO,
+  horarioSeguimientoDesde,
+  urlesDeFotos,
+  type PosicionActual,
+} from '@woodtools/compartido'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import L from 'leaflet'
 import { useEffect, useState } from 'react'
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet'
 
 import { supabase } from '../nucleo/supabase'
+
+/**
+ * Cuánto puede tardar la última señal antes de que dejemos de mostrar al
+ * vendedor. Cubre el vendedor parado un rato en un cliente sin arrastrar el pin
+ * de alguien cuya app se murió: pasado esto, se lo saca del mapa.
+ */
+const FRESCURA_MINUTOS = 60
 
 /**
  * Mapa en vivo.
@@ -30,13 +44,38 @@ export function PaginaMapaEnVivo() {
   const cliente = useQueryClient()
   const [seleccionado, setSeleccionado] = useState<string | null>(null)
 
+  // El horario de seguimiento configurado (lun-vie 8-17 por defecto). El panel
+  // decide mostrar o no con SU propio reloj.
+  const { data: horario } = useQuery({
+    queryKey: ['seguimiento-horario'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('configuracion')
+        .select('valor')
+        .eq('clave', 'seguimiento_horario')
+        .maybeSingle()
+      return horarioSeguimientoDesde((data as { valor: unknown } | null)?.valor)
+    },
+  })
+  const horarioVigente = horario ?? HORARIO_SEGUIMIENTO_DEFECTO
+
+  // Un tic para reevaluar el reloj y ocultar/mostrar al cruzar las 8 o las 17.
+  const [ahora, setAhora] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setAhora(new Date()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const dentroDeHorario = enHorarioDeSeguimiento(ahora, horarioVigente)
+
   const { data: posiciones } = useQuery({
     queryKey: ['posiciones-actuales'],
     queryFn: async () => {
+      const desde = new Date(Date.now() - FRESCURA_MINUTOS * 60_000).toISOString()
       const { data, error } = await supabase
         .from('posiciones_actuales')
         .select('*, perfiles:vendedor_id ( nombre_completo, codigo_vendedor, foto_url )')
-        .eq('en_recorrido', true)
+        .eq('activo', true)
+        .gte('actualizado_en', desde)
       if (error) throw error
 
       // El bucket de fotos es privado: hay que pedir una URL firmada por cada
@@ -90,7 +129,8 @@ export function PaginaMapaEnVivo() {
     }
   }, [cliente])
 
-  const activos = posiciones ?? []
+  // Fuera del horario no se muestra a nadie, aunque queden posiciones frescas.
+  const activos = dentroDeHorario ? (posiciones ?? []) : []
 
   return (
     <>
@@ -98,9 +138,11 @@ export function PaginaMapaEnVivo() {
         <div>
           <h1>Mapa en vivo</h1>
           <p>
-            {activos.length === 0
-              ? 'Ningún vendedor tiene el recorrido en curso en este momento.'
-              : `${activos.length} vendedor${activos.length === 1 ? '' : 'es'} en la calle.`}
+            {!dentroDeHorario
+              ? `Fuera del horario de seguimiento (${describirHorarioSeguimiento(horarioVigente)}). No se muestra la ubicación de nadie.`
+              : activos.length === 0
+                ? 'Ningún vendedor está activo en este momento.'
+                : `${activos.length} vendedor${activos.length === 1 ? '' : 'es'} en la calle.`}
           </p>
         </div>
       </header>
@@ -165,10 +207,14 @@ export function PaginaMapaEnVivo() {
       ) : null}
 
       <section className="tarjeta" style={{ marginTop: 18 }}>
-        <h2>Vendedores en recorrido</h2>
+        <h2>Vendedores en la calle</h2>
 
         {activos.length === 0 ? (
-          <p className="vacio">Nadie inició el recorrido todavía.</p>
+          <p className="vacio">
+            {dentroDeHorario
+              ? 'Ningún vendedor está activo en este momento.'
+              : `Fuera del horario de seguimiento (${describirHorarioSeguimiento(horarioVigente)}).`}
+          </p>
         ) : (
           <table>
             <thead>

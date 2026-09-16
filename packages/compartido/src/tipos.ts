@@ -317,7 +317,10 @@ export interface PosicionActual {
   velocidad_mps: number | null
   rumbo: number | null
   bateria_pct: number | null
+  /** El vendedor tiene un recorrido en curso (distinto de sólo estar en jornada). */
   en_recorrido: boolean
+  /** Se lo está rastreando ahora (recorrido o jornada). Es lo que el panel muestra. */
+  activo: boolean
   actualizado_en: string
 }
 
