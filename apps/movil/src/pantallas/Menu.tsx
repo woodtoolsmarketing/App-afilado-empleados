@@ -96,11 +96,17 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           alTocar={() => navigation.navigate('Recorrido')}
         />
 
-        <BotonMenu
-          titulo="MAPA"
-          subtitulo="Todos los clientes ubicados, alrededor tuyo"
-          alTocar={() => navigation.navigate('MapaClientes')}
-        />
+        {/*
+          "MAPA" (todos los clientes ubicados) queda oculto por ahora.
+
+          La pantalla usa react-native-maps con Google Maps, y esta variante del
+          APK (interno) no lleva la clave de Google Maps —sólo producción la
+          trae—, así que al montar el mapa la app se congela. Como la clave va
+          DENTRO del APK y no viaja por aire, no se puede arreglar por OTA: hay
+          que compilar un APK con la clave. Hasta entonces, mejor que el botón no
+          exista a que congele el teléfono del vendedor. La pantalla y su código
+          quedan (`MapaClientes.tsx`) para cuando el APK tenga la clave.
+        */}
 
         <BotonMenu
           titulo="CLIENTES DE HOY"
