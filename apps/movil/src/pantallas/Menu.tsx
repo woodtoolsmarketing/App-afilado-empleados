@@ -1,11 +1,11 @@
-import { espaciado } from '@woodtools/compartido'
+import { compararVersiones, espaciado } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { Text, View } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
 import { Encabezado } from '../componentes/Encabezado'
-import { usarSesion } from '../nucleo/sesion'
+import { usarSesion, VERSION_APP } from '../nucleo/sesion'
 import { obtenerResumenDeHoy } from '../servicios/jornada'
 import { notasPendientes as listarNotasPendientes } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -97,16 +97,24 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
         />
 
         {/*
-          "MAPA" (todos los clientes ubicados) queda oculto por ahora.
+          "MAPA" aparece SÓLO en los APK que tienen la clave de Google Maps.
 
-          La pantalla usa react-native-maps con Google Maps, y esta variante del
-          APK (interno) no lleva la clave de Google Maps —sólo producción la
-          trae—, así que al montar el mapa la app se congela. Como la clave va
-          DENTRO del APK y no viaja por aire, no se puede arreglar por OTA: hay
-          que compilar un APK con la clave. Hasta entonces, mejor que el botón no
-          exista a que congele el teléfono del vendedor. La pantalla y su código
-          quedan (`MapaClientes.tsx`) para cuando el APK tenga la clave.
+          La pantalla usa react-native-maps (Google Maps). Sin la clave —que va
+          DENTRO del APK, no viaja por aire— la vista nativa del mapa CONGELA la
+          app. Los APK viejos (interno hasta la 1.0.8) salieron sin la clave, así
+          que el botón tiene que quedar oculto ahí, aunque el código llegue por
+          OTA. El amarre no puede ser la clave del manifiesto —el OTA la
+          reescribe con la del `.env` de quien publica— sino la VERSIÓN NATIVA
+          del APK, que el OTA no puede falsear: de la 1.0.9 en adelante todos los
+          APK se compilan con la clave (ver eas.json), así que ésa es la línea.
         */}
+        {compararVersiones(VERSION_APP, '1.0.9') >= 0 ? (
+          <BotonMenu
+            titulo="MAPA"
+            subtitulo="Todos los clientes ubicados, alrededor tuyo"
+            alTocar={() => navigation.navigate('MapaClientes')}
+          />
+        ) : null}
 
         <BotonMenu
           titulo="CLIENTES DE HOY"
