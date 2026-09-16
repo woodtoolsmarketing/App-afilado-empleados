@@ -225,6 +225,33 @@ export async function agregarParada(params: {
   return data as ParadaCompleta
 }
 
+/**
+ * Agrega al recorrido de hoy un cliente tocado en el mapa.
+ *
+ * El mapa muestra el padrón entero, así que el cliente puede no ser de la
+ * cartera del vendedor y su `direccion_id` no viaja en el pin. La función de la
+ * base (SECURITY DEFINER) resuelve la dirección principal, asegura la jornada de
+ * hoy e inserta la parada: `alta` la mete como próximo destino, `baja` al final,
+ * como cola. Todo en un viaje y atómico.
+ */
+export async function agregarClienteAlRecorrido(params: {
+  clienteId: string
+  prioridad: PrioridadParada
+}): Promise<ParadaCompleta> {
+  const { data, error } = await supabase.rpc('agregar_cliente_al_recorrido', {
+    p_cliente_id: params.clienteId,
+    p_prioridad: params.prioridad,
+  })
+
+  if (error) {
+    // La función redacta sus propios mensajes: 23505 ya está en el recorrido,
+    // 23514 sin ubicar, 42501 cuenta no habilitada.
+    if (['23505', '23514', '42501'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+  return data as ParadaCompleta
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Historial
 // ─────────────────────────────────────────────────────────────────────────────

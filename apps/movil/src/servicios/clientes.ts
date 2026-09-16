@@ -166,6 +166,57 @@ export async function ubicarCliente(params: {
   return { direccion_id: fila.id, lat: fila.lat, lng: fila.lng, localidad: fila.localidad }
 }
 
+/** Los datos editables de un cliente, para el formulario del mapa. */
+export interface FichaClienteEditable {
+  razon_social: string
+  nombre_fantasia: string | null
+  direccion_id: string | null
+  direccion_formateada: string | null
+}
+
+/**
+ * Trae los datos actuales de un cliente para editarlos desde el mapa.
+ *
+ * Va por RPC (SECURITY DEFINER) y no por un `select` directo porque el cliente
+ * tocado en el mapa puede no ser de la cartera del vendedor, y la RLS de
+ * `clientes` lo escondería. Es el mismo criterio que `buscar_clientes`.
+ */
+export async function fichaClienteParaEditar(clienteId: string): Promise<FichaClienteEditable | null> {
+  const { data, error } = await supabase.rpc('ficha_cliente', { p_cliente_id: clienteId })
+  if (error) throw error
+  const filas = (data ?? []) as FichaClienteEditable[]
+  return filas[0] ?? null
+}
+
+/**
+ * Modifica razón social, nombre de fantasía y/o dirección de un cliente.
+ *
+ * El vendedor no puede hacer UPDATE de `clientes` (la RLS es sólo admin), así
+ * que escribe por una función con los permisos del dueño que además deja
+ * registro del cambio para el listado mensual de la oficina.
+ */
+export async function modificarDatosCliente(params: {
+  clienteId: string
+  razonSocial: string
+  nombreFantasia: string | null
+  direccion: string | null
+}): Promise<void> {
+  const { error } = await supabase.rpc('modificar_datos_cliente', {
+    p_cliente_id: params.clienteId,
+    p_razon_social: params.razonSocial.trim(),
+    p_nombre_fantasia: params.nombreFantasia?.trim() || null,
+    p_direccion: params.direccion?.trim() || null,
+  })
+
+  if (error) {
+    if (['23514', '42501', 'P0002'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+
+  // Cambió la ficha: lo que el buscador tenga guardado quedó viejo.
+  olvidarBusquedasDeClientes()
+}
+
 /** Agrega al recorrido un cliente que ya está en el padrón. */
 export async function agregarDestinoExistente(params: {
   rolVisitaId: string

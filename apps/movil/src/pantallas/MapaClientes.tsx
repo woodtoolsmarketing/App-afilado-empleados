@@ -1,14 +1,30 @@
-import { useQuery } from '@tanstack/react-query'
+import { espaciado, radios } from '@woodtools/compartido'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Location from 'expo-location'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps'
 import Supercluster from 'supercluster'
 
+import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
+import { Campo, MensajeError } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { Pantalla } from '../componentes/Pantalla'
 import { supabase } from '../nucleo/supabase'
 import { hojaDeTema } from '../nucleo/tema'
+import { agregarClienteAlRecorrido } from '../servicios/jornada'
+import { fichaClienteParaEditar, modificarDatosCliente } from '../servicios/clientes'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -28,6 +44,9 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Como recién aparecen cuando el racimo se abrió —o sea, cuando quedan pocos en
  * pantalla—, los carteles no se pisan.
  *
+ * Tocar un pin abre un menú con tres acciones: agregarlo como próximo destino,
+ * ponerlo en la cola de viajes, o modificar sus datos.
+ *
  * Los datos llegan del RPC `clientes_en_mapa` en un solo `jsonb`: PostgREST
  * corta en 1.000 filas y son casi diez mil, así que un SELECT normal traería
  * una fracción sin avisar.
@@ -42,6 +61,15 @@ interface ClienteMapa {
 }
 
 type PropiedadesPin = { id: string; codigo: string; razon_social: string }
+
+/** El cliente que el vendedor tocó en el mapa, con lo que hace falta para actuar. */
+interface PinTocado {
+  id: string
+  codigo: string
+  razon_social: string
+  lat: number
+  lng: number
+}
 
 /**
  * Referencia estable para "todavía no hay clientes". Si en su lugar se usara un
@@ -67,11 +95,18 @@ function zoomDeRegion(r: Region): number {
 
 export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes'>) {
   const estilos = usarEstilos()
+  const cliente = useQueryClient()
   const mapa = useRef<MapView>(null)
   const [region, setRegion] = useState<Region>(REGION_INICIAL)
   const [racimos, setRacimos] = useState<
     Array<Supercluster.PointFeature<PropiedadesPin> | Supercluster.ClusterFeature<Supercluster.AnyProps>>
   >([])
+
+  // El cliente tocado (abre el menú de acciones) y, si eligió modificar, la ficha.
+  const [tocado, setTocado] = useState<PinTocado | null>(null)
+  const [editando, setEditando] = useState<PinTocado | null>(null)
+  const [form, setForm] = useState({ razon_social: '', nombre_fantasia: '', direccion: '' })
+  const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['clientes-en-mapa'],
@@ -142,6 +177,67 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
     }
   }, [])
 
+  // ── Acciones del pin ────────────────────────────────────────────────────────
+
+  const agregar = useMutation({
+    mutationFn: (v: { cliente: PinTocado; prioridad: 'alta' | 'baja' }) =>
+      agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad }),
+    onSuccess: (_parada, v) => {
+      const donde = v.prioridad === 'alta' ? 'como próximo destino' : 'en la cola de viajes'
+      const razon = v.cliente.razon_social
+      setTocado(null)
+      Alert.alert('Agregado al recorrido', `${razon} quedó ${donde} de hoy.`, [
+        { text: 'Seguir en el mapa' },
+        { text: 'Ir a MAPA DE VISITAS', onPress: () => navigation.navigate('Recorrido') },
+      ])
+    },
+    onError: (e: Error) => Alert.alert('No se pudo agregar', e.message),
+  })
+
+  const abrirEdicion = useMutation({
+    mutationFn: (c: PinTocado) => fichaClienteParaEditar(c.id),
+    onSuccess: (ficha, c) => {
+      setForm({
+        razon_social: ficha?.razon_social ?? c.razon_social,
+        nombre_fantasia: ficha?.nombre_fantasia ?? '',
+        direccion: ficha?.direccion_formateada ?? '',
+      })
+      setErrorEdicion(null)
+      setTocado(null)
+      setEditando(c)
+    },
+    onError: (e: Error) => Alert.alert('No pudimos abrir la ficha', e.message),
+  })
+
+  const guardarEdicion = useMutation({
+    mutationFn: () =>
+      modificarDatosCliente({
+        clienteId: editando!.id,
+        razonSocial: form.razon_social,
+        nombreFantasia: form.nombre_fantasia || null,
+        direccion: form.direccion || null,
+      }),
+    onSuccess: async () => {
+      // La razón social pudo cambiar: el cartel del pin sale de esta consulta.
+      await cliente.invalidateQueries({ queryKey: ['clientes-en-mapa'] })
+      const razon = form.razon_social
+      setEditando(null)
+      Alert.alert('Datos actualizados', `Se guardaron los cambios de ${razon}.`)
+    },
+    onError: (e: Error) => setErrorEdicion(e.message),
+  })
+
+  function validarYGuardar() {
+    if (form.razon_social.trim().length < 3) {
+      setErrorEdicion('Escribí el nombre o la razón social del cliente.')
+      return
+    }
+    setErrorEdicion(null)
+    guardarEdicion.mutate()
+  }
+
+  const ocupado = agregar.isPending || abrirEdicion.isPending
+
   return (
     <Pantalla>
       <Encabezado alAbrirMenu={() => navigation.navigate('Menu')} />
@@ -194,6 +290,9 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
                 coordinate={{ latitude: lat, longitude: lng }}
                 anchor={{ x: 0.5, y: 1 }}
                 tracksViewChanges={false}
+                onPress={() =>
+                  setTocado({ id: p.id, codigo: p.codigo, razon_social: p.razon_social, lat, lng })
+                }
               >
                 <View style={estilos.pinColumna}>
                   <View style={estilos.cartel}>
@@ -220,6 +319,119 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
           </View>
         )}
       </View>
+
+      {/* ── Menú de acciones al tocar un pin ─────────────────────────────────── */}
+      <Modal
+        visible={!!tocado}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTocado(null)}
+      >
+        <Pressable style={estilos.velo} onPress={() => !ocupado && setTocado(null)}>
+          <Pressable style={estilos.hoja} onPress={(e) => e.stopPropagation()}>
+            <Text style={estilos.hojaTitulo} numberOfLines={2}>
+              {tocado?.razon_social}
+            </Text>
+            <Text style={estilos.hojaSub}>Código: {tocado?.codigo}</Text>
+
+            <View style={estilos.acciones}>
+              <BotonMenu
+                titulo="PRÓXIMO DESTINO"
+                subtitulo="Primero en el recorrido de hoy"
+                alTocar={() => tocado && agregar.mutate({ cliente: tocado, prioridad: 'alta' })}
+                cargando={agregar.isPending && agregar.variables?.prioridad === 'alta'}
+                deshabilitado={ocupado}
+              />
+              <BotonMenu
+                titulo="AGREGAR A LA COLA DE VIAJES"
+                subtitulo="Al final del recorrido de hoy"
+                alTocar={() => tocado && agregar.mutate({ cliente: tocado, prioridad: 'baja' })}
+                cargando={agregar.isPending && agregar.variables?.prioridad === 'baja'}
+                deshabilitado={ocupado}
+              />
+              <BotonMenu
+                titulo="MODIFICAR DATOS"
+                subtitulo="Nombre, razón social o dirección"
+                alTocar={() => tocado && abrirEdicion.mutate(tocado)}
+                cargando={abrirEdicion.isPending}
+                deshabilitado={ocupado}
+              />
+            </View>
+
+            <BotonSecundario
+              titulo="Cerrar"
+              alTocar={() => setTocado(null)}
+              deshabilitado={ocupado}
+              style={estilos.cerrar}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Modificar los datos del cliente ──────────────────────────────────── */}
+      <Modal
+        visible={!!editando}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditando(null)}
+      >
+        <KeyboardAvoidingView
+          style={estilos.veloCentro}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditando(null)} />
+          <View style={estilos.tarjeta}>
+            <ScrollView
+              contentContainerStyle={estilos.tarjetaContenido}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              <Text style={estilos.hojaTitulo}>Modificar datos</Text>
+              <Text style={estilos.hojaSub}>Código: {editando?.codigo}</Text>
+
+              <Campo
+                etiqueta="Razón social"
+                obligatorio
+                value={form.razon_social}
+                onChangeText={(t) => setForm((f) => ({ ...f, razon_social: t }))}
+                autoCapitalize="words"
+              />
+              <Campo
+                etiqueta="Nombre de fantasía"
+                value={form.nombre_fantasia}
+                onChangeText={(t) => setForm((f) => ({ ...f, nombre_fantasia: t }))}
+                placeholder="Cómo lo conocen en la zona"
+                autoCapitalize="words"
+              />
+              <Campo
+                etiqueta="Dirección"
+                value={form.direccion}
+                onChangeText={(t) => setForm((f) => ({ ...f, direccion: t }))}
+                placeholder="Calle, número, localidad"
+                autoCapitalize="words"
+                ayuda="Corrige el texto de la dirección. El punto en el mapa no se mueve."
+              />
+
+              <MensajeError>{errorEdicion}</MensajeError>
+
+              <View style={estilos.filaBotones}>
+                <BotonSecundario
+                  titulo="Cancelar"
+                  alTocar={() => setEditando(null)}
+                  deshabilitado={guardarEdicion.isPending}
+                  style={estilos.botonMitad}
+                />
+                <BotonPrincipal
+                  titulo="Guardar"
+                  alTocar={validarYGuardar}
+                  cargando={guardarEdicion.isPending}
+                  style={estilos.botonMitad}
+                />
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </Pantalla>
   )
 }
@@ -291,4 +503,60 @@ const usarEstilos = hojaDeTema((t) => ({
     borderRadius: 6,
   },
   contadorTexto: { fontSize: 12, color: '#111', fontWeight: '600' as const },
+
+  // ── Menú de acciones (hoja inferior) ──────────────────────────────────────
+  velo: {
+    flex: 1,
+    backgroundColor: t.colores.velo,
+    justifyContent: 'flex-end' as const,
+  },
+  hoja: {
+    backgroundColor: t.colores.panelClaro,
+    borderTopWidth: 3,
+    borderColor: t.colores.borde,
+    borderTopLeftRadius: radios.lg,
+    borderTopRightRadius: radios.lg,
+    padding: espaciado.base,
+    gap: espaciado.sm,
+  },
+  hojaTitulo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.lg,
+    color: t.colores.tinta,
+    textAlign: 'center' as const,
+  },
+  hojaSub: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
+    textAlign: 'center' as const,
+    marginBottom: espaciado.xs,
+  },
+  acciones: { gap: espaciado.sm },
+  cerrar: { marginTop: espaciado.xs },
+
+  // ── Formulario de edición (tarjeta centrada) ──────────────────────────────
+  veloCentro: {
+    flex: 1,
+    backgroundColor: t.colores.velo,
+    justifyContent: 'center' as const,
+    padding: espaciado.base,
+  },
+  tarjeta: {
+    backgroundColor: t.colores.panelClaro,
+    borderWidth: 3,
+    borderColor: t.colores.borde,
+    borderRadius: radios.lg,
+    maxHeight: '86%' as const,
+  },
+  tarjetaContenido: {
+    padding: espaciado.base,
+    gap: espaciado.sm,
+  },
+  filaBotones: {
+    flexDirection: 'row' as const,
+    gap: espaciado.sm,
+    marginTop: espaciado.sm,
+  },
+  botonMitad: { flex: 1, minWidth: 0 },
 }))

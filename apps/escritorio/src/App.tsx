@@ -12,6 +12,7 @@ import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaClientes } from './paginas/MapaClientes'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
+import { PaginaModificacionesClientes } from './paginas/ModificacionesClientes'
 import { PaginaNotasPedido } from './paginas/NotasPedido'
 import { PaginaProblemas } from './paginas/Problemas'
 import { PaginaRolMaestro } from './paginas/RolMaestro'
@@ -51,6 +52,7 @@ export function App() {
           <Route path="/" element={<PaginaTablero />} />
           <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
           <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
+          <Route path="/modificaciones" element={<PaginaModificacionesClientes />} />
           <Route
             path="/a-confirmar"
             element={<PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />}
@@ -185,6 +187,7 @@ function BarraLateral({
     { a: '/roles', icono: '▤', texto: 'Roles de visita' },
     { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro' },
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
+    { a: '/modificaciones', icono: '✎', texto: 'Modificaciones' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
     { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas },
