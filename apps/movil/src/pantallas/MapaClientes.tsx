@@ -25,6 +25,7 @@ import { supabase } from '../nucleo/supabase'
 import { hojaDeTema } from '../nucleo/tema'
 import { agregarClienteAlRecorrido } from '../servicios/jornada'
 import { fichaClienteParaEditar, modificarDatosCliente } from '../servicios/clientes'
+import { navegarHacia } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -182,14 +183,31 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   const agregar = useMutation({
     mutationFn: (v: { cliente: PinTocado; prioridad: 'alta' | 'baja' }) =>
       agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad }),
-    onSuccess: (_parada, v) => {
-      const donde = v.prioridad === 'alta' ? 'como próximo destino' : 'en la cola de viajes'
-      const razon = v.cliente.razon_social
+    onSuccess: async (_parada, v) => {
       setTocado(null)
-      Alert.alert('Agregado al recorrido', `${razon} quedó ${donde} de hoy.`, [
-        { text: 'Seguir en el mapa' },
-        { text: 'Ir a MAPA DE VISITAS', onPress: () => navigation.navigate('Recorrido') },
-      ])
+      if (v.prioridad === 'alta') {
+        // Próximo destino: lo dejó como próxima parada y ahora abre Google Maps
+        // para ir directo hasta la dirección del cliente.
+        try {
+          await navegarHacia({ lat: v.cliente.lat, lng: v.cliente.lng })
+        } catch (e) {
+          Alert.alert(
+            'Quedó como próximo destino',
+            `${v.cliente.razon_social} quedó primero en tu recorrido, pero no pudimos abrir Google Maps: ${(e as Error).message}`,
+          )
+        }
+      } else {
+        // Cola de viajes: sólo se agrega al final; se viaja después con todo el
+        // recorrido desde MAPA DE VISITAS.
+        Alert.alert(
+          'Agregado a la cola de viajes',
+          `${v.cliente.razon_social} quedó al final de tu recorrido de hoy.`,
+          [
+            { text: 'Seguir en el mapa' },
+            { text: 'Ir a MAPA DE VISITAS', onPress: () => navigation.navigate('Recorrido') },
+          ],
+        )
+      }
     },
     onError: (e: Error) => Alert.alert('No se pudo agregar', e.message),
   })
@@ -337,7 +355,7 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
             <View style={estilos.acciones}>
               <BotonMenu
                 titulo="PRÓXIMO DESTINO"
-                subtitulo="Primero en el recorrido de hoy"
+                subtitulo="Te lleva ahora por Google Maps"
                 alTocar={() => tocado && agregar.mutate({ cliente: tocado, prioridad: 'alta' })}
                 cargando={agregar.isPending && agregar.variables?.prioridad === 'alta'}
                 deshabilitado={ocupado}
