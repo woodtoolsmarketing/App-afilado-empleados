@@ -43,6 +43,15 @@ interface ClienteMapa {
 
 type PropiedadesPin = { id: string; codigo: string; razon_social: string }
 
+/**
+ * Referencia estable para "todavía no hay clientes". Si en su lugar se usara un
+ * `[]` nuevo en cada render (p. ej. `data ?? []`), el `useMemo` del índice —que
+ * depende de este arreglo— se recalcularía siempre, el `useEffect([indice])`
+ * dispararía en cada render y el hilo JS entraría en un bucle infinito que
+ * congela la app. Ver el uso más abajo.
+ */
+const SIN_PUNTOS: ClienteMapa[] = []
+
 /** Punto de partida si todavía no sabemos dónde está el vendedor (AMBA). */
 const REGION_INICIAL: Region = {
   latitude: -34.61,
@@ -64,7 +73,7 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
     Array<Supercluster.PointFeature<PropiedadesPin> | Supercluster.ClusterFeature<Supercluster.AnyProps>>
   >([])
 
-  const { data: puntos = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['clientes-en-mapa'],
     queryFn: async (): Promise<ClienteMapa[]> => {
       const { data, error } = await supabase.rpc('clientes_en_mapa')
@@ -73,6 +82,10 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
     },
     staleTime: 5 * 60 * 1000,
   })
+  // `data` de react-query es una referencia estable entre renders; mientras
+  // carga es `undefined`, y ahí usamos SIEMPRE el mismo `[]` (no uno nuevo) para
+  // no romper el `useMemo` de abajo y no caer en el bucle infinito de renders.
+  const puntos = data ?? SIN_PUNTOS
 
   const indice = useMemo(() => {
     const s = new Supercluster<PropiedadesPin>({ radius: 60, maxZoom: 18 })
