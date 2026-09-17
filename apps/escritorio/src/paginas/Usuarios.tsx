@@ -16,6 +16,10 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [mostrarAlta, setMostrarAlta] = useState(false)
+  const [rehabilitado, setRehabilitado] = useState<{
+    usuario: string
+    contrasena_provisoria: string
+  } | null>(null)
 
   const { data: perfiles, isLoading } = useQuery({
     queryKey: ['perfiles'],
@@ -120,6 +124,43 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       setMensaje('Estado actualizado.')
       void cliente.invalidateQueries()
     },
+  })
+
+  /**
+   * Sacar a alguien de la suspensión, REINICIÁNDOLE la contraseña.
+   *
+   * A diferencia de reactivar una baja o un rechazo —que es un simple UPDATE de
+   * estado (cambiarEstado)—, sacar a alguien de la suspensión le rota la clave a
+   * una provisoria nueva (la vieja deja de servir) y lo obliga a cambiarla al
+   * entrar, igual que en el alta. Rotar la clave de otro es una operación de
+   * administrador de Auth, así que va por la edge function `rehabilitar-usuario`
+   * (service_role del lado servidor), no por un UPDATE del panel.
+   */
+  const rehabilitar = useMutation({
+    mutationFn: async (perfilId: string) => {
+      const { data, error: errFuncion } = await supabase.functions.invoke('rehabilitar-usuario', {
+        body: { perfil_id: perfilId },
+      })
+      if (errFuncion) {
+        // El cuerpo del error trae el mensaje de verdad; la capa de funciones
+        // dice siempre lo mismo. Mismo patrón que el alta.
+        let detalle = errFuncion.message
+        try {
+          const cuerpo = await (errFuncion as { context?: Response }).context?.json()
+          if (cuerpo?.error) detalle = cuerpo.error
+        } catch {
+          /* se queda con el genérico */
+        }
+        throw new Error(detalle)
+      }
+      return data as { usuario: string; contrasena_provisoria: string }
+    },
+    onSuccess: (data) => {
+      setRehabilitado(data)
+      setMensaje('Cuenta rehabilitada. Anotá la contraseña provisoria: no se vuelve a mostrar.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo rehabilitar: ${e.message}`),
   })
 
   /**
@@ -284,6 +325,53 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
           {mensaje}
         </div>
       )}
+
+      {/* ── Contraseña provisoria de una cuenta recién rehabilitada ──────────
+          Mismo trato que el alta: se muestra UNA vez para dictársela al
+          empleado y no queda guardada. */}
+      {rehabilitado && (
+        <section className="tarjeta">
+          <h2>Contraseña provisoria de {rehabilitado.usuario}</h2>
+          <table>
+            <tbody>
+              <tr>
+                <td style={{ width: 200 }}>Usuario</td>
+                <td>
+                  <code>{rehabilitado.usuario}</code>
+                </td>
+              </tr>
+              <tr>
+                <td>Contraseña provisoria</td>
+                <td>
+                  <code style={{ fontSize: 18, letterSpacing: 1 }}>
+                    {rehabilitado.contrasena_provisoria}
+                  </code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="aviso atencion" role="alert" style={{ marginTop: 16 }}>
+            <strong>Anotala ahora: no se vuelve a mostrar.</strong> Dásela al vendedor. La contraseña
+            anterior ya no sirve; al entrar, la app le va a pedir que la cambie por una suya.
+          </div>
+
+          <div className="acciones" style={{ marginTop: 16 }}>
+            <button
+              className="primario"
+              onClick={() => {
+                void navigator.clipboard.writeText(
+                  `Usuario: ${rehabilitado.usuario}\nContraseña: ${rehabilitado.contrasena_provisoria}`,
+                )
+              }}
+            >
+              Copiar usuario y contraseña
+            </button>
+            <button onClick={() => setRehabilitado(null)}>Listo</button>
+          </div>
+        </section>
+      )}
+
       {soloLectura && (
         <div className="aviso atencion">
           Estás como supervisor: podés ver todo, pero las altas y bajas las resuelve un administrador.
@@ -543,6 +631,26 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                         onClick={() => cambiarEstado.mutate({ perfilId: p.id, estado: 'suspendido' })}
                       >
                         Suspender
+                      </button>
+                    ) : p.estado === 'suspendido' ? (
+                      // Sacar de la suspensión reinicia la contraseña: rota la
+                      // clave a una provisoria nueva y obliga a cambiarla al
+                      // entrar (edge function). Reactivar una baja/rechazo NO
+                      // toca la clave (rama de abajo).
+                      <button
+                        className="chico primario"
+                        disabled={soloLectura || rehabilitar.isPending}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Reactivar a ${p.nombre_completo}: se le genera una contraseña provisoria nueva (la anterior deja de servir) y la va a tener que cambiar al entrar. ¿Seguir?`,
+                            )
+                          ) {
+                            rehabilitar.mutate(p.id)
+                          }
+                        }}
+                      >
+                        Reactivar
                       </button>
                     ) : (
                       <button

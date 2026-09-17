@@ -25,7 +25,7 @@
     "tipos": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > packages/compartido/src/base-de-datos.ts",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
-    "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial cotizacion-dolar crear-usuario pedir-restablecer-contrasena restablecer-contrasena",
+    "funciones:desplegar": "supabase functions deploy transcribir-audio optimizar-ruta geocodificar archivar-historial cotizacion-dolar crear-usuario rehabilitar-usuario pedir-restablecer-contrasena restablecer-contrasena",
     "secretos": "node herramientas/secretos-supabase.mjs",
     "probador": "node herramientas/probador/construir.mjs",
     "probar:planilla": "node herramientas/planilla/probar.js",
