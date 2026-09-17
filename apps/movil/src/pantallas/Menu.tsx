@@ -84,6 +84,12 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           alTocar={() => navigation.navigate('CalendarioVisitas')}
         />
 
+        <BotonMenu
+          titulo="LISTA SEMANAL"
+          subtitulo="A quién visitás cada día, fijo"
+          alTocar={() => navigation.navigate('ListaSemanal')}
+        />
+
         {/*
           El mapa existe desde hace rato: vive adentro de VISITAS → VER
           RECORRIDO. Este botón, en cambio, llevaba a la pantalla "En

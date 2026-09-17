@@ -35,8 +35,21 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  */
 export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'VistaPrevia'>) {
   const estilos = usarEstilos()
-  const { notaIds, incluirRolDeVisita = false } = route.params
+  const { notaIds, incluirRolDeVisita = false, paradaId } = route.params
   const cliente = useQueryClient()
+
+  /**
+   * A dónde se va al terminar.
+   *
+   * Si la nota salió de una visita, se vuelve a esa visita —lo cargado quedó en
+   * stand by y aparece completo— en vez de a la lista de notas. Sólo lo usan
+   * las salidas de "ya está" (imprimió, guardó, confirmó): el botón de atrás y
+   * "Volver y corregir" siguen yendo al editor de la nota.
+   */
+  function terminar() {
+    if (paradaId) navigation.navigate('DestinoVisitado', { paradaId })
+    else navigation.goBack()
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['vista-previa', notaIds],
@@ -55,7 +68,7 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
     onSuccess: async () => {
       await cliente.invalidateQueries()
       Alert.alert('Listo', 'Las notas quedaron como impresas.', [
-        { text: 'Listo', onPress: () => navigation.goBack() },
+        { text: 'Listo', onPress: terminar },
       ])
     },
     onError: (e: Error) =>
@@ -116,7 +129,7 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
       }
 
       Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto, [
-        { text: 'Listo', onPress: () => navigation.goBack() },
+        { text: 'Listo', onPress: terminar },
       ])
     },
     /**

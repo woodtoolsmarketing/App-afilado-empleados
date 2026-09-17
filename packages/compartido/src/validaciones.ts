@@ -106,7 +106,7 @@ export const HORA_DEL_DIA = /^([01]\d|2[0-3]):[0-5]\d$/
 export function observacionSugerida(
   form: Pick<
     FormularioVisita,
-    'visitado' | 'vendio' | 'cobro' | 'retiro_afilado' | 'entrego' | 'motivo_no_visita' | 'volver_a_las' | 'contacto_nombre'
+    'visitado' | 'vendio' | 'cobro' | 'retiro_afilado' | 'entrego' | 'sin_pedido' | 'otras' | 'otras_detalle' | 'motivo_no_visita' | 'volver_a_las' | 'contacto_nombre'
   >,
   /** Qué se vendió o se mandó a taller, a grandes rasgos: "Venta de sierras". */
   resumenDeNotas: string[] = [],
@@ -152,11 +152,16 @@ export function observacionSugerida(
     if (form.cobro) hizo.push('cobró')
     if (form.retiro_afilado) hizo.push('retiró afilado')
     if (form.entrego) hizo.push('entregó')
+    if (form.sin_pedido) hizo.push('no tenía nada para dejar')
 
     partes.push(hizo.length > 0 ? `Se visitó al cliente: ${enumerarEs(hizo)}.` : 'Se visitó al cliente.')
 
     const quien = form.contacto_nombre.trim()
     if (quien) partes.push(`Atendió ${quien}.`)
+
+    // "Otras": lo que el vendedor escribió a mano, tal cual, como frase aparte.
+    const otras = (form.otras_detalle ?? '').trim()
+    if (form.otras && otras) partes.push(/[.!?]$/.test(otras) ? otras : `${otras}.`)
 
     // Lo que se llevó, en grueso. Sale de las notas hechas en esta visita.
     const resumen = resumenDeNotas.map((r) => r.trim()).filter(Boolean)
@@ -177,6 +182,7 @@ function enumerarEs(cosas: string[]): string {
 export type CampoVisita =
   | 'visitado'
   | 'tipo_visita'
+  | 'otras_detalle'
   | 'motivo_no_visita'
   | 'volver_a_las'
   | 'contacto_nombre'
@@ -193,9 +199,15 @@ export function validarFormularioVisita(
   }
 
   if (form.visitado === true) {
-    const algunTipo = form.vendio || form.cobro || form.retiro_afilado || form.entrego
+    const algunTipo =
+      form.vendio || form.cobro || form.retiro_afilado || form.entrego || form.sin_pedido || form.otras
     if (!algunTipo) {
       errores.tipo_visita = 'Marcá al menos un tipo de visita'
+    }
+    // "Otras" sin escribir qué pasó no dice nada: el detalle es lo que la
+    // vuelve útil, y la base lo exige con un CHECK.
+    if (form.otras && !form.otras_detalle.trim()) {
+      errores.otras_detalle = 'Contá qué pasó: por eso marcaste "Otras"'
     }
     if (opciones.exigirContacto && !form.contacto_nombre.trim()) {
       errores.contacto_nombre = 'Indicá quién te atendió'

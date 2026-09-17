@@ -296,6 +296,11 @@ export interface Visita {
   cobro: boolean
   retiro_afilado: boolean
   entrego: boolean
+  /** "No tenía nada el cliente": se lo visitó, pero no hubo trabajo ni pedido. */
+  sin_pedido: boolean
+  /** "Otras": se lo visitó y pasó otra cosa, escrita a mano en otras_detalle. */
+  otras: boolean
+  otras_detalle: string | null
   motivo_no_visita: MotivoNoVisita | null
   contacto_nombre: string | null
   observacion: string
@@ -356,6 +361,12 @@ export interface FormularioVisita {
   cobro: boolean
   retiro_afilado: boolean
   entrego: boolean
+  /** "No tenía nada el cliente": se lo visitó, pero no hubo trabajo ni pedido. */
+  sin_pedido: boolean
+  /** "Otras": habilita el detalle escrito a mano. */
+  otras: boolean
+  /** Lo que se escribe cuando se marca "Otras". Vacío mientras no esté marcada. */
+  otras_detalle: string
   motivo_no_visita: MotivoNoVisita | null
   /**
    * A qué hora vuelve, en formato "HH:MM". Sólo con motivo "visitar más tarde".
@@ -375,6 +386,9 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
   cobro: false,
   retiro_afilado: false,
   entrego: false,
+  sin_pedido: false,
+  otras: false,
+  otras_detalle: '',
   motivo_no_visita: null,
   volver_a_las: '',
   contacto_nombre: '',

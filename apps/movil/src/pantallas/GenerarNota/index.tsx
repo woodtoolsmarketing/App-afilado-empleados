@@ -998,6 +998,12 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         ? '\n\nEl cliente todavía no tiene código, así que quedan esperando que Administración se lo asigne. El trabajo ya está registrado.'
         : ''
 
+      // Si la nota se hizo desde una visita, al terminar se vuelve al
+      // formulario de esa visita —lo cargado quedó en stand by— en vez de al
+      // listado de notas. La Vista Previa lleva la parada para hacer lo mismo
+      // cuando el vendedor pasa a imprimir primero.
+      const paradaId = route.params?.paradaId ?? null
+
       Alert.alert(
         notas.length === 1 ? 'Nota de pedido creada' : `Se crearon ${notas.length} notas de pedido`,
         `${detalle}${aviso}`,
@@ -1005,9 +1011,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           {
             text: 'Ver antes de imprimir',
             onPress: () =>
-              navigation.navigate('VistaPrevia', { notaIds: notas.map((n) => n.id) }),
+              navigation.navigate('VistaPrevia', {
+                notaIds: notas.map((n) => n.id),
+                paradaId: paradaId ?? undefined,
+              }),
           },
-          { text: 'Listo', onPress: () => navigation.navigate('NotasPedido') },
+          paradaId
+            ? {
+                text: 'Volver a la visita',
+                onPress: () => navigation.navigate('DestinoVisitado', { paradaId }),
+              }
+            : { text: 'Listo', onPress: () => navigation.navigate('NotasPedido') },
         ],
       )
     },

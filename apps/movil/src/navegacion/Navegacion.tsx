@@ -10,6 +10,7 @@ import { PantallaAgregarDestino } from '../pantallas/AgregarDestino'
 import { PantallaCalendarioEnvios } from '../pantallas/CalendarioEnvios'
 import { PantallaCalendarioVisitas } from '../pantallas/CalendarioVisitas'
 import { PantallaClientesDelDia } from '../pantallas/ClientesDelDia'
+import { PantallaListaSemanal } from '../pantallas/ListaSemanal'
 import { PantallaMapaClientes } from '../pantallas/MapaClientes'
 import { PantallaCobranzas } from '../pantallas/Cobranzas'
 import { PantallaComunicacionInterna } from '../pantallas/ComunicacionInterna'
@@ -162,6 +163,7 @@ export function Navegacion() {
             <Pila.Screen name="ComunicacionInterna" component={PantallaComunicacionInterna} />
             <Pila.Screen name="ReportarProblema" component={PantallaReportarProblema} />
             <Pila.Screen name="ClientesDelDia" component={PantallaClientesDelDia} />
+            <Pila.Screen name="ListaSemanal" component={PantallaListaSemanal} />
             <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />

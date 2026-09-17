@@ -188,6 +188,9 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     form.cobro,
     form.retiro_afilado,
     form.entrego,
+    form.sin_pedido,
+    form.otras,
+    form.otras_detalle,
     form.motivo_no_visita,
     form.volver_a_las,
     form.contacto_nombre,
@@ -368,7 +371,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 // Cambiar de respuesta limpia lo que ya no aplica.
                 ...(v
                   ? { motivo_no_visita: null }
-                  : { vendio: false, cobro: false, retiro_afilado: false, entrego: false }),
+                  : {
+                      vendio: false,
+                      cobro: false,
+                      retiro_afilado: false,
+                      entrego: false,
+                      sin_pedido: false,
+                      otras: false,
+                      otras_detalle: '',
+                    }),
               })
             }
             error={!!errores.visitado}
@@ -417,8 +428,38 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 valor={form.entrego}
                 alCambiar={(v) => actualizar({ entrego: v })}
               />
+              <Casilla
+                etiqueta="NO TENÍA NADA EL CLIENTE"
+                valor={form.sin_pedido}
+                alCambiar={(v) => actualizar({ sin_pedido: v })}
+              />
+              <Casilla
+                etiqueta="OTRAS"
+                valor={form.otras}
+                alCambiar={(v) =>
+                  // Destildar "Otras" limpia el detalle: dejarlo escrito con la
+                  // casilla apagada guardaría un texto que ya no aplica, y la
+                  // base lo rechaza.
+                  actualizar(v ? { otras: true } : { otras: false, otras_detalle: '' })
+                }
+              />
 
               <MensajeError>{errores.tipo_visita}</MensajeError>
+
+              {/* El detalle sólo aparece con "Otras" marcada: es donde el
+                  vendedor cuenta qué pasó cuando no fue ninguna de las de
+                  arriba. */}
+              {form.otras ? (
+                <Campo
+                  etiqueta="¿QUÉ PASÓ?"
+                  obligatorio
+                  value={form.otras_detalle}
+                  onChangeText={(t) => actualizar({ otras_detalle: t })}
+                  placeholder="Contá qué pasó en la visita"
+                  error={errores.otras_detalle}
+                  autoCapitalize="sentences"
+                />
+              ) : null}
 
               <Campo
                 etiqueta="¿Quién te atendió?"

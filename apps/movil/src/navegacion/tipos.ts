@@ -51,6 +51,11 @@ export type ParametrosApp = {
   ComunicacionInterna: undefined
   /** A quién toca visitar hoy según el rol maestro, para armar el recorrido. */
   ClientesDelDia: undefined
+  /**
+   * La lista semanal fija del vendedor: a quién visita cada día, todas las
+   * semanas. `diaSemana` (ISO, 1 lunes … 7 domingo) abre en ese día.
+   */
+  ListaSemanal: { diaSemana?: number } | undefined
   /** Todos los clientes ubicados sobre el mapa, agrupados, centrado en el GPS. */
   MapaClientes: undefined
   Historial: undefined
@@ -133,7 +138,17 @@ export type ParametrosApp = {
   HistorialNotas: undefined
   DetalleNota: { notaId: string }
   /** Lo que va a salir en papel, antes de mandarlo a la impresora. */
-  VistaPrevia: { notaIds: string[]; incluirRolDeVisita?: boolean }
+  VistaPrevia: {
+    notaIds: string[]
+    incluirRolDeVisita?: boolean
+    /**
+     * Si la nota se generó desde una visita, la parada de la que salió. Con
+     * esto, al terminar de imprimir/guardar, la Vista Previa vuelve al
+     * formulario de la visita (con lo cargado en stand by) en vez de a la lista
+     * de notas.
+     */
+    paradaId?: string
+  }
 }
 
 export type PropsPantalla<T extends keyof ParametrosApp> = NativeStackScreenProps<ParametrosApp, T>

@@ -322,9 +322,21 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
           }}
         />
 
+        {/* La lista fija por día que alimenta las sugerencias de arriba. Se
+            entra con el día que se está mirando ya elegido. */}
+        <BotonSecundario
+          titulo="📋  Mi lista semanal fija"
+          alTocar={() =>
+            navigation.navigate('ListaSemanal', {
+              diaSemana: ((new Date(`${elegido}T12:00:00`).getDay() + 6) % 7) + 1,
+            })
+          }
+        />
+
         <Aviso tono="info" titulo="Cómo leerlo">
           El punto rojo marca los días con destinos ya agendados y el azul los que el plan
-          sugiere. Un sugerido no está en tu recorrido hasta que lo agendás.
+          sugiere (por frecuencia o por tu lista semanal). Un sugerido no está en tu recorrido
+          hasta que lo agendás.
         </Aviso>
       </Panel>
 

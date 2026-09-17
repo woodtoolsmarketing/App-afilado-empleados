@@ -136,6 +136,66 @@ export async function quitarDeLaAgenda(paradaId: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// La lista semanal del vendedor
+//
+// Una lista fija por día de la semana —"los lunes veo a estos"— que el vendedor
+// arma y edita. No crea paradas: aparece como sugerida en el calendario todas
+// las semanas, y el vendedor decide cuáles agenda. Ver `lista_visitas_vendedor`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Un cliente de la lista semanal, para verlo y editarlo. */
+export interface ClienteDeLista {
+  cliente_id: string
+  codigo: string | null
+  razon_social: string
+  direccion: string | null
+  lat: number | null
+  lng: number | null
+  orden: number | null
+}
+
+/** La lista fija del vendedor para un día. `dia` es ISO: 1 lunes … 7 domingo. */
+export async function listaSemanalDe(dia: number): Promise<ClienteDeLista[]> {
+  const { data, error } = await supabase.rpc('lista_semanal_de', { p_dia_semana: dia })
+  if (error) throw error
+  return (data ?? []) as ClienteDeLista[]
+}
+
+/** Reemplaza la lista de ese día con los clientes elegidos, en ese orden. */
+export async function guardarListaSemanal(dia: number, clienteIds: string[]): Promise<void> {
+  const { error } = await supabase.rpc('guardar_lista_semanal', {
+    p_dia_semana: dia,
+    p_cliente_ids: clienteIds,
+  })
+  if (error) {
+    if (['23514', '42501'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+}
+
+/** Los siete días como los pide la lista: ISO 1 lunes … 7 domingo. */
+export const DIAS_ISO: { iso: number; corto: string; largo: string }[] = [
+  { iso: 1, corto: 'LUN', largo: 'Lunes' },
+  { iso: 2, corto: 'MAR', largo: 'Martes' },
+  { iso: 3, corto: 'MIÉ', largo: 'Miércoles' },
+  { iso: 4, corto: 'JUE', largo: 'Jueves' },
+  { iso: 5, corto: 'VIE', largo: 'Viernes' },
+  { iso: 6, corto: 'SÁB', largo: 'Sábado' },
+  { iso: 7, corto: 'DOM', largo: 'Domingo' },
+]
+
+/** El día ISO de hoy (1 lunes … 7 domingo), en hora del teléfono. */
+export function isodowDeHoy(): number {
+  const d = new Date().getDay() // 0 domingo … 6 sábado
+  return d === 0 ? 7 : d
+}
+
+/** El nombre largo del día ISO (1 lunes … 7 domingo). */
+export function nombreLargoDia(iso: number): string {
+  return DIAS_ISO.find((d) => d.iso === iso)?.largo ?? ''
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // La semana
 // ─────────────────────────────────────────────────────────────────────────────
 
