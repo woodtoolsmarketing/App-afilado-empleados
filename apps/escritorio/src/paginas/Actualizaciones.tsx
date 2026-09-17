@@ -224,6 +224,28 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     onSuccess: () => cliente.invalidateQueries({ queryKey: ['instaladores'] }),
   })
 
+  /**
+   * Eliminar el registro de un teléfono.
+   *
+   * Es un DELETE directo: la RLS `dispositivos_admin` ya deja borrar al admin y
+   * ninguna FK lo bloquea (la única que apunta acá es `sesiones_app.dispositivo_id`,
+   * con ON DELETE SET NULL). No borra al vendedor ni sus datos: si el equipo
+   * sigue instalado, al reabrir la app se re-registra como "Sin autorizar" (el
+   * instalacion_id vive en el teléfono), así que sirve para depurar equipos
+   * viejos/reemplazados o descartar registros de más.
+   */
+  const eliminarDispositivo = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('dispositivos').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Teléfono eliminado. Si el equipo sigue instalado, va a reaparecer como "Sin autorizar" cuando reabra la app.')
+      void cliente.invalidateQueries({ queryKey: ['dispositivos'] })
+    },
+    onError: (e: Error) => setMensaje(`No se pudo eliminar: ${e.message}`),
+  })
+
   const compilar = useMutation({
     mutationFn: async () => {
       const puente = window.woodtools
@@ -648,6 +670,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                 <th>Versión</th>
                 <th>Estado</th>
                 <th>Último uso</th>
+                <th style={{ width: 110 }} />
               </tr>
             </thead>
             <tbody>
@@ -684,6 +707,23 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                             timeStyle: 'short',
                           })
                         : 'Nunca'}
+                    </td>
+                    <td>
+                      <button
+                        className="chico peligro"
+                        disabled={soloLectura || eliminarDispositivo.isPending}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `¿Eliminar el teléfono de ${d.perfiles?.nombre_completo ?? 'este vendedor'}? Si el equipo sigue instalado, va a reaparecer como "Sin autorizar" cuando reabra la app.`,
+                            )
+                          ) {
+                            eliminarDispositivo.mutate(d.id)
+                          }
+                        }}
+                      >
+                        Eliminar
+                      </button>
                     </td>
                   </tr>
                 )
