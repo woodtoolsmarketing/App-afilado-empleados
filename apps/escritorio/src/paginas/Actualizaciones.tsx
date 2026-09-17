@@ -246,6 +246,29 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     onError: (e: Error) => setMensaje(`No se pudo eliminar: ${e.message}`),
   })
 
+  /**
+   * Bloquear un teléfono: lo deja "Sin autorizar" SIN borrar la fila.
+   *
+   * A diferencia de Eliminar, conserva el registro y su historial (quién lo
+   * habilitó, desde cuándo). El vendedor deja de poder entrar con ese equipo, y
+   * NO reaparece como pendiente nuevo: sigue siendo la misma fila, apagada,
+   * hasta que se lo vuelva a habilitar (en Usuarios → Teléfonos por habilitar).
+   */
+  const bloquearDispositivo = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('dispositivos')
+        .update({ autorizado: false, autorizado_en: null })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Teléfono bloqueado. Queda "Sin autorizar" hasta que lo vuelvas a habilitar en Usuarios → Teléfonos por habilitar.')
+      void cliente.invalidateQueries({ queryKey: ['dispositivos'] })
+    },
+    onError: (e: Error) => setMensaje(`No se pudo bloquear: ${e.message}`),
+  })
+
   const compilar = useMutation({
     mutationFn: async () => {
       const puente = window.woodtools
@@ -709,21 +732,40 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                         : 'Nunca'}
                     </td>
                     <td>
-                      <button
-                        className="chico peligro"
-                        disabled={soloLectura || eliminarDispositivo.isPending}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `¿Eliminar el teléfono de ${d.perfiles?.nombre_completo ?? 'este vendedor'}? Si el equipo sigue instalado, va a reaparecer como "Sin autorizar" cuando reabra la app.`,
-                            )
-                          ) {
-                            eliminarDispositivo.mutate(d.id)
-                          }
-                        }}
-                      >
-                        Eliminar
-                      </button>
+                      <div className="acciones">
+                        {d.autorizado ? (
+                          <button
+                            className="chico"
+                            disabled={soloLectura || bloquearDispositivo.isPending}
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `¿Bloquear el teléfono de ${d.perfiles?.nombre_completo ?? 'este vendedor'}? Va a quedar Sin autorizar y no va a poder entrar con ese equipo hasta que lo vuelvas a habilitar. No se borra el registro.`,
+                                )
+                              ) {
+                                bloquearDispositivo.mutate(d.id)
+                              }
+                            }}
+                          >
+                            Bloquear
+                          </button>
+                        ) : null}
+                        <button
+                          className="chico peligro"
+                          disabled={soloLectura || eliminarDispositivo.isPending}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `¿Eliminar el teléfono de ${d.perfiles?.nombre_completo ?? 'este vendedor'}? Si el equipo sigue instalado, va a reaparecer como "Sin autorizar" cuando reabra la app.`,
+                              )
+                            ) {
+                              eliminarDispositivo.mutate(d.id)
+                            }
+                          }}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
