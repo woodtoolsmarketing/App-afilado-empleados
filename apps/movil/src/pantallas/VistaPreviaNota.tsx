@@ -47,7 +47,9 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
    * "Volver y corregir" siguen yendo al editor de la nota.
    */
   function terminar() {
-    if (paradaId) navigation.navigate('DestinoVisitado', { paradaId })
+    // popTo: vuelve a la visita que quedó abajo, con lo cargado (navigate
+    // apilaría otra vacía).
+    if (paradaId) navigation.popTo('DestinoVisitado', { paradaId })
     else navigation.goBack()
   }
 

@@ -11,7 +11,8 @@ import {
   todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFocusEffect } from '@react-navigation/native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -78,10 +79,24 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const dictado = usarDictado()
 
   // Si se fue a hacer la nota de pedido y volvió, lo cargado sigue estando.
-  const recuperado = useRef(tomarBorradorDeVisita(paradaId)).current
+  //
+  // Con inicializador de useState y no con `useRef(tomar…())`: el argumento de
+  // useRef se evalúa en CADA render. Esta pantalla sigue montada debajo de la
+  // nota, y al crearla se invalidan las consultas y se redibuja: cada redibujo
+  // consumía el borrador, y la visita llegaba vacía a donde hacía falta.
+  const [recuperado] = useState(() => tomarBorradorDeVisita(paradaId))
   const [form, setForm] = useState<FormularioVisita>(recuperado?.form ?? FORMULARIO_VISITA_VACIO)
   const [errores, setErrores] = useState<Partial<Record<CampoVisita, string>>>({})
   const [intentado, setIntentado] = useState(false)
+
+  // Al volver de la nota se vuelve a ESTA pantalla, que tiene todo en su
+  // estado: el borrador guardado al salir ya no hace falta. Si quedara, la
+  // próxima vez que se entre a la parada reviviría tildes viejos.
+  useFocusEffect(
+    useCallback(() => {
+      olvidarBorradorDeVisita(paradaId)
+    }, [paradaId]),
+  )
 
   const { data, isLoading } = useQuery({
     queryKey: ['jornada-hoy', perfil?.id],

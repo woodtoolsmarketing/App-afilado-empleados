@@ -1019,7 +1019,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           paradaId
             ? {
                 text: 'Volver a la visita',
-                onPress: () => navigation.navigate('DestinoVisitado', { paradaId }),
+                // popTo y no navigate: en React Navigation 7, navigate apila
+                // una visita NUEVA encima —vacía— en vez de volver a la que
+                // tiene lo cargado. popTo vuelve a esa y saca la nota de la pila.
+                onPress: () => navigation.popTo('DestinoVisitado', { paradaId }),
               }
             : { text: 'Listo', onPress: () => navigation.navigate('NotasPedido') },
         ],
