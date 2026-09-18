@@ -1,6 +1,7 @@
 import type { AdjuntoReporte } from '@woodtools/compartido'
 import {
   AudioModule,
+  RecordingPresets,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
@@ -10,7 +11,21 @@ import * as ImagePicker from 'expo-image-picker'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
-import { DURACION_MAXIMA_MS, MIME_AUDIO, OPCIONES_GRABACION } from './transcripcion'
+import { DURACION_MAXIMA_MS, MIME_AUDIO } from './transcripcion'
+
+/**
+ * Opciones de grabación del reporte: el preset estándar, sin tocar.
+ *
+ * ─── Por qué NO se usan las opciones custom del dictado ──────────────────────
+ *
+ * El dictado fuerza AAC 16 kHz mono 32 kbps para achicar el archivo. En varios
+ * Samsung (probado en un A16) eso prepara la grabadora pero `record()` NO
+ * arranca: el estado nunca pasa a "grabando" y en el log no aparece un solo
+ * `MediaRecorder.start()`. El preset `HIGH_QUALITY` —m4a/AAC a 44,1 kHz— sí
+ * arranca en esos equipos. Pesa más, pero un audio de 90 s son ~1,5 MB, muy por
+ * debajo del tope de la función de transcripción, y Gemini acepta mp4 igual.
+ */
+const OPCIONES_REPORTE = RecordingPresets.HIGH_QUALITY
 
 /**
  * Adjuntos del reporte de problema: fotos y un audio.
@@ -90,7 +105,7 @@ export interface EstadoGrabacion {
 }
 
 export function usarGrabacionReporte(): EstadoGrabacion {
-  const grabador = useAudioRecorder(OPCIONES_GRABACION)
+  const grabador = useAudioRecorder(OPCIONES_REPORTE)
   const estadoGrabador = useAudioRecorderState(grabador, 250)
 
   const [uri, setUri] = useState<string | null>(null)
@@ -138,17 +153,15 @@ export function usarGrabacionReporte(): EstadoGrabacion {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
       await grabador.prepareToRecordAsync()
       grabador.record()
+      console.warn(`[reporte-audio] record() llamado, isRecording=${grabador.isRecording}`)
 
       /**
        * Esperar a que ARRANQUE de verdad, sin apurarse.
        *
-       * `record()` no tira si falla: puede preparar bien y tardar en empezar. Un
-       * único chequeo a los 600 ms daba "el micrófono no llegó a arrancar" con la
-       * grabación a punto de comenzar —pasa en varios Samsung, que despiertan el
-       * micrófono más lento— y encima dejaba el grabador a medio arrancar, así que
-       * el reintento tampoco levantaba. Ahora se mira hasta 3 s (cada 150 ms):
-       * apenas está grabando, listo; y si no arrancó, se frena para dejarlo limpio
-       * para el próximo intento.
+       * `record()` no tira si falla: puede preparar bien y tardar en empezar.
+       * Se mira hasta 3 s (cada 150 ms): apenas está grabando, listo. NO se
+       * llama a `stop()` si no arrancó —eso deja al grabador en estado inválido
+       * y rompe el reintento—; se deja como está y el próximo intento prepara.
        */
       let arranco = false
       for (let i = 0; i < 20; i += 1) {
@@ -160,11 +173,7 @@ export function usarGrabacionReporte(): EstadoGrabacion {
         }
       }
       if (!arranco) {
-        try {
-          await grabador.stop()
-        } catch {
-          // Dejarlo lo más limpio posible para que el reintento prepare de cero.
-        }
+        console.warn(`[reporte-audio] no arrancó tras 3s, isRecording=${grabador.isRecording}, uri=${grabador.uri}`)
         setError('El micrófono no llegó a arrancar. Probá de nuevo o escribí el detalle a mano.')
       }
     } catch (e) {
