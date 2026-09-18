@@ -28,7 +28,7 @@ import { supabase } from '../nucleo/supabase'
  * de un .3gp, un formato que Gemini no acepta.
  */
 
-const OPCIONES_GRABACION: RecordingOptions = {
+export const OPCIONES_GRABACION: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
   sampleRate: 16_000,
   numberOfChannels: 1,
@@ -41,7 +41,10 @@ const OPCIONES_GRABACION: RecordingOptions = {
 }
 
 /** `audio/m4a` no está registrado en IANA; el tipo correcto para el contenedor MP4 es `audio/mp4`. */
-const MIME = 'audio/mp4'
+export const MIME_AUDIO = 'audio/mp4'
+
+/** Alias interno, para no tocar los usos de más abajo en este archivo. */
+const MIME = MIME_AUDIO
 
 /** Más allá de esto la observación deja de ser una nota y pasa a ser un monólogo. */
 export const DURACION_MAXIMA_MS = 90_000

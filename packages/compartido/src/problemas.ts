@@ -121,6 +121,17 @@ export const ETIQUETA_ESTADO_REPORTE: Record<EstadoReporte, string> = {
   descartado: 'Descartado',
 }
 
+/**
+ * Un adjunto de un reporte: una foto o un audio.
+ *
+ * `ruta` es el object path dentro del bucket `reportes-adjuntos`, no una URL:
+ * se firma al leer, igual que las fotos de los vendedores.
+ */
+export interface AdjuntoReporte {
+  tipo: 'foto' | 'audio'
+  ruta: string
+}
+
 /** Un problema reportado, tal como vuelve de la base. */
 export interface ReporteProblema {
   id: string
@@ -138,4 +149,8 @@ export interface ReporteProblema {
   atendido_en: string | null
   creado_en: string
   actualizado_en: string
+  /** Fotos y/o audio que adjuntó el vendedor. */
+  adjuntos: AdjuntoReporte[]
+  /** Lo que Gemini sacó del audio adjunto, si hay. */
+  transcripcion_audio: string | null
 }

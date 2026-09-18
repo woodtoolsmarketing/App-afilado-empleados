@@ -1,6 +1,7 @@
 import {
   ETIQUETA_ESTADO_REPORTE,
   etiquetaDelMotivo,
+  type AdjuntoReporte,
   type EstadoReporte,
   type ReporteProblema,
 } from '@woodtools/compartido'
@@ -164,6 +165,15 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
 
               {r.detalle && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{r.detalle}</p>}
 
+              {r.transcripcion_audio && (
+                <div style={{ fontSize: 13, background: 'rgba(0,0,0,0.04)', borderRadius: 8, padding: '8px 10px' }}>
+                  <strong>🎤 Lo que dijo (audio):</strong>{' '}
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{r.transcripcion_audio}</span>
+                </div>
+              )}
+
+              {r.adjuntos?.length > 0 && <AdjuntosDelReporte adjuntos={r.adjuntos} />}
+
               {r.cuando_se_da && (
                 <div style={{ fontSize: 13 }}>
                   <strong>Cuándo se da:</strong> {r.cuando_se_da}
@@ -217,5 +227,63 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * Las fotos y el audio que adjuntó el vendedor.
+ *
+ * El bucket es privado, así que se piden URLs firmadas de vida corta (una hora).
+ * Las fotos abren en grande al tocarlas; el audio se escucha en el mismo lugar.
+ */
+function AdjuntosDelReporte({ adjuntos }: { adjuntos: AdjuntoReporte[] }) {
+  const rutas = adjuntos.map((a) => a.ruta)
+
+  const { data: urls } = useQuery({
+    queryKey: ['adjuntos-reporte', rutas.join('|')],
+    queryFn: async () => {
+      const { data } = await supabase.storage.from('reportes-adjuntos').createSignedUrls(rutas, 3600)
+      const porRuta = new Map((data ?? []).map((d) => [d.path ?? '', d.signedUrl]))
+      return adjuntos.map((a) => ({ ...a, url: porRuta.get(a.ruta) ?? null }))
+    },
+    enabled: rutas.length > 0,
+    // Menos que la hora que dura la firma, para no servir un enlace vencido.
+    staleTime: 50 * 60_000,
+  })
+
+  if (!urls) return <div style={{ fontSize: 12, opacity: 0.6 }}>Cargando adjuntos…</div>
+
+  const fotos = urls.filter((a) => a.tipo === 'foto')
+  const audios = urls.filter((a) => a.tipo === 'audio')
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {fotos.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {fotos.map((f, i) =>
+            f.url ? (
+              <a key={i} href={f.url} target="_blank" rel="noreferrer" title="Abrir en grande">
+                <img
+                  src={f.url}
+                  alt="Adjunto del reporte"
+                  style={{
+                    width: 96,
+                    height: 96,
+                    objectFit: 'cover',
+                    borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.15)',
+                  }}
+                />
+              </a>
+            ) : null,
+          )}
+        </div>
+      )}
+      {audios.map((a, i) =>
+        a.url ? (
+          <audio key={i} controls preload="none" src={a.url} style={{ width: '100%', maxWidth: 360 }} />
+        ) : null,
+      )}
+    </div>
   )
 }

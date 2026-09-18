@@ -5,12 +5,14 @@ import {
   MOTIVO_OTRO,
   MOTIVOS_DE_PROBLEMA,
   radios,
+  TOQUE_MINIMO,
   ETIQUETA_ESTADO_REPORTE,
   type ReporteProblema,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Image } from 'expo-image'
 import { useState } from 'react'
-import { Alert, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal } from '../componentes/Botones'
 import { Aviso, Pastilla } from '../componentes/Estado'
@@ -18,6 +20,12 @@ import { Encabezado } from '../componentes/Encabezado'
 import { Campo, CampoConOpciones, Desplegable } from '../componentes/Formulario'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
+import {
+  elegirFotosDeGaleria,
+  MAX_FOTOS,
+  sacarFotoConCamara,
+  usarGrabacionReporte,
+} from '../servicios/adjuntosReporte'
 import { cuandoSeDaFrecuente, misReportes, reportarProblema } from '../servicios/problemas'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -49,6 +57,9 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
   const [cuando, setCuando] = useState('')
   const [errorMotivo, setErrorMotivo] = useState<string | null>(null)
   const [errorDetalle, setErrorDetalle] = useState<string | null>(null)
+  /** Fotos adjuntas (URIs locales), hasta que se envían. */
+  const [fotos, setFotos] = useState<string[]>([])
+  const audio = usarGrabacionReporte()
 
   /*
    * Las respuestas que ya escribieron otros, para el segundo campo.
@@ -71,18 +82,22 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
   })
 
   const enviar = useMutation({
-    mutationFn: () =>
+    mutationFn: (vars: { audioUri: string | null }) =>
       reportarProblema({
         motivo: motivo!,
         detalle: detalle,
         cuandoSeDa: cuando,
         pantalla: route.params?.pantalla ?? 'Reportar un problema',
+        fotos,
+        audioUri: vars.audioUri,
       }),
     onSuccess: async () => {
       await consultas.invalidateQueries({ queryKey: ['mis-reportes'] })
       setDetalle('')
       setCuando('')
       setMotivo(null)
+      setFotos([])
+      await audio.descartar()
       Alert.alert(
         'Lo recibimos',
         'Le llegó a Marketing con la versión de tu app y el modelo de tu teléfono. Te contestan por acá mismo: lo vas a ver abajo, en "LO QUE YA REPORTASTE".',
@@ -92,7 +107,26 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
     onError: (e: Error) => Alert.alert('No pudimos enviarlo', e.message),
   })
 
-  function revisarYEnviar() {
+  async function agregarConCamara() {
+    if (fotos.length >= MAX_FOTOS) return
+    const res = await sacarFotoConCamara()
+    if (!res.ok) return Alert.alert('Cámara', res.motivo)
+    if (res.uris.length) setFotos((f) => [...f, ...res.uris].slice(0, MAX_FOTOS))
+  }
+
+  async function agregarDeGaleria() {
+    const libres = MAX_FOTOS - fotos.length
+    if (libres <= 0) return
+    const res = await elegirFotosDeGaleria(libres)
+    if (!res.ok) return Alert.alert('Fotos', res.motivo)
+    if (res.uris.length) setFotos((f) => [...f, ...res.uris].slice(0, MAX_FOTOS))
+  }
+
+  function quitarFoto(uri: string) {
+    setFotos((f) => f.filter((u) => u !== uri))
+  }
+
+  async function revisarYEnviar() {
     if (!motivo) {
       setErrorMotivo('Elegí cuál es el problema.')
       return
@@ -114,7 +148,10 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
     }
     setErrorDetalle(null)
 
-    enviar.mutate()
+    // Si todavía está grabando, se corta y se usa ese archivo: mandar mientras
+    // graba tenía que adjuntar lo que se alcanzó a decir, no nada.
+    const audioUri = audio.grabando ? await audio.detener() : audio.uri
+    enviar.mutate({ audioUri })
   }
 
   return (
@@ -182,6 +219,84 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
               : undefined
           }
         />
+
+        {/* ── Adjuntos: fotos y audio ─────────────────────────────────── */}
+        <View style={estilos.adjuntos}>
+          <Text style={estilos.adjuntosTitulo}>FOTOS Y AUDIO (OPCIONAL)</Text>
+          <Text style={estilos.adjuntosAyuda}>
+            Una foto de la pantalla dice más que mil palabras. Y si estás en la calle, contalo
+            hablando: lo pasamos a texto solo.
+          </Text>
+
+          <View style={estilos.botonesFila}>
+            <BotonAdjunto
+              etiqueta="📷 Sacar foto"
+              alTocar={agregarConCamara}
+              deshabilitado={fotos.length >= MAX_FOTOS || enviar.isPending}
+            />
+            <BotonAdjunto
+              etiqueta="🖼 Galería"
+              alTocar={agregarDeGaleria}
+              deshabilitado={fotos.length >= MAX_FOTOS || enviar.isPending}
+            />
+          </View>
+
+          {fotos.length > 0 ? (
+            <View style={estilos.miniaturas}>
+              {fotos.map((uri) => (
+                <View key={uri} style={estilos.miniaturaMarco}>
+                  <Image source={{ uri }} style={estilos.miniatura} contentFit="cover" />
+                  <Pressable
+                    onPress={() => quitarFoto(uri)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitar foto"
+                    style={estilos.quitarFoto}
+                  >
+                    <Text style={estilos.quitarFotoTexto}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {audio.uri && !audio.grabando ? (
+            <View style={estilos.audioCard}>
+              <Text style={estilos.audioTexto} numberOfLines={1}>
+                🔊 Audio grabado · {formatearDuracion(audio.duracionMs)}
+              </Text>
+              <Pressable
+                onPress={() => void audio.descartar()}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Quitar el audio"
+              >
+                <Text style={estilos.quitarAudio}>Quitar</Text>
+              </Pressable>
+            </View>
+          ) : audio.grabando ? (
+            <Pressable
+              onPress={() => void audio.detener()}
+              style={[estilos.audioBoton, estilos.audioGrabando]}
+              accessibilityRole="button"
+              accessibilityLabel="Detener la grabación"
+            >
+              <Text style={estilos.audioBotonTexto}>⏹ Detener · {formatearDuracion(audio.duracionMs)}</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => void audio.comenzar()}
+              disabled={enviar.isPending}
+              style={estilos.audioBoton}
+              accessibilityRole="button"
+              accessibilityLabel="Grabar un audio"
+            >
+              <Text style={estilos.audioBotonTexto}>🎤 Grabar audio</Text>
+            </Pressable>
+          )}
+
+          {audio.error ? <Aviso tono="atencion">{audio.error}</Aviso> : null}
+        </View>
 
         <BotonPrincipal
           titulo="ENVIAR"
@@ -268,12 +383,143 @@ function colorDelEstado(
   }
 }
 
+/** Un botón chico para adjuntar (cámara / galería), dos por fila. */
+function BotonAdjunto({
+  etiqueta,
+  alTocar,
+  deshabilitado,
+}: {
+  etiqueta: string
+  alTocar: () => void
+  deshabilitado?: boolean
+}) {
+  const estilos = usarEstilos()
+  return (
+    <Pressable
+      onPress={alTocar}
+      disabled={deshabilitado}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => [
+        estilos.botonAdjunto,
+        pressed && estilos.botonAdjuntoTocado,
+        deshabilitado && estilos.botonAdjuntoInhabil,
+      ]}
+    >
+      <Text style={estilos.botonAdjuntoTexto}>{etiqueta}</Text>
+    </Pressable>
+  )
+}
+
+/** Milisegundos a "m:ss", para la duración del audio. */
+function formatearDuracion(ms: number): string {
+  const total = Math.round(ms / 1000)
+  const min = Math.floor(total / 60)
+  const seg = total % 60
+  return `${min}:${seg.toString().padStart(2, '0')}`
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   senal: {
     fontSize: t.tipografia.tamano.display,
     textAlign: 'center',
     color: t.colores.ambarOscuro,
+  },
+
+  adjuntos: { gap: espaciado.sm },
+  adjuntosTitulo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tintaSuave,
+    letterSpacing: 1,
+  },
+  adjuntosAyuda: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaTenue,
+  },
+  botonesFila: { flexDirection: 'row', gap: espaciado.sm },
+  botonAdjunto: {
+    flex: 1,
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    paddingVertical: espaciado.sm,
+  },
+  botonAdjuntoTocado: { backgroundColor: t.colores.panelOscuro },
+  botonAdjuntoInhabil: { opacity: 0.4 },
+  botonAdjuntoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  miniaturas: { flexDirection: 'row', flexWrap: 'wrap', gap: espaciado.sm },
+  miniaturaMarco: {
+    width: 78,
+    height: 78,
+    borderRadius: radios.sm,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+  },
+  miniatura: { width: '100%', height: '100%' },
+  quitarFoto: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  quitarFotoTexto: { color: '#fff', fontSize: 14, lineHeight: 16 },
+  audioBoton: {
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    paddingVertical: espaciado.sm,
+  },
+  audioGrabando: {
+    borderColor: t.colores.rojo,
+  },
+  audioBotonTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+  },
+  audioCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: espaciado.sm,
+    backgroundColor: t.colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    padding: espaciado.sm,
+  },
+  audioTexto: {
+    flex: 1,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  quitarAudio: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojo,
+    textDecorationLine: 'underline',
   },
 
   mios: { gap: espaciado.sm, marginTop: espaciado.base },

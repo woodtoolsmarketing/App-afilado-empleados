@@ -4,6 +4,7 @@ import * as Updates from 'expo-updates'
 
 import { describirDispositivo } from '../nucleo/dispositivo'
 import { supabase } from '../nucleo/supabase'
+import { subirAdjuntosDelReporte } from './adjuntosReporte'
 
 /**
  * Reportar un problema, con el contexto puesto.
@@ -35,12 +36,32 @@ export interface ProblemaAReportar {
    * contando lo mismo que el que entra desde el menú.
    */
   pantalla?: string | null
+  /** URIs locales de las fotos a adjuntar (cámara o galería). */
+  fotos?: string[]
+  /** URI local del audio grabado a adjuntar, si hay. */
+  audioUri?: string | null
 }
 
 export async function reportarProblema(
   problema: ProblemaAReportar,
 ): Promise<ReporteProblema> {
   const equipo = await describirDispositivo().catch(() => null)
+
+  // Subir fotos y audio ANTES de crear el reporte: los archivos van al bucket
+  // bajo la carpeta del vendedor, y la RPC guarda sólo las rutas + la
+  // transcripción. Si no hay adjuntos, no se toca Storage.
+  let adjuntos: { tipo: 'foto' | 'audio'; ruta: string }[] = []
+  let transcripcion: string | null = null
+  const fotos = problema.fotos ?? []
+  const audioUri = problema.audioUri ?? null
+  if (fotos.length > 0 || audioUri) {
+    const { data: sesion } = await supabase.auth.getSession()
+    const vendedorId = sesion.session?.user.id
+    if (!vendedorId) throw new Error('Se cerró la sesión. Volvé a entrar y reintentá.')
+    const subida = await subirAdjuntosDelReporte(vendedorId, fotos, audioUri)
+    adjuntos = subida.adjuntos
+    transcripcion = subida.transcripcion
+  }
 
   const { data, error } = await supabase.rpc('reportar_problema', {
     p_motivo: problema.motivo,
@@ -50,6 +71,8 @@ export async function reportarProblema(
     p_version_app: versionQueCorre(),
     p_instalacion: equipo?.instalacion_id ?? null,
     p_modelo: equipo ? [equipo.fabricante, equipo.modelo, equipo.version_so].filter(Boolean).join(' · ') : null,
+    p_adjuntos: adjuntos,
+    p_transcripcion_audio: transcripcion,
   })
 
   if (error) {

@@ -195,7 +195,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.1.1',
+  version: '1.2.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -300,6 +300,17 @@ const config: ExpoConfig = {
       {
         microphonePermission:
           'WoodTools Visitas usa el micrófono para que puedas dictar las observaciones de cada visita en lugar de escribirlas.',
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        // Para adjuntar fotos y sacar una foto al reportar un problema. La
+        // galería y la cámara sólo se abren cuando el vendedor toca el botón.
+        photosPermission:
+          'WoodTools Visitas usa tus fotos para que puedas adjuntar una imagen cuando reportás un problema.',
+        cameraPermission:
+          'WoodTools Visitas usa la cámara para que puedas sacar una foto cuando reportás un problema.',
       },
     ],
     [
