@@ -123,11 +123,7 @@ export function PasoCliente({
   clienteInicialCodigo?: string
   errores: Record<string, string | undefined>
   /** La del cliente que acaba de crearse, para asignarle la zona al volver. */
-  /**
-   * `clienteId` hace que dos altas seguidas con la misma dirección cuenten
-   * como dos ubicaciones distintas: la segunda también necesita su zona.
-   */
-  ubicacionInicial?: (UbicacionCliente & { clienteId?: string }) | null
+  ubicacionInicial?: UbicacionCliente | null
   /** El del que está usando la app. Es el primero que se prueba. */
   codigoVendedorUsuario?: string | null
 }) {
@@ -311,34 +307,7 @@ export function PasoCliente({
       return
     }
     setConsulta(texto)
-    alCambiar({
-      [campo]: texto,
-      cliente_id: null,
-      // Si había un cliente, se está soltando: lo suyo se va con él.
-      ...(form.cliente_id ? loQueSeVaConElCliente() : {}),
-    } as Partial<FormularioNotaEncabezado>)
-  }
-
-  /**
-   * Lo que la app completó sola a partir del cliente que se está soltando.
-   *
-   * Se va con él, pero sólo si sigue siendo lo que puso la app: lo que el
-   * vendedor escribió manda (la misma regla de `elegirCliente`). Sin esto, el
-   * cliente siguiente —otro de la base o uno recién dado de alta— heredaba
-   * los DATOS DEL CLIENTE del anterior, el validador ya no los pedía y salían
-   * impresos en su nota. (El número de vendedor que puso la zona tiene su
-   * propia regla: sigue a la zona, en su efecto.)
-   */
-  const datosPuestosSolos = useRef<string | null>(null)
-
-  function loQueSeVaConElCliente(): Partial<FormularioNotaEncabezado> {
-    const cambios: Partial<FormularioNotaEncabezado> = {}
-    if (datosPuestosSolos.current !== null && form.datos_cliente === datosPuestosSolos.current) {
-      cambios.datos_cliente = ''
-      cambios.datos_cliente_origen = 'texto'
-    }
-    datosPuestosSolos.current = null
-    return cambios
+    alCambiar({ [campo]: texto, cliente_id: null } as Partial<FormularioNotaEncabezado>)
   }
 
   /** Soltar el cliente elegido para buscar otro. Es el "✕ CAMBIAR". */
@@ -359,7 +328,6 @@ export function PasoCliente({
       cliente_nombre: '',
       cliente_cuit: '',
       cliente_provisorio: false,
-      ...loQueSeVaConElCliente(),
     })
     alReiniciarFacturacion?.()
   }
@@ -417,19 +385,12 @@ export function PasoCliente({
 
   // Al volver de "Generar nuevo cliente" con una dirección de Google ya
   // resuelta, la zona se asigna igual que si el cliente hubiera existido.
-  //
-  // La clave lleva el id del cliente: con la misma dirección para dos altas
-  // seguidas (un nombre mal escrito, CAMBIAR y darlo de alta de nuevo) el
-  // texto no cambiaba, el efecto no volvía a correr y la segunda quedaba sin
-  // zona ni provincia.
   const ubicacionClave = ubicacionInicial
-    ? `${ubicacionInicial.clienteId ?? ''}|${ubicacionInicial.localidad ?? ''}|${ubicacionInicial.provincia ?? ''}|${ubicacionInicial.direccion ?? ''}`
+    ? `${ubicacionInicial.localidad ?? ''}|${ubicacionInicial.provincia ?? ''}|${ubicacionInicial.direccion ?? ''}`
     : ''
 
   useEffect(() => {
-    if (!ubicacionInicial) return
-    const { localidad, provincia, direccion } = ubicacionInicial
-    if (!localidad && !provincia && !direccion) return
+    if (!ubicacionInicial || !ubicacionClave.replace(/\|/g, '')) return
     asignarZona(ubicacionInicial)
     // Del cliente recién creado la provincia viene de Google: es la que decide
     // si un "exento" paga IVA o no.
@@ -494,25 +455,9 @@ export function PasoCliente({
    */
   const numeroYaPuesto = useRef(false)
 
-  /**
-   * El número que puso la zona, y de qué zona salió.
-   *
-   * Ese número sigue a la zona: si la zona cambia —otro cliente, un alta, o
-   * elegida a mano— y el número sigue siendo el que puso la app, se vuelve a
-   * buscar para la zona nueva. Antes quedaba el de la primera zona para
-   * siempre, con la ayuda "De la zona X" nombrando otra. Si el vendedor lo
-   * cambió, ya es suyo y no se toca.
-   */
-  const numeroPuestoPorZona = useRef<string | null>(null)
-  const zonaDelNumero = useRef<string | null>(null)
-
   useEffect(() => {
-    const numeroDeOtraZona =
-      numeroPuestoPorZona.current !== null &&
-      form.vendedor_numero === numeroPuestoPorZona.current &&
-      zonaDelNumero.current !== form.zona
-    if (numeroYaPuesto.current && !numeroDeOtraZona) return
-    if (form.vendedor_numero.trim() && !numeroDeOtraZona) return
+    if (numeroYaPuesto.current) return
+    if (form.vendedor_numero.trim()) return
 
     if (codigoVendedorUsuario?.trim()) {
       numeroYaPuesto.current = true
@@ -524,26 +469,11 @@ export function PasoCliente({
     if (!form.zona.trim()) return
 
     let vigente = true
-    const zona = form.zona
-    vendedorDeZona(zona)
+    vendedorDeZona(form.zona)
       .then((codigo) => {
-        if (!vigente) return
-        if (!codigo) {
-          // La zona nueva la cubre más de uno (o nadie): el número de la
-          // anterior no vale, y queda vacío para que lo ponga el vendedor.
-          if (numeroDeOtraZona) {
-            numeroYaPuesto.current = false
-            numeroPuestoPorZona.current = null
-            zonaDelNumero.current = null
-            setOrigenVendedor(null)
-            alCambiar({ vendedor_numero: '' })
-          }
-          return
-        }
+        if (!vigente || !codigo) return
         numeroYaPuesto.current = true
         setOrigenVendedor('zona')
-        numeroPuestoPorZona.current = codigo
-        zonaDelNumero.current = zona
         alCambiar({ vendedor_numero: codigo })
       })
       .catch(() => undefined)
@@ -611,9 +541,6 @@ export function PasoCliente({
     // El CUIT se dibuja si ESTE cliente trae uno. Un cliente sin CUIT apaga
     // el campo que había dejado abierto el anterior.
     setClienteTraeCuit(!!c.cuit)
-
-    // Si los datos los pone la app, se anota: son del cliente y se van con él.
-    datosPuestosSolos.current = form.datos_cliente.trim() ? null : datos
 
     alCambiar({
       cliente_id: c.cliente_id,
