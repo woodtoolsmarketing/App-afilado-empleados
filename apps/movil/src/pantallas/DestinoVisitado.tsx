@@ -11,7 +11,7 @@ import {
   todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useFocusEffect } from '@react-navigation/native'
+import { StackActions, useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -339,12 +339,25 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
    * guardado tarda (GPS de hasta 12 s, el RPC, refrescar todo), y si en el
    * medio el vendedor abrió otra pantalla —el menú lateral, una nota—, el
    * popTo del Alert la cerraba sin aviso, o reemplazaba la que tuviera
-   * delante y dejaba esta visita, ya registrada, viva abajo. Si ya no está
-   * acá, no se lo mueve: `registrada` impide guardarla de nuevo y, cuando
-   * vuelva a esta pantalla, lo manda solo al recorrido.
+   * delante y dejaba esta visita, ya registrada, viva abajo.
+   *
+   * Si ya no está a la vista, al vendedor no se lo mueve de donde está, pero
+   * esta pantalla se saca igual —sólo ella, por su key—. Si quedaba viva
+   * abajo, la pantalla por parada (getId) la volvía a traer la próxima vez
+   * que se abría esa parada —una diferida, por ejemplo— y rebotaba al
+   * recorrido en vez de dejar cargar la visita nueva.
    */
   function salirA(destino: 'Visitas' | 'Recorrido') {
-    if (navigation.isFocused()) navigation.popTo(destino)
+    if (navigation.isFocused()) {
+      navigation.popTo(destino)
+      return
+    }
+    // Si ya no está en la pila, el router no encuentra la key y no hace nada.
+    navigation.dispatch({
+      ...StackActions.pop(),
+      source: route.key,
+      target: navigation.getState().key,
+    })
   }
 
   /** Guardando la visita o cerrando la jornada: nada de salir ni de volver a tocar. */

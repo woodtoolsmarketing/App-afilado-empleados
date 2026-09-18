@@ -12,6 +12,7 @@ import {
   type Paleta,
   type ParadaCompleta,
 } from '@woodtools/compartido'
+import { useFocusEffect } from '@react-navigation/native'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AppState, Modal, Pressable, Text, View } from 'react-native'
@@ -133,7 +134,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
    */
   const yaPreguntado = useRef<string | null>(null)
 
-  const ofrecerCargarLaVisita = useCallback(async () => {
+  const ofrecerCargarLaVisita = useCallback(async (sigueVigente: () => boolean) => {
     if (!proxima?.direccion || !enCurso) return
     if (yaPreguntado.current === proxima.id) return
     // Sólo con el recorrido a la vista. Este aviso también corre al volver
@@ -154,8 +155,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       lat: proxima.direccion.lat,
       lng: proxima.direccion.lng,
     })
-    // El GPS tarda: en el medio pudo haber entrado a otra pantalla.
-    if (metros > radioDeLlegada || !navigation.isFocused()) return
+    // El GPS tarda: en el medio pudo haber entrado a otra pantalla, la app
+    // pudo irse al fondo, o el candado pudo desmontar la navegación (ahí
+    // isFocused() sigue dando true, por eso además `sigueVigente`).
+    if (metros > radioDeLlegada) return
+    if (!sigueVigente() || !navigation.isFocused() || AppState.currentState !== 'active') return
 
     yaPreguntado.current = proxima.id
     Alert.alert(
@@ -171,13 +175,25 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     )
   }, [proxima, enCurso, radioDeLlegada, navigation])
 
-  useEffect(() => {
-    void ofrecerCargarLaVisita()
-    const sub = AppState.addEventListener('change', (estado) => {
-      if (estado === 'active') void ofrecerCargarLaVisita()
-    })
-    return () => sub.remove()
-  }, [ofrecerCargarLaVisita])
+  // Al enfocarse —no sólo al montarse— y cada vez que la app vuelve al frente
+  // con el recorrido a la vista. Sin el disparo por foco, un aviso que se
+  // salteó por tener otra pantalla encima no se volvía a ofrecer al volver al
+  // recorrido. `vigente` corta lo que quede en vuelo cuando se pierde el foco
+  // o se desmonta la pantalla.
+  useFocusEffect(
+    useCallback(() => {
+      let vigente = true
+      const sigueVigente = () => vigente
+      void ofrecerCargarLaVisita(sigueVigente)
+      const sub = AppState.addEventListener('change', (estado) => {
+        if (estado === 'active') void ofrecerCargarLaVisita(sigueVigente)
+      })
+      return () => {
+        vigente = false
+        sub.remove()
+      }
+    }, [ofrecerCargarLaVisita]),
+  )
 
   const trazado = useMemo(
     () => (jornada?.polilinea ? decodificarPolilinea(jornada.polilinea) : []),
@@ -525,9 +541,12 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   />
                   <BotonPrincipal
                     titulo="LLEGUÉ"
-                    alTocar={() =>
+                    alTocar={() => {
+                      // Ya fue a cargarla: al volver al recorrido no se le
+                      // pregunta "¿Cargamos la visita?" por la misma parada.
+                      yaPreguntado.current = proxima.id
                       navigation.navigate('DestinoVisitado', { paradaId: proxima.id })
-                    }
+                    }}
                     style={estilos.mitad}
                   />
                 </View>
@@ -550,11 +569,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               <FilaParada
                 key={p.id}
                 parada={p}
-                alTocar={() =>
-                  p.estado === 'pendiente' || p.estado === 'en_camino'
-                    ? navigation.navigate('DestinoVisitado', { paradaId: p.id })
-                    : undefined
-                }
+                alTocar={() => {
+                  if (p.estado !== 'pendiente' && p.estado !== 'en_camino') return
+                  yaPreguntado.current = p.id
+                  navigation.navigate('DestinoVisitado', { paradaId: p.id })
+                }}
               />
             ))}
 
