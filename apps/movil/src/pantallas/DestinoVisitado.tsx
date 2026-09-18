@@ -241,6 +241,11 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       olvidarBorradorDeVisita(paradaId)
       await cliente.invalidateQueries()
 
+      // De acá en adelante se sale con popTo y no con navigate. En React
+      // Navigation 7, navigate apila la pantalla nueva ENCIMA de ésta: la
+      // visita ya guardada quedaba abajo con todo tildado, "‹ Atrás" volvía a
+      // ella y tocar el botón de nuevo intentaba registrarla otra vez. popTo
+      // vuelve a la pantalla que ya estaba en la pila y saca ésta.
       if (esUltima) {
         Alert.alert(
           'Visita registrada',
@@ -249,7 +254,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
             {
               text: 'Seguir abierta',
               style: 'cancel',
-              onPress: () => navigation.navigate('Visitas'),
+              onPress: () => navigation.popTo('Visitas'),
             },
             {
               text: 'Cerrar la jornada',
@@ -262,11 +267,11 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
       // Encadena con el próximo destino: lanza la navegación y vuelve al mapa.
       Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}`, [
-        { text: 'Ver recorrido', onPress: () => navigation.navigate('Recorrido') },
+        { text: 'Ver recorrido', onPress: () => navigation.popTo('Recorrido') },
         {
           text: 'Navegar',
           onPress: () => {
-            navigation.navigate('Recorrido')
+            navigation.popTo('Recorrido')
             if (siguiente) {
               void navegarHacia({
                 lat: siguiente.direccion.lat,
@@ -299,14 +304,14 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     onSuccess: async () => {
       await cliente.invalidateQueries()
       Alert.alert('Recorrido finalizado', 'Cerraste la jornada de hoy. Buen trabajo.')
-      navigation.navigate('Visitas')
+      navigation.popTo('Visitas')
     },
     onError: (e: Error) => {
       Alert.alert(
         'No pudimos cerrar la jornada',
         `${e.message}\n\nEl seguimiento ya se apagó. La visita quedó registrada; cerrá la jornada desde VER RECORRIDO cuando tengas señal.`,
       )
-      navigation.navigate('Visitas')
+      navigation.popTo('Visitas')
     },
   })
 
