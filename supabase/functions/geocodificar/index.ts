@@ -125,7 +125,22 @@ Deno.serve(async (req) => {
       }
 
       const datos = await respuesta.json()
-      if (datos.status === 'ZERO_RESULTS' || !datos.results?.length) {
+
+      /**
+       * El estado de Google manda ANTES que los resultados.
+       *
+       * Un `REQUEST_DENIED` —billing caído, clave sin permiso— también vuelve
+       * sin `results`, así que chequear primero el largo lo disfrazaba de "no
+       * hay dirección acá" y mandaba al vendedor a buscar a mano algo que en
+       * realidad estaba roto del lado del servidor. Pasó exactamente eso: con la
+       * facturación deshabilitada, la app decía "no encontramos una dirección"
+       * y nadie se enteraba de que el motivo real era el billing.
+       *
+       * El único "sin resultados" legítimo es `ZERO_RESULTS`: ahí sí no hay una
+       * calle para ese punto. Cualquier otro estado distinto de OK es un rechazo
+       * y se dice tal cual, con el motivo que da Google.
+       */
+      if (datos.status === 'ZERO_RESULTS') {
         throw new RespuestaError(
           'No encontramos una dirección para donde estás parado. Buscala a mano.',
           404,
@@ -136,6 +151,12 @@ Deno.serve(async (req) => {
         throw new RespuestaError(
           `Google rechazó la ubicación: ${datos.status}${datos.error_message ? ' — ' + datos.error_message : ''}`,
           502,
+        )
+      }
+      if (!datos.results?.length) {
+        throw new RespuestaError(
+          'No encontramos una dirección para donde estás parado. Buscala a mano.',
+          404,
         )
       }
 
