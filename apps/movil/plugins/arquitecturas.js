@@ -19,13 +19,15 @@ const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugi
  *
  * ─── Por qué importa el peso, y no es por prolijidad ─────────────────────────
  *
- * Con 78 MB el instalador no entra en Supabase, que en este plan rechaza
- * subidas de más de 50 MB. Eso obligaba a repartirlo desde la PC de la oficina,
- * y por lo tanto a que el vendedor pasara por la oficina para actualizar la app.
- * Yendo sólo con `arm64-v8a` el archivo queda cerca de 35 MB: entra con holgura y
- * se puede bajar desde cualquier lado con datos móviles.
+ * El instalador NO se baja de Supabase Storage —eso sí tiene tope de 50 MB en
+ * este plan—: lo sirve el panel de la oficina por la red local, y de respaldo
+ * queda el enlace de EAS para datos móviles (ver servicios/actualizacionApk.ts).
+ * Así que el tamaño ya no traba la entrega; lo que se cuida es la descarga del
+ * vendedor con datos móviles y el tiempo de compilación. Por eso se llevan las
+ * dos arquitecturas de teléfono y se sacan las de emulador (x86/x86_64), que
+ * eran 32 de los 78 MB y ningún teléfono ejecuta jamás.
  *
- * Y de paso la compilación tarda la mitad: no se compila lo que no se manda.
+ * Y de paso la compilación tarda menos: no se compila lo que no se manda.
  *
  * ─── Por qué hacen falta DOS perillas, y cuál es la que manda ────────────────
  *
@@ -48,18 +50,20 @@ const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugi
  * que cualquier cambio a mano ahí dura hasta la próxima vez y desaparece sin
  * que nada avise. Un plugin corre COMO PARTE de esa regeneración.
  *
- * ─── Por qué tampoco va `armeabi-v7a` ────────────────────────────────────────
- *
- * Son otros 10,6 MB, y dejan el APK cerca de 35: bien lejos del tope, con
- * lugar para que la app crezca sin volver a chocarlo.
+ * ─── Por qué SÍ va `armeabi-v7a` ─────────────────────────────────────────────
  *
  * `armeabi-v7a` es para teléfonos de 32 bits. Cualquier equipo vendido de 2019
- * en adelante es de 64, así que en la práctica no cambia nada — **pero si algún
- * teléfono de la empresa fuera de 32 bits, este APK no se le instala.** No falla
- * en silencio: Android lo rechaza con "aplicación no instalada", y se arregla
- * volviendo a poner `armeabi-v7a` acá y recompilando.
+ * en adelante es de 64, así que en la mayoría de los teléfonos estos 10,6 MB no
+ * se ejecutan nunca — pero en un equipo de 32 bits el APK sólo-arm64 NO se
+ * instala, y no falla en silencio: Android lo rechaza con "aplicación no
+ * instalada". Como el tamaño ya no traba la entrega —el APK queda cerca de
+ * 46 MB y lo sirve el panel de la oficina, no Supabase Storage— se incluye para
+ * que la app entre en cualquier teléfono, de cualquier gama y antigüedad.
  *
- * Para saberlo antes, en el teléfono:  adb shell getprop ro.product.cpu.abi
+ * Siguen afuera x86 y x86_64 (los otros 32 MB): son para emuladores de PC y
+ * ninguna app de un teléfono real los ejecuta.
+ *
+ * Para ver la arquitectura de un teléfono:  adb shell getprop ro.product.cpu.abi
  *
  * ─── Si algún día hace falta un emulador ─────────────────────────────────────
  *
@@ -67,7 +71,7 @@ const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugi
  * `-PreactNativeArchitectures=x86_64`. El desarrollo en un teléfono de verdad
  * —que es como se trabajó siempre en este proyecto— no se ve afectado.
  */
-const PARA_TELEFONOS = 'arm64-v8a'
+const PARA_TELEFONOS = 'arm64-v8a,armeabi-v7a'
 
 /** La que decide qué entra en el APK. Sin esto, lo demás no cambia nada. */
 function conFiltroDeAbi(config) {
