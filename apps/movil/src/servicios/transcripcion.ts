@@ -1,11 +1,4 @@
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioRecorder,
-  useAudioRecorderState,
-  type RecordingOptions,
-} from 'expo-audio'
+import { Audio } from 'expo-av'
 import * as FileSystem from 'expo-file-system'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -18,36 +11,54 @@ import { supabase } from '../nucleo/supabase'
  * `transcribir-audio` y ésta se lo pasa a Gemini. La clave de Gemini nunca
  * viaja en la app.
  *
- * Sobre el formato: se fuerza AAC dentro de contenedor MP4 a 16 kHz mono y
- * 32 kbps. Gemini remuestrea a 16 Kbps y mezcla a un solo canal de todas
- * formas, así que grabar en 44,1 kHz estéreo a 128 kbps (el preset de alta
- * calidad) sólo multiplica por cuatro los bytes que hay que subir por una red
- * móvil, sin ganar nada de precisión.
+ * ─── Por qué expo-av y no expo-audio ─────────────────────────────────────────
  *
- * No se usa `RecordingPresets.LOW_QUALITY`: en Android produce AMR-NB dentro
- * de un .3gp, un formato que Gemini no acepta.
+ * `expo-audio` NO graba en varios Samsung (probado en un A16): prepara la
+ * grabadora pero `record()` no arranca nunca —`isRecording` queda en false y en
+ * el log no aparece un solo `MediaRecorder.start()`—. Es un bug abierto sin fix
+ * (expo/expo#37925), y dejaba mudo tanto el dictado como el audio del reporte.
+ * `expo-av` (`Audio.Recording`) es el grabador maduro de Expo: su `startAsync()`
+ * es AWAITABLE, o sea que resuelve cuando la grabación arrancó de verdad, que es
+ * justo lo que a `expo-audio` le faltaba. Anda en Android/Samsung sin vueltas.
+ *
+ * Sobre el formato: m4a/AAC mono a 44,1 kHz, 64 kbps. Gemini remuestrea a mono
+ * 16 kHz igual, así que no vale la pena grabar en estéreo/alta; 90 s pesan
+ * ~720 KB, muy por debajo del tope de la función.
  */
 
-export const OPCIONES_GRABACION: RecordingOptions = {
-  ...RecordingPresets.HIGH_QUALITY,
-  sampleRate: 16_000,
-  numberOfChannels: 1,
-  bitRate: 32_000,
-  android: {
-    extension: '.m4a',
-    outputFormat: 'mpeg4',
-    audioEncoder: 'aac',
-  },
-}
+/** Más allá de esto la observación deja de ser una nota y pasa a ser un monólogo. */
+export const DURACION_MAXIMA_MS = 90_000
 
 /** `audio/m4a` no está registrado en IANA; el tipo correcto para el contenedor MP4 es `audio/mp4`. */
 export const MIME_AUDIO = 'audio/mp4'
 
-/** Alias interno, para no tocar los usos de más abajo en este archivo. */
-const MIME = MIME_AUDIO
-
-/** Más allá de esto la observación deja de ser una nota y pasa a ser un monólogo. */
-export const DURACION_MAXIMA_MS = 90_000
+/** Opciones de grabación de expo-av: m4a/AAC mono 44,1 kHz 64 kbps, en las tres plataformas. */
+export const OPCIONES_AV: Audio.RecordingOptions = {
+  isMeteringEnabled: false,
+  android: {
+    extension: '.m4a',
+    outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+    audioEncoder: Audio.AndroidAudioEncoder.AAC,
+    sampleRate: 44_100,
+    numberOfChannels: 1,
+    bitRate: 64_000,
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+    audioQuality: Audio.IOSAudioQuality.MEDIUM,
+    sampleRate: 44_100,
+    numberOfChannels: 1,
+    bitRate: 64_000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 128_000,
+  },
+}
 
 /**
  * Quién tiene el micrófono.
@@ -56,8 +67,7 @@ export const DURACION_MAXIMA_MS = 90_000
  * grabador. En la pantalla de la nota hay dos, pegados: "Datos del cliente" y
  * "Descripción general de la herramienta". Nada impedía abrir los dos a la vez,
  * y ahí el segundo se montaba sobre el primero: en Android uno de los dos
- * terminaba sin audio, o con el audio cortado, **sin un solo cartel**. El
- * vendedor hablaba treinta segundos y el texto no aparecía nunca.
+ * terminaba sin audio, o con el audio cortado, **sin un solo cartel**.
  *
  * Ahora hay un dueño por vez. El que llega segundo no arranca y se lo dice, en
  * lugar de robarle el micrófono al primero: la grabación en curso es trabajo
@@ -87,40 +97,18 @@ export interface EstadoDictado {
 }
 
 export function usarDictado(): EstadoDictado {
-  const grabador = useAudioRecorder(OPCIONES_GRABACION)
-  const estadoGrabador = useAudioRecorderState(grabador, 250)
-
+  const grabacionRef = useRef<Audio.Recording | null>(null)
+  /** El audio grabado que todavía no se transcribió (corte a 90 s o reintento). */
+  const uriPendiente = useRef<string | null>(null)
   /** Identidad de este campo, para saber si el micrófono es suyo. */
   const identidad = useRef<symbol>(Symbol('dictado')).current
 
+  const [grabando, setGrabando] = useState(false)
+  const [duracionMs, setDuracionMs] = useState(0)
   const [transcribiendo, setTranscribiendo] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [permisoDenegado, setPermisoDenegado] = useState(false)
   const [audioPendiente, setAudioPendiente] = useState(false)
-
-  /**
-   * Corta sola si el vendedor se olvida el micrófono abierto.
-   *
-   * Antes hacía `grabador.stop()` a secas y ahí terminaba: el audio de los 90
-   * segundos quedaba en el teléfono sin subir, el botón volvía a 🎤 y no
-   * aparecía ningún cartel. El vendedor había hablado un minuto y medio para
-   * nada y no tenía forma de saberlo.
-   *
-   * Ahora avisa. La transcripción de lo grabado la dispara la pantalla, que es
-   * la que sabe dónde va el texto; acá sólo se deja la marca de que se cortó.
-   */
-  useEffect(() => {
-    if (!estadoGrabador.isRecording) return
-    if (estadoGrabador.durationMillis < DURACION_MAXIMA_MS) return
-    void grabador.stop()
-    // El audio queda esperando que lo pasen a texto, pero el micrófono ya está
-    // libre: otro campo puede usarlo.
-    liberarMicrofono(identidad)
-    setAudioPendiente(true)
-    setError(
-      `La grabación llegó al máximo de ${DURACION_MAXIMA_MS / 1000} segundos y se cortó. Tocá el micrófono para pasar a texto lo que alcanzaste a decir.`,
-    )
-  }, [estadoGrabador.isRecording, estadoGrabador.durationMillis, grabador, identidad])
 
   const comenzar = useCallback(async () => {
     setError(null)
@@ -134,9 +122,15 @@ export function usarDictado(): EstadoDictado {
       return
     }
 
+    // Empezar de nuevo descarta un audio pendiente anterior.
+    if (uriPendiente.current) {
+      await FileSystem.deleteAsync(uriPendiente.current, { idempotent: true }).catch(() => undefined)
+      uriPendiente.current = null
+    }
     setAudioPendiente(false)
+
     try {
-      const permiso = await AudioModule.requestRecordingPermissionsAsync()
+      const permiso = await Audio.requestPermissionsAsync()
       if (!permiso.granted) {
         setPermisoDenegado(true)
         setError('Necesitamos permiso para usar el micrófono. Podés escribir la observación a mano.')
@@ -146,48 +140,65 @@ export function usarDictado(): EstadoDictado {
 
       duenoDelMicrofono = identidad
 
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
-      await grabador.prepareToRecordAsync()
-      grabador.record()
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true })
 
-      /**
-       * Comprobar que efectivamente arrancó.
-       *
-       * `record()` no devuelve nada y no tira error: puede preparar bien, no
-       * grabar, y dejar la pantalla exactamente igual que antes. Eso fue lo que
-       * pasó al dictar con un recorrido en curso —el registro del sistema
-       * mostraba `MediaRecorder: prepare` correcto y la app nunca pasaba a
-       * "grabando", sin un solo cartel.
-       *
-       * Medio segundo alcanza: el estado se relee cada 250 ms.
-       */
-      await new Promise((r) => setTimeout(r, 600))
-      if (!grabador.isRecording) {
-        // No arrancó: soltar el micrófono, o el otro campo queda bloqueado por
-        // una grabación que no existe.
-        liberarMicrofono(identidad)
-        setError(
-          'El micrófono no llegó a arrancar. Si estás con el recorrido en curso, probá finalizarlo y volver a intentar, o escribí la observación a mano.',
-        )
-        console.warn('[dictado] prepare ok pero isRecording quedó en false')
-      }
+      const rec = new Audio.Recording()
+      rec.setProgressUpdateInterval(250)
+      rec.setOnRecordingStatusUpdate((estado) => {
+        setGrabando(estado.isRecording)
+        setDuracionMs(estado.durationMillis ?? 0)
+
+        // Corta sola al llegar al máximo. El audio queda pendiente para pasarlo
+        // a texto, y el micrófono se libera.
+        if (estado.isRecording && (estado.durationMillis ?? 0) >= DURACION_MAXIMA_MS) {
+          void (async () => {
+            try {
+              await rec.stopAndUnloadAsync()
+            } catch {
+              // Ya estaba frenado.
+            }
+            if (grabacionRef.current === rec) grabacionRef.current = null
+            liberarMicrofono(identidad)
+            setGrabando(false)
+            uriPendiente.current = rec.getURI() ?? null
+            setAudioPendiente(true)
+            setError(
+              `La grabación llegó al máximo de ${DURACION_MAXIMA_MS / 1000} segundos y se cortó. Tocá el micrófono para pasar a texto lo que alcanzaste a decir.`,
+            )
+          })()
+        }
+      })
+
+      // `startAsync()` es awaitable: resuelve cuando la grabación arrancó.
+      await rec.prepareToRecordAsync(OPCIONES_AV)
+      await rec.startAsync()
+      grabacionRef.current = rec
     } catch (e) {
       liberarMicrofono(identidad)
       setError('No pudimos abrir el micrófono. Escribí la observación a mano.')
       console.warn('[dictado] error al iniciar', e)
     }
-  }, [grabador, identidad])
+  }, [identidad])
 
   const cancelar = useCallback(async () => {
-    try {
-      if (grabador.isRecording) await grabador.stop()
-    } catch {
-      // Nada que hacer: el usuario canceló.
+    const rec = grabacionRef.current
+    if (rec) {
+      try {
+        await rec.stopAndUnloadAsync()
+      } catch {
+        // Ya estaba frenado.
+      }
+      grabacionRef.current = null
+    }
+    if (uriPendiente.current) {
+      await FileSystem.deleteAsync(uriPendiente.current, { idempotent: true }).catch(() => undefined)
+      uriPendiente.current = null
     }
     liberarMicrofono(identidad)
+    setGrabando(false)
     setError(null)
     setAudioPendiente(false)
-  }, [grabador, identidad])
+  }, [identidad])
 
   /**
    * Al desmontarse, suelta lo que tenga.
@@ -199,26 +210,38 @@ export function usarDictado(): EstadoDictado {
   useEffect(
     () => () => {
       if (duenoDelMicrofono === identidad) {
-        try {
-          void grabador.stop()
-        } catch {
-          // Ya estaba frenado.
+        const rec = grabacionRef.current
+        if (rec) {
+          try {
+            void rec.stopAndUnloadAsync()
+          } catch {
+            // Ya estaba frenado.
+          }
         }
         duenoDelMicrofono = null
       }
     },
-    [grabador, identidad],
+    [identidad],
   )
 
   const detenerYTranscribir = useCallback(async (): Promise<string | null> => {
     try {
-      // Puede venir ya frenada por el corte de los 90 segundos, o por un
-      // reintento después de que falló la transcripción. Parar dos veces tira
-      // error en expo-audio y ese error terminaba tapando el motivo real.
-      if (estadoGrabador.isRecording) await grabador.stop()
-      // Frenado: el micrófono queda libre aunque todavía falte transcribir.
+      // El uri puede venir de la grabación en curso, o de un audio pendiente
+      // (cortado a los 90 s, o un reintento después de que falló la subida).
+      let uri = uriPendiente.current
+      const rec = grabacionRef.current
+      if (rec) {
+        try {
+          await rec.stopAndUnloadAsync()
+        } catch {
+          // Ya estaba frenado.
+        }
+        uri = rec.getURI() ?? uri
+        grabacionRef.current = null
+      }
       liberarMicrofono(identidad)
-      const uri = grabador.uri
+      setGrabando(false)
+
       if (!uri) {
         setError('La grabación quedó vacía. Probá de nuevo.')
         return null
@@ -232,12 +255,13 @@ export function usarDictado(): EstadoDictado {
       })
 
       const { data, error: errFuncion } = await supabase.functions.invoke('transcribir-audio', {
-        body: { audioBase64, mimeType: MIME },
+        body: { audioBase64, mimeType: MIME_AUDIO },
       })
 
       if (errFuncion) {
         // El audio NO se borra: es lo único que el vendedor ya dijo y no puede
         // volver a decir igual. Queda para reintentar cuando haya señal.
+        uriPendiente.current = uri
         setAudioPendiente(true)
         setError(
           'No pudimos pasar el audio a texto. Lo guardamos: tocá el micrófono para reintentar, o escribí la observación a mano.',
@@ -252,6 +276,7 @@ export function usarDictado(): EstadoDictado {
 
       // Recién ahora el archivo temporal no hace falta.
       await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
+      uriPendiente.current = null
       setAudioPendiente(false)
 
       return (data?.transcripcion as string) ?? null
@@ -262,12 +287,12 @@ export function usarDictado(): EstadoDictado {
     } finally {
       setTranscribiendo(false)
     }
-  }, [grabador, estadoGrabador.isRecording, identidad])
+  }, [identidad])
 
   return {
-    grabando: estadoGrabador.isRecording,
+    grabando,
     transcribiendo,
-    duracionMs: estadoGrabador.durationMillis ?? 0,
+    duracionMs,
     error,
     permisoDenegado,
     audioPendiente,

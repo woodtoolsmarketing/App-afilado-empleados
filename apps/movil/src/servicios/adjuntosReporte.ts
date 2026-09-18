@@ -1,31 +1,11 @@
 import type { AdjuntoReporte } from '@woodtools/compartido'
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioRecorder,
-  useAudioRecorderState,
-} from 'expo-audio'
+import { Audio } from 'expo-av'
 import * as FileSystem from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
-import { DURACION_MAXIMA_MS, MIME_AUDIO } from './transcripcion'
-
-/**
- * Opciones de grabación del reporte: el preset estándar, sin tocar.
- *
- * ─── Por qué NO se usan las opciones custom del dictado ──────────────────────
- *
- * El dictado fuerza AAC 16 kHz mono 32 kbps para achicar el archivo. En varios
- * Samsung (probado en un A16) eso prepara la grabadora pero `record()` NO
- * arranca: el estado nunca pasa a "grabando" y en el log no aparece un solo
- * `MediaRecorder.start()`. El preset `HIGH_QUALITY` —m4a/AAC a 44,1 kHz— sí
- * arranca en esos equipos. Pesa más, pero un audio de 90 s son ~1,5 MB, muy por
- * debajo del tope de la función de transcripción, y Gemini acepta mp4 igual.
- */
-const OPCIONES_REPORTE = RecordingPresets.HIGH_QUALITY
+import { DURACION_MAXIMA_MS, MIME_AUDIO, OPCIONES_AV } from './transcripcion'
 
 /**
  * Adjuntos del reporte de problema: fotos y un audio.
@@ -105,52 +85,32 @@ export interface EstadoGrabacion {
 }
 
 export function usarGrabacionReporte(): EstadoGrabacion {
-  const grabador = useAudioRecorder(OPCIONES_REPORTE)
-  const estadoGrabador = useAudioRecorderState(grabador, 250)
-
+  const grabacionRef = useRef<Audio.Recording | null>(null)
+  const [grabando, setGrabando] = useState(false)
+  const [duracionMs, setDuracionMs] = useState(0)
   const [uri, setUri] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [permisoDenegado, setPermisoDenegado] = useState(false)
-  const activo = useRef(true)
-
-  /**
-   * El modo de audio se configura UNA vez, al montar, no antes de cada grabación.
-   *
-   * Antes se llamaba a `setAudioModeAsync` adentro de `comenzar`, justo antes de
-   * `record()`. En varios Android —Samsung entre ellos, probado en un A16— eso
-   * rompe el arranque: la grabadora prepara pero `record()` cae en el vacío,
-   * `isRecording` nunca pasa a true y no se graba nada. La documentación de
-   * expo-audio (fix del issue expo/expo#37925) muestra que el modo va una sola
-   * vez al montar. Con eso, `record()` arranca al primer intento.
-   */
-  useEffect(() => {
-    void setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true }).catch(() => undefined)
-  }, [])
 
   const detener = useCallback(async (): Promise<string | null> => {
+    const rec = grabacionRef.current
+    if (!rec) return uri
     try {
-      if (grabador.isRecording) await grabador.stop()
+      await rec.stopAndUnloadAsync()
     } catch {
       // Ya estaba frenado.
     }
-    const u = grabador.uri ?? null
+    const u = rec.getURI() ?? null
+    grabacionRef.current = null
+    setGrabando(false)
     if (u) setUri(u)
     return u
-  }, [grabador])
-
-  // Corta sola al llegar al máximo, igual que el dictado: un audio no es un
-  // monólogo. El archivo queda guardado para adjuntar lo que se alcanzó a decir.
-  useEffect(() => {
-    if (!estadoGrabador.isRecording) return
-    if (estadoGrabador.durationMillis < DURACION_MAXIMA_MS) return
-    void detener()
-    setError(`El audio llegó al máximo de ${DURACION_MAXIMA_MS / 1000} segundos y se cortó.`)
-  }, [estadoGrabador.isRecording, estadoGrabador.durationMillis, detener])
+  }, [uri])
 
   const comenzar = useCallback(async () => {
     setError(null)
     try {
-      const permiso = await AudioModule.requestRecordingPermissionsAsync()
+      const permiso = await Audio.requestPermissionsAsync()
       if (!permiso.granted) {
         setPermisoDenegado(true)
         setError('Necesitamos permiso para usar el micrófono. Podés escribir el detalle a mano.')
@@ -159,65 +119,91 @@ export function usarGrabacionReporte(): EstadoGrabacion {
       setPermisoDenegado(false)
 
       // Empezar de nuevo descarta lo anterior.
+      if (grabacionRef.current) {
+        try {
+          await grabacionRef.current.stopAndUnloadAsync()
+        } catch {
+          // Ya estaba frenado.
+        }
+        grabacionRef.current = null
+      }
       if (uri) {
         await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
         setUri(null)
       }
 
-      // El modo de audio ya se configuró al montar (ver arriba). Acá sólo se
-      // prepara y se graba.
-      await grabador.prepareToRecordAsync()
-      grabador.record()
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true })
 
-      // Confirmar que arrancó de verdad (hasta ~2 s). Con el modo de audio
-      // seteado al montar, arranca al primer intento; el margen es por si el
-      // micrófono despierta lento.
-      let arranco = false
-      for (let i = 0; i < 14; i += 1) {
-        await new Promise((r) => setTimeout(r, 150))
-        if (!activo.current) return
-        if (grabador.isRecording) {
-          arranco = true
-          break
+      const rec = new Audio.Recording()
+      rec.setProgressUpdateInterval(250)
+      rec.setOnRecordingStatusUpdate((estado) => {
+        setGrabando(estado.isRecording)
+        setDuracionMs(estado.durationMillis ?? 0)
+
+        // Corta sola al llegar al máximo. El archivo queda guardado para adjuntar
+        // lo que se alcanzó a decir.
+        if (estado.isRecording && (estado.durationMillis ?? 0) >= DURACION_MAXIMA_MS) {
+          void (async () => {
+            try {
+              await rec.stopAndUnloadAsync()
+            } catch {
+              // Ya estaba frenado.
+            }
+            if (grabacionRef.current === rec) grabacionRef.current = null
+            setGrabando(false)
+            setUri(rec.getURI() ?? null)
+            setError(`El audio llegó al máximo de ${DURACION_MAXIMA_MS / 1000} segundos y se cortó.`)
+          })()
         }
-      }
-      if (!arranco) {
-        setError('El micrófono no llegó a arrancar. Probá de nuevo o escribí el detalle a mano.')
-      }
+      })
+
+      // `startAsync()` es awaitable: resuelve cuando la grabación arrancó de
+      // verdad. Es lo que expo-audio no lograba en este Samsung (ver
+      // transcripcion.ts: expo/expo#37925).
+      await rec.prepareToRecordAsync(OPCIONES_AV)
+      await rec.startAsync()
+      grabacionRef.current = rec
     } catch (e) {
       setError('No pudimos abrir el micrófono. Escribí el detalle a mano.')
       console.warn('[reporte-audio] error al iniciar', e)
     }
-  }, [grabador, uri])
+  }, [uri])
 
   const descartar = useCallback(async () => {
-    try {
-      if (grabador.isRecording) await grabador.stop()
-    } catch {
-      // Ya estaba frenado.
-    }
-    if (uri) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
-    setUri(null)
-    setError(null)
-  }, [grabador, uri])
-
-  // Al desmontarse, corta lo que esté grabando (el archivo lo limpia el envío o
-  // el descarte; no se borra acá porque puede estar en pleno uso).
-  useEffect(
-    () => () => {
-      activo.current = false
+    const rec = grabacionRef.current
+    if (rec) {
       try {
-        if (grabador.isRecording) void grabador.stop()
+        await rec.stopAndUnloadAsync()
       } catch {
         // Ya estaba frenado.
       }
+      grabacionRef.current = null
+    }
+    if (uri) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
+    setGrabando(false)
+    setUri(null)
+    setError(null)
+  }, [uri])
+
+  // Al desmontarse, corta lo que esté grabando.
+  useEffect(
+    () => () => {
+      const rec = grabacionRef.current
+      if (rec) {
+        try {
+          void rec.stopAndUnloadAsync()
+        } catch {
+          // Ya estaba frenado.
+        }
+        grabacionRef.current = null
+      }
     },
-    [grabador],
+    [],
   )
 
   return {
-    grabando: estadoGrabador.isRecording,
-    duracionMs: estadoGrabador.durationMillis ?? 0,
+    grabando,
+    duracionMs,
     uri,
     error,
     permisoDenegado,
