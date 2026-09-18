@@ -139,10 +139,32 @@ export function usarGrabacionReporte(): EstadoGrabacion {
       await grabador.prepareToRecordAsync()
       grabador.record()
 
-      // record() no tira si falla: puede preparar bien y no grabar. Medio
-      // segundo alcanza porque el estado se relee cada 250 ms.
-      await new Promise((r) => setTimeout(r, 600))
-      if (!grabador.isRecording && activo.current) {
+      /**
+       * Esperar a que ARRANQUE de verdad, sin apurarse.
+       *
+       * `record()` no tira si falla: puede preparar bien y tardar en empezar. Un
+       * único chequeo a los 600 ms daba "el micrófono no llegó a arrancar" con la
+       * grabación a punto de comenzar —pasa en varios Samsung, que despiertan el
+       * micrófono más lento— y encima dejaba el grabador a medio arrancar, así que
+       * el reintento tampoco levantaba. Ahora se mira hasta 3 s (cada 150 ms):
+       * apenas está grabando, listo; y si no arrancó, se frena para dejarlo limpio
+       * para el próximo intento.
+       */
+      let arranco = false
+      for (let i = 0; i < 20; i += 1) {
+        await new Promise((r) => setTimeout(r, 150))
+        if (!activo.current) return
+        if (grabador.isRecording) {
+          arranco = true
+          break
+        }
+      }
+      if (!arranco) {
+        try {
+          await grabador.stop()
+        } catch {
+          // Dejarlo lo más limpio posible para que el reintento prepare de cero.
+        }
         setError('El micrófono no llegó a arrancar. Probá de nuevo o escribí el detalle a mano.')
       }
     } catch (e) {
