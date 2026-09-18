@@ -2,7 +2,8 @@
 -- Se aplicó directo a producción el 18/09/2026 por PostgREST; este archivo la
 -- deja registrada para que sobreviva a un reset. El catálogo ACUMULA listas:
 -- estas 183 filas se suman a las de junio (020626) y el precio se resuelve por
--- lista_fecha más nueva. Idempotente por unique(codigo, lista_origen).
+-- lista_fecha más nueva. Idempotente por el índice único
+-- catalogo_articulo_unico (codigo, lista_origen, coalesce(medida, '')).
 --
 -- precio_a_confirmar y es_servicio son columnas GENERADas: no se insertan.
 
@@ -192,4 +193,4 @@ values
   ('SFUSOL100', 'SOLD.SSF DE 101 A 120 mm', null, 33048.0, 'ARS', 'LISTA PRECIO AFIL SSF 090926', '2026-09-09', 'sierra_sin_fin', 101.0, 120.0, 'ancho_corte', null, null, false),
   ('SFUSOL120', 'SOLD.SSF DE 121 A 160mm', null, 42444.0, 'ARS', 'LISTA PRECIO AFIL SSF 090926', '2026-09-09', 'sierra_sin_fin', 121.0, 160.0, 'ancho_corte', null, null, false),
   ('SOL030', 'SOLD.P/SSF POTE 30gr.', null, 2494.8, 'ARS', 'LISTA PRECIO AFIL SSF 090926', '2026-09-09', 'sierra_sin_fin', null, null, null, null, null, false)
-on conflict (codigo, lista_origen) do nothing;
+on conflict (codigo, lista_origen, coalesce(medida, ''::text)) do nothing;
