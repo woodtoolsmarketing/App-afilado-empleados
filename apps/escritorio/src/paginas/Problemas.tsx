@@ -81,6 +81,55 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
     onError: (e: Error) => setError(e.message),
   })
 
+  /**
+   * Vuelve a pasar a texto el audio de un reporte.
+   *
+   * El audio siempre queda guardado, pero la transcripción es "lo mejor que se
+   * pueda": si Gemini estaba caído cuando llegó el reporte (le pasa —503 por
+   * demanda, o no responde—), la columna quedó vacía y no había forma de
+   * recuperar ese texto salvo pedirle al vendedor que grabe de nuevo. Este botón
+   * baja el audio que ya está guardado, lo manda de nuevo a la misma Edge
+   * Function y escribe el resultado en la fila. No toca el audio.
+   *
+   * El UPDATE lo hace el panel (no la función) porque `transcribir-audio` sólo
+   * transcribe y devuelve el texto; la escritura la habilita la RLS de admin.
+   */
+  const retranscribir = useMutation({
+    mutationFn: async (p: { id: string; ruta: string }) => {
+      const { data: blob, error: errBajar } = await supabase.storage
+        .from('reportes-adjuntos')
+        .download(p.ruta)
+      if (errBajar || !blob) throw errBajar ?? new Error('No pudimos bajar el audio guardado.')
+
+      const audioBase64 = await blobABase64(blob)
+
+      const { data, error: errFuncion } = await supabase.functions.invoke('transcribir-audio', {
+        body: { audioBase64, mimeType: 'audio/mp4' },
+      })
+      if (errFuncion) throw errFuncion
+
+      const texto = ((data?.transcripcion as string | undefined) ?? '').trim()
+      if (!texto) {
+        // Gemini contestó pero no entendió el audio (o volvió vacío): no pisamos
+        // la fila con nada, y avisamos con lo que dijo la función.
+        throw new Error(
+          (data?.aviso as string | undefined) ?? 'El audio no se entendió. Escuchalo para ver qué dice.',
+        )
+      }
+
+      const { error: errGuardar } = await supabase
+        .from('reportes_problema')
+        .update({ transcripcion_audio: texto })
+        .eq('id', p.id)
+      if (errGuardar) throw errGuardar
+    },
+    onSuccess: () => {
+      setError(null)
+      void cliente.invalidateQueries({ queryKey: ['reportes-problema'] })
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
   const todos = reportes ?? []
   const abiertos = todos.filter((r) => r.estado === 'nuevo' || r.estado === 'en_revision')
   const visibles = verCerrados ? todos : abiertos
@@ -174,6 +223,28 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
 
               {r.adjuntos?.length > 0 && <AdjuntosDelReporte adjuntos={r.adjuntos} />}
 
+              {/* Recuperar la transcripción cuando el audio llegó pero Gemini
+                  estaba caído: el audio está arriba para escuchar, y esto lo
+                  vuelve a pasar a texto sin molestar al vendedor. */}
+              {!soloLectura &&
+                !r.transcripcion_audio &&
+                r.adjuntos?.some((a) => a.tipo === 'audio') && (
+                  <div>
+                    <button
+                      className="chico"
+                      disabled={retranscribir.isPending}
+                      onClick={() => {
+                        const audio = r.adjuntos.find((a) => a.tipo === 'audio')
+                        if (audio) retranscribir.mutate({ id: r.id, ruta: audio.ruta })
+                      }}
+                    >
+                      {retranscribir.isPending && retranscribir.variables?.id === r.id
+                        ? 'Transcribiendo…'
+                        : '🎤 Transcribir de nuevo'}
+                    </button>
+                  </div>
+                )}
+
               {r.cuando_se_da && (
                 <div style={{ fontSize: 13 }}>
                   <strong>Cuándo se da:</strong> {r.cuando_se_da}
@@ -228,6 +299,26 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
       )}
     </>
   )
+}
+
+/**
+ * Blob → base64 sin el prefijo `data:...;base64,`.
+ *
+ * El móvil manda el audio como base64 crudo (expo-file-system) y la Edge
+ * Function espera exactamente eso. `FileReader.readAsDataURL` devuelve un
+ * data-URL, así que hay que quedarse con lo que va después de la coma.
+ */
+function blobABase64(blob: Blob): Promise<string> {
+  return new Promise((resolver, rechazar) => {
+    const lector = new FileReader()
+    lector.onerror = () => rechazar(lector.error ?? new Error('No pudimos leer el audio.'))
+    lector.onload = () => {
+      const resultado = String(lector.result)
+      const coma = resultado.indexOf(',')
+      resolver(coma >= 0 ? resultado.slice(coma + 1) : resultado)
+    }
+    lector.readAsDataURL(blob)
+  })
 }
 
 /**
