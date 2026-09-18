@@ -214,6 +214,11 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
             text: 'Seguir con la nota',
             onPress: () =>
               navigation.navigate('GenerarNota', {
+                // La nota nueva sigue atada a la visita de la que salió: sin
+                // esto se guardaba sin parada y no ofrecía "Volver a la
+                // visita", que además saca de la pila esta alta y la nota de
+                // antes.
+                paradaId: route.params?.paradaId,
                 clienteCreadoId: nuevo.id,
                 clienteCreadoNombre: nuevo.razon_social,
                 clienteCreadoCuit: nuevo.cuit ?? '',

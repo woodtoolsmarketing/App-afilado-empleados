@@ -117,7 +117,18 @@ export type ParametrosApp = {
         clienteCreadoDireccion?: string
       }
     | undefined
-  NuevoCliente: { nombreInicial?: string; documentoInicial?: string } | undefined
+  NuevoCliente:
+    | {
+        nombreInicial?: string
+        documentoInicial?: string
+        /**
+         * La parada de la visita desde la que se abrió la nota, si se abrió
+         * desde una. El alta se la devuelve a la nota nueva: sin ella la nota
+         * quedaba suelta de la visita y no ofrecía "Volver a la visita".
+         */
+        paradaId?: string
+      }
+    | undefined
   NotasPendientes: undefined
   /**
    * La rendición de cobranzas del día.

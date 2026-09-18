@@ -1279,6 +1279,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                   navigation.navigate('NuevoCliente', {
                     nombreInicial: encabezado.cliente_nombre,
                     documentoInicial: encabezado.cliente_cuit,
+                    paradaId: route.params?.paradaId,
                   })
                 }
                 alReiniciarFacturacion={() => {
