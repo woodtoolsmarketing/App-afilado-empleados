@@ -89,13 +89,28 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const [errores, setErrores] = useState<Partial<Record<CampoVisita, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
+  /**
+   * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
+   *
+   * Un ref y no el estado de `guardar`, porque tiene que valer aunque la
+   * mutación ya haya terminado y aunque la pantalla haya quedado viva en la pila
+   * (por ejemplo, debajo de algo que se abrió desde el menú lateral mientras se
+   * guardaba). Volver a tocar el botón llamaba de nuevo a registrar_visita, que
+   * pisa coordenadas, desvío y hora de salida del registro bueno.
+   */
+  const registrada = useRef(false)
+
   // Al volver de la nota se vuelve a ESTA pantalla, que tiene todo en su
   // estado: el borrador guardado al salir ya no hace falta. Si quedara, la
   // próxima vez que se entre a la parada reviviría tildes viejos.
+  //
+  // Y si se vuelve a una visita que ya se registró, no hay nada que hacer acá:
+  // se va derecho al recorrido.
   useFocusEffect(
     useCallback(() => {
       olvidarBorradorDeVisita(paradaId)
-    }, [paradaId]),
+      if (registrada.current) navigation.popTo('Recorrido')
+    }, [paradaId, navigation]),
   )
 
   const { data, isLoading } = useQuery({
@@ -237,15 +252,16 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       // forma. Ahora se pregunta.
     },
     onSuccess: async () => {
-      // Guardada de verdad: el borrador ya no tiene nada que recuperar.
+      // Guardada de verdad: el borrador ya no tiene nada que recuperar, y esta
+      // pantalla no se vuelve a guardar.
+      registrada.current = true
       olvidarBorradorDeVisita(paradaId)
       await cliente.invalidateQueries()
 
-      // De acá en adelante se sale con popTo y no con navigate. En React
-      // Navigation 7, navigate apila la pantalla nueva ENCIMA de ésta: la
+      // De acá en adelante se sale con `salirA` (popTo) y no con navigate. En
+      // React Navigation 7, navigate apila la pantalla nueva ENCIMA de ésta: la
       // visita ya guardada quedaba abajo con todo tildado, "‹ Atrás" volvía a
-      // ella y tocar el botón de nuevo intentaba registrarla otra vez. popTo
-      // vuelve a la pantalla que ya estaba en la pila y saca ésta.
+      // ella y tocar el botón de nuevo intentaba registrarla otra vez.
       if (esUltima) {
         Alert.alert(
           'Visita registrada',
@@ -254,7 +270,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
             {
               text: 'Seguir abierta',
               style: 'cancel',
-              onPress: () => navigation.popTo('Visitas'),
+              onPress: () => salirA('Visitas'),
             },
             {
               text: 'Cerrar la jornada',
@@ -267,11 +283,11 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
       // Encadena con el próximo destino: lanza la navegación y vuelve al mapa.
       Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}`, [
-        { text: 'Ver recorrido', onPress: () => navigation.popTo('Recorrido') },
+        { text: 'Ver recorrido', onPress: () => salirA('Recorrido') },
         {
           text: 'Navegar',
           onPress: () => {
-            navigation.popTo('Recorrido')
+            salirA('Recorrido')
             if (siguiente) {
               void navegarHacia({
                 lat: siguiente.direccion.lat,
@@ -304,18 +320,40 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     onSuccess: async () => {
       await cliente.invalidateQueries()
       Alert.alert('Recorrido finalizado', 'Cerraste la jornada de hoy. Buen trabajo.')
-      navigation.popTo('Visitas')
+      salirA('Visitas')
     },
     onError: (e: Error) => {
       Alert.alert(
         'No pudimos cerrar la jornada',
         `${e.message}\n\nEl seguimiento ya se apagó. La visita quedó registrada; cerrá la jornada desde VER RECORRIDO cuando tengas señal.`,
       )
-      navigation.popTo('Visitas')
+      salirA('Visitas')
     },
   })
 
+  /**
+   * Sale de la visita después de guardarla, sólo si el vendedor sigue en ella.
+   *
+   * `navigation.popTo` busca a partir de la pantalla ENFOCADA, no de ésta. El
+   * guardado tarda (GPS de hasta 12 s, el RPC, refrescar todo), y si en el
+   * medio el vendedor abrió otra pantalla —el menú lateral, una nota—, el
+   * popTo del Alert la cerraba sin aviso, o reemplazaba la que tuviera
+   * delante y dejaba esta visita, ya registrada, viva abajo. Si ya no está
+   * acá, no se lo mueve: `registrada` impide guardarla de nuevo y, cuando
+   * vuelva a esta pantalla, lo manda solo al recorrido.
+   */
+  function salirA(destino: 'Visitas' | 'Recorrido') {
+    if (navigation.isFocused()) navigation.popTo(destino)
+  }
+
+  /** Guardando la visita o cerrando la jornada: nada de salir ni de volver a tocar. */
+  const ocupado = guardar.isPending || cerrarJornada.isPending
+
   function alGuardar() {
+    if (registrada.current) {
+      salirA('Recorrido')
+      return
+    }
     setIntentado(true)
     const { valido, errores: nuevos } = validarFormularioVisita(form)
     setErrores(nuevos)
@@ -367,7 +405,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Panel contentStyle={estilos.contenido}>
-          <BarraPanel alVolver={() => navigation.goBack()} />
+          <BarraPanel alVolver={() => !ocupado && navigation.goBack()} />
 
           <TituloPanel>¿DESTINO VISITADO?</TituloPanel>
 
@@ -538,6 +576,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
           {form.visitado === true ? (
             <BotonSecundario
               titulo="📝 HACER LA NOTA DE PEDIDO"
+              deshabilitado={ocupado}
               alTocar={() => {
                 guardarBorradorDeVisita(paradaId, form, escritaAMano.current)
                 navigation.navigate('GenerarNota', {
@@ -623,7 +662,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                   : `Quedan ${restantes.length} destino${restantes.length === 1 ? '' : 's'}`
             }
             alTocar={alGuardar}
-            cargando={guardar.isPending}
+            cargando={ocupado}
           />
         </Panel>
       </KeyboardAvoidingView>
