@@ -472,7 +472,27 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       cliente_codigo: '',
       cliente_nuevo: false,
       cliente_provisorio: true,
+      /**
+       * Lo que era del cliente anterior se va, como en una nota recién abierta.
+       *
+       * Desde que el alta vuelve a ESTA nota (popTo) y no a una nueva, la
+       * pantalla conserva lo que tenía. La zona no se reasignaba —la de la
+       * ubicación nueva no pisa una ya puesta— y la nota del cliente de Quilmes
+       * salía impresa con la zona del de Olivos; los datos del cliente viejo
+       * quedaban en el recuadro y el validador ya no los pedía. Vacíos, la zona
+       * sale de la ubicación del cliente nuevo y los datos se vuelven a pedir.
+       */
+      zona: '',
+      zona_id: '',
+      cliente_provincia: '',
+      datos_cliente: '',
+      datos_cliente_origen: 'texto',
     }))
+    // Tipo de nota y condición de venta dependen del cliente: se vuelven a
+    // elegir, igual que al cambiar de cliente con "✕ CAMBIAR".
+    setTipoNota(null)
+    setCondicionVenta(null)
+    setCondicionDetalle('')
     setUbicacionNueva({
       localidad: route.params?.clienteCreadoLocalidad ?? null,
       provincia: route.params?.clienteCreadoProvincia ?? null,
