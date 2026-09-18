@@ -6,7 +6,7 @@ import {
   Poppins_800ExtraBold,
   useFonts,
 } from '@expo-google-fonts/poppins'
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
@@ -14,6 +14,7 @@ import { AppState } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { Navegacion } from './src/navegacion/Navegacion'
+import { clienteConsultas } from './src/nucleo/consultas'
 import { usarSesion } from './src/nucleo/sesion'
 import { usarAjustesDeTema, usarTema } from './src/nucleo/tema'
 import { supabase } from './src/nucleo/supabase'
@@ -24,18 +25,6 @@ import { supabase } from './src/nucleo/supabase'
 import './src/servicios/ubicacion'
 
 void SplashScreen.preventAutoHideAsync()
-
-const clienteConsultas = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // El vendedor trabaja con señal intermitente: mejor mostrar lo último
-      // que tenemos que una pantalla vacía.
-      staleTime: 30_000,
-      retry: 2,
-      refetchOnReconnect: true,
-    },
-  },
-})
 
 export default function App() {
   const arrancar = usarSesion((s) => s.arrancar)

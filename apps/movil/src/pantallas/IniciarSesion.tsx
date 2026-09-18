@@ -43,7 +43,8 @@ const LARGO_MINIMO = 6
  */
 export function PantallaIniciarSesion() {
   const estilos = usarEstilos()
-  const { iniciarSesion, procesando, errorAcceso, usuarioRecordado } = usarSesion()
+  const { iniciarSesion, procesando, errorAcceso, usuarioRecordado, agregandoCuenta, cancelarAgregarCuenta } =
+    usarSesion()
 
   const [usuario, setUsuario] = useState('')
   const [contrasena, setContrasena] = useState('')
@@ -59,11 +60,14 @@ export function PantallaIniciarSesion() {
   const refContrasena = useRef<TextInput>(null)
 
   useEffect(() => {
+    // Agregando OTRA cuenta se arranca en blanco: prellenar con el usuario de la
+    // cuenta que ya está abierta sería justo el que no se quiere volver a poner.
+    if (agregandoCuenta) return
     if (usuarioRecordado) {
       setUsuario(usuarioRecordado)
       refContrasena.current?.focus()
     }
-  }, [usuarioRecordado])
+  }, [usuarioRecordado, agregandoCuenta])
 
   // Si el vendedor ya había pedido el restablecimiento y cerró la app mientras
   // esperaba, al volver retoma el pedido donde lo dejó.
@@ -156,8 +160,15 @@ export function PantallaIniciarSesion() {
           />
 
           <Text style={estilos.titulo} accessibilityRole="header">
-            INICIÁ SESIÓN
+            {agregandoCuenta ? 'AGREGAR CUENTA' : 'INICIÁ SESIÓN'}
           </Text>
+
+          {agregandoCuenta ? (
+            <Aviso tono="info" titulo="Estás sumando otra cuenta">
+              Iniciá sesión con la otra cuenta. La que ya tenías abierta queda guardada y podés
+              volver a ella cuando quieras.
+            </Aviso>
+          ) : null}
 
           {errorAcceso ? (
             <Aviso tono="error" titulo="No pudimos entrar">
@@ -229,11 +240,19 @@ export function PantallaIniciarSesion() {
           </Pressable>
 
           <BotonPrincipal
-            titulo="INICIAR SESIÓN"
+            titulo={agregandoCuenta ? 'AGREGAR ESTA CUENTA' : 'INICIAR SESIÓN'}
             alTocar={alEntrar}
             cargando={procesando}
             style={estilos.boton}
           />
+
+          {agregandoCuenta ? (
+            <BotonSecundario
+              titulo="Volver a mi cuenta"
+              alTocar={() => void cancelarAgregarCuenta()}
+              style={estilos.volver}
+            />
+          ) : null}
 
           <Text style={estilos.pie}>
             Uso interno de WoodTools S.R.L. El acceso lo habilita un administrador.
@@ -445,6 +464,10 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   boton: {
     marginTop: espaciado.sm,
+    minWidth: 260,
+  },
+  volver: {
+    marginTop: espaciado.xs,
     minWidth: 260,
   },
   pie: {

@@ -430,6 +430,12 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
             ) : null}
 
             <BotonMenu
+              titulo="CAMBIAR DE CUENTA"
+              subtitulo="Tener varios usuarios en este teléfono y pasar de uno a otro"
+              alTocar={() => navigation.navigate('Cuentas')}
+            />
+
+            <BotonMenu
               titulo="CERRAR SESIÓN"
               alTocar={() =>
                 Alert.alert('Cerrar sesión', '¿Seguro que querés salir?', [

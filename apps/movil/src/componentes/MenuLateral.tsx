@@ -102,6 +102,7 @@ const OPCIONES: Destino[] = [
  */
 const AL_PIE: Destino[] = [
   { etiqueta: 'MENÚ PRINCIPAL', ir: (n) => n.navigate('Menu') },
+  { etiqueta: 'CAMBIAR DE CUENTA', ir: (n) => n.navigate('Cuentas') },
   { etiqueta: 'CONFIGURACIÓN', ir: (n) => n.navigate('Configuracion', {}) },
 ]
 
@@ -119,6 +120,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   Historial: 'Historial de visitas',
   DetalleVisita: 'Detalle de visita',
   Configuracion: 'Configuración',
+  Cuentas: 'Cuentas',
   NotasPedido: 'Notas de pedido',
   GenerarNota: 'Generar nota de pedido',
   NuevoCliente: 'Nuevo cliente',

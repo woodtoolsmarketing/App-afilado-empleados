@@ -4,6 +4,17 @@ import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import { create } from 'zustand'
 
+import { olvidarBorrador } from '../servicios/borradorDeNota'
+import { detenerSeguimiento } from '../servicios/ubicacion'
+import { clienteConsultas } from './consultas'
+import {
+  datosDeCuenta,
+  listarCuentas,
+  olvidarCuenta,
+  recordarCuenta,
+  tokenDeCuenta,
+  type CuentaGuardada,
+} from './cuentas'
 import { registrarYVerificarDispositivo } from './dispositivo'
 import {
   olvidarLoRecordado,
@@ -100,12 +111,45 @@ interface EstadoSesion {
   usuarioRecordado: string | null
   errorAcceso: string | null
   procesando: boolean
+  /** Las otras cuentas que este teléfono tiene guardadas, para cambiar entre ellas. */
+  cuentas: CuentaGuardada[]
+  /** true mientras se está agregando OTRA cuenta sin cerrar la actual. */
+  agregandoCuenta: boolean
 
   arrancar: () => Promise<void>
   iniciarSesion: (usuario: string, contrasena: string) => Promise<void>
   cerrarSesion: () => Promise<void>
   refrescarPerfil: () => Promise<void>
   cambiarContrasena: (nueva: string) => Promise<void>
+  /** Activa una cuenta ya guardada sin pedir la contraseña. */
+  cambiarCuenta: (perfilId: string) => Promise<void>
+  /** Muestra el login para sumar otra cuenta, dejando la actual en espera. */
+  agregarCuenta: () => Promise<void>
+  /** Vuelve a la cuenta que estaba activa antes de tocar "agregar". */
+  cancelarAgregarCuenta: () => Promise<void>
+  /** Saca del teléfono una cuenta EN ESPERA (la activa se saca con cerrarSesion). */
+  quitarCuenta: (perfilId: string) => Promise<void>
+}
+
+/**
+ * Limpia lo que es del vendedor que se va, sin tocar la sesión ni la red.
+ *
+ * Es lo que evita que la cuenta que entra vea, por un rato, datos de la que
+ * salió: el borrador de nota (una sola clave, no por usuario), la caché de
+ * consultas (resúmenes, cobranzas), las URL firmadas de las fotos y el perfil
+ * recordado para cuando no hay señal. Frenar el seguimiento va aparte, porque
+ * eso sí habla con el servidor y hay que hacerlo con la sesión del que se va
+ * todavía puesta.
+ */
+async function limpiarLocalDelUsuario(): Promise<void> {
+  await olvidarBorrador().catch(() => undefined)
+  try {
+    clienteConsultas.clear()
+  } catch {
+    // Vaciar la caché no puede tumbar el cambio de cuenta.
+  }
+  olvidarFotos()
+  await olvidarLoRecordado().catch(() => undefined)
 }
 
 /**
@@ -185,10 +229,12 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   usuarioRecordado: null,
   errorAcceso: null,
   procesando: false,
+  cuentas: [],
+  agregandoCuenta: false,
 
   async arrancar() {
     const usuarioRecordado = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
-    set({ usuarioRecordado })
+    set({ usuarioRecordado, cuentas: await listarCuentas() })
 
     const { data } = await supabase.auth.getSession()
 
@@ -233,15 +279,21 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
        * con el perfil cacheado del otro.
        *
        * Colgada del cambio de usuario funciona mejor que antes, además: el que
-       * entra siempre es el que era, tildara lo que tildara.
+       * entra siempre es el que era, tildara lo que tildara. Con varias cuentas
+       * en el mismo teléfono es lo mismo: agregar una cuenta nueva es "otra
+       * persona", así que la caché y las fotos del anterior se limpian igual.
        */
       const anterior = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
       if (anterior && anterior !== usuario.trim()) {
-        await olvidarLoRecordado()
-        await olvidarFotos()
+        await limpiarLocalDelUsuario()
       }
       await SecureStore.setItemAsync(CLAVE_ULTIMO_USUARIO, usuario.trim())
 
+      // Se logueó bien: si veníamos de "agregar otra cuenta", ese modo terminó.
+      set({ agregandoCuenta: false })
+
+      // `refrescarPerfil` carga el perfil y, de paso, anota esta cuenta en el
+      // registro con su refresh token, para poder volver a ella sin contraseña.
       await get().refrescarPerfil()
 
       const { estado, perfil } = get()
@@ -300,16 +352,145 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 
     const resultado = await evaluarAcceso(perfil)
     set({ perfil, estado: resultado.estado, errorAcceso: resultado.error })
+
+    // Anota esta cuenta (nombre, foto, token) en el registro de cuentas del
+    // teléfono. El token guardado es el que permite volver a activarla sin
+    // contraseña; se refresca acá para que quede el último bueno.
+    if (perfil) {
+      await recordarCuenta(datosDeCuenta(perfil), sesion.session.refresh_token)
+      set({ cuentas: await listarCuentas() })
+    }
   },
 
   async cerrarSesion() {
+    const saliente = get().perfil
+    // Frenar el seguimiento con la sesión del que se va todavía puesta: el
+    // update de `posiciones_actuales` corre como él.
+    if (saliente) await detenerSeguimiento(saliente.id).catch(() => undefined)
+
     await supabase.auth.signOut().catch(() => undefined)
-    // Cerrar sesión a mano SÍ tira lo cacheado: es el gesto de "este teléfono
-    // deja de ser mío". Lo que ya no pasa es que se caiga sola a los 30 días.
-    await olvidarLoRecordado()
-    // Las URL firmadas de las fotos se emitieron contra la sesión que se va.
-    olvidarFotos()
-    set({ estado: 'sin_sesion', perfil: null, errorAcceso: null })
+
+    // Cerrar sesión saca la cuenta de este teléfono: del registro y su token.
+    // Es el gesto de "esta cuenta deja de vivir acá". Lo que ya no pasa es que
+    // la sesión se caiga sola a los 30 días.
+    if (saliente) await olvidarCuenta(saliente.id)
+    await limpiarLocalDelUsuario()
+
+    // ¿Queda otra cuenta guardada en el teléfono? Se pasa a ella en vez de
+    // mandar al login: tener varias cuentas sirve, justamente, para no
+    // re-loguear. Si su token ya no vale, se la descarta y se cae al login.
+    const restantes = await listarCuentas()
+    set({ cuentas: restantes })
+    const otra = restantes[0]
+    if (otra) {
+      const token = await tokenDeCuenta(otra.perfilId)
+      if (token) {
+        set({ estado: 'cargando', perfil: null })
+        const { data, error } = await supabase.auth.refreshSession({ refresh_token: token })
+        if (!error && data.session) {
+          await SecureStore.setItemAsync(CLAVE_ULTIMO_USUARIO, otra.usuario ?? otra.email)
+          await get().refrescarPerfil()
+          return
+        }
+        await olvidarCuenta(otra.perfilId)
+        set({ cuentas: await listarCuentas() })
+      }
+    }
+
+    set({ estado: 'sin_sesion', perfil: null, errorAcceso: null, agregandoCuenta: false })
+  },
+
+  async cambiarCuenta(perfilId) {
+    const actual = get().perfil
+    if (actual?.id === perfilId) return
+
+    set({ procesando: true, errorAcceso: null })
+    try {
+      // 1) Guardar el token del que se va (por si `autoRefresh` lo rotó recién)
+      //    antes de soltarlo: es el último bueno que le queda en espera.
+      const { data: ses } = await supabase.auth.getSession()
+      if (actual && ses.session?.refresh_token) {
+        await recordarCuenta(datosDeCuenta(actual), ses.session.refresh_token)
+      }
+
+      // 2) Sin token guardado de la cuenta destino no se puede entrar sin
+      //    contraseña. Se avisa y no se toca lo que ya está.
+      const token = await tokenDeCuenta(perfilId)
+      const destino = get().cuentas.find((c) => c.perfilId === perfilId)
+      if (!token) {
+        set({ procesando: false, errorAcceso: 'Esa cuenta necesita que inicies sesión de nuevo.' })
+        return
+      }
+
+      // 3) Frenar el seguimiento del que se va, con su sesión todavía activa.
+      if (actual) await detenerSeguimiento(actual.id).catch(() => undefined)
+
+      // 4) Limpiar lo local del anterior y activar la cuenta destino. El
+      //    'cargando' hace que el enrutador reinicie en el menú de la nueva.
+      await limpiarLocalDelUsuario()
+      set({ estado: 'cargando', perfil: null })
+
+      const { data, error } = await supabase.auth.refreshSession({ refresh_token: token })
+      if (error || !data.session) {
+        // El token guardado ya no sirve (revocado o vencido): se saca la cuenta
+        // y se cae al login con el usuario puesto, para que sólo ponga la clave.
+        await olvidarCuenta(perfilId)
+        set({
+          estado: 'sin_sesion',
+          perfil: null,
+          agregandoCuenta: false,
+          cuentas: await listarCuentas(),
+          usuarioRecordado: destino?.usuario ?? destino?.email ?? get().usuarioRecordado,
+          errorAcceso: 'Esa cuenta necesita que inicies sesión de nuevo.',
+        })
+        return
+      }
+
+      await SecureStore.setItemAsync(
+        CLAVE_ULTIMO_USUARIO,
+        destino?.usuario ?? data.session.user.email ?? '',
+      )
+      // Evalúa el acceso de la cuenta recién activada (dispositivo autorizado,
+      // cambio de contraseña, versión mínima) y anota su token fresco.
+      await get().refrescarPerfil()
+    } finally {
+      set({ procesando: false })
+    }
+  },
+
+  async agregarCuenta() {
+    const actual = get().perfil
+    if (actual) {
+      // Guardar el token del momento de la cuenta que queda en espera: es el
+      // último bueno, porque `autoRefresh` sólo rota el de la sesión activa y
+      // desde ahora ésta deja de serlo (igual que en `cambiarCuenta`).
+      const { data: ses } = await supabase.auth.getSession()
+      if (ses.session?.refresh_token) {
+        await recordarCuenta(datosDeCuenta(actual), ses.session.refresh_token)
+      }
+      // Frenar el seguimiento de la cuenta actual antes de dejarla en espera.
+      await detenerSeguimiento(actual.id).catch(() => undefined)
+    }
+
+    // Se muestra el login sin cerrar la sesión actual: sigue viva en el cliente
+    // y en el registro, así que si se cancela se vuelve a ella. El estado pasa a
+    // 'sin_sesion' sólo para que el enrutador muestre la pantalla de ingreso.
+    set({ agregandoCuenta: true, estado: 'sin_sesion', errorAcceso: null })
+  },
+
+  async cancelarAgregarCuenta() {
+    set({ agregandoCuenta: false, estado: 'cargando', errorAcceso: null })
+    // La sesión anterior nunca se cerró: sigue en el cliente, así que
+    // `refrescarPerfil` la vuelve a poner al frente.
+    await get().refrescarPerfil()
+  },
+
+  async quitarCuenta(perfilId) {
+    // Sólo cuentas en espera; la activa se saca con "cerrar sesión", que además
+    // frena el seguimiento y salta a otra cuenta.
+    if (get().perfil?.id === perfilId) return
+    await olvidarCuenta(perfilId)
+    set({ cuentas: await listarCuentas() })
   },
 
   /**

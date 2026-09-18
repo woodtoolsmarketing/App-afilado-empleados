@@ -68,6 +68,8 @@ export type ParametrosApp = {
    * volver a elegirla adentro.
    */
   Configuracion: { seccion?: SeccionDeConfiguracion } | undefined
+  /** Las cuentas guardadas en este teléfono, para cambiar de una a otra. */
+  Cuentas: undefined
   /**
    * Contar un problema.
    *

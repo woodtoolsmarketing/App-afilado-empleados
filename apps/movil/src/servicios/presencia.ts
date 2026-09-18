@@ -132,6 +132,18 @@ export function usarCandado(habilitado: boolean) {
   const seFueAlFondo = useRef<number | null>(null)
   /** Que el desbloqueo automático salte una sola vez por candado, no en cada dibujado. */
   const pedidoAuto = useRef(false)
+  /**
+   * El bloqueo "al arrancar" es una sola vez por sesión de la app, no cada vez
+   * que `habilitado` vuelve a ser true.
+   *
+   * Cambiar de cuenta hace pasar `estado` por 'cargando', así que `habilitado`
+   * cae a false y vuelve a true. Sin esta guarda, ese vaivén volvía a pedir la
+   * huella en cada cambio de cuenta —justo lo que "cambio instantáneo" evita—.
+   * El desbloqueo del teléfono ya se hizo al abrir la app; volver a pedirlo por
+   * cambiar de usuario es un toque de más. El bloqueo por volver del segundo
+   * plano (abajo) sigue funcionando igual.
+   */
+  const yaBloqueoAlArrancar = useRef(false)
 
   const desbloquear = useCallback(async () => {
     setVerificando(true)
@@ -155,8 +167,11 @@ export function usarCandado(habilitado: boolean) {
 
     let vivo = true
 
-    // Al arrancar con sesión abierta se pide la llave una vez.
+    // Al arrancar con sesión abierta se pide la llave una vez —pero de verdad
+    // una vez por sesión de app, no en cada cambio de cuenta (ver arriba).
     void (async () => {
+      if (yaBloqueoAlArrancar.current) return
+      yaBloqueoAlArrancar.current = true
       if (await puedeDesbloquear()) {
         if (vivo) setBloqueado(true)
       } else {
