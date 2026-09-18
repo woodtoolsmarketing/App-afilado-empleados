@@ -153,15 +153,17 @@ export function usarGrabacionReporte(): EstadoGrabacion {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
       await grabador.prepareToRecordAsync()
       grabador.record()
-      console.warn(`[reporte-audio] record() llamado, isRecording=${grabador.isRecording}`)
 
       /**
-       * Esperar a que ARRANQUE de verdad, sin apurarse.
+       * Reintentar `record()` hasta que ARRANQUE de verdad.
        *
-       * `record()` no tira si falla: puede preparar bien y tardar en empezar.
-       * Se mira hasta 3 s (cada 150 ms): apenas está grabando, listo. NO se
-       * llama a `stop()` si no arrancó —eso deja al grabador en estado inválido
-       * y rompe el reintento—; se deja como está y el próximo intento prepara.
+       * En varios Samsung (probado en un A16), `prepareToRecordAsync()` resuelve
+       * su promesa ANTES de que la grabadora nativa esté lista, y el `record()`
+       * que sigue cae en el vacío: el estado nunca pasa a "grabando" y no se graba
+       * nada. La preparación nativa termina ~1 segundo después. Por eso no alcanza
+       * con esperar: hay que volver a pedir `record()` cuando la grabadora ya está
+       * lista. Se reintenta cada 150 ms hasta 3 s; apenas `isRecording` es true,
+       * listo.
        */
       let arranco = false
       for (let i = 0; i < 20; i += 1) {
@@ -171,9 +173,16 @@ export function usarGrabacionReporte(): EstadoGrabacion {
           arranco = true
           break
         }
+        // Todavía no arrancó: la grabadora recién ahora puede estar preparada del
+        // lado nativo, así que se vuelve a pedir. Si ya estuviera grabando, el
+        // chequeo de arriba lo habría tomado.
+        try {
+          grabador.record()
+        } catch {
+          // Ignorar: un record() de más no rompe nada; el estado manda.
+        }
       }
       if (!arranco) {
-        console.warn(`[reporte-audio] no arrancó tras 3s, isRecording=${grabador.isRecording}, uri=${grabador.uri}`)
         setError('El micrófono no llegó a arrancar. Probá de nuevo o escribí el detalle a mano.')
       }
     } catch (e) {
