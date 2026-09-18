@@ -49,12 +49,59 @@ const MIME_PERMITIDOS = new Set([
   'audio/ogg',
   'audio/flac',
   // No figura en la lista del Gemini API pero sí en la de Firebase AI Logic,
-  // que usa el mismo backend. Es lo que produce expo-audio en Android/iOS.
+  // que usa el mismo backend. Es lo que produce expo-av (m4a/AAC) en Android/iOS.
   'audio/mp4',
 ])
 
 /** Tope defensivo: ~7 MB de base64 ≈ 5 MB de audio, muy por encima de 60 s. */
 const MAX_BASE64 = 7_000_000
+
+/**
+ * Gemini a veces devuelve 503 "high demand" en la capa flash-lite, y alguna
+ * request queda colgada esperando capacidad. Sin tope, un `fetch` así dejó al
+ * vendedor mirando el spinner de ENVIAR dos minutos (visto en producción: un
+ * único intento, booteo a shutdown, 2 min hasta el 503). Acotamos cada intento
+ * y reintentamos una vez los errores transitorios: el propio mensaje de Gemini
+ * dice que "spikes in demand are usually temporary".
+ */
+const TIMEOUT_MS = 25_000
+const REINTENTOS = 1
+const TRANSITORIOS = new Set([429, 500, 502, 503, 504])
+
+/**
+ * Pide la transcripción a Gemini con timeout por intento y un reintento ante
+ * errores transitorios (503/429/… o corte por timeout). Devuelve la última
+ * `Response`, aunque no sea ok, para que el handler la reporte como siempre.
+ */
+async function pedirTranscripcion(clave: string, cuerpo: string): Promise<Response> {
+  for (let intento = 0; ; intento += 1) {
+    const control = new AbortController()
+    const corte = setTimeout(() => control.abort(), TIMEOUT_MS)
+    try {
+      const r = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': clave, 'Content-Type': 'application/json' },
+        body: cuerpo,
+        signal: control.signal,
+      })
+      if (TRANSITORIOS.has(r.status) && intento < REINTENTOS) {
+        await r.text().catch(() => undefined) // liberar el cuerpo antes de reintentar
+        await new Promise((res) => setTimeout(res, 1_000 * (intento + 1)))
+        continue
+      }
+      return r
+    } catch (e) {
+      // Abort por timeout, o error de red: reintentar si quedan intentos.
+      if (intento < REINTENTOS) {
+        await new Promise((res) => setTimeout(res, 1_000 * (intento + 1)))
+        continue
+      }
+      throw e
+    } finally {
+      clearTimeout(corte)
+    }
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -83,32 +130,33 @@ Deno.serve(async (req) => {
       throw new RespuestaError(`Formato de audio no soportado: ${mimeType}`, 415)
     }
 
-    const respuesta = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: {
-        'x-goog-api-key': clave,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODELO,
-        store: false,
-        system_instruction: INSTRUCCION,
-        generation_config: { thinking_level: 'minimal', temperature: 0 },
-        response_format: {
-          type: 'text',
-          mime_type: 'application/json',
-          schema: {
-            type: 'object',
-            properties: { transcripcion: { type: 'string' } },
-            required: ['transcripcion'],
-          },
+    const cuerpo = JSON.stringify({
+      model: MODELO,
+      store: false,
+      system_instruction: INSTRUCCION,
+      generation_config: { thinking_level: 'minimal', temperature: 0 },
+      response_format: {
+        type: 'text',
+        mime_type: 'application/json',
+        schema: {
+          type: 'object',
+          properties: { transcripcion: { type: 'string' } },
+          required: ['transcripcion'],
         },
-        input: [
-          { type: 'text', text: 'Transcribí este audio.' },
-          { type: 'audio', data: audioBase64, mime_type: mimeType },
-        ],
-      }),
+      },
+      input: [
+        { type: 'text', text: 'Transcribí este audio.' },
+        { type: 'audio', data: audioBase64, mime_type: mimeType },
+      ],
     })
+
+    let respuesta: Response
+    try {
+      respuesta = await pedirTranscripcion(clave, cuerpo)
+    } catch (e) {
+      console.error('[transcribir-audio] Gemini no respondió a tiempo', e)
+      throw new RespuestaError('No pudimos transcribir el audio. Escribí la observación a mano.', 502)
+    }
 
     if (!respuesta.ok) {
       const detalle = await respuesta.text()
