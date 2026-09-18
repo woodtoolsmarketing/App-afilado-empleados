@@ -212,17 +212,27 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
         [
           {
             text: 'Seguir con la nota',
+            // popTo con merge, no navigate. En React Navigation 7, navigate
+            // apilaba una nota NUEVA encima: sin la parada de la visita (la
+            // nota quedaba suelta y no ofrecía "Volver a la visita") y con este
+            // alta, todavía llena, abajo, lista para crear el cliente dos
+            // veces. popTo vuelve a la nota que abrió el alta; el merge le
+            // conserva paradaId y clienteCodigo, que si no se pisarían.
             onPress: () =>
-              navigation.navigate('GenerarNota', {
-                clienteCreadoId: nuevo.id,
-                clienteCreadoNombre: nuevo.razon_social,
-                clienteCreadoCuit: nuevo.cuit ?? '',
-                // La ubicación viaja para que la nota le asigne la zona sola,
-                // igual que cuando el cliente ya existía.
-                clienteCreadoLocalidad: form.localidad ?? undefined,
-                clienteCreadoProvincia: form.provincia ?? undefined,
-                clienteCreadoDireccion: form.direccion || undefined,
-              }),
+              navigation.popTo(
+                'GenerarNota',
+                {
+                  clienteCreadoId: nuevo.id,
+                  clienteCreadoNombre: nuevo.razon_social,
+                  clienteCreadoCuit: nuevo.cuit ?? '',
+                  // La ubicación viaja para que la nota le asigne la zona sola,
+                  // igual que cuando el cliente ya existía.
+                  clienteCreadoLocalidad: form.localidad ?? undefined,
+                  clienteCreadoProvincia: form.provincia ?? undefined,
+                  clienteCreadoDireccion: form.direccion || undefined,
+                },
+                { merge: true },
+              ),
           },
         ],
       )
