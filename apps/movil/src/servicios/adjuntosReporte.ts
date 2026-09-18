@@ -113,6 +113,20 @@ export function usarGrabacionReporte(): EstadoGrabacion {
   const [permisoDenegado, setPermisoDenegado] = useState(false)
   const activo = useRef(true)
 
+  /**
+   * El modo de audio se configura UNA vez, al montar, no antes de cada grabación.
+   *
+   * Antes se llamaba a `setAudioModeAsync` adentro de `comenzar`, justo antes de
+   * `record()`. En varios Android —Samsung entre ellos, probado en un A16— eso
+   * rompe el arranque: la grabadora prepara pero `record()` cae en el vacío,
+   * `isRecording` nunca pasa a true y no se graba nada. La documentación de
+   * expo-audio (fix del issue expo/expo#37925) muestra que el modo va una sola
+   * vez al montar. Con eso, `record()` arranca al primer intento.
+   */
+  useEffect(() => {
+    void setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true }).catch(() => undefined)
+  }, [])
+
   const detener = useCallback(async (): Promise<string | null> => {
     try {
       if (grabador.isRecording) await grabador.stop()
@@ -150,36 +164,21 @@ export function usarGrabacionReporte(): EstadoGrabacion {
         setUri(null)
       }
 
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+      // El modo de audio ya se configuró al montar (ver arriba). Acá sólo se
+      // prepara y se graba.
       await grabador.prepareToRecordAsync()
       grabador.record()
 
-      /**
-       * Reintentar `record()` hasta que ARRANQUE de verdad.
-       *
-       * En varios Samsung (probado en un A16), `prepareToRecordAsync()` resuelve
-       * su promesa ANTES de que la grabadora nativa esté lista, y el `record()`
-       * que sigue cae en el vacío: el estado nunca pasa a "grabando" y no se graba
-       * nada. La preparación nativa termina ~1 segundo después. Por eso no alcanza
-       * con esperar: hay que volver a pedir `record()` cuando la grabadora ya está
-       * lista. Se reintenta cada 150 ms hasta 3 s; apenas `isRecording` es true,
-       * listo.
-       */
+      // Confirmar que arrancó de verdad (hasta ~2 s). Con el modo de audio
+      // seteado al montar, arranca al primer intento; el margen es por si el
+      // micrófono despierta lento.
       let arranco = false
-      for (let i = 0; i < 20; i += 1) {
+      for (let i = 0; i < 14; i += 1) {
         await new Promise((r) => setTimeout(r, 150))
         if (!activo.current) return
         if (grabador.isRecording) {
           arranco = true
           break
-        }
-        // Todavía no arrancó: la grabadora recién ahora puede estar preparada del
-        // lado nativo, así que se vuelve a pedir. Si ya estuviera grabando, el
-        // chequeo de arriba lo habría tomado.
-        try {
-          grabador.record()
-        } catch {
-          // Ignorar: un record() de más no rompe nada; el estado manda.
         }
       }
       if (!arranco) {
