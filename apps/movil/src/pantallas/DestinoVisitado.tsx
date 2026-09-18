@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -348,6 +349,29 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
   /** Guardando la visita o cerrando la jornada: nada de salir ni de volver a tocar. */
   const ocupado = guardar.isPending || cerrarJornada.isPending
+
+  /**
+   * El Atrás del teléfono también queda quieto mientras está `ocupado`.
+   *
+   * El "‹ Atrás" de la pantalla ya no hacía nada, pero el del teléfono sí:
+   * sacaba esta pantalla con el guardado en vuelo. Si fallaba, el aviso decía
+   * "lo que cargaste sigue en pantalla" y ya no estaba; si salía bien, la
+   * parada seguía "en camino" en el recorrido y se podía abrir y registrar
+   * otra vez. Un listener que devuelve true corta el goBack del navegador
+   * (React Native los consulta del último registrado al primero).
+   *
+   * Con un ref y no con usePreventRemove: el cierre de la jornada sale con
+   * popTo mientras su mutación todavía figura pendiente, y eso también lo
+   * bloquearía, dejando al vendedor encerrado en la visita.
+   */
+  const ocupadoRef = useRef(false)
+  ocupadoRef.current = ocupado
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => ocupadoRef.current)
+      return () => sub.remove()
+    }, []),
+  )
 
   function alGuardar() {
     if (registrada.current) {

@@ -149,7 +149,19 @@ export function Navegacion() {
             <Pila.Screen name="Menu" component={PantallaMenu} />
             <Pila.Screen name="Visitas" component={PantallaVisitas} />
             <Pila.Screen name="Recorrido" component={PantallaRecorrido} />
-            <Pila.Screen name="DestinoVisitado" component={PantallaDestinoVisitado} />
+            {/*
+              Una visita por parada. Sin getId, un navigate a la visita de
+              OTRA parada (el "Llegaste… ¿Cargamos la visita?" del recorrido,
+              por ejemplo) reusaba la que estaba abierta y le cambiaba la
+              parada: lo tildado para A se guardaba como visita de B. Con el
+              id, cada parada tiene su pantalla y el popTo que vuelve de la
+              nota encuentra la suya.
+            */}
+            <Pila.Screen
+              name="DestinoVisitado"
+              component={PantallaDestinoVisitado}
+              getId={({ params }) => params.paradaId}
+            />
             <Pila.Screen name="AgregarDestino" component={PantallaAgregarDestino} />
             <Pila.Screen name="Historial" component={PantallaHistorial} />
             <Pila.Screen name="DetalleVisita" component={PantallaDetalleVisita} />

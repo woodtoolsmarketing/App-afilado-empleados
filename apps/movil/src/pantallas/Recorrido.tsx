@@ -136,6 +136,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const ofrecerCargarLaVisita = useCallback(async () => {
     if (!proxima?.direccion || !enCurso) return
     if (yaPreguntado.current === proxima.id) return
+    // Sólo con el recorrido a la vista. Este aviso también corre al volver
+    // a la app —de Google Maps, típicamente—, y el recorrido sigue montado
+    // debajo de la visita que el vendedor está cargando: "Cargar la visita"
+    // desde ahí lo sacaba de lo que estaba haciendo.
+    if (!navigation.isFocused()) return
 
     let donde: { lat: number; lng: number } | null = null
     try {
@@ -149,7 +154,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       lat: proxima.direccion.lat,
       lng: proxima.direccion.lng,
     })
-    if (metros > radioDeLlegada) return
+    // El GPS tarda: en el medio pudo haber entrado a otra pantalla.
+    if (metros > radioDeLlegada || !navigation.isFocused()) return
 
     yaPreguntado.current = proxima.id
     Alert.alert(
