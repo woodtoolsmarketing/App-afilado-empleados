@@ -206,16 +206,18 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
         style={estilos.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Panel contentStyle={estilos.contenido}>
+        {/*
+          El panel no se desplaza entero: se arma a mano en tres partes para
+          que entre todo en una pantalla. El día y el buscador quedan fijos
+          arriba, GUARDAR fijo abajo, y sólo la lista de clientes —que puede
+          ser larga— se desplaza en el medio. Así nunca hay que scrollear para
+          llegar al botón.
+        */}
+        <Panel desplazable={false} contentStyle={estilos.marco}>
           <BarraPanel alVolver={() => navigation.goBack()} />
           <TituloPanel>{'LISTA\nSEMANAL'}</TituloPanel>
 
-          <Aviso tono="info" titulo="Qué es esto">
-            A quién visitás cada día, fijo. Se repite todas las semanas y aparece como sugerido en el
-            Calendario de visitas, para que lo agendes cuando salgas. No arma el recorrido solo.
-          </Aviso>
-
-          {/* ── El día ──────────────────────────────────────────────────── */}
+          {/* ── El día (fijo) ───────────────────────────────────────────── */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -250,118 +252,123 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
             accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
           />
 
-          {resultados.length > 0 ? (
-            <View style={estilos.sugerencias}>
-              {resultados.map((c) => {
-                const puesto = yaElegido(c.cliente_id)
-                return (
-                  <Pressable
-                    key={c.cliente_id}
-                    onPress={() => (puesto ? undefined : agregar(c))}
-                    disabled={puesto}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${c.codigo ?? ''} ${c.razon_social}`}
-                    style={({ pressed }) => [
-                      estilos.sugerencia,
-                      pressed && !puesto && estilos.sugerenciaTocada,
-                      puesto && estilos.sugerenciaPuesta,
-                    ]}
-                  >
-                    <View style={estilos.sugerenciaFila}>
-                      {c.codigo ? <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text> : null}
-                      {c.lat === null ? (
-                        <Pastilla
-                          texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
-                          color={colores.rojoAccion}
-                        />
-                      ) : null}
-                      {puesto ? <Pastilla texto="YA ESTÁ" color={colores.verdeOscuro} /> : null}
-                    </View>
-                    <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
-                      {c.razon_social}
-                    </Text>
-                    {c.direccion ? (
-                      <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
-                        {c.direccion}
-                      </Text>
-                    ) : null}
-                  </Pressable>
-                )
-              })}
-            </View>
-          ) : null}
-
-          {resultados.length >= LIMITE_CLIENTES ? (
-            <Aviso tono="atencion">
-              {`Hay más de ${LIMITE_CLIENTES} que coinciden. Escribí un poco más para achicar la lista.`}
-            </Aviso>
-          ) : null}
-
-          {/* ── La lista del día ────────────────────────────────────────── */}
-          {isLoading ? (
-            <Cargando texto="Buscando tu lista…" />
-          ) : error ? (
-            <>
-              <Aviso tono="error" titulo="No pudimos traer tu lista">
-                Revisá la conexión. Lo guardado sigue estando: esto es un problema para leerlo.
-              </Aviso>
-              <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
-            </>
-          ) : elegidos.length === 0 ? (
-            <Vacio
-              titulo={`No hay nadie para los ${nombreLargoDia(dia).toLowerCase()}`}
-              detalle="Buscá un cliente arriba y agregalo. Después tocá GUARDAR."
-              icono="🗓"
-            />
-          ) : (
-            <View style={estilos.lista}>
-              {elegidos.map((c, i) => (
-                <View key={c.cliente_id} style={estilos.fila}>
-                  <Text style={estilos.filaNumero}>{i + 1}</Text>
-                  <View style={estilos.datos}>
-                    <Text style={estilos.nombre} numberOfLines={2}>
-                      {c.codigo ? `${c.codigo} · ` : ''}
-                      {c.razon_social}
-                    </Text>
-                    {c.direccion ? (
-                      <Text style={estilos.direccion} numberOfLines={1}>
-                        {c.direccion}
-                      </Text>
-                    ) : null}
-                    {c.lat === null ? (
-                      <View style={estilos.pastillas}>
-                        <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+          {/* ── Lo único que se desplaza: resultados y la lista del día ──── */}
+          <ScrollView
+            style={estilos.zona}
+            contentContainerStyle={estilos.zonaContenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {resultados.length > 0 ? (
+              <View style={estilos.sugerencias}>
+                {resultados.map((c) => {
+                  const puesto = yaElegido(c.cliente_id)
+                  return (
+                    <Pressable
+                      key={c.cliente_id}
+                      onPress={() => (puesto ? undefined : agregar(c))}
+                      disabled={puesto}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${c.codigo ?? ''} ${c.razon_social}`}
+                      style={({ pressed }) => [
+                        estilos.sugerencia,
+                        pressed && !puesto && estilos.sugerenciaTocada,
+                        puesto && estilos.sugerenciaPuesta,
+                      ]}
+                    >
+                      <View style={estilos.sugerenciaFila}>
+                        {c.codigo ? <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text> : null}
+                        {c.lat === null ? (
+                          <Pastilla
+                            texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
+                            color={colores.rojoAccion}
+                          />
+                        ) : null}
+                        {puesto ? <Pastilla texto="YA ESTÁ" color={colores.verdeOscuro} /> : null}
                       </View>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    onPress={() => quitar(c.cliente_id)}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Quitar ${c.razon_social}`}
-                    style={({ pressed }) => [estilos.quitar, pressed && estilos.tocado]}
-                  >
-                    <Text style={estilos.quitarTexto}>✕</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
+                      <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
+                        {c.razon_social}
+                      </Text>
+                      {c.direccion ? (
+                        <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
+                          {c.direccion}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  )
+                })}
+              </View>
+            ) : null}
 
-          {elegidos.some((c) => c.lat === null) ? (
-            <Aviso tono="atencion" titulo="Hay clientes sin ubicar">
-              Los que están sin ubicar van a aparecer igual en el calendario, pero no se van a poder
-              agendar hasta que les cargues la dirección en el mapa.
-            </Aviso>
-          ) : null}
+            {resultados.length >= LIMITE_CLIENTES ? (
+              <Aviso tono="atencion">
+                {`Hay más de ${LIMITE_CLIENTES} que coinciden. Escribí un poco más para achicar la lista.`}
+              </Aviso>
+            ) : null}
+
+            {/* ── La lista del día ────────────────────────────────────────── */}
+            {isLoading ? (
+              <Cargando texto="Buscando tu lista…" />
+            ) : error ? (
+              <>
+                <Aviso tono="error" titulo="No pudimos traer tu lista">
+                  Revisá la conexión. Lo guardado sigue estando: esto es un problema para leerlo.
+                </Aviso>
+                <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+              </>
+            ) : elegidos.length === 0 ? (
+              <Vacio
+                titulo={`No hay nadie para los ${nombreLargoDia(dia).toLowerCase()}`}
+                detalle="Buscá un cliente arriba y agregalo. Después tocá GUARDAR."
+                icono="🗓"
+              />
+            ) : (
+              <View style={estilos.lista}>
+                {elegidos.map((c, i) => (
+                  <View key={c.cliente_id} style={estilos.fila}>
+                    <Text style={estilos.filaNumero}>{i + 1}</Text>
+                    <View style={estilos.datos}>
+                      <Text style={estilos.nombre} numberOfLines={2}>
+                        {c.codigo ? `${c.codigo} · ` : ''}
+                        {c.razon_social}
+                      </Text>
+                      {c.direccion ? (
+                        <Text style={estilos.direccion} numberOfLines={1}>
+                          {c.direccion}
+                        </Text>
+                      ) : null}
+                      {c.lat === null ? (
+                        <View style={estilos.pastillas}>
+                          <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+                        </View>
+                      ) : null}
+                    </View>
+                    <Pressable
+                      onPress={() => quitar(c.cliente_id)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${c.razon_social}`}
+                      style={({ pressed }) => [estilos.quitar, pressed && estilos.tocado]}
+                    >
+                      <Text style={estilos.quitarTexto}>✕</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {elegidos.some((c) => c.lat === null) ? (
+              <Aviso tono="atencion" titulo="Hay clientes sin ubicar">
+                Los que están sin ubicar van a aparecer igual en el calendario, pero no se van a poder
+                agendar hasta que les cargues la dirección en el mapa.
+              </Aviso>
+            ) : null}
+          </ScrollView>
 
           {/*
-            El botón va al pie del contenido, como en el Calendario de visitas.
-            Antes vivía en un Panel aparte: dos paneles con flex:1 se repartían
-            la pantalla mitad y mitad, así que el de guardar quedaba enorme y
-            casi vacío, y encima achicaba la lista de arriba. Un solo botón que
-            se desplaza con todo lo demás. Deshabilitado ya dice "no hay nada
-            que guardar", así que no necesita el subtítulo.
+            GUARDAR queda FIJO al pie, siempre a la vista: no hay que scrollear
+            para guardar. Es un solo botón; deshabilitado ya dice "no hay nada
+            que guardar", así que no necesita subtítulo.
           */}
           <BotonMenu
             titulo="GUARDAR LA LISTA"
@@ -377,7 +384,17 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
 
 const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
-  contenido: { gap: espaciado.md },
+  // El marco arma la pantalla en columna: encabezado y buscador arriba, la
+  // zona desplazable en el medio (flex: 1), y GUARDAR abajo.
+  marco: {
+    flex: 1,
+    paddingHorizontal: espaciado.base,
+    paddingTop: espaciado.md,
+    paddingBottom: espaciado.md,
+    gap: espaciado.md,
+  },
+  zona: { flex: 1 },
+  zonaContenido: { gap: espaciado.md, paddingBottom: espaciado.sm },
 
   tira: { gap: espaciado.xs, paddingVertical: 2 },
   dia: {
