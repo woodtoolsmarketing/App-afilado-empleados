@@ -1111,18 +1111,20 @@ const usarEstilos = hojaDeTema((t) => ({
     overflow: 'hidden',
   },
   // La fila entera: el cliente (que se elige tocándolo) y, al costado, el
-  // atajo para sumarlo a la lista semanal. El separador de abajo va acá para
-  // que cruce las dos partes.
+  // atajo para sumarlo a la lista semanal. El separador de abajo NO va acá: la
+  // línea la ponen sus dos hijos (el cliente y el botón), así también queda
+  // bien en las OTRAS listas que comparten `sugerencia` —las sugerencias de
+  // dirección de Google—, que no van envueltas en esta fila.
   sugerenciaFilaExterna: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    borderBottomWidth: 1,
-    borderBottomColor: t.colores.panelOscuro,
   },
   sugerenciaInfo: { flex: 1 },
   sugerencia: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.md,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colores.panelOscuro,
     minHeight: 60,
     justifyContent: 'center',
     gap: 2,
@@ -1135,6 +1137,10 @@ const usarEstilos = hojaDeTema((t) => ({
     gap: 2,
     borderLeftWidth: 1,
     borderLeftColor: t.colores.panelOscuro,
+    // Para que la línea divisoria cruce toda la fila, no sólo la parte del
+    // cliente (el botón es el otro hijo de `sugerenciaFilaExterna`).
+    borderBottomWidth: 1,
+    borderBottomColor: t.colores.panelOscuro,
   },
   aListaIcono: { fontSize: t.tipografia.tamano.base },
   aListaTexto: {
