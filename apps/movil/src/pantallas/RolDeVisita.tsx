@@ -74,18 +74,27 @@ export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>
         { text: 'Listo' },
       ])
     },
-    // El error se muestra acá y se puede reintentar sin salir de la pantalla. El
-    // diálogo de Android queda como tercera opción, sólo si el vendedor la elige.
-    onError: (e: Error) => {
+    // El error se muestra acá y se puede reintentar sin salir de la pantalla, en
+    // el MISMO modo que falló: si el vendedor quería el PDF para WhatsApp,
+    // reintentar tiene que volver a generar el PDF, no mandar el trabajo a la
+    // impresora. El diálogo de Android sólo aplica a la impresión.
+    onError: (e: Error, variables) => {
       setAvance(null)
-      Alert.alert('No pudimos imprimir', e.message, [
-        { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
-        {
-          text: 'Elegir otra impresora',
-          onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
-        },
-        { text: 'Cancelar', style: 'cancel' },
-      ])
+      const titulo = variables.comoPdf ? 'No pudimos generar el PDF' : 'No pudimos imprimir'
+      const botones = variables.comoPdf
+        ? [
+            { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: true }) },
+            { text: 'Cancelar', style: 'cancel' as const },
+          ]
+        : [
+            { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
+            {
+              text: 'Elegir otra impresora',
+              onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
+            },
+            { text: 'Cancelar', style: 'cancel' as const },
+          ]
+      Alert.alert(titulo, e.message, botones)
     },
   })
 

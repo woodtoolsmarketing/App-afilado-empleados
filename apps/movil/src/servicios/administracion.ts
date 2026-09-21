@@ -427,16 +427,28 @@ export interface FilaModificacion {
  * como los del panel. Sólo admin/supervisor pueden leerlas (RLS).
  */
 export async function modificacionesEntre(desde: string, hasta: string): Promise<FilaModificacion[]> {
+  // Los límites van como instantes locales, no como fechas peladas.
+  //
+  // `modificado_en` es timestamptz y el servidor corre en UTC: mandar
+  // '2026-09-01' hace que Postgres lo lea como medianoche UTC, que en Argentina
+  // (UTC-3) son las 21:00 del día anterior. Con eso, la ventana quedaba corrida
+  // tres horas: se colaban los cambios de la víspera después de las 21:00 y se
+  // perdían los del último día pasadas las 21:00 —justo el cierre de mes que
+  // esta pantalla existe para controlar—. Un ISO con la hora local puesta
+  // (`...T00:00:00`, sin `Z`) se interpreta en la zona del teléfono, y
+  // `toISOString()` lo pasa al instante UTC correcto.
+  const desdeInstante = new Date(`${desde}T00:00:00`).toISOString()
   const siguiente = new Date(`${hasta}T00:00:00`)
   siguiente.setDate(siguiente.getDate() + 1)
+  const hastaInstante = siguiente.toISOString()
 
   const { data, error } = await supabase
     .from('clientes_modificaciones')
     .select(
       'id, modificado_en, campo, valor_anterior, valor_nuevo, cliente_codigo, cliente:clientes ( codigo, razon_social ), autor:perfiles ( nombre_completo, codigo_vendedor )',
     )
-    .gte('modificado_en', desde)
-    .lt('modificado_en', comoISO(siguiente))
+    .gte('modificado_en', desdeInstante)
+    .lt('modificado_en', hastaInstante)
     .order('modificado_en', { ascending: false })
     .limit(5000)
   if (error) throw error

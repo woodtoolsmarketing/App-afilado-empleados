@@ -83,6 +83,11 @@ function temaDeLaNavegacion(tema: Tema): Theme {
  */
 export function Navegacion() {
   const estado = usarSesion((s) => s.estado)
+  // Las pantallas de administración se registran en la pila SÓLO para un admin.
+  // El backend ya gatea cada operación por `perfiles.rol` y el menú esconde la
+  // sección; registrarlas por rol además cierra la lectura por si en el futuro
+  // se cablea un deep link o un navigate desde otro lado.
+  const esAdmin = usarSesion((s) => s.perfil?.rol === 'admin')
   const tema = usarTema()
 
   /**
@@ -184,9 +189,13 @@ export function Navegacion() {
             <Pila.Screen name="ListaSemanal" component={PantallaListaSemanal} />
             <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
             <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
-            <Pila.Screen name="AdminUsuarios" component={PantallaUsuarios} />
-            <Pila.Screen name="AdminClientes" component={PantallaClientes} />
-            <Pila.Screen name="AdminModificaciones" component={PantallaModificaciones} />
+            {esAdmin ? (
+              <>
+                <Pila.Screen name="AdminUsuarios" component={PantallaUsuarios} />
+                <Pila.Screen name="AdminClientes" component={PantallaClientes} />
+                <Pila.Screen name="AdminModificaciones" component={PantallaModificaciones} />
+              </>
+            ) : null}
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />

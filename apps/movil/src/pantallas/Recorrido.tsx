@@ -609,7 +609,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               />
             ))}
 
-            {paradas.length >= 2 && !finalizada ? (
+            {/* "Ordenar por cercanía" se ofrece ANTES de arrancar, no en curso.
+                Ya iniciado, reordenar reasignaría en silencio el destino que se
+                está manejando —una prioridad alta lejana puede clavarse
+                adelante— y "PRÓXIMO DESTINO" pasaría a apuntar a otro cliente.
+                Se cuenta por paradas SIN resolver: con dos ya visitadas el
+                servidor no tendría nada que ordenar. */}
+            {!enCurso &&
+            !finalizada &&
+            paradas.filter((p) => p.estado === 'pendiente' || p.estado === 'en_camino').length >= 2 ? (
               <BotonSecundario
                 titulo="🧭  Ordenar por cercanía"
                 alTocar={() => ordenar.mutate()}

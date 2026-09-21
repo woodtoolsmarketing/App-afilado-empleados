@@ -251,7 +251,16 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         ) : null}
 
         {credencial ? (
-          <TarjetaCredencial credencial={credencial} alCerrar={() => setCredencial(null)} />
+          <TarjetaCredencial
+            credencial={credencial}
+            alCerrar={() => {
+              setCredencial(null)
+              // La contraseña provisoria no tiene por qué quedar en la caché de
+              // la mutación después de cerrar la tarjeta.
+              crear.reset()
+              rehabilitar.reset()
+            }}
+          />
         ) : null}
 
         {/* ── 1 · Esperando aprobación ──────────────────────────────────────── */}
@@ -371,20 +380,27 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         )}
       </Panel>
 
-      {/* ── Modal: nuevo usuario ─────────────────────────────────────────────── */}
-      <ModalAlta
-        visible={altaAbierta}
-        enviando={crear.isPending}
-        error={errorAlta}
-        alCerrar={() => {
-          if (crear.isPending) return
-          setAltaAbierta(false)
-        }}
-        alEnviar={(payload) => {
-          setErrorAlta(null)
-          crear.mutate(payload)
-        }}
-      />
+      {/* ── Modal: nuevo usuario ─────────────────────────────────────────────
+          Se monta y se desmonta con `altaAbierta` (no sólo se togglea `visible`)
+          para que cada alta arranque en blanco: montado siempre, el estado del
+          formulario —incluida la foto elegida— sobrevivía al cierre y se colaba
+          en el usuario siguiente. Es el mismo patrón que el formulario de
+          clientes, que ya nace limpio por montarse condicionalmente. */}
+      {altaAbierta ? (
+        <ModalAlta
+          visible
+          enviando={crear.isPending}
+          error={errorAlta}
+          alCerrar={() => {
+            if (crear.isPending) return
+            setAltaAbierta(false)
+          }}
+          alEnviar={(payload) => {
+            setErrorAlta(null)
+            crear.mutate(payload)
+          }}
+        />
+      ) : null}
 
       {/* ── Modal: motivo de rechazo (Alert.prompt no existe en Android) ─────── */}
       <Modal
