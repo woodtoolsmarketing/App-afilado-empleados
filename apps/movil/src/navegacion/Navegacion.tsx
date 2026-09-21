@@ -35,6 +35,9 @@ import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
 import { PantallaRolDeVisita } from '../pantallas/RolDeVisita'
+import { PantallaClientes } from '../pantallas/admin/Clientes'
+import { PantallaModificaciones } from '../pantallas/admin/Modificaciones'
+import { PantallaUsuarios } from '../pantallas/admin/Usuarios'
 import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarCandado } from '../servicios/presencia'
@@ -181,6 +184,9 @@ export function Navegacion() {
             <Pila.Screen name="ListaSemanal" component={PantallaListaSemanal} />
             <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
             <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
+            <Pila.Screen name="AdminUsuarios" component={PantallaUsuarios} />
+            <Pila.Screen name="AdminClientes" component={PantallaClientes} />
+            <Pila.Screen name="AdminModificaciones" component={PantallaModificaciones} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />

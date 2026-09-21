@@ -60,6 +60,13 @@ export type ParametrosApp = {
   MapaClientes: undefined
   /** La planilla del recorrido de hoy, para imprimir o compartir como PDF. */
   RolDeVisita: undefined
+  // ── Administración (sólo rol admin; el menú las esconde para el resto) ──────
+  /** Altas de usuarios, habilitación de teléfonos y resets de contraseña. */
+  AdminUsuarios: undefined
+  /** ABM de la cartera de clientes. */
+  AdminClientes: undefined
+  /** Auditoría de cambios de fichas de clientes, sólo lectura. */
+  AdminModificaciones: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   /**

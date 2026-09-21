@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { hojaDeTema } from '../nucleo/tema'
+import { usarSesion } from '../nucleo/sesion'
 import type { ParametrosApp } from '../navegacion/tipos'
 
 /**
@@ -113,6 +114,20 @@ const AL_PIE: Destino[] = [
 ]
 
 /**
+ * Las funciones de la oficina, sólo para administradores.
+ *
+ * Son las pestañas del panel de escritorio traídas al teléfono. El backend ya
+ * gatea por `perfiles.rol`, pero además el menú las esconde: un vendedor no las
+ * ve, y aunque adivinara la ruta, la base lo frenaría igual. Se muestran sólo
+ * cuando `perfil.rol === 'admin'`.
+ */
+const ADMINISTRACION: Destino[] = [
+  { etiqueta: 'USUARIOS Y TELÉFONOS', ir: (n) => n.navigate('AdminUsuarios') },
+  { etiqueta: 'CLIENTES (CARTERA)', ir: (n) => n.navigate('AdminClientes') },
+  { etiqueta: 'MODIFICACIONES DE CLIENTES', ir: (n) => n.navigate('AdminModificaciones') },
+]
+
+/**
  * Nombre legible de cada pantalla, para el campo que ve Marketing en un
  * reporte. Sin esto viajaba el nombre interno de la ruta ("NotasPendientes"),
  * que además quedaba mezclado con las etiquetas a mano que ya arma Configuración.
@@ -135,6 +150,9 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   CalendarioEnvios: 'Próximas visitas',
   CalendarioVisitas: 'Calendario de visitas',
   RolDeVisita: 'Rol de visita',
+  AdminUsuarios: 'Usuarios y teléfonos',
+  AdminClientes: 'Clientes (cartera)',
+  AdminModificaciones: 'Modificaciones de clientes',
   ComunicacionInterna: 'Comunicación interna',
   ClientesDelDia: 'Clientes de hoy',
   NotasImpresas: 'Notas impresas',
@@ -149,6 +167,10 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
+  // La sección de administración se muestra sólo a las cuentas admin. El backend
+  // ya lo gatea, pero esconderla evita ofrecerle a un vendedor una puerta que la
+  // base le va a cerrar.
+  const esAdmin = usarSesion((s) => s.perfil?.rol === 'admin')
   // Desde dónde se abrió el menú, para "REPORTAR UN PROBLEMA", con nombre legible.
   const rutaActual = useNavigationState((state) => state.routes[state.index]?.name)
   const pantallaActual = rutaActual ? (ETIQUETA_PANTALLA[rutaActual] ?? rutaActual) : undefined
@@ -217,6 +239,16 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
             {OPCIONES.map((o) => (
               <Opcion key={o.etiqueta} destino={o} alElegir={irA} />
             ))}
+
+            {esAdmin ? (
+              <>
+                <View style={estilos.linea} />
+                <Text style={estilos.seccion}>ADMINISTRACIÓN</Text>
+                {ADMINISTRACION.map((o) => (
+                  <Opcion key={o.etiqueta} destino={o} alElegir={irA} />
+                ))}
+              </>
+            ) : null}
 
             <View style={estilos.linea} />
 
@@ -323,5 +355,13 @@ const usarEstilos = hojaDeTema((t) => ({
     height: 1.5,
     backgroundColor: t.colores.panelOscuro,
     marginVertical: espaciado.sm,
+  },
+  seccion: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
+    letterSpacing: 1,
+    paddingHorizontal: espaciado.xs,
+    marginBottom: espaciado.xs,
   },
 }))
