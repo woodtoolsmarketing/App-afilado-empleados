@@ -560,3 +560,44 @@ export async function imprimirPlanillaCobranzas(params?: {
     usarDialogoDelSistema: params?.usarDialogoDelSistema,
   })
 }
+
+/**
+ * Imprime (o comparte) la planilla del rol de visita del día.
+ *
+ * Es la misma hoja que arma la oficina en el panel —"Roles de Visita"— pero
+ * salida del teléfono: el vendedor puede imprimirla en la impresora o
+ * compartirla como PDF por WhatsApp. Sale sola, sin notas, por el mismo camino
+ * que todo el resto (`entregarDocumento`), para no tener otro modo de imprimir
+ * que se rompa por su cuenta.
+ *
+ * Sin recorrido armado hoy no hay planilla: se avisa y no se genera una hoja
+ * vacía, igual que la de cobranzas cuando no hay cobros.
+ */
+export async function imprimirRolDeVisita(params?: {
+  alAvisar?: (mensaje: string) => void
+  comoPdf?: boolean
+  usarDialogoDelSistema?: boolean
+}): Promise<ResultadoImpresion> {
+  const { data: sesionActual } = await supabase.auth.getSession()
+  const vendedorId = sesionActual.session?.user.id
+  if (!vendedorId) throw new Error('No hay sesión')
+
+  const rolDeVisita = await rolDeVisitaDeHoy(vendedorId)
+  if (!rolDeVisita) {
+    throw new Error('Hoy no armaste recorrido, así que no hay planilla para imprimir.')
+  }
+
+  const html = generarDocumentoImpresion([], {
+    rolDeVisita,
+    escalaDeLetra: escalaDeLetraDelSistema(),
+  })
+
+  return entregarDocumento(html, {
+    queSalio: 'el rol de visita',
+    plural: false,
+    nombreDelArchivo: `rol-de-visita-${hoyLocal()}`,
+    comoPdf: params?.comoPdf,
+    alAvisar: params?.alAvisar,
+    usarDialogoDelSistema: params?.usarDialogoDelSistema,
+  })
+}

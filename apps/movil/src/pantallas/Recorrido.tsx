@@ -350,6 +350,38 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     onError: (e: Error) => Alert.alert('No pudimos abrir Google Maps', e.message),
   })
 
+  /**
+   * "Ordenar por cercanía", a mano, sin arrancar el recorrido.
+   *
+   * Es el mismo botón que la oficina tiene en el panel: reordena los destinos
+   * por tiempo real de manejo (Google) y, si no hay tránsito, por cercanía
+   * (PostGIS). Sirve para replanificar en la calle —cuando se agrega o se
+   * difiere un destino— sin tener que finalizar y volver a iniciar. La edge
+   * function deja al vendedor optimizar SU propia jornada, así que no hace
+   * falta nada del lado de la oficina.
+   *
+   * Se le pasa la ubicación actual como origen cuando el GPS la da; si no, la
+   * optimización usa el origen que tenga guardado la jornada o el vendedor.
+   */
+  const ordenar = useMutation({
+    mutationFn: async () => {
+      if (!jornada) throw new Error('Todavía no cargó la jornada')
+      let origen: { lat: number; lng: number } | undefined
+      try {
+        const pos = await ubicacionActual()
+        origen = { lat: pos.lat, lng: pos.lng }
+      } catch {
+        // Sin GPS igual se puede ordenar: la edge function cae al origen guardado.
+      }
+      return optimizarRecorrido(jornada.id, origen)
+    },
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['jornada-hoy'] })
+      Alert.alert('Recorrido ordenado', 'Ordené los destinos por cercanía y tiempo de manejo.')
+    },
+    onError: (e: Error) => Alert.alert('No pudimos ordenar el recorrido', e.message),
+  })
+
   // Llegó desde "INICIAR RECORRIDO": se pregunta cómo arrancar.
   useEffect(() => {
     if (debeIniciar && jornada && !enCurso && !finalizada && !arrancar.isPending) {
@@ -576,6 +608,14 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 }}
               />
             ))}
+
+            {paradas.length >= 2 && !finalizada ? (
+              <BotonSecundario
+                titulo="🧭  Ordenar por cercanía"
+                alTocar={() => ordenar.mutate()}
+                cargando={ordenar.isPending}
+              />
+            ) : null}
 
             <BotonMenu
               titulo={'AGREGAR\nNUEVO DESTINO'}

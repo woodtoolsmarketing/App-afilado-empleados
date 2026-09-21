@@ -58,6 +58,8 @@ export type ParametrosApp = {
   ListaSemanal: { diaSemana?: number } | undefined
   /** Todos los clientes ubicados sobre el mapa, agrupados, centrado en el GPS. */
   MapaClientes: undefined
+  /** La planilla del recorrido de hoy, para imprimir o compartir como PDF. */
+  RolDeVisita: undefined
   Historial: undefined
   DetalleVisita: { rolVisitaId: string; paradaId: string; fecha: string }
   /**

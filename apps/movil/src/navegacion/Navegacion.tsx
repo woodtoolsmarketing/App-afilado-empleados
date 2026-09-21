@@ -34,6 +34,7 @@ import { PantallaVistaPreviaNota } from '../pantallas/VistaPreviaNota'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
+import { PantallaRolDeVisita } from '../pantallas/RolDeVisita'
 import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarCandado } from '../servicios/presencia'
@@ -179,6 +180,7 @@ export function Navegacion() {
             <Pila.Screen name="ClientesDelDia" component={PantallaClientesDelDia} />
             <Pila.Screen name="ListaSemanal" component={PantallaListaSemanal} />
             <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
+            <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
             <Pila.Screen name="NotasImpresas" component={PantallaNotasImpresas} />
             <Pila.Screen name="HistorialNotas" component={PantallaHistorialNotas} />
             <Pila.Screen name="DetalleNota" component={PantallaDetalleNota} />

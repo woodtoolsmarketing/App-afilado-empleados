@@ -69,6 +69,12 @@ const OPCIONES: Destino[] = [
     ir: (n) => n.navigate('NotasPendientes'),
   },
   {
+    // La planilla del recorrido de hoy: la misma que arma la oficina, para
+    // imprimirla o mandarla por WhatsApp como PDF.
+    etiqueta: 'IMPRIMIR ROL DE VISITA',
+    ir: (n) => n.navigate('RolDeVisita'),
+  },
+  {
     etiqueta: 'HISTORIAL DE VISITAS',
     ir: (n) => n.navigate('Historial'),
   },
@@ -128,6 +134,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   Cobranzas: 'Cobranzas del día',
   CalendarioEnvios: 'Próximas visitas',
   CalendarioVisitas: 'Calendario de visitas',
+  RolDeVisita: 'Rol de visita',
   ComunicacionInterna: 'Comunicación interna',
   ClientesDelDia: 'Clientes de hoy',
   NotasImpresas: 'Notas impresas',
