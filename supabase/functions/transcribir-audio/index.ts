@@ -18,18 +18,21 @@ import {
  * donde sería trivial de extraer (Hermes no ofusca strings).
  *
  * Notas de implementación:
- *  · Se usa la Interactions API (`/v1beta/interactions`), no el viejo
- *    `generateContent`, que quedó como legacy.
- *  · La respuesta cambió en mayo de 2026: el texto está en
- *    `steps[].content[].text`, ya no en `outputs[]`.
- *  · `store: false` — son notas de voz de empleados; no queremos que queden
- *    guardadas 55 días en la infraestructura de Google.
- *  · `thinking_level: minimal` — transcribir no necesita razonamiento, y el
- *    razonamiento se cobra y agrega latencia.
+ *  · Se usa `generateContent` (`/v1beta/models/<modelo>:generateContent`), la
+ *    API estable de Gemini. OJO: una versión anterior apuntaba a un supuesto
+ *    `/v1beta/interactions` con el modelo `gemini-3.5-flash-lite`; ese endpoint
+ *    NO responde (la request se cuelga hasta el timeout), así que la
+ *    transcripción nunca funcionó. `generateContent` + `gemini-2.5-flash`
+ *    contesta en ~3-4 s y transcribe bien (audio por `inlineData`).
+ *  · La respuesta viene en `candidates[0].content.parts[].text`.
+ *  · `thinkingConfig.thinkingBudget: 0` — transcribir no necesita razonamiento,
+ *    y el "thinking" de 2.5 se cobra y agrega latencia.
+ *  · `responseMimeType: application/json` + `responseSchema` — fuerza a que
+ *    devuelva `{ transcripcion }` y no texto suelto.
  */
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions'
-const MODELO = Deno.env.get('GEMINI_MODELO') ?? 'gemini-3.5-flash-lite'
+const MODELO = Deno.env.get('GEMINI_MODELO') ?? 'gemini-2.5-flash'
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent`
 
 const INSTRUCCION = `Sos un motor de transcripción para una empresa de herramientas de carpintería en Argentina.
 Devolvés ÚNICAMENTE la transcripción literal del audio, en español rioplatense (voseo: vos, tenés, querés, decime).
@@ -57,12 +60,12 @@ const MIME_PERMITIDOS = new Set([
 const MAX_BASE64 = 7_000_000
 
 /**
- * Gemini a veces devuelve 503 "high demand" en la capa flash-lite, y alguna
- * request queda colgada esperando capacidad. Sin tope, un `fetch` así dejó al
- * vendedor mirando el spinner de ENVIAR dos minutos (visto en producción: un
- * único intento, booteo a shutdown, 2 min hasta el 503). Acotamos cada intento
- * y reintentamos una vez los errores transitorios: el propio mensaje de Gemini
- * dice que "spikes in demand are usually temporary".
+ * Gemini a veces devuelve 503 "high demand" (transitorio) o tarda de más. Con
+ * `generateContent` + `gemini-2.5-flash` una transcripción normal contesta en
+ * ~3-5 s, así que 25 s por intento es holgado; y ante un 503/timeout puntual
+ * reintentamos una vez (el propio mensaje de Gemini dice que "spikes in demand
+ * are usually temporary"). El tope existe para no dejar el ENVIAR colgado si
+ * Gemini no contesta.
  */
 const TIMEOUT_MS = 25_000
 const REINTENTOS = 1
@@ -131,23 +134,26 @@ Deno.serve(async (req) => {
     }
 
     const cuerpo = JSON.stringify({
-      model: MODELO,
-      store: false,
-      system_instruction: INSTRUCCION,
-      generation_config: { thinking_level: 'minimal', temperature: 0 },
-      response_format: {
-        type: 'text',
-        mime_type: 'application/json',
-        schema: {
+      systemInstruction: { parts: [{ text: INSTRUCCION }] },
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Transcribí este audio.' },
+            { inlineData: { mimeType, data: audioBase64 } },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: {
           type: 'object',
           properties: { transcripcion: { type: 'string' } },
           required: ['transcripcion'],
         },
+        thinkingConfig: { thinkingBudget: 0 },
       },
-      input: [
-        { type: 'text', text: 'Transcribí este audio.' },
-        { type: 'audio', data: audioBase64, mime_type: mimeType },
-      ],
     })
 
     let respuesta: Response
@@ -166,12 +172,9 @@ Deno.serve(async (req) => {
 
     const datos = await respuesta.json()
 
-    // Formato vigente desde mayo 2026: steps[] → content[] → text.
-    const crudo: string = (datos.steps ?? [])
-      .filter((paso: { type?: string }) => paso.type === 'model_output')
-      .flatMap((paso: { content?: unknown[] }) => paso.content ?? [])
-      .filter((c: { type?: string }) => c.type === 'text')
-      .map((c: { text?: string }) => c.text ?? '')
+    // generateContent: el texto está en candidates[0].content.parts[].text.
+    const crudo: string = (datos?.candidates?.[0]?.content?.parts ?? [])
+      .map((p: { text?: string }) => p.text ?? '')
       .join('')
 
     let transcripcion = crudo.trim()
