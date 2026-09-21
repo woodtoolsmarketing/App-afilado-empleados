@@ -218,26 +218,36 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
           <TituloPanel>{'LISTA\nSEMANAL'}</TituloPanel>
 
           {/* ── El día (fijo) ───────────────────────────────────────────── */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={estilos.tira}
-          >
-            {DIAS_ISO.map((d) => (
-              <Pressable
-                key={d.iso}
-                onPress={() => cambiarDia(d.iso)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: d.iso === dia }}
-                accessibilityLabel={d.largo}
-                style={[estilos.dia, d.iso === dia && estilos.diaElegido]}
-              >
-                <Text style={[estilos.diaTexto, d.iso === dia && estilos.diaTextoElegido]}>
-                  {d.corto}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {/*
+            El envoltorio y `flexGrow: 0` son necesarios: un ScrollView
+            horizontal, suelto dentro de una columna flex, se estira a lo alto
+            para llenar el espacio libre y agranda los casilleros del día. Con
+            la caja que lo abraza y `alignItems: 'flex-start'` en la tira, se
+            quedan de su alto natural.
+          */}
+          <View style={estilos.tiraCaja}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={estilos.tira}
+              style={estilos.tiraScroll}
+            >
+              {DIAS_ISO.map((d) => (
+                <Pressable
+                  key={d.iso}
+                  onPress={() => cambiarDia(d.iso)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: d.iso === dia }}
+                  accessibilityLabel={d.largo}
+                  style={[estilos.dia, d.iso === dia && estilos.diaElegido]}
+                >
+                  <Text style={[estilos.diaTexto, d.iso === dia && estilos.diaTextoElegido]}>
+                    {d.corto}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
 
           <Text style={estilos.diaTitulo}>Los {nombreLargoDia(dia).toLowerCase()}</Text>
 
@@ -396,7 +406,12 @@ const usarEstilos = hojaDeTema((t) => ({
   zona: { flex: 1 },
   zonaContenido: { gap: espaciado.md, paddingBottom: espaciado.sm },
 
-  tira: { gap: espaciado.xs, paddingVertical: 2 },
+  // La caja abraza al ScrollView horizontal y lo deja de su alto natural,
+  // en vez de estirarse a lo largo de la columna. alignItems flex-start en la
+  // tira evita que los casilleros se estiren a lo alto.
+  tiraCaja: { flexGrow: 0 },
+  tiraScroll: { flexGrow: 0 },
+  tira: { gap: espaciado.xs, paddingVertical: 2, alignItems: 'flex-start' },
   dia: {
     minWidth: 52,
     paddingVertical: espaciado.sm,
