@@ -233,6 +233,13 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
           </Pressable>
 
           <ScrollView
+            // `flex: 1` acota la altura del ScrollView a lo que queda del panel;
+            // sin eso crece con su contenido y no scrollea. Con el menú corto no
+            // se notaba —entraba entero—, pero al sumar la sección de
+            // administración el contenido pasa de largo y los últimos ítems
+            // (Clientes, Modificaciones) quedaban abajo del borde, sin forma de
+            // llegar a ellos.
+            style={estilos.scroll}
             contentContainerStyle={[estilos.lista, { paddingBottom: insets.bottom + espaciado.lg }]}
             showsVerticalScrollIndicator={false}
           >
@@ -318,6 +325,7 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xl,
     color: t.colores.tinta,
   },
+  scroll: { flex: 1 },
   lista: {
     paddingHorizontal: espaciado.base,
     paddingTop: espaciado.xs,
