@@ -173,6 +173,23 @@ export async function guardarListaSemanal(dia: number, clienteIds: string[]): Pr
   }
 }
 
+/**
+ * Suma UN cliente a la lista de un día, sin tocar el resto.
+ *
+ * `guardar_lista_semanal` reemplaza el día entero, así que primero se trae lo
+ * que ya hay y se agrega el cliente al final. Si ya estaba, no se guarda nada
+ * —así el atajo desde el historial no reordena ni duplica una lista existente—.
+ */
+export async function agregarAListaSemanal(
+  dia: number,
+  clienteId: string,
+): Promise<'agregado' | 'ya_estaba'> {
+  const actual = await listaSemanalDe(dia)
+  if (actual.some((c) => c.cliente_id === clienteId)) return 'ya_estaba'
+  await guardarListaSemanal(dia, [...actual.map((c) => c.cliente_id), clienteId])
+  return 'agregado'
+}
+
 /** Los siete días como los pide la lista: ISO 1 lunes … 7 domingo. */
 export const DIAS_ISO: { iso: number; corto: string; largo: string }[] = [
   { iso: 1, corto: 'LUN', largo: 'Lunes' },
