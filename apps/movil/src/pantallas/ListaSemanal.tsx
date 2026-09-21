@@ -354,16 +354,17 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
               agendar hasta que les cargues la dirección en el mapa.
             </Aviso>
           ) : null}
-        </Panel>
 
-        <Panel>
+          {/*
+            El botón va al pie del contenido, como en el Calendario de visitas.
+            Antes vivía en un Panel aparte: dos paneles con flex:1 se repartían
+            la pantalla mitad y mitad, así que el de guardar quedaba enorme y
+            casi vacío, y encima achicaba la lista de arriba. Un solo botón que
+            se desplaza con todo lo demás. Deshabilitado ya dice "no hay nada
+            que guardar", así que no necesita el subtítulo.
+          */}
           <BotonMenu
             titulo="GUARDAR LA LISTA"
-            subtitulo={
-              hayCambios
-                ? `Los ${nombreLargoDia(dia).toLowerCase()}: ${elegidos.length} cliente${elegidos.length === 1 ? '' : 's'}`
-                : 'Sin cambios para guardar'
-            }
             alTocar={() => guardar.mutate()}
             cargando={guardar.isPending}
             deshabilitado={!hayCambios}
