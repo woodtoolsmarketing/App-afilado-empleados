@@ -176,18 +176,24 @@ export async function guardarListaSemanal(dia: number, clienteIds: string[]): Pr
 /**
  * Suma UN cliente a la lista de un día, sin tocar el resto.
  *
- * `guardar_lista_semanal` reemplaza el día entero, así que primero se trae lo
- * que ya hay y se agrega el cliente al final. Si ya estaba, no se guarda nada
- * —así el atajo desde el historial no reordena ni duplica una lista existente—.
+ * Va por un RPC propio que inserta una sola fila. NO se hace leyendo la lista y
+ * reescribiéndola: `lista_semanal_de` esconde por RLS a un cliente que la
+ * oficina desactivó y que el vendedor todavía no visitó, así que reescribir el
+ * día lo borraría en silencio. Devuelve si lo agregó o si ya estaba.
  */
 export async function agregarAListaSemanal(
   dia: number,
   clienteId: string,
 ): Promise<'agregado' | 'ya_estaba'> {
-  const actual = await listaSemanalDe(dia)
-  if (actual.some((c) => c.cliente_id === clienteId)) return 'ya_estaba'
-  await guardarListaSemanal(dia, [...actual.map((c) => c.cliente_id), clienteId])
-  return 'agregado'
+  const { data, error } = await supabase.rpc('agregar_a_lista_semanal', {
+    p_dia_semana: dia,
+    p_cliente_id: clienteId,
+  })
+  if (error) {
+    if (['23514', '42501'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+  return data ? 'agregado' : 'ya_estaba'
 }
 
 /** Los siete días como los pide la lista: ISO 1 lunes … 7 domingo. */
