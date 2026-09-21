@@ -534,14 +534,15 @@ export const MAQUINAS_POR_HERRAMIENTA: Record<Herramienta, string[]> = {
     'Escuadradora',
     'Mesa de banco',
     'Seccionadora',
+    'Panelera',
     'Máquina múltiple',
     'Ingletadora',
     'Máquina de mano',
     'Trituradora',
   ],
   // El incisor es el disco chico que va DELANTE de la sierra principal, así que
-  // vive en las mismas dos máquinas que la acompañan.
-  incisor: ['Escuadradora', 'Seccionadora'],
+  // vive en las mismas máquinas que la acompañan.
+  incisor: ['Escuadradora', 'Seccionadora', 'Panelera'],
   fresa: ['Tupí', 'Machimbradora', 'Moldurera', 'Pantógrafo o CNC', 'Ingletadora', 'Máquina de mano'],
   cabezal: ['Machimbradora', 'Moldurera', 'Cepilladora', 'Tupí'],
   cuchilla: ['Cepilladora', 'Moldurera', 'Machimbradora', 'Trituradora'],
