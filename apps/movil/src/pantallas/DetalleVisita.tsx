@@ -6,17 +6,15 @@ import {
   formatearFechaCorta,
   formatearHora,
   radios,
-  TOQUE_MINIMO,
 } from '@woodtools/compartido'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Alert, Linking, Modal, Pressable, Text, View } from 'react-native'
+import { useQuery } from '@tanstack/react-query'
+import { Linking, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { agregarAListaSemanal, DIAS_ISO, nombreLargoDia } from '../servicios/agenda'
 import { obtenerDetalleParada } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
@@ -37,29 +35,11 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
 
   const visita = parada?.visita
 
-  const consultas = useQueryClient()
-  const [eligiendoDia, setEligiendoDia] = useState(false)
+  const lista = usarListaSemanalRapida()
   // Sólo se puede agregar un cliente de verdad (uno con ficha). Un destino sin
   // cliente o con nombre suelto no entra en la lista semanal.
   const clienteId = parada?.cliente?.id ?? null
   const clienteNombre = parada?.cliente?.razon_social ?? 'este cliente'
-
-  const agregar = useMutation({
-    mutationFn: (dia: number) => agregarAListaSemanal(dia, clienteId!),
-    onSuccess: async (resultado, dia) => {
-      // Que la lista semanal y el calendario reflejen el cambio al volver.
-      await consultas.invalidateQueries({ queryKey: ['lista-semanal', dia] })
-      await consultas.invalidateQueries({ queryKey: ['agenda'] })
-      const dias = nombreLargoDia(dia).toLowerCase()
-      Alert.alert(
-        resultado === 'agregado' ? 'Agregado a tu lista' : 'Ya estaba en la lista',
-        resultado === 'agregado'
-          ? `${clienteNombre} va a aparecer como sugerido todos los ${dias} en el Calendario de visitas.`
-          : `${clienteNombre} ya estaba en tu lista de los ${dias}.`,
-      )
-    },
-    onError: (e: Error) => Alert.alert('No pudimos agregarlo', e.message),
-  })
 
   return (
     <Pantalla>
@@ -175,8 +155,8 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
             {clienteId ? (
               <BotonSecundario
                 titulo="📋  Agregar a mi lista semanal"
-                alTocar={() => setEligiendoDia(true)}
-                cargando={agregar.isPending}
+                alTocar={() => lista.abrir(clienteId, clienteNombre)}
+                cargando={lista.agregando}
               />
             ) : null}
 
@@ -192,46 +172,7 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
         )}
       </Panel>
 
-      {/* Elegir a qué día de la semana se agrega. Un modal y no un Alert con
-          botones: en Android un Alert descarta los botones más allá de tres, y
-          acá hay siete días. */}
-      <Modal
-        visible={eligiendoDia}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEligiendoDia(false)}
-      >
-        <Pressable style={estilos.velo} onPress={() => setEligiendoDia(false)} accessibilityLabel="Cerrar">
-          <Pressable style={estilos.hoja} onPress={() => undefined}>
-            <Text style={estilos.hojaTitulo} numberOfLines={3}>
-              {`¿Qué día de la semana ves a ${clienteNombre}?`}
-            </Text>
-
-            {DIAS_ISO.map((d) => (
-              <Pressable
-                key={d.iso}
-                onPress={() => {
-                  setEligiendoDia(false)
-                  agregar.mutate(d.iso)
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={d.largo}
-                style={({ pressed }) => [estilos.diaOpcion, pressed && estilos.tocado]}
-              >
-                <Text style={estilos.diaOpcionTexto}>{d.largo}</Text>
-              </Pressable>
-            ))}
-
-            <Pressable
-              onPress={() => setEligiendoDia(false)}
-              accessibilityRole="button"
-              style={({ pressed }) => [estilos.cancelar, pressed && estilos.tocado]}
-            >
-              <Text style={estilos.cancelarTexto}>VOLVER</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {lista.modal}
     </Pantalla>
   )
 }
@@ -330,54 +271,4 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tinta,
   },
   marcaApagada: { color: t.colores.tintaTenue },
-
-  // ── Selector de día para la lista semanal ──────────────────────────────────
-  velo: {
-    flex: 1,
-    backgroundColor: t.colores.velo,
-    justifyContent: 'flex-end',
-  },
-  hoja: {
-    backgroundColor: t.colores.panel,
-    borderTopWidth: 2.5,
-    borderTopColor: t.colores.borde,
-    borderTopLeftRadius: radios.lg,
-    borderTopRightRadius: radios.lg,
-    padding: espaciado.base,
-    gap: espaciado.xs,
-  },
-  hojaTitulo: {
-    fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.base,
-    color: t.colores.tinta,
-    marginBottom: espaciado.xs,
-  },
-  diaOpcion: {
-    minHeight: TOQUE_MINIMO,
-    justifyContent: 'center',
-    paddingHorizontal: espaciado.md,
-    borderRadius: radios.sm,
-    borderWidth: 2,
-    borderColor: t.colores.borde,
-    backgroundColor: t.colores.campoBlanco,
-  },
-  diaOpcionTexto: {
-    fontFamily: t.tipografia.familia.fuerte,
-    fontSize: t.tipografia.tamano.sm,
-    color: t.colores.tinta,
-    letterSpacing: 0.5,
-  },
-  cancelar: {
-    minHeight: TOQUE_MINIMO,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: espaciado.xs,
-  },
-  cancelarTexto: {
-    fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.sm,
-    color: t.colores.tintaSuave,
-    letterSpacing: 1,
-  },
-  tocado: { opacity: 0.7 },
 }))

@@ -30,6 +30,7 @@ import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Campo, Desplegable } from '../componentes/Formulario'
 import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import { asegurarJornadaDe, asegurarJornadaDeHoy } from '../servicios/jornada'
@@ -149,6 +150,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
+  const lista = usarListaSemanalRapida()
 
   /**
    * Si `fecha` viene seteada y no es la de hoy, el destino se agenda para
@@ -397,45 +399,62 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           {resultados.length > 0 ? (
             <View style={estilos.sugerencias}>
               {resultados.map((c) => (
-                <Pressable
-                  key={c.cliente_id}
-                  onPress={() => elegirCliente(c)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
-                  style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
-                >
-                  <View style={estilos.sugerenciaFila}>
-                    <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
-                    {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
-                    {/*
-                      Antes decía "SIN DIRECCIÓN" y quedaba justo arriba de la
-                      dirección del cliente, que sí estaba escrita. Lo que falta
-                      no es el domicilio: son las coordenadas.
-                    */}
-                    {c.lat === null ? (
-                      <Pastilla
-                        texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
-                        color={colores.rojoAccion}
-                      />
+                <View key={c.cliente_id} style={estilos.sugerenciaFilaExterna}>
+                  {/* Tocar el cliente lo elige como destino, igual que antes. */}
+                  <Pressable
+                    onPress={() => elegirCliente(c)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
+                    style={({ pressed }) => [
+                      estilos.sugerencia,
+                      estilos.sugerenciaInfo,
+                      pressed && estilos.sugerenciaTocada,
+                    ]}
+                  >
+                    <View style={estilos.sugerenciaFila}>
+                      <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
+                      {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
+                      {/*
+                        Antes decía "SIN DIRECCIÓN" y quedaba justo arriba de la
+                        dirección del cliente, que sí estaba escrita. Lo que falta
+                        no es el domicilio: son las coordenadas.
+                      */}
+                      {c.lat === null ? (
+                        <Pastilla
+                          texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
+                          color={colores.rojoAccion}
+                        />
+                      ) : null}
+                    </View>
+                    <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
+                      {c.razon_social}
+                    </Text>
+                    {c.direccion ? (
+                      <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
+                        {c.direccion}
+                      </Text>
                     ) : null}
-                  </View>
-                  <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
-                    {c.razon_social}
-                  </Text>
-                  {c.direccion ? (
-                    <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
-                      {c.direccion}
-                    </Text>
-                  ) : null}
-                  {/* Ahora se puede buscar por teléfono: si no se muestra, el
-                      cliente que enganchó por su número parece un resultado al
-                      azar. */}
-                  {c.telefono ? (
-                    <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
-                      Tel {c.telefono}
-                    </Text>
-                  ) : null}
-                </Pressable>
+                    {/* Ahora se puede buscar por teléfono: si no se muestra, el
+                        cliente que enganchó por su número parece un resultado al
+                        azar. */}
+                    {c.telefono ? (
+                      <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
+                        Tel {c.telefono}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+
+                  {/* Atajo: sumarlo a la lista semanal sin elegirlo como destino. */}
+                  <Pressable
+                    onPress={() => lista.abrir(c.cliente_id, c.razon_social)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Agregar ${c.razon_social} a mi lista semanal`}
+                    style={({ pressed }) => [estilos.aLista, pressed && estilos.sugerenciaTocada]}
+                  >
+                    <Text style={estilos.aListaIcono}>📋</Text>
+                    <Text style={estilos.aListaTexto}>LISTA</Text>
+                  </Pressable>
+                </View>
               ))}
             </View>
           ) : null}
@@ -533,6 +552,8 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           />
         </Panel>
       </KeyboardAvoidingView>
+
+      {lista.modal}
     </Pantalla>
   )
 }
@@ -1089,16 +1110,39 @@ const usarEstilos = hojaDeTema((t) => ({
     backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
+  // La fila entera: el cliente (que se elige tocándolo) y, al costado, el
+  // atajo para sumarlo a la lista semanal. El separador de abajo va acá para
+  // que cruce las dos partes.
+  sugerenciaFilaExterna: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderBottomWidth: 1,
+    borderBottomColor: t.colores.panelOscuro,
+  },
+  sugerenciaInfo: { flex: 1 },
   sugerencia: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.md,
-    borderBottomWidth: 1,
-    borderBottomColor: t.colores.panelOscuro,
     minHeight: 60,
     justifyContent: 'center',
     gap: 2,
   },
   sugerenciaTocada: { backgroundColor: t.colores.panelClaro },
+  aLista: {
+    width: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    borderLeftWidth: 1,
+    borderLeftColor: t.colores.panelOscuro,
+  },
+  aListaIcono: { fontSize: t.tipografia.tamano.base },
+  aListaTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojo,
+    letterSpacing: 0.5,
+  },
   sugerenciaFila: {
     flexDirection: 'row',
     alignItems: 'center',
