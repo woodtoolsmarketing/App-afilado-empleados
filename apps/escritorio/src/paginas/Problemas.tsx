@@ -106,7 +106,23 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
       const { data, error: errFuncion } = await supabase.functions.invoke('transcribir-audio', {
         body: { audioBase64, mimeType: 'audio/mp4' },
       })
-      if (errFuncion) throw errFuncion
+      if (errFuncion) {
+        // supabase-js pone un mensaje genérico ("non-2xx status code") en
+        // errFuncion.message; el motivo real que devolvió la función viaja en el
+        // body (errFuncion.context). Sin esto, cuando Gemini está caído —que es
+        // justo para lo que sirve este botón— el admin veía ese texto inútil.
+        let detalle = 'No se pudo transcribir ahora. Gemini puede estar saturado: probá de nuevo en un rato.'
+        const contexto = (errFuncion as { context?: Response }).context
+        if (contexto && typeof contexto.json === 'function') {
+          try {
+            const cuerpo = await contexto.json()
+            if (typeof cuerpo?.error === 'string') detalle = cuerpo.error
+          } catch {
+            // El body no era JSON legible; queda el mensaje de arriba.
+          }
+        }
+        throw new Error(detalle)
+      }
 
       const texto = ((data?.transcripcion as string | undefined) ?? '').trim()
       if (!texto) {
@@ -117,14 +133,34 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
         )
       }
 
-      const { error: errGuardar } = await supabase
+      // `.select('id')` para CONFIRMAR que se escribió. Si la RLS de admin no
+      // matchea (p.ej. la sesión dejó de ser de admin desde que se abrió el
+      // panel), el UPDATE no toca ninguna fila y NO tira error: sin esto se veía
+      // como éxito, la transcripción no aparecía, y el botón invitaba a reintentar
+      // en loop —gastando una llamada a Gemini cada vez—.
+      const { data: filas, error: errGuardar } = await supabase
         .from('reportes_problema')
         .update({ transcripcion_audio: texto })
         .eq('id', p.id)
+        .select('id')
       if (errGuardar) throw errGuardar
+      if (!filas || filas.length === 0) {
+        throw new Error(
+          'No se pudo guardar la transcripción. Puede que tu sesión ya no sea de administrador: salí y volvé a entrar.',
+        )
+      }
+
+      return { id: p.id, texto }
     },
-    onSuccess: () => {
+    onSuccess: ({ id, texto }) => {
       setError(null)
+      // Pintar la transcripción en el acto y hacer desaparecer el botón sin
+      // esperar el refetch: si no, entre el éxito y que vuelva la lista el botón
+      // queda habilitado con el texto viejo e invita a un segundo click (otra
+      // llamada a Gemini al pedo).
+      cliente.setQueryData<ReporteConVendedor[]>(['reportes-problema'], (prev) =>
+        prev?.map((r) => (r.id === id ? { ...r, transcripcion_audio: texto } : r)),
+      )
       void cliente.invalidateQueries({ queryKey: ['reportes-problema'] })
     },
     onError: (e: Error) => setError(e.message),
