@@ -6,6 +6,7 @@ import {
   numeroDeNotaImpreso,
   DIAS_CHEQUE_MAXIMO,
   esDescripcionSugerida,
+  esRenglonDeArticulo,
   ENCABEZADO_VACIO,
   espaciado,
   CONDICIONES_CON_PLAZO,
@@ -655,9 +656,12 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         : null
 
     const deLaOtra: Partial<FormularioItemNota> =
-      servicio === 'venta'
+      // La venta y el reclamo se cargan como artículo (desde el buscador): los
+      // dos limpian lo del afilado. Lo contrario —un servicio— limpia lo del
+      // artículo.
+      esRenglonDeArticulo(servicio)
         ? {
-            // Lo del afilado no va en una venta.
+            // Lo del afilado no va en un renglón de artículo.
             cantidad: '',
             cantidad_dientes: '',
             precio_por_diente: '',
@@ -669,7 +673,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
             precio_reparacion_por_diente: '',
           }
         : {
-            // Y lo de la venta no va en un servicio.
+            // Y lo del artículo no va en un servicio.
             unidades: '',
             precio: '',
             codigo_herramienta: '',
@@ -683,7 +687,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       servicio_elegido: true,
       herramienta,
       codigos_computo: [],
-      sin_cargo: false,
+      // El reclamo arranca —y se queda— sin cargo: es un trabajo que se rehace
+      // sin cobrar. La venta, no.
+      sin_cargo: servicio === 'reclamo',
+      // Un reclamo no lleva promoción ni descuento, y su pantalla no dibuja la
+      // casilla. Si venía de una venta con la promo tildada, se limpia acá: si
+      // no, quedaba un descuento colgado sobre un renglón que no cobra, y sin
+      // campo donde verlo ni sacarlo.
+      ...(servicio === 'reclamo' ? { promocion: false, descuento: '' } : {}),
       ...deLaOtra,
     })
   }
@@ -1423,7 +1434,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                         buscador de códigos guarda estado propio y arrastrar el de
                         otro renglón sería peor que no mostrar nada.
                       */}
-                      {renglon.servicio === 'venta' ? (
+                      {esRenglonDeArticulo(renglon.servicio) ? (
                         <FormularioVenta
                           key={activo}
                           item={renglon}
@@ -1444,7 +1455,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                       )}
 
                       {/* Cargar otro renglón es lo mismo que cerrar éste: se valida igual. */}
-                      {renglon.servicio === 'venta' ? (
+                      {esRenglonDeArticulo(renglon.servicio) ? (
                         <BotonSecundario
                           titulo="⊕  AGREGAR OTRO ARTÍCULO"
                           // Hereda el artículo del renglón anterior, igual que
@@ -2012,17 +2023,22 @@ function FormularioVenta({
   const unitario = aNumero(item.precio)
   const total = totalDelRenglon(item)
   const enPesos = totalDelRenglonEnPesos(item, tipoCambio)
+  // Un reclamo se carga con este mismo formulario —el buscador de artículos—
+  // pero va SIEMPRE sin cargo: no lleva precio, ni descuento, ni cae en la nota
+  // de venta en dólares.
+  const esReclamo = item.servicio === 'reclamo'
 
-  // La descripción sale de la herramienta —"SC nueva", "Fresa nueva"— igual
-  // que en los renglones de servicio. Lo que el vendedor escriba encima no se
-  // pisa nunca: sólo se completa mientras siga siendo la nuestra.
+  // La descripción sale de la herramienta —"SC nueva" en venta, "S.C." en un
+  // servicio o reclamo— igual que en los renglones de servicio. Lo que el
+  // vendedor escriba encima no se pisa nunca: sólo se completa mientras siga
+  // siendo la nuestra.
   useEffect(() => {
-    const sugerida = descripcionSugerida(item.herramienta, 'venta')
+    const sugerida = descripcionSugerida(item.herramienta, item.servicio)
     if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
       alCambiar({ descripcion: sugerida })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.herramienta])
+  }, [item.herramienta, item.servicio])
 
   return (
     <>
@@ -2031,15 +2047,17 @@ function FormularioVenta({
         sierras sin fin y las fresas nacionales llevan comprobante propio.
       */}
       <Desplegable<Herramienta>
-        etiqueta="QUÉ SE VENDE"
+        etiqueta={esReclamo ? 'QUÉ SE RECLAMA' : 'QUÉ SE VENDE'}
         obligatorio
         marcador="Elegí la herramienta"
         valor={item.herramienta}
-        items={HERRAMIENTAS_POR_SERVICIO.venta.map((h) => ({
+        items={HERRAMIENTAS_POR_SERVICIO[item.servicio].map((h) => ({
           valor: h,
           etiqueta: ETIQUETA_HERRAMIENTA[h],
+          // La sierra sin fin lleva nota aparte sólo en la VENTA; un reclamo cae
+          // en la nota de servicio como el resto.
           descripcion:
-            h === 'sierra_sin_fin' ? 'Va en una nota de pedido aparte' : undefined,
+            h === 'sierra_sin_fin' && !esReclamo ? 'Va en una nota de pedido aparte' : undefined,
         }))}
         /**
          * Cambiar QUÉ SE VENDE suelta el artículo que estaba elegido.
@@ -2088,7 +2106,7 @@ function FormularioVenta({
         error={errores.herramienta}
       />
 
-      {item.herramienta === 'fresa' ? (
+      {item.herramienta === 'fresa' && !esReclamo ? (
         <Desplegable<OrigenFresa>
           etiqueta="ORIGEN DE LA FRESA"
           obligatorio
@@ -2167,38 +2185,52 @@ function FormularioVenta({
         error={errores.unidades}
       />
 
-      {/* Es el precio de UNA unidad, en la moneda de la lista. Antes se
-          guardaba como total y tres unidades a $100 se facturaban $100. */}
-      <Campo
-        etiqueta={item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO'}
-        obligatorio
-        value={item.precio}
-        onChangeText={(t) => alCambiar({ precio: soloNumeros(t) })}
-        keyboardType="decimal-pad"
-        contenedorStyle={estilos.medio}
-        error={errores.precio}
-        ayuda={unitario > 0 ? formatearMoneda(unitario, item.moneda) : undefined}
-      />
-
-      {total > 0 && unidades > 0 ? (
+      {esReclamo ? (
+        /* Un reclamo no lleva precio: es un trabajo que se rehace sin cobrar. El
+           renglón sale impreso SIN CARGO y la cuenta lo resuelve sola (va en
+           $ 0,10 simbólico). Tampoco hay descuento que aplicar sobre $ 0. */
         <View>
-          <Text style={estilos.totalVenta}>
-            {`${unidades} × ${formatearMoneda(unitario, item.moneda)} = ${formatearMoneda(total, item.moneda)}`}
+          <Text style={estilos.totalVenta}>SIN CARGO</Text>
+          <Text style={estilos.totalVentaPesos}>
+            El reclamo se rehace sin cobrar: el renglón va en $ 0.
           </Text>
-          {/* Lo que sale en dólares se cotiza en dólares y así se imprime; el
-              equivalente en pesos es de referencia, para el vendedor. */}
-          {item.moneda === 'USD' && tipoCambio > 0 ? (
-            <Text style={estilos.totalVentaPesos}>
-              {`≈ ${formatearPesos(enPesos)} al cambio de hoy`}
-            </Text>
-          ) : null}
         </View>
-      ) : null}
+      ) : (
+        <>
+          {/* Es el precio de UNA unidad, en la moneda de la lista. Antes se
+              guardaba como total y tres unidades a $100 se facturaban $100. */}
+          <Campo
+            etiqueta={item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO'}
+            obligatorio
+            value={item.precio}
+            onChangeText={(t) => alCambiar({ precio: soloNumeros(t) })}
+            keyboardType="decimal-pad"
+            contenedorStyle={estilos.medio}
+            error={errores.precio}
+            ayuda={unitario > 0 ? formatearMoneda(unitario, item.moneda) : undefined}
+          />
 
-      {/* Va al final y no arriba: el descuento se acuerda sobre un precio que
-          ya existe, y así la cuenta de abajo se muestra con números de verdad
-          en vez de con el renglón todavía vacío. */}
-      <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
+          {total > 0 && unidades > 0 ? (
+            <View>
+              <Text style={estilos.totalVenta}>
+                {`${unidades} × ${formatearMoneda(unitario, item.moneda)} = ${formatearMoneda(total, item.moneda)}`}
+              </Text>
+              {/* Lo que sale en dólares se cotiza en dólares y así se imprime; el
+                  equivalente en pesos es de referencia, para el vendedor. */}
+              {item.moneda === 'USD' && tipoCambio > 0 ? (
+                <Text style={estilos.totalVentaPesos}>
+                  {`≈ ${formatearPesos(enPesos)} al cambio de hoy`}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* Va al final y no arriba: el descuento se acuerda sobre un precio que
+              ya existe, y así la cuenta de abajo se muestra con números de verdad
+              en vez de con el renglón todavía vacío. */}
+          <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
+        </>
+      )}
     </>
   )
 }

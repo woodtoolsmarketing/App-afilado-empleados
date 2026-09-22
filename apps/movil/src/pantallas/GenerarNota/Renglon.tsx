@@ -3,7 +3,6 @@ import {
   aNumero,
   caracteristicasDeArticulo,
   esSinCargo,
-  PRECIO_SIN_CARGO,
   ETIQUETA_CUCHILLA_MATERIAL,
   ETIQUETA_CUCHILLA_TIPO,
   ETIQUETA_SIERRA_CLASE,
@@ -173,29 +172,6 @@ const CORTOS = new Set<CampoItem>([
  * y nunca va a devolver nada.
  */
 const SIN_RANGOS = new Set<Herramienta>(['mecha', 'cuchilla', 'incisor'])
-
-/**
- * El código de cómputo que arranca puesto en un RECLAMO: "AFILADO S.C. SIN
- * CARGO".
- *
- * Un reclamo es un trabajo que se rehace sin cobrar, así que sale sin cargo. En
- * lugar de que el vendedor busque el código por medida —que le traería el
- * precio normal—, el reclamo arranca con el 8060 ya cargado (su descripción
- * lleva "SIN CARGO", así que `esSinCargo` le pone el importe simbólico y el
- * total va a $ 0,10). Se ofrece sólo en reclamo, y el vendedor puede tocar otro
- * de la lista si ese reclamo en particular no va sin cargo. `rango_min` en null
- * es "sin rango": no se filtra por medida, aparece siempre.
- */
-const CODIGO_RECLAMO: CodigoComputo = {
-  codigo: '8060',
-  descripcion: 'AFILADO S.C. SIN CARGO',
-  precio: PRECIO_SIN_CARGO,
-  moneda: 'ARS',
-  precio_pesos: PRECIO_SIN_CARGO,
-  rango_min: null,
-  rango_max: null,
-  amplitud: 0,
-}
 
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
@@ -523,22 +499,12 @@ export function PasoRenglon({
       setSinCodigo(false)
       try {
         const encontrados = await resolverCodigoDeItem(item)
-
-        // En un RECLAMO el trabajo se rehace sin cobrar: el 8060 (AFILADO S.C.
-        // SIN CARGO) va a la cabeza de la lista y es el que se propone. Los
-        // códigos por medida quedan disponibles debajo, por si ese reclamo en
-        // particular no va sin cargo. Fuera de reclamo, la lista es la que trajo
-        // la búsqueda, tal cual.
-        if (encontrados === null && item.servicio !== 'reclamo') {
+        if (encontrados === null) {
           setCodigos([])
           return
         }
-        const lista =
-          item.servicio === 'reclamo'
-            ? [CODIGO_RECLAMO, ...(encontrados ?? []).filter((c) => c.codigo !== CODIGO_RECLAMO.codigo)]
-            : (encontrados ?? [])
-        setCodigos(lista)
-        if (lista.length === 0) {
+        setCodigos(encontrados)
+        if (encontrados.length === 0) {
           setSinCodigo(true)
           return
         }
@@ -551,7 +517,7 @@ export function PasoRenglon({
           (elegidos.length === 1 && elegidos[0] === propuesto.current)
         if (!intocado) return
 
-        const mejor = lista[0]
+        const mejor = encontrados[0]
         propuesto.current = mejor.codigo
 
         /**
@@ -588,9 +554,7 @@ export function PasoRenglon({
           sin_cargo: esSinCargo(mejor.descripcion),
         })
       } catch {
-        // Aun si falla la búsqueda por medida, en un reclamo dejamos el 8060 a
-        // mano para que el vendedor lo pueda elegir.
-        setCodigos(item.servicio === 'reclamo' ? [CODIGO_RECLAMO] : [])
+        setCodigos([])
       } finally {
         setBuscando(false)
       }
@@ -2198,10 +2162,6 @@ function SelectorAfiladoMecha({
    */
   useEffect(() => {
     if (!elegida) return
-    // Un reclamo va con el 8060 (sin cargo): el selector no le pisa el código
-    // ni el precio. Se sigue mostrando y registra qué mecha era, pero el trabajo
-    // se rehace sin cobrar.
-    if (item.servicio === 'reclamo') return
     const unidades = Math.max(1, aNumero(item.cantidad) || 1)
     const total = elegida.precio_pesos
       ? totalAfiladoMecha(elegida.precio_pesos, unidades)
@@ -2573,10 +2533,6 @@ function SelectorAfiladoCuchilla({
    */
   useEffect(() => {
     if (!elegida) return
-    // Un reclamo va con el 8060 (sin cargo): el selector no le pisa el código
-    // ni el precio. Se sigue mostrando y registra qué cuchilla era, pero el
-    // trabajo se rehace sin cobrar.
-    if (item.servicio === 'reclamo') return
     const largo = aNumero(item.largo)
     const unidades = Math.max(1, aNumero(item.cantidad) || 1)
     const total = elegida.precio_pesos

@@ -23,6 +23,7 @@ import { LOGO_WOODTOOLS } from './logo'
 import {
   consolidarLineasDeComputo,
   describirCondicionVenta,
+  esRenglonDeArticulo,
   lineasDeComputo,
   MAXIMO_RENGLONES,
   numeroDeNotaImpreso,
@@ -372,7 +373,7 @@ const COLUMNAS_TECNICAS = [
  * algún carácter. En la letra que el teléfono usa de verdad, entra.
  */
 const COLUMNAS_COMERCIALES = [
-  13, // Código de Cómputo — a 10 pt negrita (ver .computo); 9+ caracteres bajan a 6 pt, ver `celdaCodigo`
+  13, // Código de Cómputo — a 10 pt negrita (ver .computo); los que no entran se achican por ancho, ver `celdaCodigo`
   8, // Cantidad — la manda su encabezado
   15, // Precio unitario — "$ 2.971.600,00", el artículo más caro del catálogo
   6, // Dto. — "65 %", todo descuento de dos cifras con su signo
@@ -385,37 +386,91 @@ const COLUMNAS_COMERCIALES = [
 const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
 
 /**
- * El código de cómputo, achicado sólo si no entra de otra forma.
+ * El código de cómputo, dibujado lo más grande que entre en su columna.
  *
  * El catálogo tiene códigos de hasta 16 caracteres —`CLGNMFS3940MCAJA`, y 94
- * artículos pasan de once— que en cuerpo normal piden 122 px sobre una columna
- * de 93. La celda no envuelve: recorta. Y un código recortado en una nota de
- * pedido es un renglón que la fábrica no puede identificar.
+ * artículos pasan de once— que a cuerpo pleno no entran en los 93 px de la
+ * columna (13 %). La celda no envuelve: recorta. Y un código recortado en una
+ * nota de pedido es un renglón que la fábrica no puede identificar.
  *
- * Se achican SÓLO esos: los códigos corrientes —`8001`, `LU3F 0300`— se siguen
- * leyendo en cuerpo normal, que es lo que se mira primero al recibir la pieza.
+ * Antes se decidía por LARGO: hasta 8 caracteres a 10 pt, de 9 en adelante a 6.
+ * Pero el largo miente. `CHCRPERM` son 8 mayúsculas anchas y mide 89 px;
+ * `LG3D 0600` son 9 —con un espacio y dígitos, angostos— y mide 68. El umbral
+ * por largo mandaba a 6 pt códigos de venta de 9–11 caracteres que entraban a
+ * cuerpo pleno, y salían impresos diminutos sin necesidad (fue un pedido de la
+ * casa corregirlo).
+ *
+ * Ahora se mide el ANCHO real del código —sumando el ancho de cada carácter en
+ * Arial— y se elige el cuerpo más grande que entra: 10 pt negrita si da (el
+ * cuerpo pedido, igual que las casillas de operación), y si no, cuerpo normal
+ * —más angosto que la negrita— achicado de a 0,5 pt hasta que entre, con piso
+ * 6 pt. Así `LG3D 0600` y `LU3F 0300` van a 10 pt, `LI25M 31FA3` a 10 pt normal,
+ * y sólo los verdaderamente largos como `CLGNMFS3940MCAJA` bajan a 6.
  */
+
 /**
- * A partir de cuántos caracteres el código se imprime en cuerpo chico.
- *
- * Ocho. El código de cómputo se imprime a 10 pt NEGRITA (ver .computo), para
- * que se vea igual que las casillas de operación —fue un pedido explícito—, y a
- * ese cuerpo entran en los 93 px de la columna hasta 8 caracteres
- * (`CHCRPERM` = 89 px). De 9 en adelante bajan a 6 pt, donde el más largo del
- * catálogo, `CLGNMFS3940MCAJA` (16), mide 93 y entra justo. Son los códigos de
- * artículo de las notas de VENTA; los de cómputo de un servicio son de cuatro
- * dígitos ("6005") y se imprimen grandes.
- *
- * OJO con bajarlo más: 6 pt son 8 px, el piso de tamaño de letra del WebView de
- * Android. Con el ajuste de letra del sistema en "chico" (escala 0,85) esos
- * códigos se dibujan MÁS grandes de lo pedido en vez de más chicos —es el único
- * punto donde la compensación de escala no cierra— pero siguen entrando.
+ * El ancho de cada carácter en Arial, en milésimas de em (las métricas AFM
+ * estándar de Arial/Helvetica). Los códigos son mayúsculas, dígitos y espacios;
+ * lo que no esté en la tabla se toma ancho —700— para pecar de recortar de
+ * menos, nunca de más.
  */
-const CODIGO_LARGO = 8
+const ANCHO_ARIAL: Record<string, number> = {
+  ' ': 278, '-': 333, '.': 278, '/': 278,
+  '0': 556, '1': 556, '2': 556, '3': 556, '4': 556,
+  '5': 556, '6': 556, '7': 556, '8': 556, '9': 556,
+  A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278,
+  J: 500, K: 667, L: 556, M: 833, N: 722, O: 778, P: 667, Q: 778, R: 722,
+  S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+}
+
+/** El ancho del código en em (unidades del tamaño de letra), sumando la tabla. */
+function anchoDeCodigoEm(codigo: string): number {
+  let mil = 0
+  for (const ch of codigo.toUpperCase()) mil += ANCHO_ARIAL[ch] ?? 700
+  return mil / 1000
+}
+
+/**
+ * Calibración anclada a las dos medidas del autor original: `CHCRPERM`
+ * (5,777 em) entra a 10 pt NEGRITA en la columna de 93 px, y `CLGNMFS3940MCAJA`
+ * (10,502 em) entra justo a 6 pt en cuerpo normal. De ahí salen los px por
+ * (em × pt) de cada peso —la negrita mide ~4 % más que la normal—. El piso de
+ * 6 pt son 8 px, el mínimo que dibuja el WebView de Android.
+ *
+ * Dos márgenes. El de la NEGRITA es 0,97, apenas por encima del 95,7 % de
+ * columna que usa `CHCRPERM` —el autor lo validó impreso, así que ése tiene que
+ * pasar—. El del cuerpo NORMAL, para los que se achican, es más holgado (0,90):
+ * la letra del teléfono es ~4 % más ancha que la Arial contra la que se mide, y
+ * un código de venta un punto más chico se sigue leyendo, pero recortado no.
+ */
+const COLUMNA_CODIGO_PX = 93
+const MARGEN_NEGRITA = 0.97
+const MARGEN_NORMAL = 0.9
+const PX_POR_EM_PT_NEGRITA = 1.54
+const PX_POR_EM_PT_NORMAL = 1.476
+const CUERPO_CODIGO_PLENO = 10
+const CUERPO_CODIGO_PISO = 6
 
 function celdaCodigo(codigo: string): string {
   const texto = escapar(codigo)
-  return codigo.length > CODIGO_LARGO ? `<span class="codigo-largo">${texto}</span>` : texto
+  const em = anchoDeCodigoEm(codigo)
+
+  // ¿Entra a 10 pt negrita, el cuerpo pedido? Casi todos: los de cómputo de un
+  // servicio son de cuatro dígitos ("6005") y muchos de artículo son cortos.
+  // Ésos se dibujan igual que siempre, sin span.
+  if (em * CUERPO_CODIGO_PLENO * PX_POR_EM_PT_NEGRITA <= COLUMNA_CODIGO_PX * MARGEN_NEGRITA) {
+    return texto
+  }
+
+  // No entra en negrita: se pasa a cuerpo normal —más angosto— y se toma el
+  // cuerpo más grande, en pasos de 0,5 pt, que entre con margen. `.codigo-largo`
+  // da el peso normal; el font-size lo pone acá inline.
+  const maxCuerpo = (COLUMNA_CODIGO_PX * MARGEN_NORMAL) / (em * PX_POR_EM_PT_NORMAL)
+  const cuerpo = Math.max(
+    CUERPO_CODIGO_PISO,
+    Math.min(CUERPO_CODIGO_PLENO, Math.floor(maxCuerpo * 2) / 2),
+  )
+  return `<span class="codigo-largo" style="font-size: ${cuerpo}pt">${texto}</span>`
 }
 
 /**
@@ -1144,13 +1199,14 @@ html {
 /* Ver celdaCodigo(): solo para los codigos que no entran en cuerpo normal.
    Sin acentos ni comillas invertidas: esto vive adentro de un template
    literal y una comilla invertida lo termina. Ya paso tres veces. */
-/* Este NO sube con el resto: es la salida de emergencia de los codigos de 11+
-   caracteres (ver CODIGO_LARGO). "CLGNMFS3940MCAJA", el mas largo del catalogo,
-   mide 93 px a 6 pt contra los 93 de la columna (13 %) y entra; a 9 pt pediria
-   136 y se cortaria, que es lo que este cuerpo existe para evitar. Es el piso:
+/* Este NO sube con el resto: es la salida de emergencia de los codigos que no
+   entran a 10 pt negrita (ver celdaCodigo, que mide el ancho y elige el cuerpo).
+   La clase da el PESO normal y un font-size de 6 pt como piso; el cuerpo real de
+   cada codigo lo pone celdaCodigo inline. "CLGNMFS3940MCAJA", el mas largo del
+   catalogo, mide 93 px a 6 pt contra los 93 de la columna (13 %) y entra justo;
    6 pt son 8 px, el minimo que dibuja el WebView de Android. */
-/* Sin negrita a propósito: a 6 pt negrita el código de 16 caracteres se pasa
-   de los 93 px de la columna. El resto de la columna va en negrita (ver
+/* Sin negrita a propósito: la negrita es mas ancha, y estos codigos se achican
+   justamente porque no entraban. El resto de la columna va en negrita (ver
    .computo), pero acá la prioridad es que entre entero. */
 .codigo-largo { font-size: 6pt; font-weight: normal; }
 /* Los números de las notas hermanas, en negrita: es lo único que se usa de esa
@@ -1291,7 +1347,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
    */
   const computoDeFila = (i: Record<string, any>): DatosComputo => ({
     concepto:
-      i.servicio === 'venta'
+      esRenglonDeArticulo(i.servicio)
         ? 'venta'
         : i.servicio === 'reparacion'
           ? 'reparacion'
@@ -1309,7 +1365,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // sobre la fila guardada; sin esto, una fila con dientes cargados cotizaría
     // el cabezal entero al reimprimir.
     dientesPorHerramienta:
-      i.servicio === 'venta' ||
+      esRenglonDeArticulo(i.servicio) ||
       (i.herramienta === 'cabezal' &&
         i.servicio === 'afilado' &&
         i.detalle?.cabezal_de_cuchillas === true)
@@ -1342,12 +1398,13 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     precioRascadorUnitario: Number(i.detalle?.precio_rascador_unitario) || 0,
     codigoReparacion: d(i, 'codigo_reparacion'),
     precioReparacionPorDiente: Number(i.detalle?.precio_reparacion_unitario) || 0,
-    // En venta el unitario ya está guardado, así que no hay total directo que
-    // usar: si lo hubiera, tres unidades se imprimirían como una.
-    precioTotalDirecto: i.servicio === 'venta' ? 0 : Number(i.precio_total) || 0,
+    // En un renglón de artículo el unitario ya está guardado, así que no hay
+    // total directo que usar: si lo hubiera, tres unidades se imprimirían como una.
+    precioTotalDirecto: esRenglonDeArticulo(i.servicio) ? 0 : Number(i.precio_total) || 0,
     // Lo que no se cobra. Va en el detalle porque es una marca del renglón, no
-    // un precio: el importe simbólico no se multiplica por nada.
-    sinCargo: i.detalle?.sin_cargo === true,
+    // un precio: el importe simbólico no se multiplica por nada. El reclamo va
+    // sin cargo siempre, marca guardada o no (espeja `computoDeRenglon`).
+    sinCargo: i.detalle?.sin_cargo === true || i.servicio === 'reclamo',
     reparacionSinCargo: i.detalle?.reparacion_sin_cargo === true,
     /**
      * El descuento del renglón, que se aplica UNA sola vez.

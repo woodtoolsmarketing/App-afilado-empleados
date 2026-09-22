@@ -252,6 +252,21 @@ export const HERRAMIENTAS_POR_SERVICIO: Record<TipoServicio, Herramienta[]> = {
   reclamo: ['sierra', 'fresa', 'cabezal', 'sierra_sin_fin', 'mecha', 'cuchilla'],
 }
 
+/**
+ * ¿El renglón se carga como un ARTÍCULO del catálogo —código de artículo,
+ * unidades y precio unitario— y no como un trabajo cobrado por diente?
+ *
+ * La VENTA y el RECLAMO comparten esa forma: los dos parten de un artículo del
+ * catálogo, elegido con el buscador. Se diferencian en dos cosas que NO se
+ * deciden acá: el reclamo va SIEMPRE sin cargo, y cae en la nota de SERVICIO
+ * —en pesos, nunca en la de venta en dólares— (ver `grupoDeFacturacion`, que por
+ * eso sigue mirando `=== 'venta'`, no este predicado). Este predicado decide
+ * sólo la FORMA de los campos.
+ */
+export function esRenglonDeArticulo(servicio: TipoServicio): boolean {
+  return servicio === 'venta' || servicio === 'reclamo'
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de mecha
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1440,7 +1455,12 @@ export function validarItemNota(
   // en la venta y en el afilado por igual, y las dos ramas de abajo terminan en
   // su propio `return`. Puesto en una sola, la otra dejaba pasar un renglón con
   // la casilla marcada y sin porcentaje.
-  if (item.promocion && descuentoDelRenglon(item) <= 0) {
+  //
+  // El reclamo queda afuera: va siempre sin cargo, así que no lleva promoción ni
+  // descuento, y su pantalla ni siquiera dibuja la casilla. Sin esta excepción,
+  // un renglón que venía de venta con la promo tildada y sin % y se pasa a
+  // reclamo quedaba inválido por un campo que ya no se ve —imposible de arreglar.
+  if (item.servicio !== 'reclamo' && item.promocion && descuentoDelRenglon(item) <= 0) {
     errores.descuento = 'Elegí cuánto descuento lleva'
   }
 
@@ -1452,13 +1472,15 @@ export function validarItemNota(
     return { valido: false, errores }
   }
 
-  if (item.servicio === 'venta') {
+  if (esRenglonDeArticulo(item.servicio)) {
+    const esVenta = item.servicio === 'venta'
     if (!item.herramienta) {
-      errores.herramienta = 'Elegí qué se vende'
+      errores.herramienta = esVenta ? 'Elegí qué se vende' : 'Elegí qué se reclama'
     }
-    // De qué origen es la fresa decide en qué nota de pedido cae: sin eso no
-    // se puede armar el comprobante.
-    if (item.herramienta === 'fresa' && !item.origen_fresa) {
+    // De qué origen es la fresa decide en qué nota de pedido cae: sin eso no se
+    // puede armar el comprobante. Sólo en la venta: un reclamo cae en la nota de
+    // servicio (en pesos) sea la fresa nacional o importada, así que no importa.
+    if (esVenta && item.herramienta === 'fresa' && !item.origen_fresa) {
       errores.origen_fresa = 'Indicá si la fresa es de producción nacional o importada'
     }
     if (!item.codigo_herramienta.trim()) {
@@ -1467,7 +1489,8 @@ export function validarItemNota(
     if (!esNumeroValido(item.unidades)) {
       errores.unidades = 'Ingresá cuántas unidades'
     }
-    if (!esNumeroValido(item.precio)) {
+    // El precio sólo se exige en la venta: el reclamo va siempre sin cargo.
+    if (esVenta && !esNumeroValido(item.precio)) {
       errores.precio = 'Ingresá el precio unitario'
     }
     return { valido: Object.keys(errores).length === 0, errores }
@@ -1680,10 +1703,10 @@ const ABREVIATURA_MEDIDA: Partial<Record<CampoItem, string>> = {
  * Ej.: `MECHAS · PASANTE · Ø 10 · útil 90 · × 2`.
  */
 export function resumenRenglon(item: FormularioItemNota): string {
-  if (item.servicio === 'venta') {
+  if (esRenglonDeArticulo(item.servicio)) {
     const unidades = aNumero(item.unidades)
     return [
-      'VENTA',
+      item.servicio === 'venta' ? 'VENTA' : 'RECLAMO',
       item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : null,
       item.origen_fresa ? ETIQUETA_ORIGEN_FRESA[item.origen_fresa] : null,
       item.codigo_herramienta || 'Sin código',
@@ -2355,22 +2378,25 @@ export function consolidarLineasDeComputo(lineas: LineaComputo[]): LineaComputo[
 /** Adaptador del formulario a la cuenta. */
 export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
   const esVenta = item.servicio === 'venta'
+  // La venta y el reclamo comparten la forma de artículo: unidades, precio
+  // unitario y el código del artículo en lugar de dientes y código de cómputo.
+  const comoArticulo = esRenglonDeArticulo(item.servicio)
   return {
-    concepto: esVenta
+    concepto: comoArticulo
       ? 'venta'
       : item.servicio === 'reparacion'
         ? 'reparacion'
         : item.servicio === 'rectificado'
           ? 'rectificado'
           : 'afilado',
-    cantidad: Math.max(1, Math.round(aNumero(esVenta ? item.unidades : item.cantidad)) || 1),
+    cantidad: Math.max(1, Math.round(aNumero(comoArticulo ? item.unidades : item.cantidad)) || 1),
     // Un cabezal que se afila como cuchillas se cobra por largo, no por diente:
     // aunque el tipo de pieza haya dejado un número de dientes cargado, acá vale
     // 0 para que la cuenta caiga en la rama del precio total (por 100 mm).
     dientesPorHerramienta:
-      esVenta || cabezalAfiladoComoCuchilla(item) ? 0 : aNumero(item.cantidad_dientes),
-    precioUnitario: aNumero(esVenta ? item.precio : item.precio_por_diente),
-    codigos: esVenta
+      comoArticulo || cabezalAfiladoComoCuchilla(item) ? 0 : aNumero(item.cantidad_dientes),
+    precioUnitario: aNumero(comoArticulo ? item.precio : item.precio_por_diente),
+    codigos: comoArticulo
       ? item.codigo_herramienta
         ? [item.codigo_herramienta]
         : []
@@ -2391,12 +2417,15 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
     rascadores: aNumero(item.rascadores) * Math.max(1, aNumero(item.cantidad) || 1),
     codigoRascador: item.codigo_rascador,
     precioRascadorUnitario: aNumero(item.precio_rascador_unitario),
-    // En venta el precio tipeado es UNITARIO, así que no hay total directo:
-    // dejarlo acá haría que 3 unidades a $100 se facturaran $100.
-    precioTotalDirecto: esVenta ? 0 : aNumero(item.precio_total),
+    // En un renglón de artículo el precio tipeado es UNITARIO, así que no hay
+    // total directo: dejarlo acá haría que 3 unidades a $100 se facturaran $100.
+    precioTotalDirecto: comoArticulo ? 0 : aNumero(item.precio_total),
     // El afilado se cobra en pesos siempre; sólo la venta puede ir en dólares.
+    // El reclamo va sin cargo, en pesos: nunca en dólares.
     moneda: esVenta ? item.moneda : 'ARS',
-    sinCargo: item.sin_cargo === true,
+    // El reclamo va SIEMPRE sin cargo, lo tenga marcado o no: es la razón de ser
+    // de la operación (se rehace un trabajo sin cobrarlo).
+    sinCargo: item.sin_cargo === true || item.servicio === 'reclamo',
     reparacionSinCargo: item.reparacion_sin_cargo === true,
     descuentoPorcentaje: descuentoDelRenglon(item),
   }
@@ -2507,7 +2536,9 @@ export function agujeroDelRenglon(item: FormularioItemNota): AgujeroDelRenglon {
   const catalogo = item.diametro_interior_catalogo.trim()
   const cargado = item.diametro_interior.trim()
 
-  if (item.servicio === 'venta') {
+  // La venta y el reclamo salen del catálogo con su agujero de fábrica: no hay
+  // pieza del cliente contra la cual comparar, así que no se genera ajuste.
+  if (esRenglonDeArticulo(item.servicio)) {
     return { medida: catalogo || cargado, ajuste: 'de_fabrica', comparable: false }
   }
 
@@ -2804,8 +2835,9 @@ export function descripcionGeneralDeLaNota(
 export function avisosDeAgujero(items: FormularioItemNota[]): string[] {
   const avisos: string[] = []
   for (const item of items) {
-    // La venta no genera avisos: la herramienta sale con su agujero de fábrica.
-    if (item.servicio === 'venta') continue
+    // La venta y el reclamo no generan avisos: la herramienta sale del catálogo
+    // con su agujero de fábrica, no hay una pieza del cliente para comparar.
+    if (esRenglonDeArticulo(item.servicio)) continue
     const a = agujeroDelRenglon(item)
     if (a.ajuste === 'de_fabrica' || !a.comparable) continue
     // Con el mismo nombre que usa el resto de la nota: un incisor con el

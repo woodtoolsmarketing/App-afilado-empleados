@@ -15,6 +15,7 @@ import {
   sinLineaDeServicio,
   descuentoDelRenglon,
   EN_LA_DESCRIPCION,
+  esRenglonDeArticulo,
   ETIQUETA_TIPO_SERVICIO,
   totalDeListaDelRenglon,
   totalDelRenglon,
@@ -675,9 +676,11 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
    * del afilado, y la impresión los lee de ahí. La nota impresa no cerraba
    * contra su propio total.
    */
-  const esVenta = i.servicio === 'venta'
-  const cuantas = aNumero(esVenta ? i.unidades : i.cantidad)
-  const unitario = aNumero(esVenta ? i.precio : i.precio_por_diente)
+  // La venta y el reclamo se cargan como artículo: la cantidad son UNIDADES y el
+  // unitario es PRECIO. El resto (afilado, etc.) usa CANTIDAD y PRECIO POR DIENTE.
+  const comoArticulo = esRenglonDeArticulo(i.servicio)
+  const cuantas = aNumero(comoArticulo ? i.unidades : i.cantidad)
+  const unitario = aNumero(comoArticulo ? i.precio : i.precio_por_diente)
 
   return {
     orden,
@@ -799,8 +802,9 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         codigo_rascador: i.codigo_rascador,
         precio_rascador_unitario: aNumero(i.precio_rascador_unitario) || null,
         // Sólo se guardan cuando son ciertas: `null` lo descarta el filtro de
-        // abajo, y así el detalle no se llena de "sin_cargo: false".
-        sin_cargo: i.sin_cargo ? true : null,
+        // abajo, y así el detalle no se llena de "sin_cargo: false". El reclamo
+        // va sin cargo siempre, tenga la marca puesta o no.
+        sin_cargo: i.sin_cargo || i.servicio === 'reclamo' ? true : null,
         reparacion_sin_cargo: i.reparacion_sin_cargo ? true : null,
       }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
     ),
@@ -1048,7 +1052,10 @@ function comoCadena(valor: unknown): string {
 function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
   const detalle = (fila.detalle ?? {}) as Record<string, unknown>
   const servicio = (fila.servicio as TipoServicio) ?? 'afilado'
-  const esVenta = servicio === 'venta'
+  // La venta y el reclamo se guardaron como artículo (la cantidad son UNIDADES);
+  // el resto como servicio (CANTIDAD y PRECIO POR DIENTE). Se reabre con la
+  // misma forma con que se guardó.
+  const comoArticulo = esRenglonDeArticulo(servicio)
 
   /**
    * El agujero se guarda siempre —el cargado, o el de fábrica si no cargaron—
@@ -1069,7 +1076,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     herramienta: (fila.herramienta as Herramienta | null) ?? null,
 
     codigo_herramienta: comoCadena(fila.codigo_herramienta),
-    unidades: esVenta ? comoCadena(fila.cantidad) : '',
+    unidades: comoArticulo ? comoCadena(fila.cantidad) : '',
     promocion: fila.promocion === true,
     // `numeric` vuelve como '10.00'; el desplegable trabaja con '10'.
     descuento:
@@ -1091,12 +1098,12 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
       (detalle.servicio_antes_de_rotos as TipoServicio | null) ?? null,
     moneda: fila.moneda === 'USD' ? 'USD' : 'ARS',
 
-    cantidad: esVenta ? '' : comoCadena(fila.cantidad),
+    cantidad: comoArticulo ? '' : comoCadena(fila.cantidad),
     descripcion: comoCadena(fila.descripcion),
     cantidad_dientes: comoCadena(fila.cantidad_dientes),
     codigos_computo: Array.isArray(fila.codigos_computo) ? (fila.codigos_computo as string[]) : [],
-    precio_por_diente: esVenta ? '' : comoTexto(fila.precio_unitario),
-    precio_total: esVenta ? '' : comoTexto(fila.precio_total),
+    precio_por_diente: comoArticulo ? '' : comoTexto(fila.precio_unitario),
+    precio_total: comoArticulo ? '' : comoTexto(fila.precio_total),
 
     diametro_exterior: comoCadena(detalle.diametro_exterior),
     diametro_interior: agujeroCargado,
@@ -1140,7 +1147,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     cuchilla_material: (detalle.cuchilla_material as CuchillaMaterial | null) ?? null,
     cuchilla_trabajo: (detalle.cuchilla_trabajo as CuchillaTrabajo | null) ?? null,
 
-    sin_cargo: detalle.sin_cargo === true,
+    sin_cargo: detalle.sin_cargo === true || servicio === 'reclamo',
     reparacion_sin_cargo: detalle.reparacion_sin_cargo === true,
   }
 }
