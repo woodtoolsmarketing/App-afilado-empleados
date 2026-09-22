@@ -90,7 +90,9 @@ export interface CodigoComputo {
   precio: number
   moneda: 'ARS' | 'USD' | null
   precio_pesos: number | null
-  rango_min: number
+  // null en los códigos "sin rango" (mecha/cuchilla, y el 8060 de reclamo): no
+  // se filtran por medida. El código ya lo trata así (ver `rango_min === null`).
+  rango_min: number | null
   rango_max: number | null
   amplitud: number
   /** La lista trae el código pero todavía no el importe: lo pone el vendedor. */
