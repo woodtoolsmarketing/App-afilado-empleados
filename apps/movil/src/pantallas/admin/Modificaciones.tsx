@@ -69,6 +69,7 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
   const estilos = usarEstilos()
   const rangos = useMemo(rangosDisponibles, [])
   const [clave, setClave] = useState<ClaveRango>('mes')
+  const [compartiendo, setCompartiendo] = useState(false)
   const rango = rangos.find((r) => r.clave === clave) ?? rangos[2]
 
   const { data: filas, isLoading, error, refetch, isRefetching } = useQuery({
@@ -79,7 +80,8 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
   const total = filas?.length ?? 0
 
   async function compartir() {
-    if (!filas || filas.length === 0) return
+    if (!filas || filas.length === 0 || compartiendo) return
+    setCompartiendo(true)
     try {
       const csv = armarCsv(filas)
       const ruta = `${FileSystem.cacheDirectory}modificaciones-${rango.desde}-a-${rango.hasta}.csv`
@@ -89,9 +91,13 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
       })
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(ruta, { mimeType: 'text/csv', UTI: 'public.comma-separated-values-text' })
+      } else {
+        Alert.alert('No se puede compartir', 'Este teléfono no tiene con qué compartir el archivo.')
       }
     } catch (e) {
       Alert.alert('No pudimos compartir', (e as Error).message)
+    } finally {
+      setCompartiendo(false)
     }
   }
 
@@ -132,8 +138,9 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
           <Cargando texto="Trayendo los cambios…" />
         ) : error ? (
           <>
-            <Aviso tono="error" titulo="No se pudo cargar">
-              {(error as Error).message}
+            <Aviso tono="error" titulo="No pudimos traer los cambios">
+              Revisá la conexión y volvé a intentar. El historial está guardado: esto es sólo que no
+              pudimos consultarlo.
             </Aviso>
             <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} cargando={isRefetching} />
           </>
@@ -144,6 +151,14 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
             <Text style={estilos.conteo}>
               {total} {total === 1 ? 'cambio' : 'cambios'} · {rango.etiqueta.toLowerCase()}
             </Text>
+
+            {/* Arriba de la lista: en un cierre de mes con cientos de filas, la
+                acción principal no puede quedar al final de todo el scroll. */}
+            <BotonSecundario
+              titulo="📤  Compartir CSV"
+              alTocar={() => void compartir()}
+              cargando={compartiendo}
+            />
 
             {filas!.map((f) => (
               <View key={f.id} style={estilos.fila}>
@@ -168,8 +183,6 @@ export function PantallaModificaciones({ navigation }: PropsPantalla<'AdminModif
                 <Text style={estilos.filaAutor}>{nombreDeAutor(f.autor)}</Text>
               </View>
             ))}
-
-            <BotonSecundario titulo="📤  Compartir CSV" alTocar={() => void compartir()} />
           </>
         )}
       </Panel>

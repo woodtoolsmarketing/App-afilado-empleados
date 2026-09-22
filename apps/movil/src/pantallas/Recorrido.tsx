@@ -622,6 +622,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 titulo="🧭  Ordenar por cercanía"
                 alTocar={() => ordenar.mutate()}
                 cargando={ordenar.isPending}
+                deshabilitado={arrancar.isPending}
               />
             ) : null}
 
@@ -635,6 +636,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 titulo="INICIAR RECORRIDO"
                 alTocar={() => setEligiendoModo(true)}
                 cargando={arrancar.isPending}
+                deshabilitado={ordenar.isPending}
               />
             ) : null}
 

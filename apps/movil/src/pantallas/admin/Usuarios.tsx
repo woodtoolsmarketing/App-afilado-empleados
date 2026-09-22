@@ -43,6 +43,7 @@ import {
   type UltimaConexion,
 } from '../../servicios/administracion'
 import { elegirFotosDeGaleria, sacarFotoConCamara } from '../../servicios/adjuntosReporte'
+import { conMensajeDeSenal } from '../../nucleo/loUltimoQueSupimos'
 
 /**
  * "USUARIOS" — el panel de la oficina, en el teléfono de un administrador.
@@ -88,10 +89,12 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
   const [motivoRechazo, setMotivoRechazo] = useState('')
 
   // ── Datos ─────────────────────────────────────────────────────────────────
-  const { data: perfiles = [], isLoading: cargandoPerfiles } = useQuery({
-    queryKey: ['admin-perfiles'],
-    queryFn: listarPerfiles,
-  })
+  const {
+    data: perfiles = [],
+    isLoading: cargandoPerfiles,
+    error: falloPerfiles,
+    refetch: recargarPerfiles,
+  } = useQuery({ queryKey: ['admin-perfiles'], queryFn: listarPerfiles })
   const { data: conexiones = [] } = useQuery({
     queryKey: ['admin-conexiones'],
     queryFn: ultimasConexiones,
@@ -101,11 +104,14 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
     data: dispositivos = [],
     isLoading: cargandoDispositivos,
     error: falloDispositivos,
+    refetch: recargarDispositivos,
+  } = useQuery({ queryKey: ['admin-dispositivos'], queryFn: listarDispositivos })
+  const {
+    data: pedidos = [],
+    isLoading: cargandoPedidos,
+    error: falloPedidos,
+    refetch: recargarPedidos,
   } = useQuery({
-    queryKey: ['admin-dispositivos'],
-    queryFn: listarDispositivos,
-  })
-  const { data: pedidos = [] } = useQuery({
     queryKey: ['admin-pedidos-contrasena'],
     queryFn: listarPedidosContrasena,
     refetchInterval: 30_000,
@@ -123,7 +129,9 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
     void cliente.invalidateQueries()
   }
   function fallo(prefijo: string) {
-    return (e: Error) => Alert.alert('No se pudo completar', `${prefijo}: ${e.message}`)
+    // conMensajeDeSenal traduce el "Network request failed" a castellano; cualquier
+    // otro error (un rechazo del servidor) pasa tal cual.
+    return (e: Error) => Alert.alert('No se pudo completar', `${prefijo}: ${conMensajeDeSenal(e).message}`)
   }
 
   // ── Mutaciones ──────────────────────────────────────────────────────────────
@@ -264,9 +272,13 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         ) : null}
 
         {/* ── 1 · Esperando aprobación ──────────────────────────────────────── */}
-        <Text style={estilos.seccionTitulo}>ESPERANDO APROBACIÓN ({pendientes.length})</Text>
+        <Text style={estilos.seccionTitulo}>
+          ESPERANDO APROBACIÓN{cargandoPerfiles || falloPerfiles ? '' : ` (${pendientes.length})`}
+        </Text>
         {cargandoPerfiles ? (
           <Text style={estilos.cargando}>Cargando…</Text>
+        ) : falloPerfiles ? (
+          <SeccionError alReintentar={() => void recargarPerfiles()} />
         ) : pendientes.length === 0 ? (
           <Text style={estilos.vacioTexto}>No hay solicitudes pendientes.</Text>
         ) : (
@@ -284,13 +296,17 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         )}
 
         {/* ── 2 · Teléfonos por habilitar ───────────────────────────────────── */}
-        <Text style={estilos.seccionTitulo}>TELÉFONOS POR HABILITAR ({telefonosPendientes.length})</Text>
+        <Text style={estilos.seccionTitulo}>
+          TELÉFONOS POR HABILITAR{cargandoDispositivos || falloDispositivos ? '' : ` (${telefonosPendientes.length})`}
+        </Text>
         {cargandoDispositivos ? (
           <Text style={estilos.cargando}>Cargando…</Text>
         ) : falloDispositivos ? (
-          <Aviso tono="error" titulo="No pudimos traer los teléfonos">
-            {`${(falloDispositivos as Error).message}. Nadie confirmó que no haya ninguno esperando; volvé a entrar en un momento.`}
-          </Aviso>
+          <SeccionError
+            titulo="No pudimos traer los teléfonos"
+            detalle="Nadie confirmó que no haya ninguno esperando. Revisá la conexión y volvé a intentar."
+            alReintentar={() => void recargarDispositivos()}
+          />
         ) : telefonosPendientes.length === 0 ? (
           <Text style={estilos.vacioTexto}>Todos los teléfonos registrados están habilitados.</Text>
         ) : (
@@ -307,13 +323,22 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         )}
 
         {/* ── 3 · Contraseñas olvidadas ─────────────────────────────────────── */}
-        <Text style={estilos.seccionTitulo}>CONTRASEÑAS OLVIDADAS ({resetsPendientes.length})</Text>
+        <Text style={estilos.seccionTitulo}>
+          CONTRASEÑAS OLVIDADAS{cargandoPedidos || (falloPedidos && pedidos.length === 0) ? '' : ` (${resetsPendientes.length})`}
+        </Text>
         <Text style={estilos.seccionAyuda}>
           Cuando alguien pide restablecer la contraseña, aparece acá. Al habilitarlo tiene{' '}
           {MINUTOS_HABILITADO} minutos para elegir una nueva desde la app; no se dicta ninguna
           provisoria.
         </Text>
-        {resetsPendientes.length === 0 ? (
+        {cargandoPedidos ? (
+          <Text style={estilos.cargando}>Cargando…</Text>
+        ) : falloPedidos && pedidos.length === 0 ? (
+          // Sólo mostramos el error si NO hay datos cacheados: como esta consulta
+          // se repite sola cada 30 s, un bache transitorio no tiene por qué tapar
+          // los pedidos que ya trajimos.
+          <SeccionError alReintentar={() => void recargarPedidos()} />
+        ) : resetsPendientes.length === 0 ? (
           <Text style={estilos.vacioTexto}>No hay pedidos esperando.</Text>
         ) : (
           resetsPendientes.map((p) => (
@@ -353,9 +378,13 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         ) : null}
 
         {/* ── 4 · Todos los usuarios ────────────────────────────────────────── */}
-        <Text style={estilos.seccionTitulo}>TODOS LOS USUARIOS ({resto.length})</Text>
+        <Text style={estilos.seccionTitulo}>
+          TODOS LOS USUARIOS{cargandoPerfiles || falloPerfiles ? '' : ` (${resto.length})`}
+        </Text>
         {cargandoPerfiles ? (
           <Text style={estilos.cargando}>Cargando…</Text>
+        ) : falloPerfiles ? (
+          <SeccionError alReintentar={() => void recargarPerfiles()} />
         ) : resto.length === 0 ? (
           <Vacio titulo="Todavía no hay usuarios" icono="👥" />
         ) : (
@@ -433,6 +462,32 @@ export function PantallaUsuarios({ navigation }: PropsPantalla<'AdminUsuarios'>)
         </Pressable>
       </Modal>
     </Pantalla>
+  )
+}
+
+/**
+ * "No pudimos traerlo" + Reintentar, para una sección que falló al cargar.
+ *
+ * Sin esto, una consulta caída (sin señal) dejaba la sección diciendo "no hay
+ * nada", que es afirmar algo falso. Nunca muestra el error crudo —sería inglés
+ * de Supabase—: un texto fijo que dice qué hacer, como el resto de la app.
+ */
+function SeccionError({
+  titulo,
+  detalle,
+  alReintentar,
+}: {
+  titulo?: string
+  detalle?: string
+  alReintentar: () => void
+}) {
+  return (
+    <>
+      <Aviso tono="error" titulo={titulo ?? 'No pudimos traerlo'}>
+        {detalle ?? 'Revisá la conexión y volvé a intentar.'}
+      </Aviso>
+      <BotonSecundario titulo="↻  Reintentar" alTocar={alReintentar} />
+    </>
   )
 }
 

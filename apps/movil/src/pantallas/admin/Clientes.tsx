@@ -2,16 +2,7 @@ import type { Cliente, Perfil } from '@woodtools/compartido'
 import { espaciado, radios, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native'
+import { ActivityIndicator, Alert, Modal, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../../componentes/Botones'
 import { Campo, Desplegable, MensajeError } from '../../componentes/Formulario'
@@ -31,6 +22,7 @@ import {
 } from '../../servicios/administracion'
 import type { PropsPantalla } from '../../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../../nucleo/tema'
+import { conMensajeDeSenal } from '../../nucleo/loUltimoQueSupimos'
 
 /**
  * "CLIENTES" — el ABM de la cartera, en el teléfono.
@@ -66,7 +58,7 @@ export function PantallaClientes({ navigation }: PropsPantalla<'AdminClientes'>)
 
   const { data: total } = useQuery({ queryKey: ['clientes-total'], queryFn: contarClientes })
 
-  const { data: clientes, isLoading, isFetching } = useQuery({
+  const { data: clientes, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['clientes', termino],
     queryFn: () => buscarClientesCartera(termino),
   })
@@ -101,7 +93,7 @@ export function PantallaClientes({ navigation }: PropsPantalla<'AdminClientes'>)
       setAviso('Cliente actualizado.')
       refrescarClientes()
     },
-    onError: (e: Error) => Alert.alert('No se pudo actualizar', e.message),
+    onError: (e: Error) => Alert.alert('No se pudo actualizar', conMensajeDeSenal(e).message),
   })
 
   const nombreVendedor = (id: string | null) =>
@@ -117,7 +109,7 @@ export function PantallaClientes({ navigation }: PropsPantalla<'AdminClientes'>)
 
         <Text style={estilos.subtitulo}>
           {total ?? '…'} clientes en la cartera
-          {termino ? ` · ${filtrados.length} coinciden con "${termino}"` : ''}.
+          {termino && !isLoading && !error ? ` · ${filtrados.length} coinciden con "${termino}"` : ''}.
         </Text>
 
         <BotonMenu titulo="+  NUEVO CLIENTE" alTocar={() => setEditando('nuevo')} />
@@ -172,6 +164,14 @@ export function PantallaClientes({ navigation }: PropsPantalla<'AdminClientes'>)
 
         {isLoading ? (
           <Cargando texto="Buscando en la cartera…" />
+        ) : error ? (
+          <>
+            <Aviso tono="error" titulo="No pudimos buscar en la cartera">
+              Revisá la conexión y volvé a intentar. La cartera está guardada: esto es sólo que no pudimos
+              consultarla.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} cargando={isFetching} />
+          </>
         ) : filtrados.length === 0 ? (
           <Vacio
             titulo="No hay clientes que coincidan"
@@ -308,8 +308,6 @@ function FormularioCliente({
   alGuardar: () => void
 }) {
   const estilos = usarEstilos()
-  const { height: altoVentana } = useWindowDimensions()
-  const alto = Math.round(altoVentana * 0.9)
 
   // La dirección principal es la marcada como tal o, si no hay ninguna, la
   // primera. Con su id se edita esa misma fila en vez de crear una nueva.
@@ -412,7 +410,7 @@ function FormularioCliente({
       })
     },
     onSuccess: () => alGuardar(),
-    onError: (e: Error) => setErrorGeneral(e.message),
+    onError: (e: Error) => setErrorGeneral(conMensajeDeSenal(e).message),
   })
 
   function intentarGuardar() {
@@ -420,22 +418,17 @@ function FormularioCliente({
     if (validar()) guardar.mutate()
   }
 
+  // Modal a pantalla completa con Pantalla/Panel (no una hoja anclada abajo):
+  // los botones Guardar/Cancelar van DENTRO del scroll, así el teclado no los
+  // tapa ni tapa los últimos campos (lat/lng/notas). Es el mismo patrón que el
+  // alta de usuarios; una hoja con el pie pinneado dejaba la acción bajo el
+  // teclado en Android, que no redimensiona el Modal.
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={alCerrar}>
-      <Pressable style={estilos.velo} onPress={alCerrar}>
-        <Pressable style={[estilos.hoja, { height: alto }]} onPress={(e) => e.stopPropagation()}>
-          <View style={estilos.hojaCabecera}>
-            <Text style={estilos.hojaTitulo}>{cliente ? 'Editar cliente' : 'Nuevo cliente'}</Text>
-            <Pressable
-              onPress={alCerrar}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Cerrar"
-              style={({ pressed }) => [estilos.hojaCerrar, pressed && estilos.tocado]}
-            >
-              <Text style={estilos.hojaCerrarTexto}>✕</Text>
-            </Pressable>
-          </View>
+    <Modal visible animationType="slide" onRequestClose={alCerrar}>
+      <Pantalla>
+        <Panel contentStyle={estilos.contenido}>
+          <BarraPanel alVolver={alCerrar} />
+          <TituloPanel>{cliente ? 'EDITAR CLIENTE' : 'NUEVO CLIENTE'}</TituloPanel>
 
           {errorGeneral ? (
             <Aviso tono="error" titulo="No se pudo guardar">
@@ -443,13 +436,7 @@ function FormularioCliente({
             </Aviso>
           ) : null}
 
-          <ScrollView
-            style={estilos.hojaLista}
-            contentContainerStyle={estilos.hojaContenido}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {cliente?.provisorio ? (
+          {cliente?.provisorio ? (
               <Aviso tono="atencion" titulo="Cliente cargado desde la calle">
                 {`Lo cargó un vendedor durante el recorrido con el código ${cliente.codigo}. Cambiálo por el definitivo y completá lo que falte; con eso deja de figurar como provisorio.`}
               </Aviso>
@@ -564,22 +551,14 @@ function FormularioCliente({
               multiline
             />
 
-            <MensajeError>
-              {Object.keys(errores).length > 0 ? 'Revisá los campos marcados en rojo.' : undefined}
-            </MensajeError>
-          </ScrollView>
+          <MensajeError>
+            {Object.keys(errores).length > 0 ? 'Revisá los campos marcados en rojo.' : undefined}
+          </MensajeError>
 
-          <View style={estilos.hojaPie}>
-            <BotonSecundario titulo="Cancelar" alTocar={alCerrar} style={estilos.pieBoton} />
-            <BotonPrincipal
-              titulo="Guardar"
-              alTocar={intentarGuardar}
-              cargando={guardar.isPending}
-              style={estilos.pieBoton}
-            />
-          </View>
-        </Pressable>
-      </Pressable>
+          <BotonPrincipal titulo="Guardar" alTocar={intentarGuardar} cargando={guardar.isPending} />
+          <BotonSecundario titulo="Cancelar" alTocar={alCerrar} />
+        </Panel>
+      </Pantalla>
     </Modal>
   )
 }
@@ -684,46 +663,7 @@ const usarEstilos = hojaDeTema((t) => ({
   accionAlta: { backgroundColor: t.colores.verde },
   accionAltaTexto: { color: t.colores.negro },
 
-  // ── Hoja modal del formulario ───────────────────────────────────────────
-  velo: {
-    flex: 1,
-    backgroundColor: t.colores.velo,
-    justifyContent: 'flex-end',
-  },
-  hoja: {
-    backgroundColor: t.colores.panel,
-    borderTopWidth: 3,
-    borderColor: t.colores.borde,
-    borderTopLeftRadius: radios.lg,
-    borderTopRightRadius: radios.lg,
-    padding: espaciado.base,
-    gap: espaciado.sm,
-  },
-  hojaCabecera: { flexDirection: 'row', alignItems: 'center', gap: espaciado.sm },
-  hojaTitulo: {
-    flex: 1,
-    fontFamily: t.tipografia.familia.titulo,
-    fontSize: t.tipografia.tamano.lg,
-    color: t.colores.tinta,
-    letterSpacing: 0.4,
-  },
-  hojaCerrar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: t.colores.campoBlanco,
-    borderWidth: 2,
-    borderColor: t.colores.borde,
-  },
-  hojaCerrarTexto: {
-    fontFamily: t.tipografia.familia.subtitulo,
-    fontSize: t.tipografia.tamano.base,
-    color: t.colores.tinta,
-  },
-  hojaLista: { flex: 1 },
-  hojaContenido: { gap: espaciado.md, paddingBottom: espaciado.md },
+  // ── Formulario del cliente (dentro del Panel del modal) ─────────────────
   seccion: {
     fontFamily: t.tipografia.familia.subtitulo,
     fontSize: t.tipografia.tamano.base,
@@ -732,10 +672,4 @@ const usarEstilos = hojaDeTema((t) => ({
     letterSpacing: 0.3,
   },
   corto: { maxWidth: 200 },
-  hojaPie: {
-    flexDirection: 'row',
-    gap: espaciado.sm,
-    paddingTop: espaciado.sm,
-  },
-  pieBoton: { flex: 1, minWidth: 0, alignSelf: 'stretch' },
 }))
