@@ -81,7 +81,7 @@ const SERVICIOS_BASE: TipoServicio[] = [
 const QUE_ES_LA_OPERACION: Partial<Record<TipoServicio, string>> = {
   venta: 'Se lleva una herramienta nueva',
   afilado: 'Trae una herramienta a afilar',
-  reparacion: 'Dientes rotos o daños a reparar',
+  reparacion: 'Dientes desafilados o daños a reparar',
   rectificado: 'Corregir la geometría de la pieza',
   hermanado: 'Igualar incisores entre sí',
   rebaje: 'Sólo cuchillas, y sólo si hay afilado',
