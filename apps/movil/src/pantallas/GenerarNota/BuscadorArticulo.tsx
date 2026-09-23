@@ -27,7 +27,7 @@ import { Campo, MensajeError } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import {
   buscarArticulos,
-  LISTA_POR_FAMILIA,
+  FAMILIA_COMPLETA,
   LISTA_SUELTA,
   type ArticuloCatalogo,
 } from '../../servicios/notasPedido'
@@ -155,10 +155,27 @@ function VentanaBusqueda({
   const insets = useSafeAreaInsets()
 
   const [consulta, setConsulta] = useState('')
+  /**
+   * La familia entera, bajada UNA vez.
+   *
+   * Con una familia elegida el buscador ya no consulta el servidor tecla por
+   * tecla: baja la lista completa al abrir y filtra en el teléfono. Así todas
+   * las opciones de un mismo código aparecen al instante, en vez de esperar una
+   * vuelta a la base por cada letra —que es lo que se sentía lento—. `null`
+   * mientras todavía no llegó.
+   */
+  const [baseFamilia, setBaseFamilia] = useState<ArticuloCatalogo[] | null>(null)
+  /** Resultados del servidor cuando se busca en TODA la lista (sin familia). */
   const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
   const [buscando, setBuscando] = useState(false)
-  const [sinResultados, setSinResultados] = useState(false)
   const [fallo, setFallo] = useState<string | null>(null)
+  /**
+   * Contador de reintentos. En modo familia la precarga es UNA sola consulta, y
+   * si falla —señal mala en la calle— reescribir no la vuelve a disparar (sólo
+   * cambia el filtro local). Este contador está en las dependencias de las dos
+   * búsquedas, así que el botón "Reintentar" del cartel de error las relanza.
+   */
+  const [reintento, setReintento] = useState(0)
   /**
    * La salida de emergencia del filtro. Hay cosas que se venden y están
    * archivadas en otra familia: una muela de diamante, un bidón de resinol.
@@ -172,36 +189,67 @@ function VentanaBusqueda({
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const familia = todaLaLista || !item.herramienta ? null : FAMILIA_PRODUCTO[item.herramienta]
-  const tope = familia ? LISTA_POR_FAMILIA : LISTA_SUELTA
   const texto = consulta.trim()
-  // Con familia alcanza cualquier texto, que es filtrar una lista corta. Sin
-  // familia hacen falta dos letras, porque si no la consulta es el catálogo entero.
-  const hayTexto = familia ? texto.length > 0 : texto.length >= 2
-  // Con familia puesta se listan solas al abrir; sin familia, sólo al escribir.
-  const listarTodo = familia !== null
-  const hayQueBuscar = hayTexto || listarTodo
+  // Sin familia hacen falta dos letras: si no, la consulta es el catálogo entero.
+  const hayTextoSuelto = texto.length >= 2
 
+  // ── Precarga de la familia entera ─────────────────────────────────────────
+  // Una sola consulta al abrir o al cambiar de familia; el resto es filtrar en
+  // el teléfono. Baja hasta FAMILIA_COMPLETA, que cubre a la familia más grande.
   useEffect(() => {
-    if (temporizador.current) clearTimeout(temporizador.current)
-    if (!hayQueBuscar) {
+    if (familia === null) {
+      // Se salió a "toda la lista". Apaga el reloj por si se tocó en plena
+      // precarga: el fetch que quede en vuelo no lo va a apagar (queda cancelado)
+      // y el spinner giraría para siempre. La búsqueda suelta lo vuelve a prender.
+      setBaseFamilia(null)
+      setBuscando(false)
+      return
+    }
+    let cancelado = false
+    setBaseFamilia(null)
+    setBuscando(true)
+    setFallo(null)
+    buscarArticulos('', familia, FAMILIA_COMPLETA)
+      .then((todos) => {
+        if (!cancelado) setBaseFamilia(todos)
+      })
+      .catch((e) => {
+        if (!cancelado) {
+          setBaseFamilia([])
+          setFallo((e as Error).message)
+        }
+      })
+      .finally(() => {
+        if (!cancelado) setBuscando(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [familia, reintento])
+
+  // ── Búsqueda en TODA la lista (sin familia) ───────────────────────────────
+  // El catálogo entero es demasiado para bajarlo, así que este modo sigue
+  // consultando el servidor, con la pausa de tecleo de siempre.
+  useEffect(() => {
+    if (familia !== null) {
       setResultados([])
-      setSinResultados(false)
+      return
+    }
+    if (temporizador.current) clearTimeout(temporizador.current)
+    if (!hayTextoSuelto) {
+      setResultados([])
       setFallo(null)
       return
     }
-    // La respuesta vieja no pinta: la lista sin texto sale a los 0 ms y queda en
-    // vuelo mientras el vendedor tipea. Misma bandera que el resto de la carpeta.
+    // La respuesta vieja no pinta: queda en vuelo mientras el vendedor tipea.
     let cancelado = false
-
     temporizador.current = setTimeout(async () => {
       setBuscando(true)
-      setSinResultados(false)
       setFallo(null)
       try {
-        const encontrados = await buscarArticulos(texto, familia)
+        const encontrados = await buscarArticulos(texto, null)
         if (cancelado) return
         setResultados(encontrados)
-        setSinResultados(encontrados.length === 0)
       } catch (e) {
         // "Ese código no existe" y "no pude consultar la lista" son cosas distintas.
         if (cancelado) return
@@ -210,13 +258,27 @@ function VentanaBusqueda({
       } finally {
         if (!cancelado) setBuscando(false)
       }
-    }, texto ? 300 : 0)
-
+    }, 300)
     return () => {
       cancelado = true
       if (temporizador.current) clearTimeout(temporizador.current)
     }
-  }, [texto, familia, hayQueBuscar])
+  }, [texto, familia, hayTextoSuelto, reintento])
+
+  // Lo que se muestra: la familia filtrada en el teléfono, o —sin familia— los
+  // resultados que trajo el servidor.
+  const lista = familia !== null ? filtrarFamilia(baseFamilia ?? [], texto) : resultados
+  const sinResultados =
+    !buscando &&
+    !fallo &&
+    lista.length === 0 &&
+    (familia !== null ? baseFamilia !== null : hayTextoSuelto)
+  // La precarga tocó el tope: la familia tiene más de lo que se bajó, así que el
+  // filtro local podría no encontrar un código que quedó afuera. No pasa con el
+  // catálogo de hoy —la familia más grande es fresa, 339, contra FAMILIA_COMPLETA—
+  // pero si algún día crece, se avisa y se deja la salida por "toda la lista"
+  // (que sí consulta el servidor) en vez de decir que el artículo no existe.
+  const familiaTruncada = familia !== null && (baseFamilia?.length ?? 0) >= FAMILIA_COMPLETA
 
   /**
    * Carga el artículo en el renglón. Las características van a los mismos campos
@@ -269,7 +331,7 @@ function VentanaBusqueda({
   const fDiam = aNum(filtroDiametro)
   const fAncho = aNum(filtroAncho)
   const fDientes = aNum(filtroDientes)
-  const visibles = resultados.filter((a) => {
+  const visibles = lista.filter((a) => {
     if (fDiam === null && fAncho === null && fDientes === null) return true
     // Se prefiere la medida ESTRUCTURADA del catálogo (numérica, confiable); si
     // el producto no la trae, se cae al parseo de la descripción.
@@ -380,27 +442,49 @@ function VentanaBusqueda({
           </View>
         ) : null}
 
-        {/* Con filtros de característica el corte que importa es el de lo visible. */}
-        {!hayFiltroCaract && resultados.length >= tope ? (
+        {/* Sólo en la búsqueda del catálogo entero (sin familia): ahí el
+            servidor corta en LISTA_SUELTA. Con familia se baja completa y no hay
+            corte. Con filtros de característica el corte que importa es el de lo
+            visible, así que no se muestra. */}
+        {!hayFiltroCaract && familia === null && resultados.length >= LISTA_SUELTA ? (
           <Text style={estilos.nota}>
-            {texto
-              ? `Hay más de ${tope} que coinciden y se muestran los primeros. Escribí un poco más, o usá los filtros de arriba.`
-              : `Se muestran los primeros ${tope}. Escribí parte del código o usá los filtros de arriba para achicar.`}
+            {`Hay más de ${LISTA_SUELTA} que coinciden y se muestran los primeros. Escribí un poco más, o usá los filtros de arriba.`}
           </Text>
         ) : null}
 
-        {hayFiltroCaract && resultados.length > 0 && visibles.length === 0 ? (
+        {/* La familia superó lo que se precargó: el que no aparezca en el filtro
+            local hay que buscarlo en toda la lista, que sí consulta el servidor.
+            No se decide en silencio. */}
+        {familiaTruncada ? (
+          <Text style={estilos.nota}>
+            {`Se cargaron los primeros ${baseFamilia?.length ?? 0} de ${loQueSeLista}. Si el que buscás no aparece, tocá "BUSCAR EN TODA LA LISTA" abajo.`}
+          </Text>
+        ) : null}
+
+        {hayFiltroCaract && lista.length > 0 && visibles.length === 0 ? (
           <Aviso tono="atencion">
-            {`Ninguno de los ${resultados.length} que se cargaron coincide con esos filtros. Probá con otra medida, o borrá los filtros.`}
+            {`Ninguno de los ${lista.length} que se cargaron coincide con esos filtros. Probá con otra medida, o borrá los filtros.`}
           </Aviso>
         ) : null}
 
         {fallo && !buscando ? (
-          <Aviso tono="atencion" titulo="No pudimos consultar la lista de precios">
-            {fallo}
-            {'\n\n'}Revisá la señal y escribí de nuevo. Sin la lista no se puede cargar el código: si
-            estás sin señal, anotá el pedido en la observación y cargá la nota cuando vuelvas a tener.
-          </Aviso>
+          <>
+            <Aviso tono="atencion" titulo="No pudimos consultar la lista de precios">
+              {fallo}
+              {'\n\n'}Sin la lista no se puede cargar el código. Revisá la señal y tocá Reintentar; si
+              estás sin señal, anotá el pedido en la observación y cargá la nota cuando vuelvas a tener.
+            </Aviso>
+            {/* En modo familia, reescribir NO relanza la precarga (sólo filtra lo
+                bajado): el reintento tiene que ser explícito. Sube `reintento`, que
+                está en las dependencias de las dos búsquedas. */}
+            <Pressable
+              onPress={() => setReintento((n) => n + 1)}
+              accessibilityRole="button"
+              style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+            >
+              <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
+            </Pressable>
+          </>
         ) : null}
 
         {sinResultados ? (
@@ -490,6 +574,26 @@ function resumenCompacto(c: CaracteristicasArticulo): string {
   ]
     .filter(Boolean)
     .join(' ')
+}
+
+/**
+ * Filtra la familia ya bajada por el texto tecleado, en el teléfono.
+ *
+ * Replica lo que hacía el servidor —código o descripción que CONTENGAN el
+ * texto— pero al instante, sin ir a la base. El código exacto va primero, igual
+ * que en la RPC; el `sort` de JS es estable, así que el resto conserva el orden
+ * en que vino (por código).
+ */
+function filtrarFamilia(base: ArticuloCatalogo[], texto: string): ArticuloCatalogo[] {
+  const t = texto.trim().toLowerCase()
+  if (!t) return base
+  const coincide = base.filter(
+    (a) =>
+      a.codigo.toLowerCase().includes(t) || (a.descripcion ?? '').toLowerCase().includes(t),
+  )
+  return coincide.sort(
+    (a, b) => (a.codigo.toLowerCase() === t ? 0 : 1) - (b.codigo.toLowerCase() === t ? 0 : 1),
+  )
 }
 
 /**

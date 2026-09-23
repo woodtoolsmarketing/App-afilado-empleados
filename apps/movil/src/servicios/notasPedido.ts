@@ -232,6 +232,18 @@ export async function codigosAfiladoCuchilla(): Promise<CodigoCuchilla[]> {
  */
 export const LISTA_POR_FAMILIA = 40
 export const LISTA_SUELTA = 20
+/**
+ * Cuántos artículos trae la PRECARGA de una familia entera.
+ *
+ * Con familia elegida el buscador ya no consulta el servidor tecla por tecla:
+ * baja la familia completa una vez y filtra en el teléfono, así todas las
+ * opciones de un mismo código aparecen al instante. Cubre con MUCHO aire a la
+ * familia más grande —fresa, 339 de venta (cabezal 232, sierra sin fin 191)—; el
+ * tope real lo pone la RPC en 1000. Si una familia igual lo superara, el buscador
+ * lo avisa y deja la salida por "toda la lista" (ver `BuscadorArticulo`), así que
+ * nunca queda un artículo imposible de encontrar sin decirlo.
+ */
+export const FAMILIA_COMPLETA = 1000
 
 /**
  * Artículos del catálogo que coinciden con el texto.
@@ -249,10 +261,11 @@ export const LISTA_SUELTA = 20
 export async function buscarArticulos(
   texto: string,
   familia?: string | null,
+  limite?: number,
 ): Promise<ArticuloCatalogo[]> {
   const { data, error } = await supabase.rpc('buscar_articulos', {
     p_texto: texto,
-    p_limite: familia ? LISTA_POR_FAMILIA : LISTA_SUELTA,
+    p_limite: limite ?? (familia ? LISTA_POR_FAMILIA : LISTA_SUELTA),
     p_familia: familia ?? null,
   })
   if (error) throw error
