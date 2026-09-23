@@ -167,6 +167,7 @@ function VentanaBusqueda({
   const [todaLaLista, setTodaLaLista] = useState(false)
   /** Filtros por característica: se aplican sobre lo que ya se trajo. */
   const [filtroDiametro, setFiltroDiametro] = useState('')
+  const [filtroAncho, setFiltroAncho] = useState('')
   const [filtroDientes, setFiltroDientes] = useState('')
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -244,17 +245,34 @@ function VentanaBusqueda({
   }
 
   // ── Filtros por característica sobre lo ya traído ──────────────────────────
-  // El vendedor achica una familia larga por diámetro exterior o cantidad de
-  // dientes en vez de leer código por código.
+  // El vendedor achica una familia larga por Ø exterior, ancho de corte o
+  // cantidad de dientes en vez de leer código por código.
   const caractDe = (a: ArticuloCatalogo) => caracteristicasDeArticulo(a.descripcion, a.medida)
-  const nd = (s: string) => s.replace(',', '.').replace(/[^\d.]/g, '')
-  const fDiam = nd(filtroDiametro)
-  const fDientes = nd(filtroDientes)
+  // Se compara como NÚMERO, no como texto: así "3,2" y "3.20" son lo mismo, y
+  // sobre todo "30" no matchea "300" —el texto libre sí lo hacía, y por eso el
+  // vendedor no podía achicar por medida—.
+  const aNum = (s: string | null | undefined): number | null => {
+    if (!s) return null
+    const n = Number(String(s).replace(',', '.').replace(/[^\d.]/g, ''))
+    return Number.isFinite(n) ? n : null
+  }
+  // Dientes: `Z=30+4` son 30 dientes más 4 limpiadores. El vendedor cuenta 30,
+  // pero el resumen muestra 34 (el total). Matchea cualquiera de los dos.
+  const dientesCoincide = (a: ArticuloCatalogo, filtro: number): boolean => {
+    const m = /[Zz]\s*=?\s*(\d+(?:\s*\+\s*\d+)*)/.exec(`${a.descripcion ?? ''} ${a.medida ?? ''}`)
+    if (!m) return false
+    const partes = m[1].split('+').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n))
+    return partes.includes(filtro) || partes.reduce((x, y) => x + y, 0) === filtro
+  }
+  const fDiam = aNum(filtroDiametro)
+  const fAncho = aNum(filtroAncho)
+  const fDientes = aNum(filtroDientes)
   const visibles = resultados.filter((a) => {
-    if (!fDiam && !fDientes) return true
+    if (fDiam === null && fAncho === null && fDientes === null) return true
     const c = caractDe(a)
-    if (fDiam && nd(c.diametro_exterior ?? '') !== fDiam) return false
-    if (fDientes && nd(c.dientes ?? '') !== fDientes) return false
+    if (fDiam !== null && aNum(c.diametro_exterior) !== fDiam) return false
+    if (fAncho !== null && aNum(c.ancho_corte) !== fAncho) return false
+    if (fDientes !== null && !dientesCoincide(a, fDientes)) return false
     return true
   })
 
@@ -266,7 +284,7 @@ function VentanaBusqueda({
     ? ETIQUETA_HERRAMIENTA[item.herramienta].toLowerCase()
     : 'la lista'
 
-  const hayFiltroCaract = !!(fDiam || fDientes)
+  const hayFiltroCaract = fDiam !== null || fAncho !== null || fDientes !== null
 
   // En Android la ventana ya se achica sola cuando sube el teclado —adjustResize,
   // el modo por defecto de Expo— así que la lista, que ocupa el resto con flex:1,
@@ -301,20 +319,32 @@ function VentanaBusqueda({
           accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
         />
 
-        {/* Otros filtros: por Ø exterior y por cantidad de dientes. */}
+        {/* Otros filtros: por Ø exterior, ancho de corte y cantidad de dientes.
+            El ancho es la medida que más distingue a una sierra —dos sierras del
+            mismo Ø se diferencian por el ancho—, así que sin él no se podía
+            achicar de verdad. */}
         <View style={estilos.filtros}>
-          <View style={estilos.filtroMitad}>
+          <View style={estilos.filtroTercio}>
             <Campo
-              etiqueta="Ø EXTERIOR"
+              etiqueta="Ø EXT."
               value={filtroDiametro}
               onChangeText={setFiltroDiametro}
               placeholder="250"
               keyboardType="decimal-pad"
             />
           </View>
-          <View style={estilos.filtroMitad}>
+          <View style={estilos.filtroTercio}>
             <Campo
-              etiqueta="DIENTES (Z)"
+              etiqueta="ANCHO"
+              value={filtroAncho}
+              onChangeText={setFiltroAncho}
+              placeholder="3,2"
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <View style={estilos.filtroTercio}>
+            <Campo
+              etiqueta="DIENTES"
               value={filtroDientes}
               onChangeText={setFiltroDientes}
               placeholder="80"
@@ -534,7 +564,7 @@ const usarEstilos = hojaDeTema((t) => ({
     borderBottomColor: t.colores.borde,
   },
   filtros: { flexDirection: 'row', gap: espaciado.sm },
-  filtroMitad: { flex: 1 },
+  filtroTercio: { flex: 1 },
 
   listaScroll: { flex: 1, backgroundColor: t.colores.fondo },
   listaContenido: { padding: espaciado.base, gap: espaciado.sm },
