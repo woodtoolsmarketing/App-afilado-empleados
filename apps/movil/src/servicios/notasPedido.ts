@@ -83,6 +83,13 @@ export interface ArticuloCatalogo {
   precio_pesos: number | null
   familia: string | null
   sin_precio: boolean
+  // Medidas estructuradas del catálogo (del maestro de datos técnicos). Cuando
+  // están, el buscador filtra por ellas —exacto y confiable— en vez de parsear
+  // la descripción. Nullables: no todo producto trae todas.
+  diametro_exterior: number | null
+  ancho_corte: number | null
+  diametro_interior: number | null
+  dientes: number | null
 }
 
 export interface CodigoComputo {

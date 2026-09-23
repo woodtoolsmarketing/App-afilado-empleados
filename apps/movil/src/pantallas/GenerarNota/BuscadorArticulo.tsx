@@ -257,8 +257,10 @@ function VentanaBusqueda({
     return Number.isFinite(n) ? n : null
   }
   // Dientes: `Z=30+4` son 30 dientes más 4 limpiadores. El vendedor cuenta 30,
-  // pero el resumen muestra 34 (el total). Matchea cualquiera de los dos.
+  // pero el total es 34. Matchea cualquiera de los dos: la columna estructurada
+  // guarda el total, y el texto crudo tiene los componentes.
   const dientesCoincide = (a: ArticuloCatalogo, filtro: number): boolean => {
+    if (a.dientes === filtro) return true
     const m = /[Zz]\s*=?\s*(\d+(?:\s*\+\s*\d+)*)/.exec(`${a.descripcion ?? ''} ${a.medida ?? ''}`)
     if (!m) return false
     const partes = m[1].split('+').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n))
@@ -269,9 +271,13 @@ function VentanaBusqueda({
   const fDientes = aNum(filtroDientes)
   const visibles = resultados.filter((a) => {
     if (fDiam === null && fAncho === null && fDientes === null) return true
+    // Se prefiere la medida ESTRUCTURADA del catálogo (numérica, confiable); si
+    // el producto no la trae, se cae al parseo de la descripción.
     const c = caractDe(a)
-    if (fDiam !== null && aNum(c.diametro_exterior) !== fDiam) return false
-    if (fAncho !== null && aNum(c.ancho_corte) !== fAncho) return false
+    const diam = a.diametro_exterior ?? aNum(c.diametro_exterior)
+    const ancho = a.ancho_corte ?? aNum(c.ancho_corte)
+    if (fDiam !== null && diam !== fDiam) return false
+    if (fAncho !== null && ancho !== fAncho) return false
     if (fDientes !== null && !dientesCoincide(a, fDientes)) return false
     return true
   })
