@@ -801,6 +801,9 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         cuchilla_trabajo: i.cuchilla_trabajo,
         afilado_reparacion: i.afilado_reparacion,
         origen_fresa: i.origen_fresa,
+        // En un reclamo, sobre qué trabajo se reclama. El filtro de abajo lo
+        // descarta cuando es null (los renglones que no son reclamo).
+        servicio_reclamado: i.servicio_reclamado,
         // En qué máquina trabaja la pieza. Va guardado porque la descripción
         // general se rearma al corregir la nota, y sin esto la línea perdería
         // el "para escuadradora" en cada corrección.
@@ -1113,6 +1116,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
      */
     precio: comoTexto(fila.precio_unitario),
     origen_fresa: (detalle.origen_fresa as OrigenFresa | null) ?? null,
+    servicio_reclamado: (detalle.servicio_reclamado as TipoServicio | null) ?? null,
     maquina: comoCadena(detalle.maquina),
     servicio_antes_de_rotos:
       (detalle.servicio_antes_de_rotos as TipoServicio | null) ?? null,

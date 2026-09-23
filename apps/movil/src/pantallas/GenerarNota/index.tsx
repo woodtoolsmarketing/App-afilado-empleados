@@ -694,7 +694,12 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // casilla. Si venía de una venta con la promo tildada, se limpia acá: si
       // no, quedaba un descuento colgado sobre un renglón que no cobra, y sin
       // campo donde verlo ni sacarlo.
-      ...(servicio === 'reclamo' ? { promocion: false, descuento: '' } : {}),
+      //
+      // Y al revés: al SALIR del reclamo se suelta el "por qué se reclama", que
+      // no tiene sentido fuera de un reclamo y quedaría guardado sin uso.
+      ...(servicio === 'reclamo'
+        ? { promocion: false, descuento: '' }
+        : { servicio_reclamado: null }),
       ...deLaOtra,
     })
   }
@@ -2007,6 +2012,42 @@ function TarjetaRenglon({
  *
  * Es el único que no pide medidas: el código de la herramienta ya la identifica.
  */
+/**
+ * Sobre qué trabajo se puede reclamar. Son los servicios que hacemos más la
+ * venta —que en un reclamo significa "vino fallada"—. El reclamo del rebaje sólo
+ * tiene sentido si rebajamos, pero la lista es la misma para todos: es lo que se
+ * está reclamando, no lo que se va a hacer.
+ */
+const SERVICIOS_RECLAMABLES: TipoServicio[] = [
+  'afilado',
+  'reparacion',
+  'rectificado',
+  'hermanado',
+  'rebaje',
+  'venta',
+]
+
+/**
+ * Las características de la herramienta que se muestran editables en un reclamo.
+ *
+ * Salen del artículo elegido pero quedan editables: la pieza que trae el cliente
+ * puede no ser exactamente la del renglón de la lista. Sólo se dibuja la que la
+ * herramienta tiene (por `CAMPOS_POR_HERRAMIENTA`); los dientes van aparte.
+ */
+const CARACT_RECLAMO: {
+  campoItem: 'diametro_exterior' | 'diametro_interior' | 'ancho_corte'
+  campo: 'diametro_exterior' | 'diametro_interior_catalogo' | 'ancho_corte'
+  etiqueta: string
+}[] = [
+  { campoItem: 'diametro_exterior', campo: 'diametro_exterior', etiqueta: 'Ø EXTERIOR' },
+  // El agujero se edita sobre `diametro_interior_catalogo` y no sobre
+  // `diametro_interior`: en un renglón de artículo `agujeroDelRenglon` toma el de
+  // catálogo, así que atarlo al otro campo haría que editarlo no cambie nada de
+  // lo que se guarda e imprime.
+  { campoItem: 'diametro_interior', campo: 'diametro_interior_catalogo', etiqueta: 'Ø INTERIOR (AGUJERO)' },
+  { campoItem: 'ancho_corte', campo: 'ancho_corte', etiqueta: 'ANCHO DE CORTE' },
+]
+
 function FormularioVenta({
   item,
   alCambiar,
@@ -2106,6 +2147,26 @@ function FormularioVenta({
         error={errores.herramienta}
       />
 
+      {/* Sobre qué trabajo se reclama: un afilado que volvió mal no es lo mismo
+          que una herramienta que vino fallada. Va junto a la herramienta porque
+          es la otra mitad de "qué se reclama". */}
+      {esReclamo ? (
+        <Desplegable<TipoServicio>
+          etiqueta="¿POR QUÉ SE RECLAMA?"
+          obligatorio
+          marcador="Elegí el trabajo reclamado"
+          valor={item.servicio_reclamado}
+          items={SERVICIOS_RECLAMABLES.map((s) => ({
+            valor: s,
+            etiqueta: s === 'venta' ? 'Vino fallada' : ETIQUETA_TIPO_SERVICIO[s],
+            descripcion:
+              s === 'venta' ? 'La herramienta que vendimos vino con falla' : undefined,
+          }))}
+          alCambiar={(s) => alCambiar({ servicio_reclamado: s })}
+          error={errores.servicio_reclamado}
+        />
+      ) : null}
+
       {item.herramienta === 'fresa' && !esReclamo ? (
         <Desplegable<OrigenFresa>
           etiqueta="ORIGEN DE LA FRESA"
@@ -2146,6 +2207,28 @@ function FormularioVenta({
         numberOfLines={2}
         ayuda="Es la que sale impresa. Corta, para que entre en el renglón del talonario."
       />
+
+      {/* Las características de la pieza reclamada. Se cargan solas del artículo y
+          quedan editables: lo que trae el cliente puede no ser exactamente el
+          renglón de la lista. Sólo en el reclamo, y sólo las que la herramienta
+          tiene. */}
+      {esReclamo && item.herramienta
+        ? CARACT_RECLAMO.filter((c) =>
+            CAMPOS_POR_HERRAMIENTA[item.herramienta!].includes(c.campoItem),
+          ).map((c) => (
+            <Campo
+              key={c.campo}
+              etiqueta={c.etiqueta}
+              value={item[c.campo]}
+              onChangeText={(t) =>
+                alCambiar({ [c.campo]: t.replace(/[^\d.,]/g, '') } as Partial<FormularioItemNota>)
+              }
+              keyboardType="decimal-pad"
+              contenedorStyle={estilos.corto}
+              ayuda="Sale del artículo; corregilo si la pieza es distinta."
+            />
+          ))
+        : null}
 
       {/*
         Los dientes de la pieza que se vende.

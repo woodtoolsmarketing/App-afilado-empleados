@@ -1094,6 +1094,17 @@ export interface FormularioItemNota {
   servicio_elegido: boolean
   herramienta: Herramienta | null
 
+  /**
+   * En un RECLAMO, sobre qué trabajo se reclama.
+   *
+   * El reclamo es sobre algo que ya hicimos —un afilado que volvió mal, una
+   * reparación que no cerró, o una herramienta vendida que vino fallada—, así
+   * que además de qué pieza es hay que decir por qué se reclama. Sólo se usa
+   * cuando `servicio === 'reclamo'`; el valor `venta` acá significa "vino
+   * fallada".
+   */
+  servicio_reclamado: TipoServicio | null
+
   // Venta
   codigo_herramienta: string
   unidades: string
@@ -1325,6 +1336,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   maquina: '',
   servicio_elegido: false,
   herramienta: null,
+  servicio_reclamado: null,
   codigo_herramienta: '',
   unidades: '',
   precio: '',
@@ -1476,6 +1488,11 @@ export function validarItemNota(
     const esVenta = item.servicio === 'venta'
     if (!item.herramienta) {
       errores.herramienta = esVenta ? 'Elegí qué se vende' : 'Elegí qué se reclama'
+    }
+    // En un reclamo hay que decir sobre qué trabajo es: un afilado que volvió
+    // mal no es lo mismo que una herramienta que vino fallada.
+    if (!esVenta && !item.servicio_reclamado) {
+      errores.servicio_reclamado = 'Elegí por qué se reclama'
     }
     // De qué origen es la fresa decide en qué nota de pedido cae: sin eso no se
     // puede armar el comprobante. Sólo en la venta: un reclamo cae en la nota de

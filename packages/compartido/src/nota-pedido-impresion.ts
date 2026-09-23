@@ -1331,6 +1331,21 @@ const ESTILOS_PAGINA = `
  * propio mapeo, la columna de doble uso se interpreta distinto en cada lado y
  * nadie se entera hasta que sale mal en papel.
  */
+/**
+ * Cómo se nombra en el papel el trabajo que se reclama. Va entre paréntesis
+ * pegado a la descripción del renglón —"S.C. (afilado)"— para que la fábrica lea
+ * de un vistazo sobre qué es el reclamo. `venta` significa que la herramienta
+ * vino fallada.
+ */
+const ETIQUETA_RECLAMO: Record<string, string> = {
+  afilado: 'afilado',
+  reparacion: 'reparación',
+  rectificado: 'rectificado',
+  hermanado: 'hermanado',
+  rebaje: 'rebaje',
+  venta: 'vino fallada',
+}
+
 export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImprimir {
   const items: Array<Record<string, any>> = nota.items ?? []
   const d = (i: Record<string, any>, k: string) => String(i.detalle?.[k] ?? '')
@@ -1505,8 +1520,15 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         return n > 0 && i.cantidad_dientes ? n : true
       }
 
+      // Sobre qué trabajo se reclama, para pegarlo a la descripción del renglón.
+      const reclamado =
+        i.servicio === 'reclamo'
+          ? (i.detalle?.servicio_reclamado as string | undefined)
+          : undefined
       return {
-        descripcion: i.descripcion ?? i.codigo_herramienta ?? '',
+        descripcion:
+          (i.descripcion ?? i.codigo_herramienta ?? '') +
+          (reclamado ? ` (${ETIQUETA_RECLAMO[reclamado] ?? reclamado})` : ''),
         afilado: trabajo(i.servicio === 'afilado', 'afilado'),
         rectificado: trabajo(i.servicio === 'rectificado', 'rectificado'),
         // También cuando se reparan los dientes rotos de una herramienta que

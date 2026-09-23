@@ -400,6 +400,20 @@ function RenglonDetalle({ item }: { item: ItemNota }) {
       {item.codigo_herramienta ? (
         <Dato etiqueta="Código" valor={item.codigo_herramienta} />
       ) : null}
+      {/* Sobre qué trabajo es el reclamo. `venta` acá quiere decir que la
+          herramienta vino fallada. */}
+      {item.servicio === 'reclamo' && item.detalle?.servicio_reclamado ? (
+        <Dato
+          etiqueta="Se reclama"
+          valor={
+            item.detalle.servicio_reclamado === 'venta'
+              ? 'Vino fallada'
+              : ETIQUETA_TIPO_SERVICIO[
+                  item.detalle.servicio_reclamado as keyof typeof ETIQUETA_TIPO_SERVICIO
+                ]
+          }
+        />
+      ) : null}
       {item.descripcion ? <Text style={estilos.renglonDesc}>{item.descripcion}</Text> : null}
 
       {medidas.length > 0 ? (
