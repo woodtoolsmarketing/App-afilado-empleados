@@ -178,15 +178,21 @@ async function evaluarAcceso(
       break
   }
 
-  const dispositivo = await registrarYVerificarDispositivo(perfil.id)
+  // Las dos consultas de red van en paralelo: son independientes y ponerlas en
+  // serie sólo sumaba una vuelta a la red al arranque. La precedencia se decide
+  // abajo con los resultados, igual que antes (dispositivo primero).
+  const [dispositivo, versionVieja] = await Promise.all([
+    registrarYVerificarDispositivo(perfil.id),
+    versionDemasiadoVieja(),
+  ])
   if (!dispositivo.autorizado) {
     return { estado: 'dispositivo_no_autorizado', error: null }
   }
 
-  // Antes que nada de lo que viene: una versión demasiado vieja puede estar
-  // guardando notas de una forma que la base ya no entiende. Es preferible un
-  // cartel que pide actualizar a datos mal grabados que después hay que buscar.
-  if (await versionDemasiadoVieja()) {
+  // Una versión demasiado vieja puede estar guardando notas de una forma que la
+  // base ya no entiende. Es preferible un cartel que pide actualizar a datos mal
+  // grabados que después hay que buscar.
+  if (versionVieja) {
     return { estado: 'version_vieja', error: null }
   }
 
@@ -197,6 +203,35 @@ async function evaluarAcceso(
   }
 
   return { estado: 'habilitado', error: null }
+}
+
+/**
+ * El acceso que se puede resolver SIN red, con el perfil que ya teníamos.
+ *
+ * Es `evaluarAcceso` menos los dos candados que necesitan servidor —el
+ * dispositivo autorizado y la versión mínima—. Sirve para arrancar la app al
+ * instante con el último perfil conocido y dejar la verificación completa para
+ * un refresco en segundo plano. Un 'aprobado' entra optimista como 'habilitado';
+ * si el servidor después dice que el dispositivo no está autorizado o que la
+ * versión quedó vieja, ese refresco corrige el estado en un segundo.
+ *
+ * `debe_cambiar_contrasena` sí se puede decidir acá: viene en el perfil y no
+ * necesita otra consulta.
+ */
+function accesoOptimista(perfil: Perfil): EstadoAcceso {
+  switch (perfil.estado) {
+    case 'pendiente':
+      return 'pendiente'
+    case 'rechazado':
+      return 'rechazado'
+    case 'suspendido':
+    case 'baja':
+      return 'suspendido'
+    case 'aprobado':
+      return perfil.debe_cambiar_contrasena ? 'debe_cambiar_contrasena' : 'habilitado'
+    default:
+      return 'habilitado'
+  }
 }
 
 /**
@@ -223,6 +258,19 @@ async function versionDemasiadoVieja(): Promise<boolean> {
   }
 }
 
+/**
+ * Contador de operaciones de sesión.
+ *
+ * Cada operación que cambia la cuenta activa —entrar, salir, cambiar de cuenta,
+ * agregar otra— lo sube. Un `refrescarPerfil` (que puede correr en segundo plano
+ * por el arranque optimista) captura este número al empezar y descarta sus
+ * escrituras si mientras tanto hubo otra operación: así un refresco viejo no
+ * resucita una cuenta que se cerró ni pisa la cuenta a la que se acaba de
+ * cambiar. Sin esto, con señal lenta —el caso que el arranque optimista busca
+ * resolver— el refresco en vuelo podía aterrizar después de un logout.
+ */
+let generacion = 0
+
 export const usarSesion = create<EstadoSesion>((set, get) => ({
   estado: 'cargando',
   perfil: null,
@@ -236,18 +284,50 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     const usuarioRecordado = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
     set({ usuarioRecordado, cuentas: await listarCuentas() })
 
-    const { data } = await supabase.auth.getSession()
+    // Arranque OPTIMISTA: con el último perfil conocido se dibuja la app YA,
+    // ANTES de tocar la red —ni siquiera getSession, que puede hacer un refresh
+    // de token si venció—. La verificación completa (perfil, dispositivo, versión
+    // mínima) corre después en segundo plano y corrige el estado si algo cambió
+    // (baja, versión vieja, dispositivo desautorizado); si no hay señal, cae al
+    // mismo perfil recordado. Antes se esperaban esas consultas en serie antes de
+    // mostrar nada, y con señal lenta la app quedaba trabada en el splash en cada
+    // arranque —le pasaba a todos los que ya tenían sesión, o sea todos los días.
+    const recordado = await perfilRecordado<Perfil>()
+    if (recordado) set({ perfil: recordado, estado: accesoOptimista(recordado) })
 
-    if (!data.session) {
-      set({ estado: 'sin_sesion', perfil: null })
+    // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
+    try {
+      const { data } = await supabase.auth.getSession()
+      if (!data.session) {
+        set({ estado: 'sin_sesion', perfil: null })
+        return
+      }
+    } catch {
+      // getSession devuelve {data,error} y casi nunca tira; si el storage falla,
+      // no dejamos el arranque trabado ni el estado optimista sin verificar: con
+      // perfil recordado se verifica en segundo plano (y si de verdad no hay
+      // sesión, refrescarPerfil lleva a 'sin_sesion'); sin perfil recordado, al
+      // login.
+      if (recordado) void get().refrescarPerfil().catch(() => undefined)
+      else set({ estado: 'sin_sesion', perfil: null })
       return
     }
 
-    // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
+    if (recordado) {
+      // Ya se está mostrando la app con el perfil recordado: sólo verificar y
+      // corregir en segundo plano, sin bloquear.
+      void get().refrescarPerfil().catch(() => undefined)
+      return
+    }
+
+    // Primer arranque de esta cuenta, todavía sin perfil recordado: hay que
+    // esperar la verificación completa (es la única vez).
     await get().refrescarPerfil()
   },
 
   async iniciarSesion(usuario, contrasena) {
+    // Entrar supersede cualquier refresco en vuelo (p. ej. el del arranque).
+    generacion++
     set({ procesando: true, errorAcceso: null })
 
     try {
@@ -309,9 +389,16 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   },
 
   async refrescarPerfil() {
+    // Se captura la generación al empezar: si mientras corre el usuario cerró
+    // sesión o cambió de cuenta, este refresco descarta sus escrituras (ver
+    // `generacion`). Vale sobre todo cuando corre en segundo plano por el
+    // arranque optimista, con señal lenta.
+    const gen = generacion
+    const vigente = () => gen === generacion
+
     const { data: sesion } = await supabase.auth.getSession()
     if (!sesion.session) {
-      set({ estado: 'sin_sesion', perfil: null })
+      if (vigente()) set({ estado: 'sin_sesion', perfil: null })
       return
     }
 
@@ -338,19 +425,26 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 
       if (recordado) {
         const resultado = await evaluarAcceso(recordado)
-        set({ perfil: recordado, estado: resultado.estado, errorAcceso: resultado.error })
+        if (vigente()) {
+          set({ perfil: recordado, estado: resultado.estado, errorAcceso: resultado.error })
+        }
         return
       }
 
-      set({ estado: 'sin_sesion', errorAcceso: 'No pudimos verificar tu cuenta.' })
+      if (vigente()) set({ estado: 'sin_sesion', errorAcceso: 'No pudimos verificar tu cuenta.' })
       return
     }
+
+    // Si mientras se consultaba el perfil hubo un logout o un cambio de cuenta,
+    // este refresco ya no manda: no persiste ni pisa nada.
+    if (!vigente()) return
 
     // Lo que el servidor acaba de decir es lo que se va a recordar la próxima
     // vez que no se lo pueda alcanzar.
     if (perfil) await recordarPerfil(perfil)
 
     const resultado = await evaluarAcceso(perfil)
+    if (!vigente()) return
     set({ perfil, estado: resultado.estado, errorAcceso: resultado.error })
 
     // Anota esta cuenta (nombre, foto, token) en el registro de cuentas del
@@ -358,11 +452,14 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     // contraseña; se refresca acá para que quede el último bueno.
     if (perfil) {
       await recordarCuenta(datosDeCuenta(perfil), sesion.session.refresh_token)
-      set({ cuentas: await listarCuentas() })
+      if (vigente()) set({ cuentas: await listarCuentas() })
     }
   },
 
   async cerrarSesion() {
+    // Cerrar sesión supersede cualquier refresco en vuelo: sin esto, uno del
+    // arranque optimista podía aterrizar después y resucitar la cuenta cerrada.
+    generacion++
     const saliente = get().perfil
     // Frenar el seguimiento con la sesión del que se va todavía puesta: el
     // update de `posiciones_actuales` corre como él.
@@ -404,6 +501,8 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     const actual = get().perfil
     if (actual?.id === perfilId) return
 
+    // Cambiar de cuenta supersede cualquier refresco en vuelo del anterior.
+    generacion++
     set({ procesando: true, errorAcceso: null })
     try {
       // 1) Guardar el token del que se va (por si `autoRefresh` lo rotó recién)
@@ -459,6 +558,9 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   },
 
   async agregarCuenta() {
+    // Sumar otra cuenta deja la actual en espera y muestra el login: supersede
+    // cualquier refresco en vuelo para que no reponga la que quedó en espera.
+    generacion++
     const actual = get().perfil
     if (actual) {
       // Guardar el token del momento de la cuenta que queda en espera: es el
