@@ -23,6 +23,7 @@ import {
   esDescripcionSugerida,
   espaciado,
   ETIQUETA_HERRAMIENTA,
+  herramientaEnLaDescripcion,
   ETIQUETA_MATERIAL_MECHA,
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
@@ -448,16 +449,30 @@ export function PasoRenglon({
   */
   if (item.tipo_pieza) filtrosCascada.geometria = item.tipo_pieza
 
-  const claveCascada = `${item.herramienta ?? ''}|${JSON.stringify(filtrosCascada)}`
+  /**
+   * La familia del catálogo técnico contra la que se buscan las medidas.
+   *
+   * El incisor se carga en SIERRAS —comparte lista de precios y ancho de corte,
+   * y por eso el CÓDIGO DE CÓMPUTO se sigue buscando como sierra, más abajo—,
+   * pero sus medidas viven en la familia `incisor` del catálogo técnico. Si la
+   * cascada pregunta por la familia `sierra`, no encuentra ningún incisor y el
+   * vendedor no puede elegirlo por medida ni le llega el rango del ancho de los
+   * regulables. Sólo la cascada se rerutea; el precio queda igual que antes.
+   */
+  const herramientaCatalogo = item.herramienta
+    ? (herramientaEnLaDescripcion(item.herramienta, item.sierra_clase) ?? item.herramienta)
+    : null
+
+  const claveCascada = `${herramientaCatalogo ?? ''}|${JSON.stringify(filtrosCascada)}`
 
   useEffect(() => {
-    if (!item.herramienta) {
+    if (!herramientaCatalogo) {
       setCascada(CASCADA_VACIA)
       return
     }
     let vigente = true
     const t = setTimeout(() => {
-      medidasEnCascada(item.herramienta!, filtrosCascada)
+      medidasEnCascada(herramientaCatalogo, filtrosCascada)
         .then((r) => {
           if (vigente) setCascada(r)
         })
@@ -1331,7 +1346,12 @@ export function PasoRenglon({
                 etiqueta: ETIQUETA_SIERRA_CLASE[c],
                 descripcion: QUE_ES_EL_DISCO[c],
               }))}
-              alCambiar={(c) => alCambiar({ sierra_clase: c })}
+              // Se limpia el agujero de fábrica: sierra e incisor son familias
+              // distintas del catálogo, y el efecto de la cascada sólo lo
+              // reescribe cuando las medidas dejan un solo agujero posible —
+              // nunca lo borra—, así que sin esto el "de fábrica" del incisor
+              // podía quedar pegado a un renglón de sierra (y al revés).
+              alCambiar={(c) => alCambiar({ sierra_clase: c, diametro_interior_catalogo: '' })}
               error={errores.sierra_clase}
             />
           )
