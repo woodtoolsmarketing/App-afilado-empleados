@@ -1417,6 +1417,7 @@ const MEDIDAS = new Set<CampoItem>([
 
 const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   sierra_clase: '¿SIERRA O INCISOR?',
+  sierra_marca: 'MARCA',
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
   diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
@@ -2346,6 +2347,16 @@ function dibujarCampo(
       error: err.descripcion,
       ayuda: 'Se completa sola con la herramienta. Agregale lo que haga falta.',
       alCambiar: (v) => (item.descripcion = v),
+    })
+  }
+
+  // La marca es texto libre: sin su propio caso caía en el campo numérico, que
+  // borra las letras. En la app real usa el selector de marca (Freud/Shark/…).
+  if (c === 'sierra_marca') {
+    return campo('MARCA', {
+      valor: item.sierra_marca ?? '',
+      ayuda: 'Freud, Shark, o la que sea. Opcional.',
+      alCambiar: (v) => (item.sierra_marca = v.trim() ? v : null),
     })
   }
 

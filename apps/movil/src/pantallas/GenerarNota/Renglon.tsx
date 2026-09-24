@@ -18,6 +18,7 @@ import {
   camposDelItem,
   describirRango,
   descripcionSugerida,
+  SIERRA_MARCAS,
   dientesAAfilar,
   esDescripcionSugerida,
   espaciado,
@@ -64,6 +65,7 @@ import {
   Casilla,
   Desplegable,
   MensajeError,
+  SelectorMarca,
 } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { preciosEspecialesDe } from '../../servicios/notasPedido'
@@ -108,6 +110,7 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  */
 const ETIQUETAS: Record<CampoItem, string> = {
   sierra_clase: '¿SIERRA O INCISOR?',
+  sierra_marca: 'MARCA',
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR (mm)',
   diametro_interior: 'DIÁMETRO INTERIOR (mm, OPCIONAL)',
@@ -377,14 +380,20 @@ export function PasoRenglon({
   // queda.
   useEffect(() => {
     if (!item.herramienta) return
-    // `sierra_clase` está en las dependencias porque un incisor se anuncia
-    // "Incisor" y no "S.C.": contestar el desplegable rehace la descripción.
-    const sugerida = descripcionSugerida(item.herramienta, item.servicio, item.sierra_clase)
+    // `sierra_clase` y `sierra_marca` están en las dependencias porque un incisor
+    // se anuncia "Incisor" y no "S.C.", y la marca se pega a la descripción
+    // ("S.C. Freud"): contestar cualquiera de los dos la rehace.
+    const sugerida = descripcionSugerida(
+      item.herramienta,
+      item.servicio,
+      item.sierra_clase,
+      item.sierra_marca,
+    )
     if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
       alCambiar({ descripcion: sugerida })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.herramienta, item.servicio, item.sierra_clase])
+  }, [item.herramienta, item.servicio, item.sierra_clase, item.sierra_marca])
 
   // ── La máquina se propone sola ───────────────────────────────────────────
   //
@@ -1056,6 +1065,8 @@ export function PasoRenglon({
               // "Es de cuchillas" es del cabezal: al cambiar de herramienta se
               // apaga, para que no reviva sola si más tarde se vuelve a cabezal.
               cabezal_de_cuchillas: false,
+              // La marca es de la sierra: si la nueva no es sierra, se suelta.
+              ...(h !== 'sierra' ? { sierra_marca: null } : {}),
               ...(item.maquina && !maquinasDeLaHerramienta(h).includes(item.maquina)
                 ? { maquina: '' }
                 : {}),
@@ -1322,6 +1333,21 @@ export function PasoRenglon({
               }))}
               alCambiar={(c) => alCambiar({ sierra_clase: c })}
               error={errores.sierra_clase}
+            />
+          )
+        }
+
+        // La marca de la sierra: desplegable con Freud y Shark primero, y con la
+        // posibilidad de escribir una que no esté en la lista. Se pega a la
+        // descripción ("S.C. Freud"). La trae el cliente, así que se elige a mano.
+        if (campo === 'sierra_marca') {
+          return (
+            <SelectorMarca
+              key={campo}
+              etiqueta={ETIQUETAS[campo]}
+              valor={item.sierra_marca}
+              marcas={SIERRA_MARCAS}
+              alCambiar={(m) => alCambiar({ sierra_marca: m })}
             />
           )
         }

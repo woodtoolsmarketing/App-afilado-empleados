@@ -3,6 +3,7 @@ import {
   aNumero,
   DESCRIPCION_GRUPO_NOTA,
   descripcionSugerida,
+  SIERRA_MARCAS,
   numeroDeNotaImpreso,
   DIAS_CHEQUE_MAXIMO,
   esDescripcionSugerida,
@@ -66,7 +67,7 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
-import { Campo, Casilla, Desplegable, MensajeError } from '../../componentes/Formulario'
+import { Campo, Casilla, Desplegable, MensajeError, SelectorMarca } from '../../componentes/Formulario'
 import { Aviso, Cargando, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
@@ -2074,12 +2075,14 @@ function FormularioVenta({
   // vendedor escriba encima no se pisa nunca: sólo se completa mientras siga
   // siendo la nuestra.
   useEffect(() => {
-    const sugerida = descripcionSugerida(item.herramienta, item.servicio)
+    // La venta/reclamo no distingue sierra de incisor (eso es del afilado), pero
+    // sí lleva marca, y la marca se pega a la descripción ("SC nueva Freud").
+    const sugerida = descripcionSugerida(item.herramienta, item.servicio, null, item.sierra_marca)
     if (item.descripcion !== sugerida && esDescripcionSugerida(item.descripcion)) {
       alCambiar({ descripcion: sugerida })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.herramienta, item.servicio])
+  }, [item.herramienta, item.servicio, item.sierra_marca])
 
   return (
     <>
@@ -2141,6 +2144,9 @@ function FormularioVenta({
                   largo: '',
                   ancho: '',
                   espesor: '',
+                  // La marca es de la sierra: al cambiar de herramienta se suelta,
+                  // para no dejarla colgada en una que no es sierra.
+                  sierra_marca: null,
                 },
           )
         }
@@ -2198,6 +2204,19 @@ function FormularioVenta({
         tipoCambio={tipoCambio}
         error={errores.codigo_herramienta}
       />
+
+      {/* La marca de la sierra. En una venta se completa sola con el código
+          elegido (ver `marcaDeCodigo` en el buscador) y queda editable; en un
+          reclamo la elige el vendedor. Se pega a la descripción ("SC nueva
+          Freud"). Sólo en sierras. */}
+      {item.herramienta === 'sierra' ? (
+        <SelectorMarca
+          etiqueta="MARCA"
+          valor={item.sierra_marca}
+          marcas={SIERRA_MARCAS}
+          alCambiar={(m) => alCambiar({ sierra_marca: m })}
+        />
+      ) : null}
 
       <Campo
         etiqueta="DESCRIPCIÓN"

@@ -785,6 +785,9 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         // generó. Al reabrir la nota el desplegable tiene que volver
         // contestado.
         sierra_clase: i.sierra_clase,
+        // La marca de la sierra. El filtro de abajo la descarta si está vacía
+        // (herramientas que no son sierra, o sierra sin marca).
+        sierra_marca: i.sierra_marca,
         tipo_mecha: i.tipo_mecha,
         // Las dos respuestas que eligen el código de afilado de la mecha. Se
         // guardan por lo mismo que las tres de la cuchilla: al reabrir la nota
@@ -1146,6 +1149,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     // En las notas cargadas antes de que existiera el desplegable no está, y
     // vuelve en blanco: es honesto, nadie contestó esa pregunta todavía.
     sierra_clase: (detalle.sierra_clase as SierraClase | null) ?? null,
+    sierra_marca: comoCadena(detalle.sierra_marca) || null,
     tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
     mecha_material: (detalle.mecha_material as MaterialMecha | null) ?? null,
     mecha_dientes: comoCadena(detalle.mecha_dientes),

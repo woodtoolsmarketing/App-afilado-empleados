@@ -155,19 +155,71 @@ export const DESCRIPCION_VENTA: Record<Herramienta, string> = {
 }
 
 /**
+ * Marcas de sierra conocidas, para el desplegable de la marca.
+ *
+ * Freud y Shark primero —son las que más se ven, y así lo pidió la casa—, el
+ * resto alfabético. El desplegable igual deja escribir una marca que no esté en
+ * la lista (ver el componente de marca): esto son atajos, no la lista cerrada.
+ */
+export const SIERRA_MARCAS: string[] = [
+  'Freud',
+  'Shark',
+  'AKE',
+  'CMT',
+  'Dimar',
+  'GUHDO',
+  'Kanefusa',
+  'Leitz',
+  'Leuco',
+  'Stehle',
+  'UdineTools',
+]
+
+/**
+ * De qué marca es un código del catálogo, por su prefijo.
+ *
+ * Sirve para completar sola la marca en una VENTA, donde el código ya identifica
+ * el producto (LG3D es Freud, SSK es Shark). En afilado, rectificado y reclamo la
+ * marca la elige el vendedor: la trae el cliente y no hay código nuestro.
+ *
+ * Sólo mapea lo que se puede afirmar por el prefijo —las líneas de catálogo de
+ * Freud y los códigos de Shark—; para cualquier otro devuelve null y el vendedor
+ * la elige a mano, que es preferible a autocompletar una marca equivocada.
+ */
+export function marcaDeCodigo(codigo: string | null | undefined): string | null {
+  const c = String(codigo ?? '').trim().toUpperCase()
+  if (!c) return null
+  if (c.startsWith('SSK')) return 'Shark'
+  // Líneas de catálogo de Freud: LU, LM, LG, LI, LP, FI, LC…
+  if (/^(LU|LM|LG|LI|LP|FI|LC)/.test(c)) return 'Freud'
+  return null
+}
+
+/** Las descripciones a las que se les pega la marca: sólo las de sierra. */
+const BASES_CON_MARCA = ['S.C.', 'Incisor', 'SC nueva', 'Incisor nuevo']
+
+/**
  * La descripción que corresponde a esa herramienta en ese servicio.
  *
  * `sierraClase` es lo que hace que un incisor salga diciendo "Incisor" y no
  * "S.C.": es el mismo renglón de sierras, pero no es la misma pieza.
+ *
+ * `marca` se le pega a la descripción de la sierra —"S.C. Freud", "Incisor
+ * Shark"— porque la casa quiere ver la marca en la nota. Sólo a las sierras, y
+ * sólo si hay una marca cargada; el resto de las herramientas no la lleva.
  */
 export function descripcionSugerida(
   herramienta: Herramienta | null,
   servicio: TipoServicio,
   sierraClase: SierraClase | null = null,
+  marca: string | null = null,
 ): string {
   const nombra = herramientaEnLaDescripcion(herramienta, sierraClase)
   if (!nombra) return ''
-  return servicio === 'venta' ? DESCRIPCION_VENTA[nombra] : DESCRIPCION_SERVICIO[nombra]
+  const base = servicio === 'venta' ? DESCRIPCION_VENTA[nombra] : DESCRIPCION_SERVICIO[nombra]
+  const esSierra = nombra === 'sierra' || nombra === 'incisor'
+  const m = String(marca ?? '').trim()
+  return esSierra && m ? `${base} ${m}` : base
 }
 
 /**
@@ -188,11 +240,24 @@ const DESCRIPCIONES_ANTERIORES = ['S.C. nueva', 'S.C.']
 export function esDescripcionSugerida(texto: string): boolean {
   const t = texto.trim()
   if (!t) return true
-  return (
+  if (
     Object.values(DESCRIPCION_SERVICIO).includes(t) ||
     Object.values(DESCRIPCION_VENTA).includes(t) ||
     DESCRIPCIONES_ANTERIORES.includes(t)
-  )
+  ) {
+    return true
+  }
+  // "S.C. Freud", "Incisor Shark", "SC nueva CMT": una base de sierra con una
+  // marca CONOCIDA pegada. Se reconoce como nuestra para poder rehacerla al
+  // cambiar la marca.
+  //
+  // La marca tiene que ser una de la lista, no cualquier texto: si sólo se
+  // pidiera que EMPIECE con "S.C. ", una descripción que el vendedor escribió a
+  // mano —"S.C. widia 300x30 gastada", que es justo lo que esa columna guarda—
+  // pasaría por nuestra y se pisaría al tocar la marca. Una marca escrita a mano
+  // que no está en la lista queda como texto del vendedor y no se toca: es el
+  // precio de no perder lo que escribió, y el caso raro.
+  return BASES_CON_MARCA.some((b) => SIERRA_MARCAS.some((m) => t === `${b} ${m}`))
 }
 
 /** Familia del catálogo de precios contra la que se busca el código de cómputo. */
@@ -319,6 +384,7 @@ export type ManoMecha = 'derecha' | 'izquierda'
 
 export type CampoItem =
   | 'sierra_clase'
+  | 'sierra_marca'
   | 'cantidad'
   | 'diametro_exterior'
   | 'diametro_interior'
@@ -368,7 +434,7 @@ export const CAMPOS_POR_HERRAMIENTA: Record<Herramienta, CampoItem[]> = {
    * vendedor ve completarse sola apenas contesta.
    */
   sierra: [
-    'sierra_clase',
+    'sierra_clase', 'sierra_marca',
     'cantidad', 'diametro_exterior', 'ancho_corte', 'codigos_computo',
     'diametro_interior', 'descripcion', 'cantidad_dientes', 'rascadores',
     'dientes_rotos', 'dientes_rotos_cantidad', 'reparar_dientes',
@@ -1185,6 +1251,16 @@ export interface FormularioItemNota {
   sierra_clase: SierraClase | null
 
   /**
+   * La marca de la sierra —"Freud", "Shark", o una escrita a mano—.
+   *
+   * Sólo en sierras. En una venta se completa sola por el código elegido (ver
+   * `marcaDeCodigo`) y queda editable; en afilado, rectificado y reclamo la elige
+   * el vendedor, porque la trae el cliente. Se pega a la descripción del renglón
+   * ("S.C. Freud"). Opcional: la sierra puede venir sin marca.
+   */
+  sierra_marca: string | null
+
+  /**
    * Qué tipo de pieza es, dentro de su herramienta.
    *
    * Guarda el mismo valor que `catalogo_medidas.geometria`, así que el renglón
@@ -1361,6 +1437,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   paso: '',
   largo_rebajado: '',
   sierra_clase: null,
+  sierra_marca: null,
   tipo_pieza: null,
   cabezal_de_cuchillas: false,
   tipo_mecha: null,
@@ -1404,6 +1481,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   descripcion: 'la descripción',
   cantidad_dientes: 'la cantidad de dientes',
   sierra_clase: 'si es sierra o incisor',
+  sierra_marca: 'la marca',
   tipo_pieza: 'el tipo de pieza',
   tipo_mecha: 'el tipo de mecha',
   mano: 'si es derecha o izquierda',
@@ -1425,6 +1503,9 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
  * vendedor marcó que hay dientes rotos— y esa regla está escrita aparte.
  */
 const NO_OBLIGATORIOS: CampoItem[] = [
+  // La marca es opcional: la sierra puede venir sin marca o el vendedor no
+  // saberla. Se ofrece, no se exige.
+  'sierra_marca',
   // La mayoría de las sierras no lleva rascadores: se pregunta por si acaso y
   // vacío quiere decir que no tiene, que es el caso normal.
   'rascadores',

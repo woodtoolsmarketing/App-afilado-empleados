@@ -342,6 +342,7 @@ function HojaDeOpciones({
   forzarBuscador,
   marcadorBusqueda = 'Escribí para filtrar…',
   vacio = 'No hay ninguna opción que coincida.',
+  alUsarLibre,
 }: {
   visible: boolean
   titulo: string
@@ -354,6 +355,12 @@ function HojaDeOpciones({
   forzarBuscador?: boolean
   marcadorBusqueda?: string
   vacio?: string
+  /**
+   * Si está, la hoja deja ELEGIR UN VALOR LIBRE: cuando lo tipeado no coincide
+   * exactamente con ninguna opción, aparece un "Usar «…»" que lo acepta tal
+   * cual. Es lo que hace del desplegable de marca uno donde también se escribe.
+   */
+  alUsarLibre?: (texto: string) => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -365,7 +372,14 @@ function HojaDeOpciones({
     if (visible) setFiltro(filtroInicial)
   }, [visible, filtroInicial])
 
-  const conBuscador = forzarBuscador ?? items.length > OPCIONES_PARA_BUSCADOR
+  // Con valor libre siempre hace falta el buscador: es donde se escribe la marca
+  // que no está en la lista.
+  const conBuscador = !!alUsarLibre || (forzarBuscador ?? items.length > OPCIONES_PARA_BUSCADOR)
+  const textoLibre = filtro.trim()
+  const hayLibre =
+    !!alUsarLibre &&
+    textoLibre.length > 0 &&
+    !items.some((i) => comparable(i.etiqueta) === comparable(textoLibre))
   // El alto se fija cuando hay muchas opciones, que es cuando el ScrollView
   // puede colapsar.
   const listaLarga = items.length > OPCIONES_PARA_BUSCADOR
@@ -418,7 +432,15 @@ function HojaDeOpciones({
             bounces={false}
             keyboardShouldPersistTaps="handled"
           >
-            {visibles.length === 0 ? (
+            {hayLibre ? (
+              <Opcion
+                etiqueta={`Usar «${textoLibre}»`}
+                descripcion="Marca escrita a mano"
+                seleccionada={comparable(textoLibre) === comparable(elegido ?? '')}
+                alSeleccionar={() => alUsarLibre?.(textoLibre)}
+              />
+            ) : null}
+            {visibles.length === 0 && !hayLibre ? (
               <Text style={estilos.hojaVacia}>{vacio}</Text>
             ) : (
               visibles.map((item) => (
@@ -581,6 +603,80 @@ export function Desplegable<T extends string>({
         forzarBuscador={buscable}
         marcadorBusqueda={marcadorBusqueda}
         vacio={vacio}
+      />
+    </View>
+  )
+}
+
+/**
+ * Selector de MARCA: un desplegable que ADEMÁS deja escribir una marca que no
+ * está en la lista.
+ *
+ * Se diferencia del `Desplegable` en dos cosas: muestra el valor aunque sea uno
+ * tipeado a mano (el `Desplegable` sólo muestra opciones de su lista), y la hoja
+ * ofrece "Usar «…»" cuando lo escrito no coincide con ninguna marca conocida.
+ */
+export function SelectorMarca({
+  etiqueta,
+  valor,
+  marcas,
+  alCambiar,
+  error,
+  marcador = 'Elegí o escribí la marca',
+}: {
+  etiqueta?: string
+  valor: string | null
+  marcas: string[]
+  alCambiar: (marca: string) => void
+  error?: string | null
+  marcador?: string
+}) {
+  const estilos = usarEstilos()
+  const [abierto, setAbierto] = useState(false)
+  // La primera opción limpia la marca: una sierra puede venir sin marca, y sin
+  // esto —una vez elegida— sólo se podía cambiar a otra, nunca sacar.
+  const items = [
+    { valor: '', etiqueta: '— Sin marca —' },
+    ...marcas.map((m) => ({ valor: m, etiqueta: m })),
+  ]
+  const texto = (valor ?? '').trim()
+
+  return (
+    <View style={estilos.campoContenedor}>
+      {etiqueta ? <Etiqueta>{etiqueta}</Etiqueta> : null}
+      <Pressable
+        onPress={() => setAbierto(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`${etiqueta ?? 'Marca'}: ${texto || marcador}`}
+        style={({ pressed }) => [estilos.desplegableFila, pressed && estilos.filaPresionada]}
+      >
+        <View
+          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+        >
+          <Text style={[estilos.campoTexto, !texto && estilos.marcador]} numberOfLines={1}>
+            {texto || marcador}
+          </Text>
+        </View>
+        <Text style={estilos.flecha}>▼</Text>
+      </Pressable>
+
+      <MensajeError>{error}</MensajeError>
+
+      <HojaDeOpciones
+        visible={abierto}
+        titulo={etiqueta ?? 'Marca'}
+        items={items}
+        elegido={texto || null}
+        alElegir={(v) => {
+          alCambiar(v)
+          setAbierto(false)
+        }}
+        alUsarLibre={(t) => {
+          alCambiar(t)
+          setAbierto(false)
+        }}
+        alCerrar={() => setAbierto(false)}
+        marcadorBusqueda="Buscá o escribí la marca…"
       />
     </View>
   )

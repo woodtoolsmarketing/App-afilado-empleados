@@ -7,6 +7,7 @@ import {
   FAMILIA_PRODUCTO,
   formatearMoneda,
   formatearPesos,
+  marcaDeCodigo,
   radios,
   resumenCaracteristicas,
   type CaracteristicasArticulo,
@@ -288,11 +289,18 @@ function VentanaBusqueda({
    */
   function elegir(a: ArticuloCatalogo) {
     const c = caracteristicasDeArticulo(a.descripcion, a.medida)
+    // En una VENTA de sierra la marca SIGUE al artículo elegido: la que sale del
+    // código (LG3D es Freud, SSK es Shark), y si el código no la dice, se limpia
+    // para que no quede pegada la del artículo anterior. Queda editable. En un
+    // reclamo la trae el cliente, así que no se toca la que el vendedor eligió.
+    const esVentaSierra = item.servicio === 'venta' && item.herramienta === 'sierra'
+    const nuevaMarca = esVentaSierra ? marcaDeCodigo(a.codigo) : item.sierra_marca
     alElegir({
       codigo_herramienta: a.codigo,
       ...(esDescripcionSugerida(item.descripcion)
-        ? { descripcion: descripcionSugerida(item.herramienta, item.servicio) }
+        ? { descripcion: descripcionSugerida(item.herramienta, item.servicio, null, nuevaMarca) }
         : {}),
+      ...(esVentaSierra ? { sierra_marca: nuevaMarca } : {}),
       descripcion_catalogo: a.descripcion,
       precio: String(a.precio),
       moneda: a.moneda === 'USD' ? 'USD' : 'ARS',
