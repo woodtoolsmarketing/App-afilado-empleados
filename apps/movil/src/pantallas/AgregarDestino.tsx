@@ -317,8 +317,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         // Sin coordenadas del cliente no hay con qué medir: entra al recorrido
         // como uno más y la optimización lo ubica. (Igual no llegaría acá: el
         // alta rechaza a los clientes sin ubicar.)
-        prioridad:
-          form.cliente!.lat !== null && form.cliente!.lng !== null
+        // Agendando para otro día la cercanía de ahora no dice nada del orden de
+        // esa jornada futura: entra como 'baja' para que no se clave de Nº 1.
+        prioridad: esOtroDia
+          ? 'baja'
+          : form.cliente!.lat !== null && form.cliente!.lng !== null
             ? await prioridadPorCercania(form.cliente!.lat, form.cliente!.lng)
             : 'baja',
       })
@@ -937,7 +940,11 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       // medir: si el vendedor está encima, el destino se clava adelante.
       return agregarDestinoClienteNuevo({
         rolVisitaId: jornada.id,
-        form: { ...form, prioridad: await prioridadPorCercania(form.lat!, form.lng!) },
+        // Para otro día no vale la cercanía de ahora (ver arriba): entra 'baja'.
+        form: {
+          ...form,
+          prioridad: esOtroDia ? 'baja' : await prioridadPorCercania(form.lat!, form.lng!),
+        },
       })
     },
     onSuccess: async (parada) => {

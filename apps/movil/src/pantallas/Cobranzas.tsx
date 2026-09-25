@@ -193,6 +193,10 @@ function FormularioCobro({
    * un cliente de la búsqueda de abajo, igual que en el Paso 1 de la nota.
    */
   const [clienteIdElegido, setClienteIdElegido] = useState<string | null>(clienteId)
+  // La nota precargada (si se entró desde una nota) es del PRIMER cobro: se
+  // resetea en onSuccess como el cliente, para que el segundo cobro cargado en
+  // la misma pantalla no quede enganchado a la nota del primero.
+  const [notaIdActual, setNotaIdActual] = useState<string | null>(notaId)
 
   // ── Búsqueda de cliente ───────────────────────────────────────────────────
   // Mismo patrón que `PasoCliente` en GenerarNota/Encabezado.tsx —debounce,
@@ -297,7 +301,7 @@ function FormularioCobro({
   const guardar = useMutation({
     mutationFn: () =>
       registrarCobranza({
-        notaId,
+        notaId: notaIdActual,
         clienteId: clienteIdElegido,
         clienteCodigo: codigo.trim() || null,
         clienteNombre: nombre.trim(),
@@ -313,6 +317,7 @@ function FormularioCobro({
       setEfectivo('')
       setComentarios('')
       setClienteIdElegido(null)
+      setNotaIdActual(null)
       setConsulta('')
       setResultados([])
       // A partir de acá cualquier otro cobro que se cargue en esta pantalla

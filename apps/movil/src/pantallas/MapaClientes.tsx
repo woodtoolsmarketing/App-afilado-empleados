@@ -185,6 +185,9 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
       agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad }),
     onSuccess: async (_parada, v) => {
       setTocado(null)
+      // Refrescar la jornada: sin esto, el Recorrido y el Menú que quedaron
+      // montados seguían mostrando la lista vieja (igual que en AgregarDestino).
+      await cliente.invalidateQueries()
       if (v.prioridad === 'alta') {
         // Próximo destino: lo dejó como próxima parada y ahora abre Google Maps
         // para ir directo hasta la dirección del cliente.

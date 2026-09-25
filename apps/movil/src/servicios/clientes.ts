@@ -236,7 +236,14 @@ export async function agregarDestinoExistente(params: {
     p_cliente_id: params.cliente.cliente_id,
   })
 
-  if (error) throw error
+  if (error) {
+    // El cliente ya tiene una parada hoy (p. ej. quedó omitida al finalizar):
+    // en vez del error crudo de Postgres, un mensaje que se entienda.
+    if (error.code === '23505') {
+      throw new Error('Ese cliente ya está en tu recorrido de hoy.')
+    }
+    throw error
+  }
   return data as ParadaCompleta
 }
 
