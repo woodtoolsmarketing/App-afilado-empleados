@@ -5,7 +5,6 @@ import * as TaskManager from 'expo-task-manager'
 import { distanciaEnMetros } from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
-import { pareceFaltaDeSenal } from '../nucleo/loUltimoQueSupimos'
 
 /**
  * Seguimiento de la ubicación durante el recorrido.
@@ -316,16 +315,23 @@ async function drenarCola(): Promise<boolean> {
     return true
   }
 
-  // Sin señal se deja la cola entera para reintentar. Si en cambio Postgres
-  // rechazó el lote (RLS, constraint), un solo punto malo bloquearía todo: se
-  // reintenta punto por punto y se conservan SÓLO los que fallan por red,
-  // descartando los que suben o los que la base rechaza de forma definitiva.
-  if (pareceFaltaDeSenal(error)) return false
+  // El lote falló. Sólo vale reintentar punto por punto cuando el rechazo es del
+  // tipo que UN punto puede causar por sí mismo (RLS o integridad): ahí un punto
+  // malo —p. ej. de otra cuenta— envenena al resto y hay que soltarlo. Cualquier
+  // otro fallo (red, 5xx del gateway, agotamiento de conexiones) afecta a TODOS
+  // por igual y es transitorio: se conserva la cola entera para el próximo drenado
+  // en vez de perder la traza de la tarde.
+  if (!esRechazoDefinitivo(error)) return false
 
   const quedan: PuntoEncolado[] = []
   for (const punto of cola) {
     const { error: e } = await supabase.from('posiciones').insert(punto)
-    if (e && pareceFaltaDeSenal(e)) quedan.push(punto)
+    if (!e) continue // subió: se descarta de la cola
+    // Se suelta SÓLO el punto que la base rechaza de forma definitiva (RLS/
+    // integridad): reintentarlo daría siempre lo mismo. Un fallo transitorio se
+    // conserva.
+    if (esRechazoDefinitivo(e)) continue
+    quedan.push(punto)
   }
   if (quedan.length === 0) {
     await cacheLocal.removeItem(CLAVE_COLA)
@@ -333,6 +339,20 @@ async function drenarCola(): Promise<boolean> {
   }
   await cacheLocal.setItem(CLAVE_COLA, JSON.stringify(quedan))
   return false
+}
+
+/**
+ * ¿La base rechazó esta fila de forma DEFINITIVA (reintentarla daría lo mismo)?
+ *
+ * Sólo los códigos SQLSTATE de permiso/RLS (42501) e integridad (clase 23:
+ * unique, FK, check, not-null). Un 5xx del gateway, un agotamiento de conexiones
+ * (53xxx) o una caída de red no traen ese código: son transitorios y NO se
+ * descartan, para no perder puntos que sí van a poder subir después.
+ */
+function esRechazoDefinitivo(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code
+  if (typeof code !== 'string') return false
+  return code === '42501' || code.startsWith('23')
 }
 
 /**
