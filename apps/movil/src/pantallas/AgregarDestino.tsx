@@ -348,6 +348,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   })
 
   function alAgregar() {
+    // Ya se agregó: un segundo toque (volviendo con Atrás a esta pantalla, que
+    // queda montada) crearía un destino/cliente duplicado.
+    if (guardar.isPending || guardar.isSuccess) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarDestinoExistente(form)
     setErrores(nuevos)
@@ -552,6 +555,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             titulo={'AGREGAR AL\nRECORRIDO'}
             alTocar={alAgregar}
             cargando={guardar.isPending}
+            deshabilitado={guardar.isSuccess}
           />
         </Panel>
       </KeyboardAvoidingView>
@@ -962,6 +966,9 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   })
 
   function alAgregar() {
+    // Ya se agregó: un segundo toque (volviendo con Atrás a esta pantalla, que
+    // queda montada) crearía un destino/cliente duplicado.
+    if (guardar.isPending || guardar.isSuccess) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarDestinoNuevo(form)
     setErrores(nuevos)
@@ -1082,6 +1089,7 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
             titulo={'AGREGAR AL\nRECORRIDO'}
             alTocar={alAgregar}
             cargando={guardar.isPending}
+            deshabilitado={guardar.isSuccess}
           />
         </Panel>
       </KeyboardAvoidingView>

@@ -323,6 +323,9 @@ function FormularioCliente({
    * dirección en blanco.
    */
   const domicilioDelPadron = [cliente?.direccion, cliente?.localidad].filter(Boolean).join(', ')
+  // El domicilio con el que se abre la ficha (fila de direcciones o texto del
+  // padrón). Sirve para saber si el admin realmente TOCÓ la dirección.
+  const direccionInicial = principal?.direccion_formateada ?? domicilioDelPadron
 
   const [form, setForm] = useState({
     codigo: cliente?.codigo ?? '',
@@ -333,7 +336,7 @@ function FormularioCliente({
     telefono: cliente?.telefono ?? '',
     email: cliente?.email ?? '',
     vendedor_id: cliente?.vendedor_id ?? '',
-    direccion: principal?.direccion_formateada ?? domicilioDelPadron,
+    direccion: direccionInicial,
     codigo_postal: principal?.codigo_postal ?? cliente?.codigo_postal ?? '',
     lat: principal?.lat != null ? String(principal.lat) : '',
     lng: principal?.lng != null ? String(principal.lng) : '',
@@ -343,6 +346,17 @@ function FormularioCliente({
   const [errores, setErrores] = useState<Partial<Record<'codigo' | 'razon_social' | 'lat' | 'lng', string>>>(
     {},
   )
+
+  // Guardar la dirección (y exigir lat/lng) sólo cuando de verdad se la quiere
+  // tocar: hay una fila ya geolocalizada, se tipearon coordenadas, o se cambió
+  // el texto. Un cliente del padrón que se abre para corregir el teléfono trae
+  // la calle precargada pero sin coords, y no hay que trabar el guardado por eso.
+  const quiereGuardarDireccion =
+    form.direccion.trim() !== '' &&
+    (Boolean(principal) ||
+      form.lat.trim() !== '' ||
+      form.lng.trim() !== '' ||
+      form.direccion.trim() !== direccionInicial.trim())
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null)
 
   function actualizar(campo: keyof typeof form, valor: string) {
@@ -366,8 +380,9 @@ function FormularioCliente({
     if (!form.codigo.trim()) e.codigo = 'Poné el número de cliente.'
     if (!form.razon_social.trim()) e.razon_social = 'Poné la razón social.'
     // Sin coordenadas el cliente no se puede meter en un recorrido: la ruta se
-    // calcula sobre lat/lng, no sobre el texto de la dirección.
-    if (form.direccion.trim()) {
+    // calcula sobre lat/lng, no sobre el texto de la dirección. Sólo se exige
+    // cuando se está guardando la dirección de verdad (ver quiereGuardarDireccion).
+    if (quiereGuardarDireccion) {
       if (!form.lat.trim()) e.lat = 'Falta la latitud. Ej. -34,6037'
       else if (!Number.isFinite(aCoordenada(form.lat))) e.lat = 'Tiene que ser un número. Ej. -34,6037'
       if (!form.lng.trim()) e.lng = 'Falta la longitud. Ej. -58,3816'
@@ -394,7 +409,7 @@ function FormularioCliente({
         // sigue apareciendo en el aviso de pendientes.
         provisorio: form.codigo.trim().toUpperCase().startsWith('P-'),
       }
-      const direccion: DatosDireccionPrincipal | null = form.direccion.trim()
+      const direccion: DatosDireccionPrincipal | null = quiereGuardarDireccion
         ? {
             direccion_formateada: form.direccion.trim(),
             codigo_postal: form.codigo_postal.trim() || null,

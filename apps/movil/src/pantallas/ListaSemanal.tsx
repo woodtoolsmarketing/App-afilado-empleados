@@ -69,12 +69,17 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
    */
   const [elegidos, setElegidos] = useState<ClienteDeLista[]>([])
   const [base, setBase] = useState('')
+  // Qué día corresponde a lo que se está editando. Mientras no llega la lista
+  // del día nuevo, `elegidos`/`base` son todavía del día anterior: sin esto,
+  // GUARDAR podía escribir la lista de un día sobre la de otro.
+  const [diaCargado, setDiaCargado] = useState<number | null>(null)
 
   useEffect(() => {
     if (!guardada) return
     setElegidos(guardada)
     setBase(guardada.map((c) => c.cliente_id).join(','))
-  }, [guardada])
+    setDiaCargado(dia)
+  }, [guardada, dia])
 
   const claveActual = elegidos.map((c) => c.cliente_id).join(',')
   const hayCambios = claveActual !== base
@@ -382,9 +387,11 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
           */}
           <BotonMenu
             titulo="GUARDAR LA LISTA"
-            alTocar={() => guardar.mutate()}
+            alTocar={() => {
+              if (diaCargado === dia) guardar.mutate()
+            }}
             cargando={guardar.isPending}
-            deshabilitado={!hayCambios}
+            deshabilitado={!hayCambios || diaCargado !== dia}
           />
         </Panel>
       </KeyboardAvoidingView>

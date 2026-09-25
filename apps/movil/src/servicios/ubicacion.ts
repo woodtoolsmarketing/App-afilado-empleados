@@ -5,6 +5,7 @@ import * as TaskManager from 'expo-task-manager'
 import { distanciaEnMetros } from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
+import { pareceFaltaDeSenal } from '../nucleo/loUltimoQueSupimos'
 
 /**
  * Seguimiento de la ubicación durante el recorrido.
@@ -286,19 +287,52 @@ async function encolar(punto: PuntoEncolado): Promise<void> {
   await cacheLocal.setItem(CLAVE_COLA, JSON.stringify(cola.slice(-MAX_EN_COLA)))
 }
 
-/** Devuelve si la cola llegó al servidor. Sólo borra cuando llegó. */
+/** Devuelve si la cola llegó entera al servidor. Sólo borra lo que se aceptó. */
 async function drenarCola(): Promise<boolean> {
   const crudo = await cacheLocal.getItem(CLAVE_COLA)
   if (!crudo) return true
 
-  const cola: PuntoEncolado[] = JSON.parse(crudo)
+  let cola: PuntoEncolado[] = JSON.parse(crudo)
   if (cola.length === 0) return true
 
-  const { error } = await supabase.from('posiciones').insert(cola)
-  if (error) return false
+  // Los puntos de OTRA cuenta la RLS los rechaza siempre y envenenarían la cola.
+  // La cola es del vendedor en curso: los ajenos se descartan.
+  const contexto = await leerContexto()
+  if (contexto) {
+    const propios = cola.filter((p) => p.vendedor_id === contexto.vendedorId)
+    if (propios.length !== cola.length) {
+      cola = propios
+      await cacheLocal.setItem(CLAVE_COLA, JSON.stringify(cola))
+    }
+  }
+  if (cola.length === 0) {
+    await cacheLocal.removeItem(CLAVE_COLA)
+    return true
+  }
 
-  await cacheLocal.removeItem(CLAVE_COLA)
-  return true
+  const { error } = await supabase.from('posiciones').insert(cola)
+  if (!error) {
+    await cacheLocal.removeItem(CLAVE_COLA)
+    return true
+  }
+
+  // Sin señal se deja la cola entera para reintentar. Si en cambio Postgres
+  // rechazó el lote (RLS, constraint), un solo punto malo bloquearía todo: se
+  // reintenta punto por punto y se conservan SÓLO los que fallan por red,
+  // descartando los que suben o los que la base rechaza de forma definitiva.
+  if (pareceFaltaDeSenal(error)) return false
+
+  const quedan: PuntoEncolado[] = []
+  for (const punto of cola) {
+    const { error: e } = await supabase.from('posiciones').insert(punto)
+    if (e && pareceFaltaDeSenal(e)) quedan.push(punto)
+  }
+  if (quedan.length === 0) {
+    await cacheLocal.removeItem(CLAVE_COLA)
+    return true
+  }
+  await cacheLocal.setItem(CLAVE_COLA, JSON.stringify(quedan))
+  return false
 }
 
 /**
