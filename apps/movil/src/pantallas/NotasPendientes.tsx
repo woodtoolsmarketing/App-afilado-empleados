@@ -96,7 +96,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
   // referencia a sí mismo mientras lo está construyendo.
   const imprimir = useMutation<
-    ResultadoImpresion & { ids: string[] },
+    ResultadoImpresion & { ids: string[]; selladoFallo: boolean },
     Error,
     { comoPdf: boolean; conDialogo?: boolean }
   >({
@@ -119,11 +119,36 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       // Idem: sin confirmación de la impresora, las notas siguen pendientes.
       // Marcarlas igual las sacaba de esta lista para siempre aunque el
       // vendedor hubiera cancelado el diálogo de Android.
-      if (resultado.confirmado) await marcarImpresas(ids)
-      return { ...resultado, ids }
+      //
+      // El sellado es un UPDATE por internet que puede fallar aunque el papel
+      // (IPP, red local) ya haya salido. Si falla NO se trata como error de
+      // impresión —el "Reintentar" del onError volvería a sacar el papel—: se
+      // marca `selladoFallo` y el onSuccess ofrece sellar sin reimprimir.
+      let selladoFallo = false
+      if (resultado.confirmado) {
+        try {
+          await marcarImpresas(ids)
+        } catch {
+          selladoFallo = true
+        }
+      }
+      return { ...resultado, ids, selladoFallo }
     },
     onSuccess: (r, opciones) => {
       void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      // El papel salió pero no se pudo sellar: se avisa y se ofrece sellar sin
+      // volver a imprimir (la mutación `confirmar` sólo marca, no saca papel).
+      if (r.selladoFallo) {
+        Alert.alert(
+          'El papel salió',
+          'Salió el papel, pero no pudimos marcarlas como impresas (parece falta de señal). Siguen en pendientes.',
+          [
+            { text: 'Marcar ahora', onPress: () => confirmar.mutate(r.ids) },
+            { text: 'Después', style: 'cancel' },
+          ],
+        )
+        return
+      }
       const base = opciones.comoPdf ? 'Podés compartirlo o guardarlo.' : r.mensaje
       // Que el rol no saliera no invalida la impresión: se cuenta abajo, sin
       // convertirlo en un error.
@@ -155,7 +180,16 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
     },
     // Es la pantalla del "llego a la oficina e imprimo todo lo del día": el
     // reintento tiene que estar a un toque, sin volver a armar la selección.
-    onError: (e: Error) => {
+    onError: (e: Error, opciones) => {
+      // Si lo que falló fue generar el PDF, "Reintentar" tiene que volver a
+      // intentar el PDF, no mandar las notas a la impresora.
+      if (opciones.comoPdf) {
+        Alert.alert('No pudimos generar el PDF', e.message, [
+          { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: true }) },
+          { text: 'Cancelar', style: 'cancel' },
+        ])
+        return
+      }
       Alert.alert('No pudimos imprimir', e.message, [
         { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
         {

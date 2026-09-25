@@ -270,6 +270,13 @@ export function usarDictado(): EstadoDictado {
       }
 
       if (data?.aviso) {
+        // El backend entendió el audio pero no sacó texto ("probá grabar de
+        // nuevo"): reenviar los mismos bytes daría el mismo veredicto, así que
+        // este audio se descarta como en el éxito y el próximo toque graba uno
+        // nuevo, en vez de quedar el micrófono trabado reenviando lo mismo.
+        await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
+        uriPendiente.current = null
+        setAudioPendiente(false)
         setError(data.aviso)
         return null
       }

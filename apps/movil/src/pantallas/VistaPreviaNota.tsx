@@ -377,6 +377,10 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
       ) : null}
 
       <View style={estilos.pie}>
+        {/* El SUBTOTAL que sale impreso: la vista previa no lo mostraba. */}
+        {nota.totales ? (
+          <Text style={estilos.dato}>Subtotal: {nota.totales}</Text>
+        ) : null}
         <Text style={estilos.dato}>Condición de venta: {nota.condicion_venta || '—'}</Text>
         {/* Pasa por `formatearPesos` como en todas las demás pantallas. Salía
             crudo —"1234.56", sin signo y sin separador de miles—, que es el

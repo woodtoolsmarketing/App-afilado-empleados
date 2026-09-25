@@ -938,6 +938,18 @@ export function PasoRenglon({
     // par entra en un tercio de fila: "LARGO QUE TIENE HOY" se parte en tres
     // renglones.
     if (campo === 'largo' && item.servicio === 'rebaje') return 'LARGO DE HOY (mm)'
+    // En un cabezal portacuchillas se cobra por cuchilla, no por cabezal: la
+    // cantidad son las cuchillas. Va acá (y no sólo en la rama suelta) porque
+    // 'cantidad' se dibuja de a pares y ahí el rótulo especial se perdía, y el
+    // vendedor cargaba cabezales cobrando un cuarto.
+    if (campo === 'cantidad') {
+      const queCosa = comoCuchilla
+        ? SINGULAR_HERRAMIENTA.cuchilla
+        : item.herramienta
+          ? SINGULAR_HERRAMIENTA[item.herramienta]
+          : 'HERRAMIENTAS'
+      return `CANTIDAD DE ${queCosa}`
+    }
     return ETIQUETAS[campo]
   }
 
@@ -1449,14 +1461,7 @@ export function PasoRenglon({
         }
 
         if (campo === 'cantidad') {
-          // En un cabezal portacuchillas se cobra por cuchilla, no por cabezal:
-          // el largo va por cada 100 mm y la cantidad son las cuchillas.
-          const queCosa = comoCuchilla
-            ? SINGULAR_HERRAMIENTA.cuchilla
-            : item.herramienta
-              ? SINGULAR_HERRAMIENTA[item.herramienta]
-              : 'HERRAMIENTAS'
-          return campoNumerico(campo, `CANTIDAD DE ${queCosa}`, 'tercio')
+          return campoNumerico(campo, rotulo(campo), 'tercio')
         }
 
         if (campo === 'cantidad_dientes') {

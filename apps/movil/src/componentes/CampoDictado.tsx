@@ -1,4 +1,5 @@
 
+import { useRef } from 'react'
 import { ActivityIndicator, Pressable, Text } from 'react-native'
 
 import { Campo, type PropsCampo } from './Formulario'
@@ -28,6 +29,11 @@ export function CampoDictado({
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const dictado = usarDictado()
+  // El valor MÁS RECIENTE: la transcripción llega después de un await, y sin
+  // esto se sumaba al `valor` capturado en la closure, pisando lo que el
+  // vendedor tipeó mientras se transcribía.
+  const valorRef = useRef(valor)
+  valorRef.current = valor
 
   async function alTocarMicrofono() {
     // Grabando, o con audio esperando que lo pasen a texto: en los dos casos
@@ -36,8 +42,9 @@ export function CampoDictado({
     if (dictado.grabando || dictado.audioPendiente) {
       const texto = await dictado.detenerYTranscribir()
       if (texto) {
-        const separador = valor.trim() ? ' ' : ''
-        alCambiar(`${valor.trim()}${separador}${texto}`)
+        const actual = valorRef.current
+        const separador = actual.trim() ? ' ' : ''
+        alCambiar(`${actual.trim()}${separador}${texto}`)
         alCambiarOrigen?.('voz')
       }
       return
