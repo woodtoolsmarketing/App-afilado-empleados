@@ -42,7 +42,7 @@ export function PantallaCobranzas({ navigation, route }: PropsPantalla<'Cobranza
   const cliente = useQueryClient()
   const [cargando, setCargando] = useState(false)
 
-  const { data: cobros, isLoading } = useQuery({
+  const { data: cobros, isLoading, isError, refetch } = useQuery({
     queryKey: ['cobranzas-del-dia'],
     queryFn: () => cobranzasDelDia(),
   })
@@ -69,6 +69,16 @@ export function PantallaCobranzas({ navigation, route }: PropsPantalla<'Cobranza
 
         {isLoading ? (
           <Cargando />
+        ) : isError ? (
+          // Si la consulta falla no es lo mismo que "no cargaste nada": mostrarlo
+          // como vacío hacía que el vendedor recargara un cobro que ya estaba.
+          <View style={estilos.lista}>
+            <Aviso tono="error" titulo="No pudimos traer los cobros de hoy">
+              Puede ser la señal. Reintentá antes de cargar un cobro, así no cargás uno
+              que ya estaba.
+            </Aviso>
+            <BotonSecundario titulo="Reintentar" alTocar={() => void refetch()} />
+          </View>
         ) : (cobros ?? []).length === 0 ? (
           <Vacio
             titulo="Todavía no cargaste ningún cobro"
