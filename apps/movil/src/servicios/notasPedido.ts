@@ -1453,6 +1453,22 @@ export async function marcarImpresas(ids: string[]): Promise<void> {
     .in('id', ids)
     .eq('estado', 'pendiente_cliente')
   if (errorSinNumero) throw errorSinNumero
+
+  // Si estas notas tenían una orden viva en la cola de la oficina, se cancela:
+  // ya salieron en papel acá, y si no la PC de la oficina las imprimía de nuevo
+  // (doble juego). La RLS `ordenes_impresion_cancelar_propia` sólo deja cancelar
+  // las pendientes propias. Best-effort: que fallar la cancelación NO rompa el
+  // sellado, que es lo que importa.
+  try {
+    await supabase
+      .from('ordenes_impresion')
+      .update({ estado: 'cancelada' })
+      .in('nota_id', ids)
+      .eq('estado', 'pendiente')
+  } catch {
+    // La orden queda viva; la doble impresión es un riesgo menor que trabar el
+    // sellado. La oficina puede descartarla desde la Cola de impresión.
+  }
 }
 
 /**
