@@ -1519,9 +1519,10 @@ const NO_OBLIGATORIOS: CampoItem[] = [
 ]
 
 function esNumeroValido(v: string): boolean {
-  if (!v.trim()) return false
-  const n = Number(v.replace(',', '.'))
-  return Number.isFinite(n) && n > 0
+  // Vale lo mismo que lee `aNumero`: un precio escrito a la argentina con
+  // separador de miles ("1.234,56") que `aNumero` entiende no puede quedar
+  // rechazado acá, o el vendedor no puede guardar la nota con un precio válido.
+  return aNumero(v) > 0
 }
 
 const CAMPOS_NUMERICOS = new Set<CampoItem>([

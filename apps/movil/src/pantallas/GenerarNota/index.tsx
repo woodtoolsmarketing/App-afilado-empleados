@@ -1520,7 +1520,13 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                                 />
                               ))}
                               <BotonSecundario
-                                titulo={`AGREGAR ${herramientasElegidas.length || ''} RENGLÓN${herramientasElegidas.length === 1 ? '' : 'ES'}`}
+                                titulo={
+                                  herramientasElegidas.length === 1
+                                    ? 'AGREGAR 1 RENGLÓN'
+                                    : herramientasElegidas.length === 0
+                                      ? 'AGREGAR RENGLONES'
+                                      : `AGREGAR ${herramientasElegidas.length} RENGLONES`
+                                }
                                 alTocar={agregarHerramientasElegidas}
                               />
                             </View>
