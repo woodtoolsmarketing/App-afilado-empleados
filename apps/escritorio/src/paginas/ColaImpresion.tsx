@@ -115,15 +115,22 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
 
       const salida = await window.woodtools.imprimirDocumento(html)
 
-      // Cerrar la orden y sellar la nota van juntas, del lado de la base: si se
-      // hicieran por separado, un corte entre las dos dejaría papel impreso con
-      // la nota figurando pendiente.
-      const { error: falloResolver } = await supabase.rpc('resolver_orden_impresion', {
-        p_orden_id: orden.id,
-        p_ok: salida.impreso,
-        p_motivo: salida.impreso ? null : (salida.motivo ?? 'Cancelada en el diálogo de impresión'),
-      })
-      if (falloResolver) throw falloResolver
+      // Sólo se cierra la orden si el papel SALIÓ. Cancelar el diálogo o un fallo
+      // ya no la marca 'fallida' —eso la sacaba de la lista para siempre mientras
+      // el aviso decía "queda para reintentar"—: se deja 'pendiente' y sigue en la
+      // cola, lista para reintentarla desde acá.
+      //
+      // Cuando sí salió, cerrar la orden y sellar la nota van juntas del lado de
+      // la base: si se hicieran por separado, un corte entre las dos dejaría papel
+      // impreso con la nota figurando pendiente.
+      if (salida.impreso) {
+        const { error: falloResolver } = await supabase.rpc('resolver_orden_impresion', {
+          p_orden_id: orden.id,
+          p_ok: true,
+          p_motivo: null,
+        })
+        if (falloResolver) throw falloResolver
+      }
 
       return { ...salida, faltoRol }
     },

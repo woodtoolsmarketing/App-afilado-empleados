@@ -165,7 +165,6 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
 
   // ── Compilar el APK y dejarlo para bajar ──────────────────────────────────
   const [paso, setPaso] = useState<{ etapa: string; detalle: string } | null>(null)
-  const [notasVersion, setNotasVersion] = useState('')
 
   /** El puente avisa en qué anda; sin desuscribirse, cada visita suma un oyente. */
   useEffect(() => window.woodtools?.alAvanzarCompilacion?.(setPaso), [])
@@ -279,24 +278,22 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
       const r = await puente.compilarApk({ canal })
       if (!r.ok) throw new Error(r.salida)
 
-      // Recién se anota cuando el archivo ya está guardado: una fila que apunta
-      // a un APK que no existe es peor que no tener fila. Quién puede escribirla
-      // lo sigue decidiendo la base: la política de versiones_app pide admin.
-      const { error } = await supabase.from('versiones_app').insert({
-        canal,
-        version: r.version ?? '0.0.0',
-        archivo: r.archivo!,
-        tamano_bytes: r.tamano ?? null,
-        notas: notasVersion.trim() || null,
-      })
-      if (error) throw error
+      // A propósito NO se publica en versiones_app. Este build local se firma con
+      // debug.keystore —otra clave que la del APK de EAS que tiene la flota—, así
+      // que Android lo rechaza al instalar encima: obligaría a desinstalar, y con
+      // eso se pierde el instalacion_id (el teléfono vuelve a "Sin autorizar").
+      // Sirve para probar en un teléfono de prueba; el release que le llega a la
+      // flota se compila y firma por EAS, con la misma clave, y se instala encima.
       return r
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       setPaso(null)
-      setNotasVersion('')
-      setMensaje('APK compilado y publicado. Los vendedores ya lo pueden bajar.')
-      void cliente.invalidateQueries({ queryKey: ['versiones-app'] })
+      setMensaje(
+        `APK compilado${r.version ? ` (${r.version})` : ''}. OJO: está firmado con debug.keystore, ` +
+          'así que NO se instala encima del que ya tienen los vendedores (habría que desinstalar y se ' +
+          'perdería el registro del teléfono). Por eso no se publicó: sirve para probarlo en un ' +
+          'teléfono de prueba. El release para la flota sale por EAS, con la misma firma.',
+      )
     },
     onError: (e: Error) => {
       setPaso(null)
@@ -417,25 +414,14 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--borde, #ddd)' }}>
           <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Compilar un APK nuevo</h3>
           <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginBottom: 12 }}>
-            Hace falta sólo cuando cambia algo nativo: un permiso, una librería, la versión de
-            Android. Se compila acá y queda listo para que cada vendedor lo baje desde su
-            teléfono. Tarda varios minutos.
+            Compila un APK acá para <strong>probar</strong> un cambio nativo (un permiso, una
+            librería, la versión de Android) en un teléfono de prueba. Se firma con debug.keystore,
+            así que <strong>no</strong> se instala encima del que ya tienen los vendedores ni se
+            publica solo: el release para la flota se hace por EAS. Tarda varios minutos.
           </p>
 
           {puedeCompilar ? (
             <>
-              <label style={{ display: 'block', fontSize: 13, marginBottom: 10 }}>
-                <span style={{ color: 'var(--tinta-suave)' }}>Qué trae esta versión (opcional)</span>
-                <input
-                  type="text"
-                  value={notasVersion}
-                  onChange={(e) => setNotasVersion(e.target.value)}
-                  placeholder="Ej. Arregla el precio al separar renglones"
-                  disabled={soloLectura || compilar.isPending}
-                  style={{ display: 'block', width: '100%', maxWidth: 460, marginTop: 4 }}
-                />
-              </label>
-
               <button
                 className="primario"
                 disabled={soloLectura || compilar.isPending}
@@ -445,7 +431,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                   }
                 }}
               >
-                {compilar.isPending ? 'Compilando…' : 'Compilar y publicar el APK'}
+                {compilar.isPending ? 'Compilando…' : 'Compilar el APK (para probar)'}
               </button>
 
               {/* Media hora de ventana quieta se lee como colgada: se muestra
