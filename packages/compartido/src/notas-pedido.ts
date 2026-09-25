@@ -2480,6 +2480,13 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
   // La venta y el reclamo comparten la forma de artículo: unidades, precio
   // unitario y el código del artículo en lugar de dientes y código de cómputo.
   const comoArticulo = esRenglonDeArticulo(item.servicio)
+  // Sólo cuentan los campos que la herramienta de ESTE renglón realmente pide.
+  // Al cambiar de herramienta u operación pueden quedar cargados —pero
+  // invisibles— los dientes, el precio por diente o los rascadores de la
+  // anterior; sin esto una cuchilla, una mecha o una sierra sin fin se cobraría
+  // por diente en vez de por su precio total. Con datos limpios no cambia nada.
+  const campos = camposDelItem(item)
+  const tiene = (c: CampoItem) => campos.includes(c)
   return {
     concepto: comoArticulo
       ? 'venta'
@@ -2493,14 +2500,20 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
     // aunque el tipo de pieza haya dejado un número de dientes cargado, acá vale
     // 0 para que la cuenta caiga en la rama del precio total (por 100 mm).
     dientesPorHerramienta:
-      comoArticulo || cabezalAfiladoComoCuchilla(item) ? 0 : aNumero(item.cantidad_dientes),
-    precioUnitario: aNumero(comoArticulo ? item.precio : item.precio_por_diente),
+      comoArticulo || cabezalAfiladoComoCuchilla(item) || !tiene('cantidad_dientes')
+        ? 0
+        : aNumero(item.cantidad_dientes),
+    precioUnitario: comoArticulo
+      ? aNumero(item.precio)
+      : tiene('precio_por_diente')
+        ? aNumero(item.precio_por_diente)
+        : 0,
     codigos: comoArticulo
       ? item.codigo_herramienta
         ? [item.codigo_herramienta]
         : []
       : item.codigos_computo,
-    dientesRotos: item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
+    dientesRotos: tiene('dientes_rotos') && item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
     /**
      * Con dientes rotos el renglón ENTERO ya es la reparación.
      *
@@ -2508,17 +2521,19 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
      * que la línea aparte que antes se sumaba por los rotos cobraría el mismo
      * trabajo dos veces y saldría impreso el código de reparación repetido.
      */
-    repararDientes: item.reparar_dientes === true,
+    repararDientes: tiene('reparar_dientes') && item.reparar_dientes === true,
     codigoReparacion: item.codigo_reparacion,
     precioReparacionPorDiente: aNumero(item.precio_reparacion_por_diente),
     // Los rascadores son POR HERRAMIENTA, como los dientes: cuatro sierras de
     // 18+4 llevan 16 rascadores.
-    rascadores: aNumero(item.rascadores) * Math.max(1, aNumero(item.cantidad) || 1),
+    rascadores: tiene('rascadores')
+      ? aNumero(item.rascadores) * Math.max(1, aNumero(item.cantidad) || 1)
+      : 0,
     codigoRascador: item.codigo_rascador,
     precioRascadorUnitario: aNumero(item.precio_rascador_unitario),
     // En un renglón de artículo el precio tipeado es UNITARIO, así que no hay
     // total directo: dejarlo acá haría que 3 unidades a $100 se facturaran $100.
-    precioTotalDirecto: comoArticulo ? 0 : aNumero(item.precio_total),
+    precioTotalDirecto: comoArticulo || !tiene('precio_total') ? 0 : aNumero(item.precio_total),
     // El afilado se cobra en pesos siempre; sólo la venta puede ir en dólares.
     // El reclamo va sin cargo, en pesos: nunca en dólares.
     moneda: esVenta ? item.moneda : 'ARS',

@@ -1077,6 +1077,22 @@ export function PasoRenglon({
             alCambiar({
               herramienta: h,
               codigos_computo: [],
+              // Los precios y los dientes son de la herramienta que estaba: al
+              // cambiarla se sueltan. Con el nuevo blindaje de `computoDeRenglon`
+              // los que quedan ocultos ya no cotizan, pero `precio_total` SÍ se
+              // ve (la sierra lo calcula, la cuchilla lo escribe), así que sin
+              // esto la cuchilla arrancaba con el importe de la sierra.
+              cantidad_dientes: '',
+              precio_por_diente: '',
+              precio_total: '',
+              dientes_rotos: false,
+              dientes_rotos_cantidad: '',
+              reparar_dientes: null,
+              rascadores: '',
+              // El "sin cargo" viene del código de la sierra anterior; al cambiar
+              // de herramienta se suelta (igual que en el tipo de mecha), para que
+              // una herramienta nueva no arranque cotizando $ 0,10.
+              sin_cargo: false,
               // "Es de cuchillas" es del cabezal: al cambiar de herramienta se
               // apaga, para que no reviva sola si más tarde se vuelve a cabezal.
               cabezal_de_cuchillas: false,

@@ -556,6 +556,51 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [encabezado, servicios, intentado, tipoNota, fechaEntrega, condicionVenta, condicionDetalle])
 
+  /**
+   * Los campos que hay que dejar limpios al cambiar la operación de un renglón.
+   *
+   * La venta y el reclamo se cargan como artículo (unidades, precio, código del
+   * buscador); el resto son servicios (cantidad, precio por diente, dientes).
+   * Cada operación dibuja los suyos, así que los de la anterior quedaban
+   * cargados pero invisibles y competían al guardar. `sin_cargo` sólo vale en el
+   * reclamo. Lo usan las dos puertas por las que cambia la operación:
+   * `cambiarServicioDelRenglon` (a mano) y `cambiarServicios` (al destildar una).
+   */
+  function limpiarAlCambiarDeServicio(
+    servicio: TipoServicio,
+    herramienta: Herramienta | null,
+  ): Partial<FormularioItemNota> {
+    const deLaOtra: Partial<FormularioItemNota> = esRenglonDeArticulo(servicio)
+      ? {
+          cantidad: '',
+          cantidad_dientes: '',
+          precio_por_diente: '',
+          precio_total: '',
+          dientes_rotos: false,
+          dientes_rotos_cantidad: '',
+          reparar_dientes: null,
+          codigo_reparacion: '',
+          precio_reparacion_por_diente: '',
+        }
+      : {
+          unidades: '',
+          precio: '',
+          codigo_herramienta: '',
+          descripcion_catalogo: '',
+          moneda: 'ARS',
+          origen_fresa: null,
+        }
+    return {
+      herramienta,
+      codigos_computo: [],
+      sin_cargo: servicio === 'reclamo',
+      ...(servicio === 'reclamo'
+        ? { promocion: false, descuento: '' }
+        : { servicio_reclamado: null }),
+      ...deLaOtra,
+    }
+  }
+
   function cambiarServicios(nuevos: TipoServicio[]) {
     setServicios(nuevos)
     // Un renglón cuyo servicio se destildó queda huérfano: pasa al primero que
@@ -566,10 +611,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       rs.map((r) => {
         const sigue = nuevos.includes(r.servicio)
         const servicio = sigue ? r.servicio : principal
-        const herramienta =
-          r.herramienta && HERRAMIENTAS_POR_SERVICIO[servicio].includes(r.herramienta)
-            ? r.herramienta
-            : null
         /**
          * Con una sola operación no hay nada que elegir y queda puesta.
          *
@@ -583,21 +624,26 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         const elegido = unaSola
           ? true
           : sigue && r.servicio_elegido && !renglonEnBlanco(r)
-        if (
-          servicio === r.servicio &&
-          herramienta === r.herramienta &&
-          elegido === r.servicio_elegido
-        ) {
-          return r
+        // El servicio no cambió: a lo sumo hay que volver a elegirlo.
+        if (servicio === r.servicio) {
+          return elegido === r.servicio_elegido ? r : { ...r, servicio_elegido: elegido }
         }
+        /**
+         * El servicio cambió: se destildó el suyo y saltó a otra operación.
+         * Se limpian los campos de la operación anterior —incluido `sin_cargo`—
+         * igual que al cambiar el servicio a mano: si no, un RECLAMO destildado
+         * quedaba como venta «sin cargo» y se facturaba en $ 0,10, y los números
+         * del afilado se colaban en una venta.
+         */
+        const herramienta =
+          r.herramienta && HERRAMIENTAS_POR_SERVICIO[servicio].includes(r.herramienta)
+            ? r.herramienta
+            : null
         return {
           ...r,
           servicio,
-          herramienta,
           servicio_elegido: elegido,
-          codigos_computo: servicio === r.servicio && herramienta === r.herramienta
-            ? r.codigos_computo
-            : [],
+          ...limpiarAlCambiarDeServicio(servicio, herramienta),
         }
       }),
     )
@@ -656,52 +702,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         ? renglon.herramienta
         : null
 
-    const deLaOtra: Partial<FormularioItemNota> =
-      // La venta y el reclamo se cargan como artículo (desde el buscador): los
-      // dos limpian lo del afilado. Lo contrario —un servicio— limpia lo del
-      // artículo.
-      esRenglonDeArticulo(servicio)
-        ? {
-            // Lo del afilado no va en un renglón de artículo.
-            cantidad: '',
-            cantidad_dientes: '',
-            precio_por_diente: '',
-            precio_total: '',
-            dientes_rotos: false,
-            dientes_rotos_cantidad: '',
-            reparar_dientes: null,
-            codigo_reparacion: '',
-            precio_reparacion_por_diente: '',
-          }
-        : {
-            // Y lo del artículo no va en un servicio.
-            unidades: '',
-            precio: '',
-            codigo_herramienta: '',
-            descripcion_catalogo: '',
-            moneda: 'ARS',
-            origen_fresa: null,
-          }
-
     cambiarItem({
       servicio,
       servicio_elegido: true,
-      herramienta,
-      codigos_computo: [],
-      // El reclamo arranca —y se queda— sin cargo: es un trabajo que se rehace
-      // sin cobrar. La venta, no.
-      sin_cargo: servicio === 'reclamo',
-      // Un reclamo no lleva promoción ni descuento, y su pantalla no dibuja la
-      // casilla. Si venía de una venta con la promo tildada, se limpia acá: si
-      // no, quedaba un descuento colgado sobre un renglón que no cobra, y sin
-      // campo donde verlo ni sacarlo.
-      //
-      // Y al revés: al SALIR del reclamo se suelta el "por qué se reclama", que
-      // no tiene sentido fuera de un reclamo y quedaría guardado sin uso.
-      ...(servicio === 'reclamo'
-        ? { promocion: false, descuento: '' }
-        : { servicio_reclamado: null }),
-      ...deLaOtra,
+      ...limpiarAlCambiarDeServicio(servicio, herramienta),
     })
   }
 

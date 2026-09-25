@@ -27,6 +27,8 @@ import {
   type GrupoNota,
   type Herramienta,
   type TipoNotaPedido,
+  camposDelItem,
+  esRenglonDeArticulo,
   type TipoServicio,
 } from '@woodtools/compartido'
 
@@ -671,8 +673,14 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
         codigo_herramienta: i.codigo_herramienta || null,
         descripcion: i.descripcion || null,
         cantidad: Math.max(1, Math.round(aNumero(i.cantidad || i.unidades)) || 1),
-        cantidad_dientes: aNumero(i.cantidad_dientes) || null,
-        precio_unitario: aNumero(i.precio_por_diente || i.precio) || null,
+        cantidad_dientes: camposDelItem(i).includes('cantidad_dientes')
+            ? aNumero(i.cantidad_dientes) || null
+            : null,
+        precio_unitario: esRenglonDeArticulo(i.servicio)
+            ? aNumero(i.precio) || null
+            : camposDelItem(i).includes('precio_por_diente')
+              ? aNumero(i.precio_por_diente) || null
+              : null,
         // A precio de LISTA, como en la app: guardarlo descontado haria que la
         // reimpresion volviera a descontar.
         precio_total: totalDeListaDelRenglon(i) || null,

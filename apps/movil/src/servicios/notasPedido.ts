@@ -16,6 +16,7 @@ import {
   descuentoDelRenglon,
   EN_LA_DESCRIPCION,
   esRenglonDeArticulo,
+  camposDelItem,
   ETIQUETA_TIPO_SERVICIO,
   totalDeListaDelRenglon,
   totalDelRenglon,
@@ -701,6 +702,11 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
   const comoArticulo = esRenglonDeArticulo(i.servicio)
   const cuantas = aNumero(comoArticulo ? i.unidades : i.cantidad)
   const unitario = aNumero(comoArticulo ? i.precio : i.precio_por_diente)
+  // Qué campos son de ESTA herramienta: una cuchilla, una mecha o una sierra
+  // sin fin no tiene dientes ni precio por diente (ni como plata ni como
+  // característica). Si quedaron pegados de otra herramienta no se guardan, para
+  // que la reimpresión no los tome y cobre por diente lo que se cotizó por largo.
+  const campos = camposDelItem(i)
 
   return {
     orden,
@@ -726,10 +732,14 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
      * solo el buscador de la lista, del "Z=72" de la descripción: 124 de las
      * 130 sierras del catálogo lo traen.
      */
-    cantidad_dientes: aNumero(i.cantidad_dientes) || null,
+    cantidad_dientes: campos.includes('cantidad_dientes') ? aNumero(i.cantidad_dientes) || null : null,
     // El unitario es lo que sale de la lista de precios —por diente en el
     // afilado, por unidad en la venta— y el total es la multiplicación.
-    precio_unitario: unitario || null,
+    precio_unitario: comoArticulo
+      ? unitario || null
+      : campos.includes('precio_por_diente')
+        ? unitario || null
+        : null,
     // A precio de LISTA, igual que el unitario. Lo que se cobra de verdad sale
     // de aplicarle `descuento_porcentaje`, y el total ya descontado de la nota
     // entera esta en `notas_pedido.total`.
