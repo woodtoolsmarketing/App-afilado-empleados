@@ -384,8 +384,13 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
               propia acción lo desmontaba: era una puerta de un solo sentido. El
               cartel prometía "el recorrido sigue abierto", pero no había forma de
               volver a prenderlo sin cerrar la jornada y empezar otra.
+
+              Ahora también aparece cuando el seguimiento quedó activo pero hoy no
+              hay jornada abierta (una jornada de ayer que no se finalizó): así hay
+              cómo apagarlo. En ese caso sólo se puede detener —no reanudar, porque
+              no hay jornada de hoy a la que reanudar—.
             */}
-            {jornadaAbierta ? (
+            {jornadaAbierta || siguiendo ? (
               <BotonSecundario
                 titulo={siguiendo ? 'Detener el seguimiento' : 'Reanudar el seguimiento'}
                 cargando={cambiandoSeguimiento}
@@ -412,6 +417,12 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
                         ],
                       )
                     : void (async () => {
+                        // Reanudar necesita una jornada de hoy. Si el botón se
+                        // mostró sólo porque el seguimiento quedó activo sin
+                        // jornada, este camino no corre (ahí `siguiendo` es true
+                        // y el botón detiene); el guard es por las dudas y para
+                        // que TypeScript no vea un `null`.
+                        if (!jornadaAbierta) return
                         setCambiandoSeguimiento(true)
                         try {
                           await iniciarSeguimiento({

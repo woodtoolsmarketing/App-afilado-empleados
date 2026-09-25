@@ -46,9 +46,14 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
 
   const todas = notas ?? []
   const seleccionadas = todas.filter((n) => elegidas.has(n.id))
-  // Sin selección explícita se opera sobre todas: es lo que espera alguien que
-  // entra y toca "imprimir" de una.
-  const objetivo = seleccionadas.length > 0 ? seleccionadas : todas
+  // Sin selección explícita, "imprimir todas" manda sólo lo que todavía no salió
+  // en papel. Las notas de cliente nuevo quedan en 'pendiente_cliente' con
+  // `impresa_en` puesto (no cambian de estado, para no salir de la cola de
+  // Administración): sin este filtro se reimprimían cada día. Una ya impresa se
+  // reimprime sólo si el vendedor la elige a mano.
+  const noImpresas = todas.filter((n) => !n.impresa_en)
+  const objetivo = seleccionadas.length > 0 ? seleccionadas : noImpresas
+  const hayParaImprimir = objetivo.length > 0
 
   // El buscador sólo filtra lo que se ve en la lista, para encontrar una nota
   // entre muchas. La selección y el "imprimir todas" siguen operando sobre el
@@ -303,29 +308,38 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 imprimir porque es el orden en que conviene hacerlo. */}
             <BotonSecundario
               titulo="👁  Ver antes de imprimir"
-              alTocar={() =>
+              alTocar={() => {
+                if (!hayParaImprimir) return
                 navigation.navigate('VistaPrevia', {
                   notaIds: objetivo.map((n) => n.id),
                   incluirRolDeVisita: conRolDeVisita,
                 })
-              }
+              }}
             />
 
             <BotonMenu
               titulo={'IMPRIMIR NOTAS\nDE PEDIDO'}
               subtitulo={
-                conRolDeVisita
-                  ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita, a la impresora de la oficina`
-                  : `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} a la impresora de la oficina`
+                !hayParaImprimir
+                  ? 'Ya salieron todas: tocá una para volver a imprimirla'
+                  : conRolDeVisita
+                    ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita, a la impresora de la oficina`
+                    : `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} a la impresora de la oficina`
               }
-              alTocar={() => imprimir.mutate({ comoPdf: false })}
+              alTocar={() => {
+                if (!hayParaImprimir) return
+                imprimir.mutate({ comoPdf: false })
+              }}
               cargando={imprimir.isPending}
             />
 
             {/* La exportación a PDF sólo existe acá, como pidieron. */}
             <BotonSecundario
               titulo="Guardar como PDF"
-              alTocar={() => imprimir.mutate({ comoPdf: true })}
+              alTocar={() => {
+                if (!hayParaImprimir) return
+                imprimir.mutate({ comoPdf: true })
+              }}
               cargando={imprimir.isPending}
             />
           </>

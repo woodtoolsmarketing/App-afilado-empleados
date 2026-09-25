@@ -1352,9 +1352,18 @@ const COLUMNAS_RESUMEN =
   'id, numero, vendedor_numero, tipo_nota, estado, cliente_codigo, cliente_nombre, total, creado_en, servicios, impresa_en'
 
 export async function notasPendientes(): Promise<NotaResumen[]> {
+  // Sólo las del usuario logueado. La RLS deja ver todo a quien `puede_ver_todo()`
+  // (admin, supervisor, administración), así que sin este filtro un admin vería
+  // —y al "imprimir todas" sellaría— las notas pendientes de otros vendedores.
+  // Estas pantallas dicen "tus notas": la oficina gestiona lo de todos desde el panel.
+  const { data: sesion } = await supabase.auth.getSession()
+  const vendedorId = sesion.session?.user.id
+  if (!vendedorId) throw new Error('No hay sesión')
+
   const { data, error } = await supabase
     .from('notas_pedido')
     .select(COLUMNAS_RESUMEN)
+    .eq('vendedor_id', vendedorId)
     .in('estado', ESTADOS_EDITABLES)
     .order('creado_en', { ascending: false })
 
@@ -1373,9 +1382,16 @@ export async function notasPendientes(): Promise<NotaResumen[]> {
  * archivo histórico. Para eso está HISTORIAL DE NOTAS, que va por fecha.
  */
 export async function notasImpresas(): Promise<NotaResumen[]> {
+  // Sólo las propias, por lo mismo que `notasPendientes`: sin el filtro, la lista
+  // de un admin se llena de notas ajenas (la RLS se las deja ver).
+  const { data: sesion } = await supabase.auth.getSession()
+  const vendedorId = sesion.session?.user.id
+  if (!vendedorId) throw new Error('No hay sesión')
+
   const { data, error } = await supabase
     .from('notas_pedido')
     .select(COLUMNAS_RESUMEN)
+    .eq('vendedor_id', vendedorId)
     .in('estado', ['impresa', 'entregada'])
     .order('creado_en', { ascending: false })
     .limit(100)
@@ -1499,6 +1515,18 @@ export async function encolarImpresion(
   const { data: sesion } = await supabase.auth.getSession()
   const quien = sesion.session?.user.id
   if (!quien) return { encolada: false, motivo: 'No hay sesión abierta.' }
+
+  // Una nota anulada no se encola: la pantalla ya oculta el botón, pero acá se
+  // frena también la carrera —Administración la anula entre que se abrió el
+  // detalle y se tocó "mandar a la oficina"— y cualquier otro llamador.
+  const { data: filaNota } = await supabase
+    .from('notas_pedido')
+    .select('estado')
+    .eq('id', notaId)
+    .single()
+  if (filaNota?.estado === 'anulada') {
+    return { encolada: false, motivo: 'La nota fue anulada por Administración.' }
+  }
 
   const { error } = await supabase.from('ordenes_impresion').insert({
     nota_id: notaId,

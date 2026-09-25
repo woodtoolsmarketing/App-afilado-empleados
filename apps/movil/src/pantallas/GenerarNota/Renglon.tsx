@@ -443,11 +443,15 @@ export function PasoRenglon({
     abrir el ancho de corte listaba los 59 cabezales del catálogo en vez de los
     7 que son cepilladores.
 
-    Donde la geometría no está cargada no cambia nada: el filtro no encuentra
-    filas y la cascada devuelve lo de siempre. Hoy la tienen 38 de 59 cabezales
-    y 1 de 325 fresas, así que en las fresas todavía no se va a notar.
+    OJO: `medidas_en_cascada` filtra `m.geometria = f.geometria`, que descarta
+    las filas con geometría NULL —no las deja pasar—. Donde la geometría no está
+    cargada, entonces, la cascada da CERO (no "lo de siempre"). La tienen 38 de
+    59 cabezales, pero sólo 1 de 325 fresas: por eso, hasta que se cargue la de
+    las fresas, no se manda para fresas (si no, elegir el TIPO dejaba la cascada
+    vacía, sin ninguna sugerencia de medida ni el agujero de fábrica). En
+    cabezales sí se manda y sigue afinando la lista.
   */
-  if (item.tipo_pieza) filtrosCascada.geometria = item.tipo_pieza
+  if (item.tipo_pieza && item.herramienta !== 'fresa') filtrosCascada.geometria = item.tipo_pieza
 
   /**
    * La familia del catálogo técnico contra la que se buscan las medidas.
@@ -569,17 +573,38 @@ export function PasoRenglon({
         const acordadoDeEsteCodigo =
           precioAcordado && precioAcordado.codigo === mejor.codigo ? precioAcordado.precio : null
 
-        alCambiar({
-          codigos_computo: [mejor.codigo],
-          // Un código a cotizar no trae importe: el campo queda para que lo
-          // ponga el vendedor, en vez de heredar el precio de otro código.
-          ...(mejor.a_cotizar
+        // El importe va al campo que la herramienta usa de verdad. Las que se
+        // cobran por diente (sierra, fresa, cabezal, incisor) lo llevan en
+        // PRECIO POR DIENTE; la sierra sin fin NO tiene ese campo —se cobra por
+        // unidad— así que su importe (× cantidad) va a PRECIO TOTAL. Sin esto se
+        // le escribía precio_por_diente (un campo que ni se muestra) y PRECIO
+        // TOTAL quedaba vacío en pantalla. Mismo criterio que aplicarMedidaSugerida.
+        // Un código a cotizar no trae importe: el campo queda para que lo ponga
+        // el vendedor, en vez de heredar el precio de otro código.
+        const porDiente = campos.includes('precio_por_diente')
+        const unidadesCodigo = Math.max(1, aNumero(item.cantidad) || 1)
+        const campoPrecio: Partial<FormularioItemNota> = mejor.a_cotizar
+          ? porDiente
             ? { precio_por_diente: '' }
-            : acordadoDeEsteCodigo !== null
+            : { precio_total: '' }
+          : porDiente
+            ? acordadoDeEsteCodigo !== null
               ? { precio_por_diente: String(acordadoDeEsteCodigo) }
               : mejor.precio_pesos !== null
                 ? { precio_por_diente: String(mejor.precio_pesos) }
-                : {}),
+                : {}
+            : mejor.precio_pesos !== null
+              ? {
+                  precio_total: String(
+                    Math.round(Number(mejor.precio_pesos) * unidadesCodigo * 100) / 100,
+                  ).replace('.', ','),
+                  moneda: 'ARS' as const,
+                }
+              : {}
+
+        alCambiar({
+          codigos_computo: [mejor.codigo],
+          ...campoPrecio,
           sin_cargo: esSinCargo(mejor.descripcion),
         })
       } catch {
@@ -2233,6 +2258,13 @@ function SelectorAfiladoMecha({
    * $ 10.528. No se cobra por filo —los filos sólo eligen el código de las
    * integrales— ni por milímetro, que es lo de las cuchillas.
    */
+  // Lo que determinaba el total de lista al abrir el renglón. Sirve para no
+  // pisar un PRECIO TOTAL tipeado a mano (o el que ya tenía la nota) cuando el
+  // componente se vuelve a montar —volver a la tarjeta, pasar de página,
+  // corregir la nota—: ahí `elegida` pasa de undefined a definida y el efecto
+  // recotizaba con la lista encima de lo que había puesto el vendedor.
+  const cotizadoAlMontar = useRef({ codigo: item.codigos_computo[0] ?? '', cantidad: item.cantidad })
+
   useEffect(() => {
     if (!elegida) return
     const unidades = Math.max(1, aNumero(item.cantidad) || 1)
@@ -2248,12 +2280,23 @@ function SelectorAfiladoMecha({
       // precio salía del catálogo de producto.
       cambios.moneda = 'ARS'
     }
-    if (total > 0 && Math.abs(total - aNumero(item.precio_total)) > 0.005) {
+    // El total de lista sólo se (re)escribe si de verdad cambió lo que lo
+    // determina —el código o la cantidad— respecto de lo que había al abrir el
+    // renglón, o si está vacío. Un total acordado a mano no se pisa al remontar.
+    const cambioLoQueCotiza =
+      elegida.codigo !== cotizadoAlMontar.current.codigo ||
+      item.cantidad !== cotizadoAlMontar.current.cantidad
+    if (
+      total > 0 &&
+      (cambioLoQueCotiza || !item.precio_total.trim()) &&
+      Math.abs(total - aNumero(item.precio_total)) > 0.005
+    ) {
       // Con coma: el campo lo lee y lo edita el vendedor, y todo el formulario
       // tipea a la argentina. Un "39764.5" en pantalla se lee como otro número.
       cambios.precio_total = String(total).replace('.', ',')
     }
     if (Object.keys(cambios).length > 0) alCambiar(cambios)
+    cotizadoAlMontar.current = { codigo: elegida.codigo, cantidad: item.cantidad }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elegida?.codigo, elegida?.precio_pesos, item.cantidad])
 
@@ -2604,6 +2647,15 @@ function SelectorAfiladoCuchilla({
    * tramos. Multiplicar por las unidades va después, como en cualquier
    * renglón.
    */
+  // Igual que en el afilado de mecha: lo que determinaba el total al abrir el
+  // renglón (código, cantidad y largo), para no pisar un PRECIO TOTAL tipeado a
+  // mano —o el guardado en la nota— cuando el componente se vuelve a montar.
+  const cotizadoAlMontar = useRef({
+    codigo: item.codigos_computo[0] ?? '',
+    cantidad: item.cantidad,
+    largo: item.largo,
+  })
+
   useEffect(() => {
     if (!elegida) return
     const largo = aNumero(item.largo)
@@ -2618,10 +2670,26 @@ function SelectorAfiladoCuchilla({
       cambios.descripcion_catalogo = `${elegida.codigo} · ${elegida.descripcion}`
       cambios.sin_cargo = esSinCargo(elegida.descripcion)
     }
-    if (total > 0 && Math.abs(total - aNumero(item.precio_total)) > 0.005) {
+    // El total de lista sólo se (re)escribe si cambió el código, la cantidad o
+    // el largo respecto del arranque, o si está vacío: así un total acordado a
+    // mano no se recotiza al remontar la tarjeta o al corregir la nota.
+    const cambioLoQueCotiza =
+      elegida.codigo !== cotizadoAlMontar.current.codigo ||
+      item.cantidad !== cotizadoAlMontar.current.cantidad ||
+      item.largo !== cotizadoAlMontar.current.largo
+    if (
+      total > 0 &&
+      (cambioLoQueCotiza || !item.precio_total.trim()) &&
+      Math.abs(total - aNumero(item.precio_total)) > 0.005
+    ) {
       cambios.precio_total = String(total)
     }
     if (Object.keys(cambios).length > 0) alCambiar(cambios)
+    cotizadoAlMontar.current = {
+      codigo: elegida.codigo,
+      cantidad: item.cantidad,
+      largo: item.largo,
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elegida?.codigo, elegida?.precio_pesos, item.largo, item.cantidad])
 

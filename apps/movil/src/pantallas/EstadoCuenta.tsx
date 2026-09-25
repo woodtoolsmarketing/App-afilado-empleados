@@ -7,7 +7,6 @@ import {
   TOQUE_MINIMO,
 } from '@woodtools/compartido'
 import { Image } from 'expo-image'
-import * as Updates from 'expo-updates'
 import { useEffect, useState } from 'react'
 import { Alert, Linking, Pressable, Text, View } from 'react-native'
 
@@ -16,6 +15,8 @@ import { Pantalla } from '../componentes/Pantalla'
 import { obtenerInstalacionId } from '../nucleo/dispositivo'
 import { usarSesion, VERSION_APP, type EstadoAcceso } from '../nucleo/sesion'
 import { hojaDeTema } from '../nucleo/tema'
+import { buscarApkNuevo } from '../servicios/actualizacionApk'
+import { ofrecerApk } from '../servicios/avisoDeApk'
 
 /**
  * Pantalla de espera.
@@ -33,37 +34,32 @@ export function PantallaEstadoCuenta() {
   const [avisoActualizacion, setAvisoActualizacion] = useState<string | null>(null)
 
   /**
-   * Baja la actualización por aire, si hay.
+   * En 'version_vieja' el camino es el INSTALADOR, no el OTA.
    *
-   * Cubre el caso normal —un cambio de código, que viaja por OTA— y no el otro:
-   * si lo que cambió es nativo (un permiso, una librería) no hay nada que
-   * bajar y hace falta el instalador nuevo. Se dice cuál de los dos es en vez
-   * de dejar al vendedor tocando un botón que no hace nada.
+   * La versión mínima se compara contra la versión NATIVA del APK, que una
+   * actualización por aire no cambia: ofrecer el OTA acá era un lazo —bajaba,
+   * reiniciaba y el teléfono volvía a caer en 'version_vieja'—. Así que este
+   * botón busca el APK nuevo (`buscarApkNuevo`) y ofrece bajarlo e instalarlo.
    */
-  async function buscarActualizacion() {
+  async function buscarInstaladorNuevo() {
     setVerificando(true)
     setAvisoActualizacion(null)
     try {
-      if (!Updates.isEnabled) {
+      const r = await buscarApkNuevo()
+      if (r.estado === 'hay') {
+        ofrecerApk(r.apk)
+      } else if (r.estado === 'sin-donde-bajarlo') {
         setAvisoActualizacion(
-          'Esta versión no recibe actualizaciones por aire. Pedile a la oficina el instalador nuevo.',
+          `Hay una versión nueva (${r.nueva}) pero ahora no hay de dónde bajarla ` +
+            '(no llega el panel de la oficina ni el enlace de internet). Pedile el instalador a la oficina.',
         )
-        return
-      }
-
-      const resultado = await Updates.checkForUpdateAsync()
-      if (!resultado.isAvailable) {
+      } else if (r.estado === 'al-dia') {
         setAvisoActualizacion(
-          'No hay ninguna actualización por aire. Lo que cambió necesita el instalador nuevo: pedíselo a la oficina.',
+          'La versión instalada figura al día. Si seguís viendo esta pantalla, avisá a la oficina.',
         )
-        return
+      } else {
+        setAvisoActualizacion('No pudimos buscar el instalador. Revisá tu conexión y probá de nuevo.')
       }
-
-      setAvisoActualizacion('Bajando la actualización…')
-      await Updates.fetchUpdateAsync()
-      await Updates.reloadAsync()
-    } catch {
-      setAvisoActualizacion('No pudimos buscarla. Revisá tu conexión y probá de nuevo.')
     } finally {
       setVerificando(false)
     }
@@ -211,8 +207,8 @@ export function PantallaEstadoCuenta() {
         {estado === 'version_vieja' ? (
           <>
             <BotonPrincipal
-              titulo="BUSCAR ACTUALIZACIÓN"
-              alTocar={buscarActualizacion}
+              titulo="BAJAR EL INSTALADOR NUEVO"
+              alTocar={buscarInstaladorNuevo}
               cargando={verificando}
             />
             {avisoActualizacion ? (

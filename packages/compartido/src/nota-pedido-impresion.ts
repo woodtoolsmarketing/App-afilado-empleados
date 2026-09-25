@@ -103,6 +103,14 @@ export interface NotaParaImprimir {
   tipo_nota: TipoNotaPedido | null
   servicios: TipoServicio[]
 
+  /**
+   * Nota anulada por Administración. Se puede imprimir para tenerla en papel,
+   * pero sale con una marca de agua "ANULADA" bien visible, para que nadie la
+   * confunda con un comprobante vivo. No se puede encolar ni cobrar (eso lo
+   * frena la pantalla, ver DetalleNota).
+   */
+  anulada?: boolean
+
   vendedor_numero: string
   cliente_numero: string | null
   /**
@@ -814,6 +822,7 @@ export function generarHtmlNotaPedido(
   </div>` : ''
 
   return `<div class="nota ${esDuplicado ? 'duplicado' : 'original'}">
+  ${nota.anulada ? '<div class="marca-anulada">ANULADA</div>' : ''}
   <table class="encabezado">
     <tr>
       <td class="celda-logo">${celdaLogo}</td>
@@ -953,10 +962,30 @@ html {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Ancla la marca de agua ANULADA, que va posicionada sobre la hoja. */
+  position: relative;
   page-break-after: always;
   break-after: page;
 }
 .nota:last-child { page-break-after: auto; break-after: auto; }
+
+/* Marca de agua de las notas anuladas: diagonal, roja translúcida, encima de
+   todo pero fuera del flujo (no corre ni un renglón). overflow:hidden de .nota
+   la recorta si se pasa del borde. */
+.marca-anulada {
+  position: absolute;
+  top: 42%;
+  left: -5%;
+  right: -5%;
+  text-align: center;
+  transform: rotate(-24deg);
+  font-size: 64pt;
+  font-weight: bold;
+  letter-spacing: 10px;
+  color: rgba(200, 0, 0, 0.28);
+  pointer-events: none;
+  z-index: 10;
+}
 
 /* Las dos tablas se reparten en partes iguales todo lo que sobra. El alto al
    100% es lo que hace que el sobrante baje a las FILAS y no quede como aire
@@ -1492,6 +1521,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     numero: numeroDeNotaImpreso(nota.numero, nota.vendedor_numero),
     tipo_nota: nota.tipo_nota,
     servicios: nota.servicios ?? [],
+    anulada: nota.estado === 'anulada',
     // Sin los ceros de relleno del Gestión: "007" se escribe 7 en el talonario.
     vendedor_numero: numeroDeVendedorImpreso(
       nota.vendedor_numero ?? nota.vendedor?.codigo_vendedor,

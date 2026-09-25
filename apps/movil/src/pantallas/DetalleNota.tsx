@@ -196,7 +196,13 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   const items: ItemNota[] = (n.items ?? []).slice().sort((a: ItemNota, b: ItemNota) => a.orden - b.orden)
   const sinNumero = n.numero === null
   const estado = n.estado as EstadoNotaPedido
-  const yaImpresa = estado === 'impresa' || estado === 'entregada'
+  // `impresa_en` también cuenta: las notas de cliente nuevo se imprimen sin
+  // cambiar de estado (quedan en 'pendiente_cliente'), así que sin mirar esa
+  // fecha el detalle decía "IMPRIMIR" de una ya impresa.
+  const yaImpresa = estado === 'impresa' || estado === 'entregada' || !!n.impresa_en
+  // Anulada por Administración: se puede mirar e imprimir (con marca ANULADA en
+  // el papel), pero no encolar ni cobrar.
+  const anulada = estado === 'anulada'
 
   return (
     <Pantalla>
@@ -233,6 +239,13 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             <Pastilla key={s} texto={ETIQUETA_TIPO_SERVICIO[s]} color={colores.rojo} />
           ))}
         </View>
+
+        {anulada ? (
+          <Aviso tono="atencion" titulo="Nota anulada">
+            Administración anuló esta nota. La podés mirar e imprimir —sale con la marca ANULADA en el
+            papel—, pero no se puede mandar a la oficina ni cobrar.
+          </Aviso>
+        ) : null}
 
         {/* ── Cliente ─────────────────────────────────────────────────────── */}
         <View style={estilos.tarjeta}>
@@ -323,18 +336,20 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             cobrar. Atarlos obligaba a una de las dos cosas para hacer la otra.
             El comprobante y el cliente viajan puestos: es lo que el vendedor
             tiene delante cuando cobra. */}
-        <BotonSecundario
-          titulo="💵  COBRÉ ESTA NOTA"
-          alTocar={() =>
-            navigation.navigate('Cobranzas', {
-              notaId,
-              clienteId: n.cliente_id ?? null,
-              clienteCodigo: n.cliente_codigo ?? null,
-              clienteNombre: n.cliente_nombre ?? '',
-              tipoComprobante: n.tipo_nota === 'factura' ? 'factura' : 'presupuesto',
-            })
-          }
-        />
+        {anulada ? null : (
+          <BotonSecundario
+            titulo="💵  COBRÉ ESTA NOTA"
+            alTocar={() =>
+              navigation.navigate('Cobranzas', {
+                notaId,
+                clienteId: n.cliente_id ?? null,
+                clienteCodigo: n.cliente_codigo ?? null,
+                clienteNombre: n.cliente_nombre ?? '',
+                tipoComprobante: n.tipo_nota === 'factura' ? 'factura' : 'presupuesto',
+              })
+            }
+          />
+        )}
 
         <BotonMenu
           titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
@@ -347,11 +362,13 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             casi siempre— y para cuando la nota tiene que salir sí o sí igual a
             las demás: el papel lo saca la PC de la oficina, con el mismo
             tamaño de letra todas las veces. */}
-        <BotonSecundario
-          titulo="🖨  Mandar a imprimir a la oficina"
-          alTocar={() => encolar.mutate()}
-          cargando={encolar.isPending}
-        />
+        {anulada ? null : (
+          <BotonSecundario
+            titulo="🖨  Mandar a imprimir a la oficina"
+            alTocar={() => encolar.mutate()}
+            cargando={encolar.isPending}
+          />
+        )}
 
         <BotonSecundario
           titulo="Guardar como PDF"

@@ -2,7 +2,7 @@ import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 
-import { distanciaEnMetros } from '@woodtools/compartido'
+import { distanciaEnMetros, fechaLocalISO } from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
 
@@ -32,6 +32,14 @@ const MAX_EN_COLA = 500
 interface ContextoSeguimiento {
   vendedorId: string
   rolVisitaId: string
+  /**
+   * El día local (Argentina) de la jornada. La tarea corta el seguimiento
+   * cuando el reloj pasa a otro día: sin esto, un recorrido que no se finaliza
+   * seguía rastreando noches y fines de semana y cargaba la traza en la jornada
+   * vieja. Puede faltar en un contexto guardado por una versión anterior; ahí
+   * se trata como "sin fecha" y no se corta por este motivo.
+   */
+  fecha?: string
 }
 
 interface PuntoEncolado {
@@ -177,7 +185,14 @@ async function arrancarTarea(): Promise<void> {
 
 /** Seguimiento de recorrido: se prende al iniciar un viaje y guarda la traza. */
 export async function iniciarSeguimiento(contexto: ContextoSeguimiento): Promise<void> {
-  await cacheLocal.setItem(CLAVE_CONTEXTO, JSON.stringify(contexto))
+  // El día local queda grabado en el contexto: es contra esto que la tarea
+  // decide cortar cuando cambia el día. Si el llamador no lo pasa, es el de hoy
+  // (que es cuando se inicia o se reanuda una jornada).
+  const conFecha: ContextoSeguimiento = {
+    ...contexto,
+    fecha: contexto.fecha ?? fechaLocalISO(new Date()),
+  }
+  await cacheLocal.setItem(CLAVE_CONTEXTO, JSON.stringify(conFecha))
   await arrancarTarea()
 }
 
@@ -217,6 +232,15 @@ TaskManager.defineTask(TAREA_UBICACION, async ({ data, error }) => {
 
   const contexto = await leerContexto()
   if (!contexto) return
+
+  // Si el día local ya no es el de la jornada, se corta acá: un recorrido que no
+  // se finalizó no tiene que seguir rastreando la noche, el fin de semana, ni
+  // atribuir puntos de hoy a la jornada de ayer. `detenerSeguimiento` apaga la
+  // tarea, drena lo que quedó de ayer y marca al vendedor fuera de recorrido.
+  if (contexto.fecha && fechaLocalISO(new Date(ultima.timestamp)) !== contexto.fecha) {
+    await detenerSeguimiento(contexto.vendedorId)
+    return
+  }
 
   let bateria: number | null = null
   try {
