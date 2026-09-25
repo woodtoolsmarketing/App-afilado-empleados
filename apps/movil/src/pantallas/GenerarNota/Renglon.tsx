@@ -518,11 +518,16 @@ export function PasoRenglon({
     if (temporizador.current) clearTimeout(temporizador.current)
     if (!item.herramienta) return
 
+    // Si la medida cambia mientras esta búsqueda está en vuelo, la respuesta
+    // vieja no tiene que pisar la nueva: en la calle, con red lenta, la de una
+    // medida anterior puede volver después y dejar un código/precio equivocado.
+    let vigente = true
     temporizador.current = setTimeout(async () => {
       setBuscando(true)
       setSinCodigo(false)
       try {
         const encontrados = await resolverCodigoDeItem(item)
+        if (!vigente) return
         if (encontrados === null) {
           setCodigos([])
           return
@@ -578,15 +583,16 @@ export function PasoRenglon({
           sin_cargo: esSinCargo(mejor.descripcion),
         })
       } catch {
-        setCodigos([])
+        if (vigente) setCodigos([])
       } finally {
-        setBuscando(false)
+        if (vigente) setBuscando(false)
       }
       // 250 ms y no 400: el código es la respuesta a la medida que se acaba de
       // tipear y ahora se dibuja justo debajo, así que la espera se nota.
     }, 250)
 
     return () => {
+      vigente = false
       if (temporizador.current) clearTimeout(temporizador.current)
     }
     // Los dientes rotos y su reparación entran en las dependencias porque
