@@ -297,8 +297,17 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 
     // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
     try {
-      const { data } = await supabase.auth.getSession()
+      const { data, error } = await supabase.auth.getSession()
       if (!data.session) {
+        // Sin señal, un token vencido no se puede refrescar: getSession devuelve
+        // session null con un error de red. No es "no hay sesión" sino "no pude
+        // preguntar": con perfil recordado se mantiene el acceso optimista y el
+        // refresco de fondo reintenta cuando vuelva la señal (mismo criterio que
+        // la consulta de perfil). Sin recordado, o ante un rechazo real, al login.
+        if (recordado && pareceFaltaDeSenal(error)) {
+          void get().refrescarPerfil().catch(() => undefined)
+          return
+        }
         set({ estado: 'sin_sesion', perfil: null })
         return
       }
@@ -396,8 +405,19 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     const gen = generacion
     const vigente = () => gen === generacion
 
-    const { data: sesion } = await supabase.auth.getSession()
+    const { data: sesion, error: errorSesion } = await supabase.auth.getSession()
     if (!sesion.session) {
+      // Mismo criterio que la consulta de perfil de más abajo: sin señal (token
+      // vencido que no se pudo refrescar) se entra con el último perfil conocido,
+      // no al login. Un rechazo real del servidor sí manda a 'sin_sesion'.
+      const recordado = pareceFaltaDeSenal(errorSesion) ? await perfilRecordado<Perfil>() : null
+      if (recordado) {
+        const resultado = await evaluarAcceso(recordado)
+        if (vigente()) {
+          set({ perfil: recordado, estado: resultado.estado, errorAcceso: resultado.error })
+        }
+        return
+      }
       if (vigente()) set({ estado: 'sin_sesion', perfil: null })
       return
     }
@@ -466,6 +486,11 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
     if (saliente) await detenerSeguimiento(saliente.id).catch(() => undefined)
 
     await supabase.auth.signOut().catch(() => undefined)
+    // Garantizar el borrado LOCAL del token: si el signOut de arriba falló por
+    // falta de señal (no llegó a revocar en el servidor), el token quedaba
+    // guardado y la cuenta volvía sola al reabrir con señal. `scope: 'local'`
+    // no llama al servidor, sólo limpia el token del teléfono.
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
 
     // Cerrar sesión saca la cuenta de este teléfono: del registro y su token.
     // Es el gesto de "esta cuenta deja de vivir acá". Lo que ya no pasa es que
@@ -531,16 +556,20 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
 
       const { data, error } = await supabase.auth.refreshSession({ refresh_token: token })
       if (error || !data.session) {
-        // El token guardado ya no sirve (revocado o vencido): se saca la cuenta
-        // y se cae al login con el usuario puesto, para que sólo ponga la clave.
-        await olvidarCuenta(perfilId)
+        // Sólo se saca la cuenta si el servidor la RECHAZÓ (revocado/vencido).
+        // Sin señal el token guardado puede seguir siendo bueno: borrarla dejaba
+        // al vendedor sin una cuenta válida por estar fuera de cobertura.
+        const esRed = pareceFaltaDeSenal(error)
+        if (!esRed) await olvidarCuenta(perfilId)
         set({
           estado: 'sin_sesion',
           perfil: null,
           agregandoCuenta: false,
           cuentas: await listarCuentas(),
           usuarioRecordado: destino?.usuario ?? destino?.email ?? get().usuarioRecordado,
-          errorAcceso: 'Esa cuenta necesita que inicies sesión de nuevo.',
+          errorAcceso: esRed
+            ? 'Sin señal: no pudimos cambiar de cuenta. Probá cuando tengas conexión.'
+            : 'Esa cuenta necesita que inicies sesión de nuevo.',
         })
         return
       }
