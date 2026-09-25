@@ -397,7 +397,19 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                         <button
                           className="chico peligro"
                           disabled={soloLectura || p.estado === 'visitada' || p.estado === 'no_visitada'}
-                          onClick={() => quitar.mutate(p.id)}
+                          onClick={() => {
+                            // Borrar la parada borra en cascada su visita (con la
+                            // observación y el audio). Una parada 'omitida' SÍ tiene
+                            // visita: se confirma antes de perder ese parte.
+                            if (
+                              p.visita &&
+                              !window.confirm(
+                                'Esta parada ya tiene una visita cargada. Si la quitás, se borra también esa visita, con su observación. ¿Seguro?',
+                              )
+                            )
+                              return
+                            quitar.mutate(p.id)
+                          }}
                         >
                           Quitar
                         </button>

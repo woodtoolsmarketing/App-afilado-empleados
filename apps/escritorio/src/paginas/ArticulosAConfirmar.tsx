@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
+import { aNumero } from '@woodtools/compartido'
 import { supabase } from '../nucleo/supabase'
 
 /**
@@ -183,7 +184,10 @@ function FilaArticulo({
   const [precio, setPrecio] = useState(articulo.precio > 0 ? String(articulo.precio) : '')
   const [moneda, setMoneda] = useState<string>(articulo.moneda ?? '')
 
-  const numero = Number(String(precio).replace(',', '.'))
+  // aNumero (el mismo del móvil) entiende el punto de miles a la argentina:
+  // "225.810" es 225810, no 225,81. El parseo casero de antes guardaba un precio
+  // mil veces más bajo, que los vendedores después usaban para cotizar.
+  const numero = aNumero(precio)
   const listo = Number.isFinite(numero) && numero > 0 && (moneda === 'ARS' || moneda === 'USD')
 
   return (

@@ -37,7 +37,10 @@ export function usarPublicarDireccionDelPanel(esAdmin: boolean): void {
     async function publicar() {
       try {
         const datos = await window.woodtools?.instaladores?.()
-        if (!vivo || !datos?.direccion) return
+        // Publicar la IP sólo si este panel REALMENTE sirve un APK: si no, le
+        // tapaba al teléfono el enlace de internet (que sí funciona) con una
+        // dirección local que no tiene el instalador.
+        if (!vivo || !datos?.direccion || !datos.sirviendo || (datos.archivos?.length ?? 0) === 0) return
 
         // `http://192.168.1.198:8756` -> { ip, puerto }
         const url = new URL(datos.direccion)

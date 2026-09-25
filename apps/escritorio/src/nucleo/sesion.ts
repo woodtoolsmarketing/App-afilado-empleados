@@ -38,7 +38,9 @@ export function usarSesion() {
       .maybeSingle<Perfil>()
 
     if (!perfil || perfil.estado !== 'aprobado') {
-      await supabase.auth.signOut()
+      // scope 'local': cerrar SÓLO la sesión del panel; el default (global)
+      // revocaba todos los tokens y cerraba también la sesión del celular.
+      await supabase.auth.signOut({ scope: 'local' })
       setEstado({
         cargando: false,
         perfil: null,
@@ -48,7 +50,9 @@ export function usarSesion() {
     }
 
     if (perfil.rol === 'vendedor') {
-      await supabase.auth.signOut()
+      // scope 'local': cerrar SÓLO la sesión del panel; el default (global)
+      // revocaba todos los tokens y cerraba también la sesión del celular.
+      await supabase.auth.signOut({ scope: 'local' })
       setEstado({
         cargando: false,
         perfil: null,
@@ -96,7 +100,7 @@ export function usarSesion() {
     // puede todo eso ademas de lo suyo.
     esAdministracion: estado.perfil?.rol === 'admin' || estado.perfil?.rol === 'administracion',
     recargar: cargarPerfil,
-    salir: () => supabase.auth.signOut(),
+    salir: () => supabase.auth.signOut({ scope: 'local' }),
     setError: (error: string | null) => setEstado((e) => ({ ...e, error })),
   }
 }

@@ -311,6 +311,8 @@ function FormularioCliente({
    * alguien abre para completarlo.
    */
   const domicilioDelPadron = [cliente?.direccion, cliente?.localidad].filter(Boolean).join(', ')
+  // El domicilio con el que se abre la ficha; sirve para saber si se TOCÓ.
+  const direccionInicial = principal?.direccion_formateada ?? domicilioDelPadron
 
   const [form, setForm] = useState({
     codigo: cliente?.codigo ?? '',
@@ -322,12 +324,23 @@ function FormularioCliente({
     contacto_nombre: cliente?.contacto_nombre ?? '',
     vendedor_id: cliente?.vendedor_id ?? '',
     notas: cliente?.notas ?? '',
-    direccion: principal?.direccion_formateada ?? domicilioDelPadron,
+    direccion: direccionInicial,
     codigo_postal: principal?.codigo_postal ?? cliente?.codigo_postal ?? '',
     lat: principal?.lat?.toString() ?? '',
     lng: principal?.lng?.toString() ?? '',
   })
   const [error, setError] = useState<string | null>(null)
+
+  // Exigir lat/lng y escribir en `direcciones` sólo cuando de verdad se quiere
+  // guardar la dirección (hay fila geolocalizada, se tipearon coords, o se
+  // cambió el texto). Un cliente del padrón que se abre para corregir otro dato
+  // trae la calle precargada pero sin coords, y no hay que trabar el guardado.
+  const quiereGuardarDireccion =
+    form.direccion.trim() !== '' &&
+    (Boolean(principal) ||
+      form.lat.trim() !== '' ||
+      form.lng.trim() !== '' ||
+      form.direccion.trim() !== direccionInicial.trim())
   const [guardando, setGuardando] = useState(false)
 
   function actualizar(campo: keyof typeof form, valor: string) {
@@ -357,8 +370,8 @@ function FormularioCliente({
       return
     }
     // Sin coordenadas el cliente no se puede meter en un recorrido: la ruta se
-    // calcula sobre lat/lng, no sobre texto.
-    if (form.direccion.trim()) {
+    // calcula sobre lat/lng, no sobre texto. Sólo se exige al guardar la dirección.
+    if (quiereGuardarDireccion) {
       if (!form.lat.trim() || !form.lng.trim()) {
         setError('Si cargás una dirección, poné también la latitud y la longitud.')
         return
@@ -393,7 +406,7 @@ function FormularioCliente({
 
       if (errCliente) throw errCliente
 
-      if (form.direccion.trim()) {
+      if (quiereGuardarDireccion) {
         const datosDireccion = {
           cliente_id: guardado.id,
           direccion_formateada: form.direccion.trim(),

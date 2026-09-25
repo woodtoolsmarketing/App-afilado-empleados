@@ -86,7 +86,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
     queryFn: async () => {
       const { data, error } = await supabase
         .from('dispositivos')
-        .select('*, perfiles ( nombre_completo, codigo_vendedor )')
+        .select('*, perfiles!dispositivos_perfil_id_fkey ( nombre_completo, codigo_vendedor )')
         .order('ultimo_visto_en', { ascending: false, nullsFirst: false })
       if (error) throw error
       return data as unknown as DispositivoConDuenio[]

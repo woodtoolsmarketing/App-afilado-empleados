@@ -153,6 +153,19 @@ function crearVentana() {
     return { action: 'deny' }
   })
 
+  // setWindowOpenHandler cubre las ventanas nuevas (target=_blank), pero NO la
+  // navegación del propio frame: un clic en un link que reemplaza la página —el
+  // crédito del mapa, por ejemplo— cargaría un sitio externo DENTRO del panel,
+  // heredando el preload y el puente `woodtools`. will-navigate lo frena y lo
+  // manda al navegador, dejando el panel donde está.
+  ventana.webContents.on('will-navigate', (evento, url) => {
+    const propia = process.env.VITE_DEV_SERVER_URL
+    const interna = propia ? url.startsWith(propia) : url.startsWith('file://')
+    if (interna) return
+    evento.preventDefault()
+    if (url.startsWith('https://')) void shell.openExternal(url)
+  })
+
   if (process.env.VITE_DEV_SERVER_URL) {
     void ventana.loadURL(process.env.VITE_DEV_SERVER_URL)
     ventana.webContents.openDevTools({ mode: 'detach' })

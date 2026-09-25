@@ -825,6 +825,10 @@ function FilaPendiente({
 }) {
   const [rol, setRol] = useState<RolUsuario>('vendedor')
   const [codigo, setCodigo] = useState(perfil.codigo_vendedor ?? '')
+  // El motivo del rechazo se pide con un input propio: window.prompt() no
+  // funciona en Electron (devolvía null y el rechazo no hacía nada).
+  const [rechazando, setRechazando] = useState(false)
+  const [motivo, setMotivo] = useState('')
 
   // Sin código de vendedor la planilla del rol de visita queda sin la columna
   // "Codigo", así que se exige antes de aprobar.
@@ -854,25 +858,50 @@ function FilaPendiente({
         {faltaCodigo && <div className="error-campo">Asigná el código de vendedor</div>}
       </td>
       <td>
-        <div className="acciones">
-          <button
-            className="primario chico"
-            disabled={soloLectura || faltaCodigo}
-            onClick={() => alResolver({ aprobar: true, rol, codigo })}
-          >
-            Aprobar
-          </button>
-          <button
-            className="peligro chico"
-            disabled={soloLectura}
-            onClick={() => {
-              const motivo = prompt('Motivo del rechazo (lo va a ver el usuario):')
-              if (motivo !== null) alResolver({ aprobar: false, motivo })
-            }}
-          >
-            Rechazar
-          </button>
-        </div>
+        {rechazando ? (
+          <div className="acciones">
+            <input
+              placeholder="Motivo del rechazo (lo va a ver el usuario)"
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              aria-label="Motivo del rechazo"
+              autoFocus
+            />
+            <button
+              className="peligro chico"
+              disabled={soloLectura}
+              onClick={() => alResolver({ aprobar: false, motivo: motivo.trim() || undefined })}
+            >
+              Confirmar rechazo
+            </button>
+            <button
+              className="chico"
+              onClick={() => {
+                setRechazando(false)
+                setMotivo('')
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <div className="acciones">
+            <button
+              className="primario chico"
+              disabled={soloLectura || faltaCodigo}
+              onClick={() => alResolver({ aprobar: true, rol, codigo })}
+            >
+              Aprobar
+            </button>
+            <button
+              className="peligro chico"
+              disabled={soloLectura}
+              onClick={() => setRechazando(true)}
+            >
+              Rechazar
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   )
