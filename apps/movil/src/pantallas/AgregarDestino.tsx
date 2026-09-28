@@ -42,6 +42,7 @@ import {
   LIMITE_CLIENTES,
   ubicarCliente,
 } from '../servicios/clientes'
+import { proponerCambioDireccion } from '../servicios/cambiosDireccion'
 import {
   detallarDireccion,
   sugerirDirecciones,
@@ -661,16 +662,42 @@ function UbicarCliente({
     }
   }, [texto, activa, confirmada])
 
-  /** Guarda la dirección resuelta, venga del buscador o del GPS. */
+  /**
+   * Guarda la dirección resuelta, venga del buscador o del GPS.
+   *
+   * Un cliente que nunca se ubicó (sin coordenadas) se ubica DIRECTO: sin eso no
+   * entra al recorrido. Pero corregir una dirección que YA estaba cargada no la
+   * pisa —eso lo decide la oficina—: se manda como PROPUESTA (queda en "Cambios
+   * de dirección" del panel). El form local sí toma la coordenada nueva, así el
+   * recorrido de este vendedor ya lo lleva ahí, sin esperar a la oficina.
+   */
   async function guardarUbicacion(d: DireccionResuelta): Promise<ClienteUbicado> {
-    const fila = await ubicarCliente({ clienteId: cliente.cliente_id, direccion: d })
+    if (faltaUbicar) {
+      const fila = await ubicarCliente({ clienteId: cliente.cliente_id, direccion: d })
+      return {
+        direccion_id: fila.direccion_id,
+        direccion_formateada: d.direccion_formateada,
+        codigo_postal: d.codigo_postal,
+        lat: fila.lat,
+        lng: fila.lng,
+        localidad: fila.localidad,
+      }
+    }
+
+    await proponerCambioDireccion({
+      clienteId: cliente.cliente_id,
+      direccionId: cliente.direccion_id,
+      direccion: d.direccion_formateada,
+      lat: d.lat,
+      lng: d.lng,
+    })
     return {
-      direccion_id: fila.direccion_id,
+      direccion_id: cliente.direccion_id ?? '',
       direccion_formateada: d.direccion_formateada,
       codigo_postal: d.codigo_postal,
-      lat: fila.lat,
-      lng: fila.lng,
-      localidad: fila.localidad,
+      lat: d.lat,
+      lng: d.lng,
+      localidad: d.localidad,
     }
   }
 
@@ -678,6 +705,12 @@ function UbicarCliente({
     setSugerencias([])
     setConfirmada(ubicada.direccion_formateada)
     alUbicar(ubicada)
+    if (!faltaUbicar) {
+      Alert.alert(
+        'Corrección enviada',
+        'La dirección no se cambia sola: la oficina la revisa y la aplica. Tu recorrido ya te lleva a la ubicación nueva.',
+      )
+    }
   }
 
   const desdeBuscador = useMutation<ClienteUbicado, Error, SugerenciaDireccion>({

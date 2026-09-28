@@ -16,6 +16,7 @@ import { PantallaMapaClientes } from '../pantallas/MapaClientes'
 import { PantallaCobranzas } from '../pantallas/Cobranzas'
 import { PantallaComunicacionInterna } from '../pantallas/ComunicacionInterna'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
+import { PantallaCorregirDireccion } from '../pantallas/CorregirDireccion'
 import { PantallaDestinoVisitado } from '../pantallas/DestinoVisitado'
 import { PantallaDetalleNota } from '../pantallas/DetalleNota'
 import { PantallaDetalleVisita } from '../pantallas/DetalleVisita'
@@ -172,6 +173,7 @@ export function Navegacion() {
               getId={({ params }) => params.paradaId}
             />
             <Pila.Screen name="AgregarDestino" component={PantallaAgregarDestino} />
+            <Pila.Screen name="CorregirDireccion" component={PantallaCorregirDireccion} />
             <Pila.Screen name="Historial" component={PantallaHistorial} />
             <Pila.Screen name="DetalleVisita" component={PantallaDetalleVisita} />
             <Pila.Screen name="Configuracion" component={PantallaConfiguracion} />

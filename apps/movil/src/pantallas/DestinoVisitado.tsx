@@ -37,6 +37,7 @@ import {
   tomarBorradorDeVisita,
 } from '../servicios/borradorDeVisita'
 import { resumenDeNotasDeLaParada } from '../servicios/notasPedido'
+import { misCambiosPendientes } from '../servicios/cambiosDireccion'
 import { navegarHacia } from '../servicios/mapas'
 import { detenerSeguimiento, ubicacionActual } from '../servicios/ubicacion'
 import { usarDictado, DURACION_MAXIMA_MS } from '../servicios/transcripcion'
@@ -121,6 +122,16 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   })
 
   const parada = data?.paradas.find((p) => p.id === paradaId)
+
+  // Los cambios de dirección que este vendedor ya propuso y la oficina todavía
+  // no aplicó: sirven para mostrar la observación en la ficha y para que
+  // "Navegar" al próximo destino vaya al punto nuevo, no al viejo.
+  const { data: cambiosPendientes } = useQuery({
+    queryKey: ['mis-cambios-direccion'],
+    queryFn: misCambiosPendientes,
+    staleTime: 60_000,
+  })
+  const cambioDeEstaParada = parada?.cliente?.id ? cambiosPendientes?.[parada.cliente.id] : undefined
   const restantes = useMemo(
     () =>
       (data?.paradas ?? []).filter(
@@ -290,9 +301,14 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
           onPress: () => {
             salirA('Recorrido')
             if (siguiente) {
+              // Si el vendedor propuso corregir la dirección de ese cliente, la
+              // navegación va al punto nuevo (hasta que la oficina lo aplique).
+              const cambioSig = siguiente.cliente?.id
+                ? cambiosPendientes?.[siguiente.cliente.id]
+                : undefined
               void navegarHacia({
-                lat: siguiente.direccion.lat,
-                lng: siguiente.direccion.lng,
+                lat: cambioSig?.lat_propuesta ?? siguiente.direccion.lat,
+                lng: cambioSig?.lng_propuesta ?? siguiente.direccion.lng,
               }).catch(() => undefined)
             }
           },
@@ -447,15 +463,41 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
           <TituloPanel>¿DESTINO VISITADO?</TituloPanel>
 
           {parada ? (
-            <View style={estilos.ficha}>
-              <Text style={estilos.fichaCliente}>
-                {parada.orden}. {parada.cliente?.razon_social ?? parada.razon_social_snapshot}
-              </Text>
-              <Text style={estilos.fichaDireccion}>{parada.direccion.direccion_formateada}</Text>
-              {parada.cliente?.codigo ? (
-                <Text style={estilos.fichaCodigo}>Cliente Nº {parada.cliente.codigo}</Text>
+            <>
+              <View style={estilos.ficha}>
+                <Text style={estilos.fichaCliente}>
+                  {parada.orden}. {parada.cliente?.razon_social ?? parada.razon_social_snapshot}
+                </Text>
+                <Text style={estilos.fichaDireccion}>{parada.direccion.direccion_formateada}</Text>
+                {parada.cliente?.codigo ? (
+                  <Text style={estilos.fichaCodigo}>Cliente Nº {parada.cliente.codigo}</Text>
+                ) : null}
+              </View>
+
+              {cambioDeEstaParada ? (
+                <Aviso tono="atencion">
+                  Propusiste corregir la dirección a: {cambioDeEstaParada.direccion_propuesta}. Está
+                  pendiente de que la oficina la aplique; tu recorrido ya te lleva ahí.
+                </Aviso>
               ) : null}
-            </View>
+
+              {parada.cliente?.id ? (
+                <BotonSecundario
+                  titulo="📍 La dirección está mal — corregir"
+                  alTocar={() =>
+                    navigation.navigate('CorregirDireccion', {
+                      clienteId: parada.cliente!.id,
+                      clienteNombre:
+                        parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? 'Cliente',
+                      direccionId: parada.direccion.id ?? null,
+                      direccionActual: parada.direccion.direccion_formateada ?? '',
+                      lat: parada.direccion.lat ?? null,
+                      lng: parada.direccion.lng ?? null,
+                    })
+                  }
+                />
+              ) : null}
+            </>
           ) : null}
 
           <BotonesSiNo

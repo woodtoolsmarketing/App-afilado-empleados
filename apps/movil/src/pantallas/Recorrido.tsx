@@ -28,6 +28,7 @@ import {
   iniciarRecorrido,
   obtenerJornadaDeHoy,
 } from '../servicios/jornada'
+import { misCambiosPendientes } from '../servicios/cambiosDireccion'
 import {
   decodificarPolilinea,
   navegarHacia,
@@ -75,6 +76,14 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   })
 
   const jornada = data?.jornada
+
+  // Cambios de dirección que este vendedor propuso y la oficina no aplicó: la
+  // navegación al destino los prefiere, así va al punto nuevo y no al viejo.
+  const { data: cambiosPendientes } = useQuery({
+    queryKey: ['mis-cambios-direccion'],
+    queryFn: misCambiosPendientes,
+    staleTime: 60_000,
+  })
   const paradas = useMemo(() => data?.paradas ?? [], [data])
   const enCurso = jornada?.estado === 'en_curso'
 
@@ -563,12 +572,17 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 <View style={estilos.proximaBotones}>
                   <BotonSecundario
                     titulo="🧭 Navegar"
-                    alTocar={() =>
+                    alTocar={() => {
+                      // Si el vendedor propuso corregir esta dirección, va al
+                      // punto nuevo (hasta que la oficina lo aplique).
+                      const cambio = proxima.cliente?.id
+                        ? cambiosPendientes?.[proxima.cliente.id]
+                        : undefined
                       navegarHacia({
-                        lat: proxima.direccion.lat,
-                        lng: proxima.direccion.lng,
+                        lat: cambio?.lat_propuesta ?? proxima.direccion.lat,
+                        lng: cambio?.lng_propuesta ?? proxima.direccion.lng,
                       }).catch((e: Error) => Alert.alert('Google Maps', e.message))
-                    }
+                    }}
                     style={estilos.mitad}
                   />
                   <BotonPrincipal

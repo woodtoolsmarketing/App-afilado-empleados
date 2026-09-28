@@ -17,6 +17,18 @@ export type ParametrosApp = {
   /** `iniciar` viene en true cuando se llega desde "INICIAR RECORRIDO". */
   Recorrido: { iniciar?: boolean } | undefined
   DestinoVisitado: { paradaId: string }
+  /**
+   * Proponer una corrección de la dirección/ubicación de un cliente. No pisa la
+   * dirección oficial: manda un pedido que la oficina aplica desde el panel.
+   */
+  CorregirDireccion: {
+    clienteId: string
+    clienteNombre: string
+    direccionId: string | null
+    direccionActual: string
+    lat: number | null
+    lng: number | null
+  }
   /** Sin `modo` muestra el selector entre cliente existente y cliente nuevo. */
   /**
    * `fecha` (ISO, "2026-08-28") agenda el destino para OTRO día en vez de para
