@@ -7,6 +7,7 @@ import { ProveedorConsola } from './nucleo/consola'
 import { usarSesion } from './nucleo/sesion'
 import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
+import { PaginaCambiosDireccion } from './paginas/CambiosDireccion'
 import { PaginaClientes } from './paginas/Clientes'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
@@ -53,6 +54,10 @@ export function App() {
           <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
           <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
           <Route path="/modificaciones" element={<PaginaModificacionesClientes />} />
+          <Route
+            path="/cambios-direccion"
+            element={<PaginaCambiosDireccion soloLectura={!sesion.esAdmin} />}
+          />
           <Route
             path="/a-confirmar"
             element={<PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />}
@@ -178,6 +183,25 @@ function BarraLateral({
     refetchInterval: 60_000,
   })
 
+  /*
+   * Cuántos cambios de dirección esperan que la oficina los aplique.
+   *
+   * Va como globo por lo mismo que los reportes: el vendedor corrige la
+   * ubicación desde la calle y del otro lado alguien tiene que verlo y aplicarlo
+   * a la base, si no la corrección se queda en un pedido que nadie mira.
+   */
+  const { data: cambiosDir } = useQuery({
+    queryKey: ['cambios-direccion-pendientes'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('cambios_direccion')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente')
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
   const enlaces = [
     { a: '/', icono: '▦', texto: 'Tablero' },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
@@ -188,6 +212,7 @@ function BarraLateral({
     { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro' },
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones' },
+    { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
     { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas },
