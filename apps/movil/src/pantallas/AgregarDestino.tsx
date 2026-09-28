@@ -742,9 +742,12 @@ function UbicarCliente({
 
   if (confirmada) {
     return (
-      <Aviso tono="exito" titulo="Ubicación guardada">
+      <Aviso tono="exito" titulo={faltaUbicar ? 'Ubicación guardada' : 'Corrección enviada'}>
         {confirmada}
-        {'\n\n'}Queda en la ficha del cliente: la próxima vez ya va a estar.
+        {'\n\n'}
+        {faltaUbicar
+          ? 'Queda en la ficha del cliente: la próxima vez ya va a estar.'
+          : 'La oficina la revisa y la aplica. Tu recorrido ya te lleva ahí.'}
       </Aviso>
     )
   }
@@ -774,7 +777,7 @@ function UbicarCliente({
       <Text style={estilos.ubicarAyuda}>
         {faltaUbicar
           ? 'Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa, y sin eso no entra al recorrido.'
-          : 'Lo que cargues acá reemplaza la dirección que tiene hoy, para todos.'}
+          : 'Esto NO cambia la dirección para todos: manda una corrección a la oficina, que la revisa y la aplica. Tu recorrido ya te lleva al punto nuevo.'}
       </Text>
 
       <Campo
