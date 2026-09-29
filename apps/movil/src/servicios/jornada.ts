@@ -213,7 +213,8 @@ export async function registrarVisita(datos: DatosRegistroVisita): Promise<Visit
 
 export async function agregarParada(params: {
   rolVisitaId: string
-  direccionId: string
+  /** `null` = la parada entra SIN UBICAR y se resuelve al llegar. */
+  direccionId: string | null
   prioridad: PrioridadParada
   clienteId?: string | null
 }): Promise<ParadaCompleta> {
@@ -229,6 +230,45 @@ export async function agregarParada(params: {
 }
 
 /**
+ * Guarda la ubicación de una parada que entró SIN UBICAR.
+ *
+ * Es el "ya llegué, este es el lugar" del vendedor. Escribe la dirección en la
+ * ficha del cliente —así queda para todos y para siempre, no sólo para el
+ * recorrido de hoy— y de paso le engancha el punto a esta parada.
+ *
+ * La parada NO cambia de lugar en la lista: saber dónde queda no es motivo para
+ * reordenar un recorrido que el vendedor ya está haciendo.
+ */
+export async function ubicarParada(params: {
+  paradaId: string
+  direccionFormateada: string
+  lat: number
+  lng: number
+  codigoPostal?: string | null
+  googlePlaceId?: string | null
+  localidad?: string | null
+  provincia?: string | null
+}): Promise<ParadaCompleta> {
+  const { data, error } = await supabase.rpc('ubicar_parada', {
+    p_parada_id: params.paradaId,
+    p_direccion_formateada: params.direccionFormateada,
+    p_lat: params.lat,
+    p_lng: params.lng,
+    p_codigo_postal: params.codigoPostal ?? null,
+    p_google_place_id: params.googlePlaceId ?? null,
+    p_localidad: params.localidad ?? null,
+    p_provincia: params.provincia ?? null,
+  })
+
+  if (error) {
+    // 23514: sin cliente no hay ficha donde guardar. P0002: la parada no existe.
+    if (['23514', 'P0002'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+  return data as ParadaCompleta
+}
+
+/**
  * Agrega al recorrido de hoy un cliente tocado en el mapa.
  *
  * El mapa muestra el padrón entero, así que el cliente puede no ser de la
@@ -236,6 +276,9 @@ export async function agregarParada(params: {
  * base (SECURITY DEFINER) resuelve la dirección principal, asegura la jornada de
  * hoy e inserta la parada: `alta` la mete como próximo destino, `baja` al final,
  * como cola. Todo en un viaje y atómico.
+ *
+ * Si el cliente no tiene dirección cargada, la parada entra SIN UBICAR (al
+ * final, siempre) en vez de rebotar.
  */
 export async function agregarClienteAlRecorrido(params: {
   clienteId: string
@@ -248,7 +291,8 @@ export async function agregarClienteAlRecorrido(params: {
 
   if (error) {
     // La función redacta sus propios mensajes: 23505 ya está en el recorrido,
-    // 23514 sin ubicar, 42501 cuenta no habilitada.
+    // 42501 cuenta no habilitada. (23514 era "todavía no está ubicado en el
+    // mapa", que ya no corta: ahora entra sin ubicar.)
     if (['23505', '23514', '42501'].includes(error.code ?? '')) throw new Error(error.message)
     throw error
   }
@@ -457,8 +501,14 @@ export async function candidatosDelDia(): Promise<CandidatoDelDia[]> {
  * Convierte en paradas los candidatos que el vendedor eligió.
  *
  * Devuelve cuántos entraron y cuántos no se pudieron agregar. Los que fallan no
- * frenan a los demás: si de doce clientes uno no está geolocalizado, los once
- * restantes tienen que entrar igual — el vendedor está por salir.
+ * frenan a los demás: si de doce clientes uno falla, los once restantes tienen
+ * que entrar igual — el vendedor está por salir.
+ *
+ * Ya NO se saltea al que no está en el mapa. Antes se lo descartaba acá mismo
+ * con "No está ubicado en el mapa", y como el 40 % del padrón no tiene ninguna
+ * dirección cargada, armar el recorrido del día dejaba afuera a casi la mitad de
+ * los candidatos sin que el vendedor pudiera hacer nada al respecto. Ahora entra
+ * sin ubicar, al final de la lista, y la ubicación se resuelve al llegar.
  */
 export async function armarRecorridoCon(
   vendedorId: string,
@@ -469,16 +519,11 @@ export async function armarRecorridoCon(
   let agregados = 0
 
   for (const c of candidatos) {
-    if (c.lat === null || c.lng === null) {
-      fallaron.push({
-        razon_social: c.razon_social,
-        motivo: 'No está ubicado en el mapa',
-      })
-      continue
-    }
     try {
       const { data, error } = await supabase.rpc('agregar_parada', {
         p_rol_visita_id: jornada.id,
+        // `null` cuando el cliente no tiene dirección cargada: la parada entra
+        // sin ubicar en vez de no entrar.
         p_direccion_id: await direccionPrincipalDe(c.cliente_id),
         // El plan del día no se desvía por nadie: la ruta la ordena la
         // optimización. La prioridad alta es para lo que aparece en el camino.
@@ -498,8 +543,14 @@ export async function armarRecorridoCon(
   return { agregados, fallaron }
 }
 
-/** La dirección principal de un cliente. Es lo que `agregar_parada` necesita. */
-async function direccionPrincipalDe(clienteId: string): Promise<string> {
+/**
+ * La dirección principal de un cliente, o `null` si no tiene ninguna.
+ *
+ * Devolver `null` en vez de tirar es el cambio: `agregar_parada` acepta una
+ * parada sin dirección, así que "este cliente no está en el mapa" dejó de ser un
+ * error y pasó a ser un dato — el que decide que la parada entre SIN UBICAR.
+ */
+async function direccionPrincipalDe(clienteId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from('direcciones')
     .select('id')
@@ -510,6 +561,5 @@ async function direccionPrincipalDe(clienteId: string): Promise<string> {
     .maybeSingle<{ id: string }>()
 
   if (error) throw error
-  if (!data) throw new Error('El cliente no tiene dirección cargada')
-  return data.id
+  return data?.id ?? null
 }

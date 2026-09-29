@@ -149,9 +149,29 @@ export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>
                   <Text style={estilos.filaCliente} numberOfLines={1}>
                     {p.cliente?.razon_social ?? p.razon_social_snapshot ?? 'Destino sin cliente'}
                   </Text>
+                  {/*
+                    Una parada SIN UBICAR no tiene dirección con punto, pero sí
+                    el domicilio escrito que vino del sistema de gestión, que es
+                    con lo que el vendedor se guía y lo que tiene que salir en la
+                    planilla. Si no hay ni eso se dice, porque una línea vacía en
+                    una hoja impresa no se puede preguntar después.
+                  */}
                   <Text style={estilos.filaDireccion} numberOfLines={2}>
-                    {p.direccion.direccion_formateada}
+                    {p.direccion?.direccion_formateada ??
+                      p.direccion_snapshot ??
+                      'Sin domicilio anotado'}
                   </Text>
+                  {/*
+                    Misma pastilla roja que en el resto de la app: significa que
+                    ese destino entró al recorrido sin punto en el mapa y que se
+                    ubica al llegar. Va acá abajo y no al lado del estado para no
+                    apretar la fila, que ya tiene el número y la etiqueta.
+                  */}
+                  {p.direccion === null ? (
+                    <View style={estilos.filaSinUbicar}>
+                      <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+                    </View>
+                  ) : null}
                 </View>
                 <Pastilla
                   texto={ETIQUETA_ESTADO_PARADA[p.estado]}
@@ -265,4 +285,7 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
   },
+  // La pastilla va adentro de una fila propia: suelta en la columna de textos
+  // se estiraría de lado a lado y dejaría de leerse como pastilla.
+  filaSinUbicar: { flexDirection: 'row', marginTop: 2 },
 }))

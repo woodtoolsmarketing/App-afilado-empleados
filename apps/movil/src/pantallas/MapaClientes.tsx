@@ -32,7 +32,23 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Mapa de clientes.
  *
  * El vendedor abre el mapa centrado en dónde está y ve a los clientes alrededor.
- * Son casi diez mil en todo el país, así que:
+ *
+ * ─── Quién NO está en este mapa ─────────────────────────────────────────────
+ *
+ * Los que no tienen punto. `clientes_en_mapa` sale de `direcciones`, y cuatro de
+ * cada diez clientes activos no tienen ninguna fila ahí: son casi diez mil pines
+ * sobre un padrón de dieciséis mil y medio. Un cliente sin coordenadas no puede
+ * tener pin —dibujarlo en cualquier lado sería peor que no dibujarlo—, así que
+ * esta pantalla no lo muestra y no hay nada que agregarle para que lo muestre.
+ *
+ * Lo que sí cambió es que no estar acá dejó de ser una condena: al cliente sin
+ * ubicar se lo agrega al recorrido desde el buscador (AGREGAR DESTINO), entra al
+ * final de la lista, y el punto se guarda al llegar. Por eso el contador de
+ * abajo dice "ubicados" y no "clientes" a secas: el número de pines nunca fue el
+ * tamaño de la cartera, y ahora que faltar del mapa no impide trabajar, dejarlo
+ * ambiguo sería hacerle creer que el cliente que no encuentra no existe.
+ *
+ * Son casi diez mil pines, así que:
  *
  *  · Van AGRUPADOS en racimos (supercluster): de lejos, un círculo con la
  *    cantidad; al acercarse, se abren en pines individuales. Tocar un racimo
@@ -180,6 +196,23 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
 
   // ── Acciones del pin ────────────────────────────────────────────────────────
 
+  /**
+   * Agregar al recorrido el cliente del pin.
+   *
+   * Acá no hace falta contemplar la parada SIN UBICAR, y conviene dejar escrito
+   * por qué para que nadie la agregue "por las dudas": todo lo que tiene pin
+   * tiene coordenadas —es la única forma de dibujarlo—, así que
+   * `agregar_cliente_al_recorrido` siempre le va a encontrar la dirección
+   * principal y la parada nunca va a nacer sin ubicar desde esta pantalla. Es
+   * también por eso que más abajo se usa `navegarHacia` con el punto del pin y
+   * no `buscarEnMapsPorTexto`: el destino es un hecho, no una conjetura.
+   *
+   * El error tampoco necesita nada especial. El único cartel que este menú podía
+   * sacar por falta de ubicación era "Ese cliente todavía no está ubicado en el
+   * mapa" (23514), y esa función dejó de tirarlo. Quedan los dos que sí siguen
+   * pasando y que la base redacta sola: ya está en el recorrido de hoy, y cuenta
+   * no habilitada.
+   */
   const agregar = useMutation({
     mutationFn: (v: { cliente: PinTocado; prioridad: 'alta' | 'baja' }) =>
       agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad }),
@@ -336,7 +369,11 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
           </View>
         ) : (
           <View style={estilos.contador} pointerEvents="none">
-            <Text style={estilos.contadorTexto}>{puntos.length.toLocaleString('es-AR')} clientes</Text>
+            {/* "ubicados", no "clientes": son los que tienen punto, que son
+                bastantes menos que los de la cartera. Ver el encabezado. */}
+            <Text style={estilos.contadorTexto}>
+              {puntos.length.toLocaleString('es-AR')} clientes ubicados
+            </Text>
           </View>
         )}
       </View>

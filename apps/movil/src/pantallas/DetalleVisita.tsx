@@ -8,7 +8,7 @@ import {
   radios,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
-import { Linking, Text, View } from 'react-native'
+import { Alert, Linking, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -16,6 +16,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { obtenerDetalleParada } from '../servicios/jornada'
+import { buscarEnMapsPorTexto } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
@@ -40,6 +41,27 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
   // cliente o con nombre suelto no entra en la lista semanal.
   const clienteId = parada?.cliente?.id ?? null
   const clienteNombre = parada?.cliente?.razon_social ?? 'este cliente'
+
+  /*
+   * El domicilio sale de dos lados distintos, y de cuál sale cambia todo lo que
+   * puede hacer esta pantalla.
+   *
+   * Si la parada está ubicada hay una dirección de verdad, con su punto en el
+   * mapa. Si entró SIN UBICAR —el vendedor la agregó al recorrido porque sabe
+   * dónde queda, sin frenarse a buscarla, y nunca llegó a guardar la ubicación—
+   * no hay punto: lo único que quedó es `direccion_snapshot`, el domicilio
+   * escrito que vino del sistema de gestión ("URQUIZA OESTE PARADA16,
+   * GUALEGUAYCHÚ"). Para el vendedor eso alcanza de sobra; para una URL de mapa
+   * con coordenadas no.
+   *
+   * Se sacan como constantes acá arriba a propósito: al ser `const`, el
+   * estrechamiento sobrevive adentro de los `alTocar`, y no hace falta ningún
+   * `!` para convencer al compilador de algo que después puede dejar de ser
+   * cierto.
+   */
+  const punto = parada?.direccion ?? null
+  const domicilioEscrito = parada?.direccion_snapshot ?? null
+  const domicilio = punto?.direccion_formateada ?? domicilioEscrito
 
   return (
     <Pantalla>
@@ -78,9 +100,11 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
               {parada.cliente?.codigo ? (
                 <Text style={estilos.meta}>Cliente Nº {parada.cliente.codigo}</Text>
               ) : null}
-              <Text style={estilos.meta}>{parada.direccion.direccion_formateada}</Text>
-              {parada.direccion.codigo_postal ? (
-                <Text style={estilos.meta}>CP {parada.direccion.codigo_postal}</Text>
+              {/* Sin dirección y sin domicilio escrito no se inventa nada: se
+                  dice que no quedó anotado, que es la verdad. */}
+              <Text style={estilos.meta}>{domicilio ?? 'Sin domicilio anotado'}</Text>
+              {punto?.codigo_postal ? (
+                <Text style={estilos.meta}>CP {punto.codigo_postal}</Text>
               ) : null}
 
               <View style={estilos.pastillas}>
@@ -98,6 +122,13 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
                         : colores.estadoOmitida
                   }
                 />
+                {/* La misma pastilla roja que en el resto de la app, y última
+                    como en todas: acá explica por qué el domicilio de arriba es
+                    el texto del sistema y por qué el botón de abajo busca en
+                    vez de ir derecho al punto. Un solo símbolo para aprender. */}
+                {punto === null ? (
+                  <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+                ) : null}
               </View>
             </View>
 
@@ -160,14 +191,39 @@ export function PantallaDetalleVisita({ navigation, route }: PropsPantalla<'Deta
               />
             ) : null}
 
-            <BotonSecundario
-              titulo="Ver en el mapa"
-              alTocar={() =>
-                Linking.openURL(
-                  `https://www.google.com/maps/search/?api=1&query=${parada.direccion.lat},${parada.direccion.lng}`,
-                )
-              }
-            />
+            {/*
+              Con punto se abre el punto, como siempre. Sin punto el botón no se
+              esconde: se busca en Google Maps el domicilio escrito, que es
+              exactamente lo que haría el vendedor a mano. No se navega derecho
+              al primer resultado porque un domicilio de texto puede ser
+              ambiguo, y salir manejando hacia una conjetura sin avisar es peor
+              que mostrarle los resultados y que elija él.
+
+              Si no hay ni punto ni domicilio escrito no hay nada que abrir, y
+              ahí sí el botón desaparece: un botón que no puede cumplir es una
+              promesa rota cada vez que lo tocan.
+            */}
+            {punto ? (
+              <BotonSecundario
+                titulo="Ver en el mapa"
+                alTocar={() =>
+                  Linking.openURL(
+                    `https://www.google.com/maps/search/?api=1&query=${punto.lat},${punto.lng}`,
+                  )
+                }
+              />
+            ) : domicilioEscrito ? (
+              <BotonSecundario
+                // Mismo nombre que en Recorrido y en DestinoVisitado: es el
+                // mismo botón y el vendedor lo usa en los tres el mismo día.
+                titulo="Buscar en Maps"
+                alTocar={() =>
+                  void buscarEnMapsPorTexto(domicilioEscrito).catch((e: Error) =>
+                    Alert.alert('No pudimos abrir el mapa', e.message),
+                  )
+                }
+              />
+            ) : null}
           </>
         )}
       </Panel>
@@ -218,7 +274,14 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
   },
-  pastillas: { flexDirection: 'row', gap: espaciado.xs, marginTop: espaciado.xs },
+  // Envuelve porque ahora pueden ser tres —número, estado y "SIN UBICAR"— y en
+  // un teléfono angosto la tercera se salía de la tarjeta.
+  pastillas: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: espaciado.xs,
+    marginTop: espaciado.xs,
+  },
 
   subtitulo: {
     fontFamily: t.tipografia.familia.subtitulo,

@@ -44,6 +44,16 @@ import type { PropsPantalla } from '../navegacion/tipos'
  *   SUGERIDO   El plan dice que a ese cliente le toca ese día por su
  *              frecuencia, y todavía no está agendado. Es una propuesta.
  *
+ * Y una tercera pastilla que puede acompañar a cualquiera de las dos:
+ *
+ *   SIN UBICAR De ese cliente no sabemos el punto en el mapa. No es raro:
+ *              cuatro de cada diez del padrón no tienen ninguna dirección
+ *              cargada, aunque casi todos traigan el domicilio escrito del
+ *              sistema viejo. Se agenda igual —entra al final del día— y el
+ *              punto se guarda recién al llegar. Antes esto era un candado:
+ *              el vendedor sabía dónde quedaba el cliente y ni siquiera podía
+ *              dejarlo anotado en la lista hasta estar parado en la puerta.
+ *
  * ─── Por qué la semana y no el mes ──────────────────────────────────────────
  *
  * Porque el mes en un teléfono son 30 casilleros de un centímetro donde no
@@ -333,10 +343,15 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
           }
         />
 
+        {/* Acá es donde el vendedor aprende qué significa SIN UBICAR. La
+            pastilla sola no alcanza: hasta hace poco ese cliente no se podía
+            agendar, y si no se dice que ahora sí, la costumbre le va a ganar
+            al cambio y va a seguir salteándolo. */}
         <Aviso tono="info" titulo="Cómo leerlo">
           El punto rojo marca los días con destinos ya agendados y el azul los que el plan
           sugiere (por frecuencia o por tu lista semanal). Un sugerido no está en tu recorrido
-          hasta que lo agendás.
+          hasta que lo agendás. Si un destino dice SIN UBICAR es que no tenemos su punto en el
+          mapa: agendalo igual, va al final del día, y cuando llegues le guardás la ubicación.
         </Aviso>
       </Panel>
 
@@ -347,21 +362,48 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
         acciones={
           enAccion
             ? enAccion.tipo === 'sugerida'
-              ? [
+              ? /*
+                 * Las dos de agendar YA NO se apagan cuando el cliente no está
+                 * ubicado.
+                 *
+                 * Estaban apagadas porque `agendar_visita` rebotaba con "Ese
+                 * cliente todavía no está ubicado en el mapa", así que dejarlas
+                 * tocables habría sido ofrecer algo que iba a fallar. Eso se
+                 * arregló en la base: la parada entra sin dirección y el punto
+                 * se completa al llegar. Apagarlas ahora sería seguir
+                 * prohibiendo por costumbre lo único que el vendedor pidió.
+                 *
+                 * Los detalles sólo aparecen cuando falta el punto, y dicen qué
+                 * va a pasar —no que no se pueda—. El de la hora avisa de la
+                 * única incomodidad que queda: la hora se anota y se ve en este
+                 * calendario, pero en el recorrido la parada va última igual,
+                 * porque la base manda al final a todo lo que no tiene punto
+                 * con qué medir la cercanía. Mejor decirlo acá que dejar que lo
+                 * descubra con el recorrido armado.
+                 */
+                [
                   {
                     etiqueta: 'AGENDAR PARA ESTE DÍA',
-                    detalle: enAccion.lat === null ? 'Falta ubicarlo en el mapa' : undefined,
-                    apagada: enAccion.lat === null,
+                    detalle:
+                      enAccion.lat === null
+                        ? 'Entra al final del día y lo ubicás cuando llegues'
+                        : undefined,
                     hacer: (i) => agendar.mutate({ item: i, fecha: elegido }),
                   },
                   {
                     etiqueta: 'AGENDAR CON HORA',
-                    apagada: enAccion.lat === null,
+                    detalle:
+                      enAccion.lat === null
+                        ? 'La hora queda anotada, pero en el recorrido va último'
+                        : undefined,
                     hacer: (i) => setPidiendoHora(i),
                   },
                   {
                     etiqueta: 'UBICARLO EN EL MAPA',
-                    detalle: enAccion.lat === null ? 'Sin dirección no entra al recorrido' : undefined,
+                    detalle:
+                      enAccion.lat === null
+                        ? 'Si ya sabés dónde queda, marcalo ahora y no al llegar'
+                        : undefined,
                     // El cliente viaja escrito: es el que la pantalla acaba de
                     // nombrar, y hacerlo buscar de nuevo sería no haberlo oído.
                     hacer: (i) =>

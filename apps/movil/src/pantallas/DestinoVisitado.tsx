@@ -1,5 +1,6 @@
 import {
   espaciado,
+  estaUbicada,
   ETIQUETA_MOTIVO_NO_VISITA,
   observacionSugerida,
   FORMULARIO_VISITA_VACIO,
@@ -8,6 +9,7 @@ import {
   type CampoVisita,
   type FormularioVisita,
   type MotivoNoVisita,
+  type ParadaCompleta,
   todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -26,11 +28,16 @@ import {
 
 import { BotonMenu, BotonesSiNo, BotonSecundario } from '../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../componentes/Formulario'
-import { Aviso, Cargando } from '../componentes/Estado'
+import { Aviso, Cargando, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
-import { finalizarRecorrido, obtenerJornadaDeHoy, registrarVisita } from '../servicios/jornada'
+import {
+  finalizarRecorrido,
+  obtenerJornadaDeHoy,
+  registrarVisita,
+  ubicarParada,
+} from '../servicios/jornada'
 import {
   guardarBorradorDeVisita,
   olvidarBorradorDeVisita,
@@ -38,8 +45,17 @@ import {
 } from '../servicios/borradorDeVisita'
 import { resumenDeNotasDeLaParada } from '../servicios/notasPedido'
 import { misCambiosPendientes } from '../servicios/cambiosDireccion'
-import { navegarHacia } from '../servicios/mapas'
-import { detenerSeguimiento, ubicacionActual } from '../servicios/ubicacion'
+import {
+  buscarEnMapsPorTexto,
+  navegarHacia,
+  ubicacionComoDireccion,
+  type DireccionResuelta,
+} from '../servicios/mapas'
+import {
+  detenerSeguimiento,
+  permisoDeUbicacionPuntual,
+  ubicacionActual,
+} from '../servicios/ubicacion'
 import { usarDictado, DURACION_MAXIMA_MS } from '../servicios/transcripcion'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
@@ -71,6 +87,16 @@ function soloHora(texto: string): string {
   if (d.length <= 2) return d
   return `${d.slice(0, 2)}:${d.slice(2)}`
 }
+
+/**
+ * Cuántas letras tiene que tener una dirección para que la base la acepte.
+ *
+ * No es un número elegido acá: `ubicar_cliente` corta en 5 y levanta excepción.
+ * Está escrito para poder preguntarlo ANTES de llamarla, y así decidir si el
+ * domicilio de texto alcanza o si hay que resolver el punto con Google. Si
+ * alguna vez cambia en la base, cambia acá.
+ */
+const MINIMO_DIRECCION = 5
 
 export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'DestinoVisitado'>) {
   const { colores } = usarTema()
@@ -122,6 +148,25 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   })
 
   const parada = data?.paradas.find((p) => p.id === paradaId)
+
+  /**
+   * La misma parada, pero sólo si tiene punto en el mapa.
+   *
+   * `estaUbicada` no es un `if` disfrazado: estrecha el tipo, así que de acá
+   * para abajo `ubicada.direccion.lat` no necesita ningún `!`. Y como es un
+   * `const`, el estrechamiento sobrevive adentro de los `onPress` —cosa que
+   * `parada.direccion` no hace, porque TypeScript no puede saber que nadie la
+   * cambió entre que se dibujó el botón y que el vendedor lo tocó—.
+   *
+   * `sinUbicar` es el otro lado: la parada existe pero entró al recorrido sin
+   * punto, y lo único que hay para mostrar es el domicilio escrito.
+   */
+  const ubicada = parada && estaUbicada(parada) ? parada : null
+  const sinUbicar = !!parada && ubicada === null
+  const clienteId = parada?.cliente?.id ?? null
+
+  /** El domicilio de texto que vino del sistema de gestión, si lo hay. */
+  const domicilioEscrito = (parada?.direccion_snapshot ?? '').trim()
 
   // Los cambios de dirección que este vendedor ya propuso y la oficina todavía
   // no aplicó: sirven para mostrar la observación en la ficha y para que
@@ -239,6 +284,52 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     resumenDeNotas,
   ])
 
+  /**
+   * Lanza el viaje al destino que sigue, tenga o no punto en el mapa.
+   *
+   * Los dos caminos están los dos porque no son la misma cosa:
+   *
+   *  · Con coordenadas se abre la navegación paso a paso, que es lo que el
+   *    vendedor espera cuando toca "Navegar".
+   *  · Sin coordenadas —el destino entró SIN UBICAR— se abre Google Maps
+   *    BUSCANDO el domicilio escrito que vino del sistema de gestión. El botón
+   *    no se esconde: el vendedor sabe más o menos dónde queda el cliente, y
+   *    llegar a la cuadra con el domicilio escrito es muchísimo mejor que
+   *    quedarse sin nada. Cuando llegue, la pantalla de la visita le va a
+   *    ofrecer guardar el punto de una vez y para siempre.
+   *
+   * El punto propuesto se toma sólo si están las dos coordenadas. Antes se
+   * tomaba cada una por su lado con un `??`, y una corrección a la que le
+   * faltara una de las dos armaba un punto mezclado —la latitud de la
+   * propuesta con la longitud de la dirección vieja—, que es un lugar en el
+   * que no vive nadie.
+   */
+  function irHacia(destino: ParadaCompleta) {
+    const cambio = destino.cliente?.id ? cambiosPendientes?.[destino.cliente.id] : undefined
+    const propuesto =
+      cambio && cambio.lat_propuesta !== null && cambio.lng_propuesta !== null
+        ? { lat: cambio.lat_propuesta, lng: cambio.lng_propuesta }
+        : null
+    const punto = propuesto ?? destino.direccion
+
+    if (punto) {
+      void navegarHacia({ lat: punto.lat, lng: punto.lng }).catch(() => undefined)
+      return
+    }
+
+    const domicilio = (destino.direccion_snapshot ?? '').trim()
+    if (!domicilio) {
+      // Ni punto ni domicilio escrito: no hay a dónde mandarlo, y decirlo es
+      // mejor que abrir Maps en cualquier lado.
+      Alert.alert(
+        'Ese destino todavía no está en el mapa',
+        'No tenemos ni el punto ni el domicilio escrito, así que no hay a dónde llevarte. Cuando llegues, tocá ESTOY ACÁ y la ubicación queda guardada.',
+      )
+      return
+    }
+    void buscarEnMapsPorTexto(domicilio).catch(() => undefined)
+  }
+
   const guardar = useMutation({
     mutationFn: async () => {
       let posicion: { lat: number; lng: number; precision: number | null } | null = null
@@ -297,20 +388,14 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}`, [
         { text: 'Ver recorrido', onPress: () => salirA('Recorrido') },
         {
-          text: 'Navegar',
+          // Si el que sigue no tiene punto, el botón lo dice: lo que se abre es
+          // una BÚSQUEDA del domicilio en Maps, no la voz que lo va guiando.
+          // Prometer "Navegar" y que no arranque la navegación es peor que
+          // llamar a las cosas por su nombre.
+          text: siguiente && !estaUbicada(siguiente) ? 'Buscar en Maps' : 'Navegar',
           onPress: () => {
             salirA('Recorrido')
-            if (siguiente) {
-              // Si el vendedor propuso corregir la dirección de ese cliente, la
-              // navegación va al punto nuevo (hasta que la oficina lo aplique).
-              const cambioSig = siguiente.cliente?.id
-                ? cambiosPendientes?.[siguiente.cliente.id]
-                : undefined
-              void navegarHacia({
-                lat: cambioSig?.lat_propuesta ?? siguiente.direccion.lat,
-                lng: cambioSig?.lng_propuesta ?? siguiente.direccion.lng,
-              }).catch(() => undefined)
-            }
+            if (siguiente) irHacia(siguiente)
           },
         },
       ])
@@ -346,6 +431,88 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       )
       salirA('Visitas')
     },
+  })
+
+  /**
+   * La dirección que se acaba de guardar, para confirmárselo en el acto.
+   *
+   * La ficha de arriba se arregla sola cuando vuelve la consulta —la parada
+   * pasa a tener dirección y la pastilla SIN UBICAR desaparece—, pero eso
+   * depende de la señal. El vendedor está parado en la puerta del cliente y
+   * necesita saber YA si lo que tocó quedó guardado o no.
+   */
+  const [ubicacionGuardada, setUbicacionGuardada] = useState<string | null>(null)
+
+  /**
+   * "ESTOY ACÁ": guarda el punto donde está parado el vendedor.
+   *
+   * Es la pieza que faltaba de todo esto. El cliente entró al recorrido sin
+   * estar en el mapa —el 40 % del padrón no tiene ninguna dirección cargada— y
+   * acá, que es el único momento en que alguien de la empresa está físicamente
+   * en la puerta, se resuelve de un toque y para siempre: queda en la ficha del
+   * cliente, no en el recorrido de hoy.
+   *
+   * ── Qué se escribe como dirección ──────────────────────────────────────────
+   *
+   * Primero el domicilio de texto que vino del sistema de gestión
+   * (`direccion_snapshot`): es el que la oficina reconoce, el que está en las
+   * facturas, y lo tienen 6.386 de los 6.536 clientes sin ubicar. Con ése no
+   * hace falta pedirle nada a Google: el punto lo pone el GPS y la dirección ya
+   * la teníamos. Una llamada menos es un segundo menos y una cosa menos que
+   * puede fallar con media barra de señal.
+   *
+   * Cuando no hay domicilio escrito —o es tan corto que `ubicar_cliente` lo
+   * rechaza, que pide 5 caracteres— recién ahí se geocodifica al revés el punto
+   * del GPS, que además trae localidad, provincia y código postal. Es la mejor
+   * opción disponible: inventar un texto tipo "Ubicación tomada el 29/9" dejaría
+   * la ficha del cliente con una dirección que no sirve para volver.
+   *
+   * Las coordenadas que se guardan son SIEMPRE las del GPS, nunca las que
+   * devuelve Google: si el vendedor está en la puerta del galpón, ahí tiene que
+   * caer el pin, aunque Google prefiera el número de la esquina.
+   */
+  const ubicar = useMutation({
+    mutationFn: async (): Promise<string> => {
+      if (!(await permisoDeUbicacionPuntual())) {
+        throw new Error(
+          'Necesitamos permiso de ubicación para guardar dónde estás. Podés activarlo en los ajustes del teléfono.',
+        )
+      }
+
+      const punto = await ubicacionActual()
+
+      let escrita = domicilioEscrito
+      let deGoogle: DireccionResuelta | null = null
+      if (escrita.length < MINIMO_DIRECCION) {
+        deGoogle = await ubicacionComoDireccion({ lat: punto.lat, lng: punto.lng })
+        escrita = deGoogle.direccion_formateada
+      }
+
+      await ubicarParada({
+        paradaId,
+        direccionFormateada: escrita,
+        lat: punto.lat,
+        lng: punto.lng,
+        codigoPostal: deGoogle?.codigo_postal ?? null,
+        googlePlaceId: deGoogle?.google_place_id ?? null,
+        localidad: deGoogle?.localidad ?? null,
+        provincia: deGoogle?.provincia ?? null,
+      })
+
+      return escrita
+    },
+    onSuccess: async (escrita) => {
+      setUbicacionGuardada(escrita)
+      // La lista del recorrido y el rol del día leen la misma consulta, y el
+      // mapa de clientes acaba de ganar un pin que antes no existía.
+      await cliente.invalidateQueries({ queryKey: ['jornada-hoy'] })
+      await cliente.invalidateQueries({ queryKey: ['clientes-en-mapa'] })
+    },
+    onError: (e: Error) =>
+      Alert.alert(
+        'No pudimos guardar la ubicación',
+        `${e.message}\n\nProbá otra vez con el cielo a la vista. Igual podés registrar la visita ahora mismo: guardar la ubicación no es obligatorio.`,
+      ),
   })
 
   /**
@@ -468,9 +635,23 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 <Text style={estilos.fichaCliente}>
                   {parada.orden}. {parada.cliente?.razon_social ?? parada.razon_social_snapshot}
                 </Text>
-                <Text style={estilos.fichaDireccion}>{parada.direccion.direccion_formateada}</Text>
+                {/* Sin punto en el mapa lo que se muestra es el domicilio
+                    escrito que vino del sistema de gestión. Es lo que el
+                    vendedor ya sabe de memoria y lo que lo trajo hasta acá. */}
+                <Text style={estilos.fichaDireccion}>
+                  {ubicada
+                    ? ubicada.direccion.direccion_formateada
+                    : domicilioEscrito || 'Sin domicilio anotado'}
+                </Text>
                 {parada.cliente?.codigo ? (
                   <Text style={estilos.fichaCodigo}>Cliente Nº {parada.cliente.codigo}</Text>
+                ) : null}
+                {/* La misma pastilla roja de todo el resto de la app: un solo
+                    símbolo para "este destino no está en el mapa todavía". */}
+                {sinUbicar ? (
+                  <View style={estilos.fichaPastilla}>
+                    <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+                  </View>
                 ) : null}
               </View>
 
@@ -481,18 +662,79 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 </Aviso>
               ) : null}
 
-              {parada.cliente?.id ? (
+              {/*
+                ── "ESTOY ACÁ" ───────────────────────────────────────────────
+
+                Va arriba de todo, antes de las preguntas de la visita, porque
+                es lo único que se puede hacer únicamente ACÁ: estando parado en
+                la puerta. El parte de la visita se puede completar en cualquier
+                lado y en cualquier momento; el punto del cliente, no.
+
+                Es un solo toque a propósito. El vendedor tiene el teléfono en
+                una mano y está por tocar el timbre: cualquier pantalla
+                intermedia, cualquier confirmación, es una excusa para dejarlo
+                para después, y "después" es como este cliente lleva años sin
+                estar en el mapa.
+
+                Se pide el cliente porque la ubicación se guarda en SU ficha:
+                una parada sin cliente no tiene dónde guardarla y la base la
+                rechaza. No pasa en la práctica —una parada sin ubicar siempre
+                nace de un cliente—, pero preguntarlo acá evita mostrar un botón
+                que sólo puede fallar.
+              */}
+              {/*
+                El aviso de "ya está" se mira primero, y a propósito no mira si
+                la parada sigue sin ubicar: apenas vuelve la consulta la parada
+                pasa a tener dirección, y si el cartel dependiera de eso se
+                borraría solo unos segundos después de que el vendedor lo leyó.
+                La confirmación de algo que se hace una sola vez en la vida del
+                cliente se queda en pantalla hasta que se cierra la visita.
+              */}
+              {ubicacionGuardada ? (
+                <Aviso tono="exito" titulo="Ubicación guardada">
+                  {ubicacionGuardada}
+                  {'\n\n'}
+                  Quedó en la ficha del cliente: la próxima vez el recorrido ya te trae derecho.
+                </Aviso>
+              ) : sinUbicar && clienteId ? (
+                <View style={estilos.bloqueUbicar}>
+                  <BotonMenu
+                    titulo="📍 ESTOY ACÁ — GUARDAR LA UBICACIÓN"
+                    subtitulo="Guarda el punto donde estás parado ahora"
+                    cargando={ubicar.isPending}
+                    deshabilitado={ocupado}
+                    alTocar={() => ubicar.mutate()}
+                  />
+                  <Text style={estilos.bloqueUbicarTexto}>
+                    Este cliente todavía no está en el mapa. Si tocás el botón parado en la puerta,
+                    el punto queda en su ficha para siempre y la próxima vez el recorrido te trae
+                    derecho. Podés registrar la visita igual, aunque no lo guardes.
+                  </Text>
+                </View>
+              ) : null}
+
+              {/*
+                Corregir la dirección es otra cosa que ubicar al cliente, y por
+                eso este botón sale sólo cuando la parada YA tiene punto:
+                corregir manda un pedido que la oficina revisa y aplica, mientras
+                que un cliente sin dirección no tiene nada que corregir —tiene
+                algo que cargar, y eso lo resuelve "ESTOY ACÁ" de arriba, que
+                escribe en la ficha en el momento—. Ofrecer el camino largo para
+                el caso que tiene uno corto es mandarlo a esperar a la oficina
+                por algo que él puede dejar resuelto ahora.
+              */}
+              {ubicada && clienteId ? (
                 <BotonSecundario
                   titulo="📍 La dirección está mal — corregir"
                   alTocar={() =>
                     navigation.navigate('CorregirDireccion', {
-                      clienteId: parada.cliente!.id,
+                      clienteId,
                       clienteNombre:
-                        parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? 'Cliente',
-                      direccionId: parada.direccion.id ?? null,
-                      direccionActual: parada.direccion.direccion_formateada ?? '',
-                      lat: parada.direccion.lat ?? null,
-                      lng: parada.direccion.lng ?? null,
+                        ubicada.cliente?.razon_social ?? ubicada.razon_social_snapshot ?? 'Cliente',
+                      direccionId: ubicada.direccion.id,
+                      direccionActual: ubicada.direccion.direccion_formateada,
+                      lat: ubicada.direccion.lat,
+                      lng: ubicada.direccion.lng,
                     })
                   }
                 />
@@ -779,6 +1021,32 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.micro,
     color: t.colores.tintaTenue,
+  },
+  // La fila existe para que la pastilla ocupe lo que mide y no todo el ancho
+  // de la ficha: un rectángulo rojo de punta a punta parece un error, no una
+  // etiqueta.
+  fichaPastilla: { flexDirection: 'row', marginTop: espaciado.xs },
+
+  /*
+   * El recuadro de "ESTOY ACÁ".
+   *
+   * Lleva el mismo rojo que la pastilla SIN UBICAR de la ficha de arriba, para
+   * que se lea como lo que es: la respuesta a ese cartel, no una opción más de
+   * la pantalla.
+   */
+  bloqueUbicar: {
+    backgroundColor: t.colores.campoBlanco,
+    borderWidth: 2,
+    borderColor: t.colores.rojoAccion,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+    gap: espaciado.sm,
+  },
+  bloqueUbicarTexto: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    lineHeight: 18,
   },
 
   bloque: { gap: espaciado.sm },

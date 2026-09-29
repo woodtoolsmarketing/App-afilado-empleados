@@ -1,4 +1,4 @@
-import type { Direccion, ParadaCompleta } from '@woodtools/compartido'
+import { estaUbicada, type Direccion, type ParadaCompleta } from '@woodtools/compartido'
 import * as Linking from 'expo-linking'
 import { Platform } from 'react-native'
 
@@ -188,6 +188,42 @@ export async function navegarHacia(destino: { lat: number; lng: number }): Promi
 }
 
 /**
+ * Abre Google Maps BUSCANDO un domicilio escrito, en vez de navegar a un punto.
+ *
+ * Es lo que se ofrece cuando la parada todavía no está ubicada. No hay lat/lng
+ * con qué armar `google.navigation:`, pero sí está el domicilio de texto que
+ * vino del sistema de gestión —lo tienen 6.386 de los 6.536 clientes que no
+ * están en el mapa— y para el vendedor, que ya sabe más o menos a dónde va,
+ * alcanza de sobra para llegar a la cuadra.
+ *
+ * No se usa `google.navigation:q=<texto>` a propósito: con una dirección
+ * ambigua arranca a navegar solo hacia lo primero que encuentra, sin dar a
+ * elegir y sin decir que eligió. La búsqueda muestra los resultados y deja
+ * decidir, que es lo correcto justo cuando el dato es el que no está
+ * confirmado. Es también la diferencia con `navegarHacia`: acá el destino es
+ * una conjetura, no un hecho.
+ */
+export async function buscarEnMapsPorTexto(domicilio: string): Promise<void> {
+  const consulta = encodeURIComponent(domicilio.trim())
+  if (!consulta) {
+    throw new Error('Ese destino no tiene un domicilio escrito para buscar.')
+  }
+
+  const candidatos = Platform.OS === 'android' ? [`geo:0,0?q=${consulta}`] : []
+
+  candidatos.push(`https://www.google.com/maps/search/?api=1&query=${consulta}`)
+
+  for (const url of candidatos) {
+    if (await Linking.canOpenURL(url)) {
+      await Linking.openURL(url)
+      return
+    }
+  }
+
+  throw new Error('No encontramos Google Maps instalado en el teléfono.')
+}
+
+/**
  * Abre el recorrido completo en la app de Google Maps.
  *
  * Con `navegar: true` entra directo al modo navegación para manejar el
@@ -208,7 +244,9 @@ export async function previsualizarRecorrido(
   paradas: ParadaCompleta[],
   opciones: { navegar?: boolean } = {},
 ): Promise<{ abierto: boolean; incluidas: number; total: number }> {
-  const conCoordenadas = paradas.filter((p) => p.direccion)
+  // Las sin ubicar no pueden ir en la URL de Maps —no hay punto que mandar— y
+  // quedan afuera. El que llama ya informa cuántas entraron sobre el total.
+  const conCoordenadas = paradas.filter(estaUbicada)
   if (conCoordenadas.length === 0) return { abierto: false, incluidas: 0, total: 0 }
 
   const incluidas = conCoordenadas.slice(0, MAX_PARADAS_EN_URL + 1)

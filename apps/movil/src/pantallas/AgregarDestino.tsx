@@ -33,7 +33,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
-import { asegurarJornadaDe, asegurarJornadaDeHoy } from '../servicios/jornada'
+import { agregarParada, asegurarJornadaDe, asegurarJornadaDeHoy } from '../servicios/jornada'
 import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
@@ -145,6 +145,31 @@ function Selector({
 // ─────────────────────────────────────────────────────────────────────────────
 // Cliente existente
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Los errores que TODAVÍA valen para agregar un destino.
+ *
+ * `validarDestinoExistente` devuelve dos reglas, y hoy sólo una sigue siendo
+ * cierta:
+ *
+ *  · "Elegí un cliente de la lista" — sí, sin cliente no hay nada que agregar.
+ *  · "Ubicá el cliente en el mapa" — ya no. Un cliente sin coordenadas entra
+ *    igual al recorrido: la parada queda SIN UBICAR, la base la manda al final
+ *    y el vendedor guarda el punto cuando llega. Era justo el bloqueo del que
+ *    se queja: "hasta que no llego yo al cliente no me permite cargarlo".
+ *
+ * El descarte se hace acá y no borrando la regla del paquete compartido porque
+ * ese paquete lo comparte el panel de escritorio, que da de alta las paradas
+ * por otro camino. Esta pantalla es la que cambió de opinión, así que es la que
+ * se hace cargo; si algún día el validador se actualiza, esto sigue dando lo
+ * mismo (con cliente elegido no queda ningún error en pie).
+ */
+function erroresDeDestino(
+  form: FormularioDestinoExistente,
+): Partial<Record<CampoDestinoExistente, string>> {
+  if (form.cliente) return {}
+  return validarDestinoExistente(form).errores
+}
 
 function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestino'>) {
   const { colores } = usarTema()
@@ -274,7 +299,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   function actualizar(cambios: Partial<FormularioDestinoExistente>) {
     setForm((previo) => {
       const nuevo = { ...previo, ...cambios }
-      if (intentado) setErrores(validarDestinoExistente(nuevo).errores)
+      if (intentado) setErrores(erroresDeDestino(nuevo))
       return nuevo
     })
   }
@@ -304,44 +329,116 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     actualizar({ codigo: c.codigo, razon_social: c.razon_social, cliente: c })
   }
 
+  /**
+   * El cliente elegido, en una variable propia.
+   *
+   * No es cosmético: `form.cliente` es una propiedad, y TypeScript le suelta el
+   * chequeo apenas se lo usa adentro de una función que corre más tarde —el
+   * `alUbicar` del ubicador, el `mutationFn` del alta—. Ahí es donde antes
+   * aparecían los `!`, que es prometer que nunca es null en un lugar donde el
+   * compilador ya no puede verificarlo. Una constante local no tiene ese
+   * problema: lo que se chequeó una vez vale adentro también.
+   */
+  const elegido = form.cliente
+
+  /**
+   * El cliente elegido no tiene punto en el mapa.
+   *
+   * Se mira `direccion_id` y no `lat` porque es exactamente el dato que decide
+   * el camino del alta: sin fila en `direcciones` la parada entra SIN UBICAR.
+   * En el padrón los dos vienen siempre juntos —una dirección guardada tiene
+   * coordenadas, es lo que exige la tabla—, así que no hay caso en que
+   * discrepen; lo que cambia es de cuál se habla.
+   */
+  const sinUbicar = elegido !== null && elegido.direccion_id === null
+
   const guardar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
+      if (!elegido) throw new Error('Elegí un cliente de la lista para agregarlo.')
+
       // Con fecha, el destino entra en la jornada de ESE día: es una visita
       // agendada, no una del recorrido de hoy.
       const jornada = route.params?.fecha
         ? await asegurarJornadaDe(perfil.id, route.params.fecha)
         : await asegurarJornadaDeHoy(perfil.id)
-      return agregarDestinoExistente({
-        rolVisitaId: jornada.id,
-        cliente: form.cliente!,
-        // Sin coordenadas del cliente no hay con qué medir: entra al recorrido
-        // como uno más y la optimización lo ubica. (Igual no llegaría acá: el
-        // alta rechaza a los clientes sin ubicar.)
-        // Agendando para otro día la cercanía de ahora no dice nada del orden de
-        // esa jornada futura: entra como 'baja' para que no se clave de Nº 1.
-        prioridad: esOtroDia
+
+      /*
+       * La prioridad la decide la distancia, y para medirla hacen falta las dos
+       * coordenadas del cliente. Sin ellas no hay contra qué medir: entra
+       * 'baja'. Agendando para otro día tampoco sirve la cercanía de ahora, que
+       * no dice nada del orden de una jornada que todavía no empezó.
+       */
+      const prioridad: PrioridadParada =
+        esOtroDia || elegido.lat === null || elegido.lng === null
           ? 'baja'
-          : form.cliente!.lat !== null && form.cliente!.lng !== null
-            ? await prioridadPorCercania(form.cliente!.lat, form.cliente!.lng)
-            : 'baja',
-      })
+          : await prioridadPorCercania(elegido.lat, elegido.lng)
+
+      // El camino de siempre: el cliente ya tiene su punto en el mapa.
+      if (elegido.direccion_id) {
+        return agregarDestinoExistente({ rolVisitaId: jornada.id, cliente: elegido, prioridad })
+      }
+
+      /*
+       * Sin dirección la parada entra igual, SIN UBICAR.
+       *
+       * Va derecho por `agregarParada` —que acepta `direccionId: null`— y no
+       * por `agregarDestinoExistente`, que sigue pidiendo la dirección porque
+       * es la que sirve al otro camino. La base manda sola al final estas
+       * paradas, sin mirar la prioridad que le pidamos, así que acá no hay nada
+       * que ordenar: la prioridad viaja igual para que la parada quede
+       * coherente si algún día se la ubica.
+       */
+      try {
+        return await agregarParada({
+          rolVisitaId: jornada.id,
+          direccionId: null,
+          prioridad,
+          clienteId: elegido.cliente_id,
+        })
+      } catch (e) {
+        // El único choque posible es el único por cliente y jornada. El código
+        // crudo de Postgres no le dice nada al vendedor; es el mismo mensaje
+        // que ya da el otro camino (clientes.ts) y la propia RPC de la base.
+        //
+        // "esperando" no es un adorno: desde que el índice cubre sólo las
+        // paradas abiertas, este choque SÓLO puede pasar si el cliente está
+        // pendiente en la lista. Si ya lo visitó hoy, lo puede volver a cargar
+        // —el segundo viaje del día—, y esa palabra es la que se lo dice.
+        if ((e as { code?: string } | null)?.code === '23505') {
+          throw new Error('Ese cliente ya está esperando en tu recorrido de hoy.')
+        }
+        throw e
+      }
     },
     onSuccess: async (parada) => {
       await cliente.invalidateQueries()
-      // La variante "próximo destino: estás cerca" sólo tiene sentido para el
-      // recorrido de HOY. Agendando para otro día, la cercanía de ahora no dice
-      // nada del orden de esa jornada futura, y "estás cerca" + "es para el
-      // jueves" se contradicen: ahí va siempre el mensaje neutro de posición.
-      const mensaje =
-        parada.prioridad === 'alta' && !esOtroDia
+      /*
+       * Tres mensajes, no uno.
+       *
+       * La variante "próximo destino: estás cerca" sólo tiene sentido para el
+       * recorrido de HOY. Agendando para otro día la cercanía de ahora no dice
+       * nada del orden de esa jornada futura, y "estás cerca" + "es para el
+       * jueves" se contradicen: ahí va el mensaje neutro de posición.
+       *
+       * Y la parada que entró sin ubicar tiene que decir las dos cosas que el
+       * vendedor no puede adivinar: que quedó última —la base las manda al
+       * final siempre— y que la ubicación se guarda cuando llegue. Sin eso, ver
+       * el destino al fondo de la lista parece un error de la app.
+       */
+      const mensaje = sinUbicar
+        ? `${form.razon_social} entró al recorrido en la posición Nº ${parada.orden}, al final.\n\nComo todavía no está marcado en el mapa va último. Cuando llegues, guardás la ubicación desde la parada y queda cargada para siempre.`
+        : parada.prioridad === 'alta' && !esOtroDia
           ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}): estás cerca.`
           : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`
+
       Alert.alert(
         'Destino agregado',
         // Sin esta línea, un destino agendado para otro día no se distingue
         // del recorrido de hoy hasta que el vendedor lo va a buscar y no está.
-        esOtroDia ? `${mensaje}\n\nQueda agendado para el ${nombrarDia(fechaAgenda!)}.` : mensaje,
+        esOtroDia && fechaAgenda
+          ? `${mensaje}\n\nQueda agendado para el ${nombrarDia(fechaAgenda)}.`
+          : mensaje,
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
     },
@@ -353,9 +450,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     // queda montada) crearía un destino/cliente duplicado.
     if (guardar.isPending || guardar.isSuccess) return
     setIntentado(true)
-    const { valido, errores: nuevos } = validarDestinoExistente(form)
+    const nuevos = erroresDeDestino(form)
     setErrores(nuevos)
-    if (valido) guardar.mutate()
+    if (Object.keys(nuevos).length === 0) guardar.mutate()
   }
 
   return (
@@ -425,6 +522,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                         Antes decía "SIN DIRECCIÓN" y quedaba justo arriba de la
                         dirección del cliente, que sí estaba escrita. Lo que falta
                         no es el domicilio: son las coordenadas.
+
+                        Sigue siendo la misma pastilla, pero ya no es un cartel de
+                        "no se puede": ahora es un dato —dónde va a quedar en la
+                        lista— y quién lo dice es la nota de abajo, una sola vez
+                        para toda la búsqueda en vez de repetirla en cada fila.
                       */}
                       {c.lat === null ? (
                         <Pastilla
@@ -464,6 +566,21 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                 </View>
               ))}
             </View>
+          ) : null}
+
+          {/*
+            Qué quiere decir la pastilla roja, dicho una sola vez.
+            Es lo que la convierte en un dato: el vendedor ve SIN UBICAR sobre
+            el cliente que quiere y, si nadie le aclara, asume lo de siempre
+            —que no lo va a poder agregar— y se va a cargarlo como cliente
+            nuevo. Sale sólo si en la lista hay alguno así: la aclaración no
+            tiene por qué estorbar a las búsquedas donde no viene al caso.
+          */}
+          {resultados.some((c) => c.lat === null) ? (
+            <Text style={estilos.notaLista}>
+              Los que dicen SIN UBICAR entran igual al recorrido: van al final y la ubicación se
+              guarda cuando llegás.
+            </Text>
           ) : null}
 
           {/* La búsqueda falló: no sabemos si el cliente existe o no. */}
@@ -512,52 +629,92 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           ) : null}
 
           {/* La ubicación se completa sola desde la ficha del cliente. */}
-          {form.cliente ? (
+          {elegido ? (
             <View style={estilos.fichaCliente}>
-              <Text style={estilos.fichaTitulo}>UBICACIÓN DEL CLIENTE</Text>
+              <View style={estilos.fichaEncabezado}>
+                <Text style={estilos.fichaTitulo}>UBICACIÓN DEL CLIENTE</Text>
+                {/* La misma pastilla que en la lista de arriba, con el mismo
+                    criterio: un solo símbolo para el vendedor, acá, en la
+                    búsqueda y en el recorrido. */}
+                {sinUbicar ? (
+                  <Pastilla
+                    texto={elegido.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
+                    color={colores.rojoAccion}
+                  />
+                ) : null}
+              </View>
               <Text style={estilos.fichaDireccion}>
-                {form.cliente.direccion ?? 'Sin dirección cargada'}
+                {elegido.direccion ?? 'Sin dirección cargada'}
               </Text>
-              {form.cliente.codigo_postal ? (
-                <Text style={estilos.fichaDato}>CP {form.cliente.codigo_postal}</Text>
+              {elegido.codigo_postal ? (
+                <Text style={estilos.fichaDato}>CP {elegido.codigo_postal}</Text>
               ) : null}
-              {form.cliente.contacto_nombre ? (
-                <Text style={estilos.fichaDato}>Contacto: {form.cliente.contacto_nombre}</Text>
+              {elegido.contacto_nombre ? (
+                <Text style={estilos.fichaDato}>Contacto: {elegido.contacto_nombre}</Text>
               ) : null}
             </View>
           ) : null}
 
           {/*
-            Dos situaciones, un mismo componente. O el cliente nunca se ubicó
-            —el padrón del Gestión trae el domicilio en texto y sin
-            coordenadas— o la ficha dice una cosa y el local está en otra. El
-            que sabe cuál de las dos es, es el que está parado en la puerta.
+            Las dos cosas que el vendedor no puede adivinar, dichas ANTES de que
+            toque el botón: dónde va a quedar la parada y cuándo se resuelve el
+            mapa. Sin esto, agregar un cliente sin ubicar se siente como agregar
+            algo a medio hacer, y el vendedor vuelve a frenarse solo —que es
+            justo lo que veníamos a sacar—.
           */}
-          {form.cliente ? (
-            <UbicarCliente
-              cliente={form.cliente}
-              alUbicar={(ubicada) =>
-                actualizar({
-                  cliente: {
-                    ...form.cliente!,
-                    direccion_id: ubicada.direccion_id,
-                    direccion: ubicada.direccion_formateada,
-                    codigo_postal: ubicada.codigo_postal ?? form.cliente!.codigo_postal,
-                    lat: ubicada.lat,
-                    lng: ubicada.lng,
-                    localidad: ubicada.localidad ?? form.cliente!.localidad,
-                  },
-                })
-              }
-            />
+          {sinUbicar ? (
+            <Aviso tono="info" titulo="Se agrega igual">
+              Este cliente todavía no está marcado en el mapa, así que entra AL FINAL del recorrido.
+              Cuando llegues, guardás la ubicación desde la parada y queda cargada para siempre.
+            </Aviso>
           ) : null}
 
+          {/*
+            El botón de agregar va ARRIBA del ubicador, y ese es el cambio.
+
+            Antes, al cliente sin coordenadas el ubicador se le abría solo acá en
+            el medio y había que resolverlo para llegar al botón: un peaje. Lo
+            que pidió el vendedor es poder dejarlo en la lista en dos toques y
+            arreglar el mapa cuando llega. Así que primero lo que vino a hacer, y
+            abajo —chico, cerrado— el camino de ubicarlo ahora para el que quiera
+            hacerlo igual.
+          */}
           <BotonMenu
             titulo={'AGREGAR AL\nRECORRIDO'}
             alTocar={alAgregar}
             cargando={guardar.isPending}
             deshabilitado={guardar.isSuccess}
           />
+
+          {/*
+            Dos situaciones, un mismo componente. O el cliente nunca se ubicó
+            —el padrón del Gestión trae el domicilio en texto y sin
+            coordenadas— o la ficha dice una cosa y el local está en otra. El
+            que sabe cuál de las dos es, es el que está parado en la puerta.
+
+            La `key` es por cliente porque el bloque se queda montado cuando el
+            vendedor busca otro: sin ella se arrastraban al cliente siguiente la
+            dirección tipeada y el "ubicar o corregir" del anterior.
+          */}
+          {elegido ? (
+            <UbicarCliente
+              key={elegido.cliente_id}
+              cliente={elegido}
+              alUbicar={(ubicada) =>
+                actualizar({
+                  cliente: {
+                    ...elegido,
+                    direccion_id: ubicada.direccion_id,
+                    direccion: ubicada.direccion_formateada,
+                    codigo_postal: ubicada.codigo_postal ?? elegido.codigo_postal,
+                    lat: ubicada.lat,
+                    lng: ubicada.lng,
+                    localidad: ubicada.localidad ?? elegido.localidad,
+                  },
+                })
+              }
+            />
+          ) : null}
         </Panel>
       </KeyboardAvoidingView>
 
@@ -583,17 +740,22 @@ interface ClienteUbicado {
  * Poner al cliente en el mapa, o corregir dónde está.
  *
  * Cubre dos situaciones que para el vendedor son la misma pregunta —"¿dónde
- * queda este cliente?"— y que para la app eran mundos distintos:
+ * queda este cliente?"— y que para la app son dos cosas distintas:
  *
  *  · **Nunca se ubicó.** Es el caso de los que vinieron del Gestión: calle,
- *    localidad y CP en texto, cero coordenadas. Como el recorrido se arma sobre
- *    `direcciones`, y esa tabla exige lat/lng porque alimenta el mapa y el
- *    optimizador, sin este paso no podían ser un destino. El bloque arranca
- *    abierto y en rojo, porque hasta que no se resuelva no se puede seguir.
+ *    localidad y CP en texto, cero coordenadas. Ubicarlo le escribe la
+ *    dirección a la ficha del cliente, así que queda para todos y para siempre,
+ *    no sólo para el recorrido de hoy.
  *
  *  · **Está ubicado pero mal.** La ficha dice una cosa y el local está en otra.
- *    Acá el bloque arranca cerrado: es una corrección, no un trámite, y no tiene
- *    por qué estorbar al que sólo quiere agregar el destino y seguir.
+ *    Eso NO se pisa desde la calle: se manda como propuesta a la oficina.
+ *
+ * Los dos arrancan CERRADOS, y ese es el cambio. Antes, al que nunca se había
+ * ubicado el bloque se le abría solo y en rojo, porque sin coordenadas la
+ * parada no entraba al recorrido y no había nada que decidir. Ahora entra igual
+ * —sin ubicar, al final de la lista—, así que marcarlo en el mapa dejó de ser
+ * un peaje y pasó a ser una opción; y una opción no se abre sola encima de lo
+ * que el vendedor vino a hacer.
  *
  * Dos formas de resolverlo, porque las dos hacen falta en la calle. El buscador
  * de Google sirve cuando el vendedor sabe la dirección; el GPS sirve cuando está
@@ -610,11 +772,30 @@ function UbicarCliente({
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
-  const faltaUbicar = cliente.lat === null
 
-  // Si falta, no hay nada que decidir: se abre solo. Si ya está ubicado, el
-  // vendedor tiene que pedir corregirlo.
-  const [abierto, setAbierto] = useState(faltaUbicar)
+  /**
+   * A qué vino este bloque: a ubicar por primera vez, o a corregir.
+   *
+   * Se decide al montar y no se recalcula, porque el dato del que sale —las
+   * coordenadas del cliente— cambia justo en el momento en que se guarda: el
+   * formulario de arriba mete el punto nuevo en la ficha y `cliente.lat` deja
+   * de ser null. Leyéndolo en cada render, el cartel verde de "Ubicación
+   * guardada" se daba vuelta solo y terminaba diciendo "Corrección enviada"
+   * sobre un cliente que se acababa de ubicar por primera vez.
+   *
+   * Que sea por cliente lo garantiza la `key` de arriba: elegir otro cliente
+   * monta un bloque nuevo.
+   */
+  const faltaUbicar = useRef(cliente.lat === null).current
+
+  /**
+   * Cerrado al arrancar, falte ubicarlo o no.
+   *
+   * Abrirlo solo era la forma de obligar: mientras el destino no entraba sin
+   * coordenadas, había que resolver el mapa para poder seguir. Ya no hay nada
+   * que resolver antes, así que el que lo quiera abrir lo abre.
+   */
+  const [abierto, setAbierto] = useState(false)
 
   const sugerido = [cliente.direccion, cliente.localidad].filter(Boolean).join(', ')
   const [texto, setTexto] = useState(sugerido)
@@ -665,11 +846,12 @@ function UbicarCliente({
   /**
    * Guarda la dirección resuelta, venga del buscador o del GPS.
    *
-   * Un cliente que nunca se ubicó (sin coordenadas) se ubica DIRECTO: sin eso no
-   * entra al recorrido. Pero corregir una dirección que YA estaba cargada no la
-   * pisa —eso lo decide la oficina—: se manda como PROPUESTA (queda en "Cambios
-   * de dirección" del panel). El form local sí toma la coordenada nueva, así el
-   * recorrido de este vendedor ya lo lleva ahí, sin esperar a la oficina.
+   * Un cliente que nunca se ubicó (sin coordenadas) se ubica DIRECTO: no hay
+   * nada que pisar, la ficha estaba vacía y alguien tenía que llenarla. Pero
+   * corregir una dirección que YA estaba cargada no la pisa —eso lo decide la
+   * oficina—: se manda como PROPUESTA (queda en "Cambios de dirección" del
+   * panel). El form local sí toma la coordenada nueva, así el recorrido de este
+   * vendedor ya lo lleva ahí, sin esperar a la oficina.
    */
   async function guardarUbicacion(d: DireccionResuelta): Promise<ClienteUbicado> {
     if (faltaUbicar) {
@@ -746,13 +928,19 @@ function UbicarCliente({
         {confirmada}
         {'\n\n'}
         {faltaUbicar
-          ? 'Queda en la ficha del cliente: la próxima vez ya va a estar.'
+          ? 'Queda en la ficha del cliente: la próxima vez ya va a estar. Y el destino ya no entra al final: entra en el lugar que le toca en la ruta.'
           : 'La oficina la revisa y la aplica. Tu recorrido ya te lleva ahí.'}
       </Aviso>
     )
   }
 
-  // Ya ubicado y sin pedido de corregir: sólo el acceso, sin ocupar pantalla.
+  /*
+   * Cerrado: sólo el acceso, sin ocupar pantalla.
+   *
+   * Es el camino secundario de las dos situaciones, y por eso el texto cambia:
+   * al que nunca se ubicó se le ofrece ubicarlo ahora (no se le reclama), y al
+   * que ya está ubicado se le ofrece corregirlo.
+   */
   if (!abierto) {
     return (
       <Pressable
@@ -761,22 +949,40 @@ function UbicarCliente({
           setActiva(false)
         }}
         accessibilityRole="button"
-        accessibilityLabel="Corregir la ubicación de este cliente"
+        accessibilityLabel={
+          faltaUbicar
+            ? 'Ubicar ahora este cliente en el mapa'
+            : 'Corregir la ubicación de este cliente'
+        }
         style={({ pressed }) => [estilos.corregir, pressed && estilos.sugerenciaTocada]}
       >
-        <Text style={estilos.corregirTexto}>¿La dirección está mal? CORREGIR UBICACIÓN</Text>
+        <Text style={estilos.corregirTexto}>
+          {faltaUbicar
+            ? '¿Sabés dónde queda? UBICARLO AHORA EN EL MAPA'
+            : '¿La dirección está mal? CORREGIR UBICACIÓN'}
+        </Text>
       </Pressable>
     )
   }
 
   return (
-    <View style={[estilos.ubicar, !faltaUbicar && estilos.ubicarCorreccion]}>
+    <View style={estilos.ubicar}>
       <Text style={estilos.fichaTitulo}>
-        {faltaUbicar ? 'FALTA UBICARLO EN EL MAPA' : 'CORREGIR LA UBICACIÓN'}
+        {faltaUbicar ? 'UBICARLO EN EL MAPA' : 'CORREGIR LA UBICACIÓN'}
       </Text>
+      {/*
+        El arranque cambia según lo que haya en la ficha, porque son dos
+        situaciones distintas y decirle "tiene el domicilio escrito" al que no
+        lo tiene es mentirle en la cara. Lo que sigue es igual para los dos: que
+        esto ya no es obligatorio, y qué se gana haciéndolo igual.
+      */}
       <Text style={estilos.ubicarAyuda}>
         {faltaUbicar
-          ? 'Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa, y sin eso no entra al recorrido.'
+          ? `${
+              cliente.direccion
+                ? 'Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa.'
+                : 'De este cliente no tenemos ni el domicilio escrito.'
+            } No hace falta resolverlo ahora —podés agregarlo igual y guardar la ubicación cuando llegues—, pero si ya sabés dónde queda, marcándolo acá el destino deja de ir al final y la dirección queda cargada para siempre.`
           : 'Esto NO cambia la dirección para todos: manda una corrección a la oficina, que la revisa y la aplica. Tu recorrido ya te lleva al punto nuevo.'}
       </Text>
 
@@ -846,11 +1052,17 @@ function UbicarCliente({
         </Aviso>
       ) : null}
 
-      {!faltaUbicar ? (
-        <Pressable onPress={() => setAbierto(false)} accessibilityRole="button">
-          <Text style={estilos.cancelar}>Dejarla como está</Text>
-        </Pressable>
-      ) : null}
+      {/*
+        La salida existe para los dos casos, y antes sólo la tenía la
+        corrección: al que le faltaba ubicar no se le daba forma de cerrar el
+        bloque porque no se lo dejaba seguir sin resolverlo. Ahora que ubicarlo
+        es opcional, arrepentirse tiene que costar un toque.
+      */}
+      <Pressable onPress={() => setAbierto(false)} accessibilityRole="button">
+        <Text style={estilos.cancelar}>
+          {faltaUbicar ? 'Ahora no: lo ubico cuando llegue' : 'Dejarla como está'}
+        </Text>
+      </Pressable>
     </View>
   )
 }
@@ -1222,6 +1434,15 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tintaSuave,
   },
 
+  // La nota que explica la pastilla SIN UBICAR de la lista de resultados.
+  // Va suelta debajo del recuadro, no adentro: es sobre la lista entera.
+  notaLista: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    marginTop: -espaciado.xs,
+  },
+
   fichaCliente: {
     backgroundColor: t.colores.campoBlanco,
     borderWidth: 2,
@@ -1230,18 +1451,32 @@ const usarEstilos = hojaDeTema((t) => ({
     padding: espaciado.md,
     gap: 3,
   },
+  // El título y la pastilla SIN UBICAR en un renglón. Envuelve porque en los
+  // teléfonos angostos "UBICACIÓN DEL CLIENTE" más la pastilla no entran.
+  fichaEncabezado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    flexWrap: 'wrap',
+  },
 
+  /*
+   * El borde dejó de ser rojo.
+   *
+   * Era rojo —y había un `ubicarCorreccion` que lo volvía neutro para la
+   * corrección— porque ubicar al cliente era lo que faltaba para poder seguir:
+   * una alarma. Ya no falta nada, el destino entra igual, así que el bloque es
+   * una opción más del panel y se viste como tal. Lo rojo, la pastilla SIN
+   * UBICAR, queda donde sí dice algo: en la lista y en la ficha.
+   */
   ubicar: {
     backgroundColor: t.colores.panelClaro,
     borderWidth: 2,
-    borderColor: t.colores.rojoAccion,
+    borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.md,
     gap: espaciado.sm,
   },
-  // La corrección de algo que ya está bien no tiene por qué gritar como la
-  // falta de algo imprescindible: mismo bloque, borde neutro.
-  ubicarCorreccion: { borderColor: t.colores.borde },
   ubicarAyuda: {
     fontFamily: t.tipografia.familia.cuerpo,
     fontSize: t.tipografia.tamano.xs,

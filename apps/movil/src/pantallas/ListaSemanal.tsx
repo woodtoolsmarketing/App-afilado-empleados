@@ -293,11 +293,17 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
                     >
                       <View style={estilos.sugerenciaFila}>
                         {c.codigo ? <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text> : null}
+                        {/*
+                          Una sola palabra para un solo estado. Acá decía SIN
+                          DIRECCIÓN cuando el cliente no tenía ni el domicilio
+                          escrito y SIN UBICAR cuando lo tenía pero sin punto en
+                          el mapa: dos carteles para la misma consecuencia, que
+                          además ya no es "no entra" sino "se ubica al llegar".
+                          Queda el de siempre, el mismo que ve en el recorrido y
+                          en CLIENTES DE HOY, para que sea un símbolo solo.
+                        */}
                         {c.lat === null ? (
-                          <Pastilla
-                            texto={c.direccion ? 'SIN UBICAR' : 'SIN DIRECCIÓN'}
-                            color={colores.rojoAccion}
-                          />
+                          <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
                         ) : null}
                         {puesto ? <Pastilla texto="YA ESTÁ" color={colores.verdeOscuro} /> : null}
                       </View>
@@ -372,10 +378,27 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
               </View>
             )}
 
+            {/*
+              Dejó de ser una advertencia. Decía que estos clientes "no se van a
+              poder agendar hasta que les cargues la dirección", y eso ya no es
+              cierto: agendar una visita acepta que todavía no haya dirección, y
+              esa parada entra al recorrido al final del día. Era, además, el
+              cartel más desalentador de la pantalla —te dejaba armar la lista
+              para avisarte al final que la mitad no servía—, cuando lo que hay
+              que decir es lo contrario: están bien puestos, andá tranquilo.
+
+              Acá no hay un botón UBICAR como en CLIENTES DE HOY a propósito.
+              Esta pantalla se edita con cambios sin guardar y avisa al salir:
+              mandarlo a ubicar a alguien en el medio le dispararía el "tenés
+              cambios sin guardar" justo cuando está armando la lista. Además la
+              lista semanal no crea paradas —sólo sugiere—, así que la ubicación
+              no hace falta hoy: se resuelve el día que lo visita.
+            */}
             {elegidos.some((c) => c.lat === null) ? (
-              <Aviso tono="atencion" titulo="Hay clientes sin ubicar">
-                Los que están sin ubicar van a aparecer igual en el calendario, pero no se van a poder
-                agendar hasta que les cargues la dirección en el mapa.
+              <Aviso tono="info" titulo="Hay clientes sin ubicar">
+                Los que están sin ubicar entran igual: aparecen en el calendario y los podés
+                agendar. Ese día van al final del recorrido, y la ubicación la guardás cuando
+                llegás.
               </Aviso>
             ) : null}
           </ScrollView>

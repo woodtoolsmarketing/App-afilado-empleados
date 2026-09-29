@@ -131,9 +131,27 @@ Deno.serve(async (req) => {
       .order('orden', { ascending: true })
       .returns<ParadaPendiente[]>()
 
-    const pendientes = (paradas ?? []).filter((p) => p.direcciones)
+    const todasPendientes = paradas ?? []
 
-    if (pendientes.length === 0) {
+    /** Las que tienen punto: son las únicas que Google puede ordenar. */
+    const pendientes = todasPendientes.filter((p) => p.direcciones)
+
+    /**
+     * Las que entraron al recorrido SIN UBICAR.
+     *
+     * Quedan fuera del cálculo —no hay contra qué medirlas— pero NO fuera de la
+     * renumeración, y esa distinción es todo el asunto. Antes se las filtraba
+     * acá y no se las volvía a mirar: conservaban su `orden` viejo mientras las
+     * demás se renumeraban encima, y el índice único (rol_visita_id, orden)
+     * chocaba. El error salía como "No pudimos guardar el orden del recorrido",
+     * a un par de funciones de distancia de la línea que lo causaba.
+     *
+     * Ahora viajan pegadas al final de la lista que se persiste, así que entran
+     * a las dos pasadas junto con el resto y la numeración queda corrida.
+     */
+    const sinUbicar = todasPendientes.filter((p) => !p.direcciones)
+
+    if (todasPendientes.length === 0) {
       return responder({ orden: [], mensaje: 'No quedan destinos pendientes.' })
     }
 
@@ -157,14 +175,62 @@ Deno.serve(async (req) => {
 
     const piso = ultimaResuelta?.orden ?? 0
 
+    /**
+     * Numera una lista de paradas desde `piso`, en el orden en que viene.
+     *
+     * Son dos pasadas porque el índice único (rol_visita_id, orden) chocaría a
+     * mitad de camino: primero todas se corren a un rango temporal muy por
+     * encima de cualquier orden real —que además respeta el CHECK de orden > 0—
+     * y recién después bajan a su número definitivo.
+     *
+     * Los errores se miran de verdad. Sin esto, un choque con el índice único
+     * fallaba en silencio y la parada se quedaba con el orden temporal: el
+     * vendedor veía un destino numerado "1000001." sobre el mapa y no había
+     * forma de enterarse de que la optimización no se había guardado.
+     */
+    const ORDEN_TEMPORAL = 1_000_000
+    const guardarOrden = async (lista: ParadaPendiente[]): Promise<void> => {
+      for (let i = 0; i < lista.length; i += 1) {
+        const { error } = await admin
+          .from('paradas')
+          .update({ orden: ORDEN_TEMPORAL + i + 1 })
+          .eq('id', lista[i].id)
+        if (error) {
+          console.error('[optimizar-ruta] numeración temporal', error)
+          throw new RespuestaError('No pudimos reordenar el recorrido', 500)
+        }
+      }
+      for (let i = 0; i < lista.length; i += 1) {
+        const { error } = await admin
+          .from('paradas')
+          .update({ orden: piso + i + 1 })
+          .eq('id', lista[i].id)
+        if (error) {
+          console.error('[optimizar-ruta] numeración final', error)
+          throw new RespuestaError('No pudimos guardar el orden del recorrido', 500)
+        }
+      }
+    }
+
+    // Nada con punto: no hay ruta que calcular, pero las sin ubicar igual se
+    // dejan numeradas y corridas para que la lista del teléfono cierre.
+    if (pendientes.length === 0) {
+      await guardarOrden(sinUbicar)
+      return responder({
+        orden: sinUbicar.map((p) => p.id),
+        optimizado: false,
+        mensaje:
+          'Los destinos que te quedan todavía no están ubicados en el mapa, así que no hay ruta para calcular.',
+      })
+    }
+
     // Con una sola parada no hay nada que optimizar.
     if (pendientes.length === 1) {
-      const { error } = await admin
-        .from('paradas')
-        .update({ orden: piso + 1 })
-        .eq('id', pendientes[0].id)
-      if (error) throw new RespuestaError('No pudimos guardar el orden del recorrido', 500)
-      return responder({ orden: [pendientes[0].id], optimizado: false })
+      await guardarOrden([pendientes[0], ...sinUbicar])
+      return responder({
+        orden: [pendientes[0].id, ...sinUbicar.map((p) => p.id)],
+        optimizado: false,
+      })
     }
 
     if (pendientes.length > MAX_INTERMEDIOS + 1) {
@@ -244,35 +310,8 @@ Deno.serve(async (req) => {
     }
 
     // ── Persistencia ─────────────────────────────────────────────────────────
-    // Se numera en dos pasadas porque el índice único (rol_visita_id, orden)
-    // chocaría a mitad de camino. El rango temporal está por encima de
-    // cualquier orden real y respeta el CHECK de orden > 0.
-    const ORDEN_TEMPORAL = 1_000_000
-
-    // Los errores de estos UPDATE se miran de verdad. Sin esto, un choque con
-    // el índice único fallaba en silencio y la parada se quedaba con el orden
-    // temporal: el vendedor veía un destino numerado "1000001." sobre el mapa
-    // y no había forma de enterarse de que la optimización no se había guardado.
-    for (let i = 0; i < ordenFinal.length; i += 1) {
-      const { error } = await admin
-        .from('paradas')
-        .update({ orden: ORDEN_TEMPORAL + i + 1 })
-        .eq('id', ordenFinal[i].id)
-      if (error) {
-        console.error('[optimizar-ruta] numeración temporal', error)
-        throw new RespuestaError('No pudimos reordenar el recorrido', 500)
-      }
-    }
-    for (let i = 0; i < ordenFinal.length; i += 1) {
-      const { error } = await admin
-        .from('paradas')
-        .update({ orden: piso + i + 1 })
-        .eq('id', ordenFinal[i].id)
-      if (error) {
-        console.error('[optimizar-ruta] numeración final', error)
-        throw new RespuestaError('No pudimos guardar el orden del recorrido', 500)
-      }
-    }
+    // Las sin ubicar van al final, después de todo lo que Google ordenó.
+    await guardarOrden([...ordenFinal, ...sinUbicar])
 
     await admin
       .from('roles_visita')
@@ -287,7 +326,10 @@ Deno.serve(async (req) => {
       .eq('id', rol_visita_id)
 
     return responder({
-      orden: ordenFinal.map((p) => p.id),
+      // El orden que se devuelve es el que quedó guardado, sin ubicar incluidas:
+      // si la app lo usa para reordenar su lista, tiene que estar completo o las
+      // sin ubicar se le caen de la pantalla.
+      orden: [...ordenFinal, ...sinUbicar].map((p) => p.id),
       optimizado: true,
       distancia_total_m: distanciaTotal,
       duracion_total_seg: duracionTotal,

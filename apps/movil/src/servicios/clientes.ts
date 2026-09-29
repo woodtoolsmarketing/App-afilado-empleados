@@ -217,30 +217,35 @@ export async function modificarDatosCliente(params: {
   olvidarBusquedasDeClientes()
 }
 
-/** Agrega al recorrido un cliente que ya está en el padrón. */
+/**
+ * Agrega al recorrido un cliente que ya está en el padrón.
+ *
+ * Sin `direccion_id` NO se corta: la parada entra SIN UBICAR, al final del
+ * recorrido, y el vendedor guarda el punto cuando llega. Acá había un cartel que
+ * lo mandaba a "confirmá su dirección con el buscador de Google antes de
+ * agregarlo", y ese antes era el problema: el 40 % del padrón no tiene dirección
+ * cargada, así que para casi la mitad de los clientes el recorrido no empezaba
+ * nunca.
+ */
 export async function agregarDestinoExistente(params: {
   rolVisitaId: string
   cliente: ClienteBuscado
   prioridad: PrioridadParada
 }): Promise<ParadaCompleta> {
-  if (!params.cliente.direccion_id) {
-    throw new Error(
-      'Ese cliente todavía no está ubicado en el mapa. Confirmá su dirección con el buscador de Google antes de agregarlo.',
-    )
-  }
-
   const { data, error } = await supabase.rpc('agregar_parada', {
     p_rol_visita_id: params.rolVisitaId,
-    p_direccion_id: params.cliente.direccion_id,
+    p_direccion_id: params.cliente.direccion_id ?? null,
     p_prioridad: params.prioridad,
     p_cliente_id: params.cliente.cliente_id,
   })
 
   if (error) {
-    // El cliente ya tiene una parada hoy (p. ej. quedó omitida al finalizar):
-    // en vez del error crudo de Postgres, un mensaje que se entienda.
+    // Choque con `paradas_un_cliente_por_jornada`, que ahora sólo cubre las
+    // paradas ABIERTAS: si salta, es porque el cliente está ESPERANDO en la
+    // lista. Si ya lo visitó hoy, se puede cargar de nuevo (segundo viaje), y
+    // el mensaje tiene que dejar eso claro en vez de sonar a "no se puede".
     if (error.code === '23505') {
-      throw new Error('Ese cliente ya está en tu recorrido de hoy.')
+      throw new Error('Ese cliente ya está esperando en tu recorrido de hoy.')
     }
     throw error
   }

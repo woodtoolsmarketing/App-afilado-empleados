@@ -52,10 +52,11 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
 
   const lista = candidatos ?? []
   const seleccionados = lista.filter((c) => elegidos.has(c.cliente_id))
+  // Cuántos no están en el mapa. Ya no decide quién puede entrar al recorrido
+  // —entran todos—, sólo si hace falta explicarle al vendedor qué va a pasar
+  // con ellos cuando los tilde.
   const sinUbicar = lista.filter((c) => c.lat === null).length
-  const ubicados = lista.filter((c) => c.lat !== null)
-  const todosUbicadosElegidos =
-    ubicados.length > 0 && ubicados.every((c) => elegidos.has(c.cliente_id))
+  const todosElegidos = lista.length > 0 && lista.every((c) => elegidos.has(c.cliente_id))
 
   function alternar(id: string) {
     setElegidos((previos) => {
@@ -71,9 +72,15 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
    * mucho toque si el rol trajo veinte candidatos y noventa por ciento entra.
    * No toca el arranque sin nada tildado —sigue siendo la regla—, es una
    * acción explícita más que el vendedor elige tocar.
+   *
+   * Antes el atajo era "tildar todos los ubicados" y salteaba a propósito a los
+   * que no tenían dirección, porque ésos ni siquiera podían entrar al recorrido.
+   * Ahora entran como cualquier otro, así que seguir separándolos dejaría afuera
+   * justo a los que el vendedor pidió poder meter en la lista —y peor: en
+   * silencio, porque el atajo diría "todos" y no los estaría contando.
    */
-  function alternarTodosLosUbicados() {
-    setElegidos(todosUbicadosElegidos ? new Set() : new Set(ubicados.map((c) => c.cliente_id)))
+  function alternarTodos() {
+    setElegidos(todosElegidos ? new Set() : new Set(lista.map((c) => c.cliente_id)))
   }
 
   const armar = useMutation({
@@ -105,8 +112,14 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
       Alert.alert(
         'Recorrido armado',
         `${r.agregados} destino${r.agregados === 1 ? '' : 's'} en tu recorrido de hoy.` +
+          // No se nombra el motivo. Antes decía "Están sin ubicar en el mapa"
+          // porque ésa era la única razón por la que un candidato se caía, y ya
+          // no lo es: el que no está en el mapa entra igual. Lo que quede acá
+          // ahora es un problema de verdad —se cortó la señal en el medio, por
+          // ejemplo—, y adivinarle una causa sería mandarlo a arreglar algo que
+          // no está roto.
           (perdidos > 0
-            ? `\n\nNo entraron ${perdidos}: ${r.fallaron.map((f) => f.razon_social).join(', ')}. Están sin ubicar en el mapa.`
+            ? `\n\nNo entraron ${perdidos}: ${r.fallaron.map((f) => f.razon_social).join(', ')}. Tildalos de nuevo y volvé a armar; si sigue pasando, avisale a la oficina.`
             : ''),
         [
           { text: 'Ver el recorrido', onPress: () => navigation.navigate('Recorrido') },
@@ -173,23 +186,30 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
               sugiere, no lo que tenés que hacer sí o sí.
             </Text>
 
+            {/*
+              El aviso pasó de "atención" a "info" y dejó de ser una traba.
+              Antes avisaba que esos clientes NO iban a poder entrar, que era el
+              problema entero: el vendedor sabe dónde están, y la app le pedía
+              primero la dirección exacta para recién después dejarlo armar el
+              día. Ahora entran, así que lo único que hay que contarle es qué les
+              va a pasar —van al final, y la ubicación queda cuando llega—, para
+              que no le sorprenda el orden ni crea que se perdió alguno.
+            */}
             {sinUbicar > 0 ? (
-              <Aviso tono="atencion" titulo="Hay clientes sin ubicar">
-                {`${sinUbicar} de estos no tienen dirección en el mapa y no pueden entrar al recorrido. Tocá el cliente para ubicarlo, o pedile a la oficina que le cargue la dirección.`}
+              <Aviso tono="info" titulo="Hay clientes sin ubicar">
+                {`${sinUbicar} de estos todavía no están puestos en el mapa, pero tildalos igual: entran al recorrido, van al final de la lista, y la ubicación la guardás cuando llegás. Si preferís dejarla hecha ahora, tocá UBICAR en la fila.`}
               </Aviso>
             ) : null}
 
-            {ubicados.length > 0 ? (
-              <Pressable
-                onPress={alternarTodosLosUbicados}
-                accessibilityRole="button"
-                style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
-              >
-                <Text style={estilos.atajoTexto}>
-                  {todosUbicadosElegidos ? 'Ninguno' : 'Tildar todos los ubicados'}
-                </Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={alternarTodos}
+              accessibilityRole="button"
+              style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
+            >
+              <Text style={estilos.atajoTexto}>
+                {todosElegidos ? 'Ninguno' : 'Tildar todos'}
+              </Text>
+            </Pressable>
 
             <View style={estilos.lista}>
               {lista.map((c) => (
@@ -199,6 +219,11 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
                   elegido={elegidos.has(c.cliente_id)}
                   alTocar={() => alternar(c.cliente_id)}
                   alUbicar={() =>
+                    // El camino para ubicarlo sigue estando, pero dejó de ser lo
+                    // que pasa al tocar la fila: ahora cuelga del botón UBICAR,
+                    // como una opción para el que quiera dejarlo resuelto antes
+                    // de salir.
+                    //
                     // El cliente viaja escrito: la fila ya lo nombra, y
                     // hacerlo buscar de nuevo en AGREGAR DESTINO sería no
                     // haberlo escuchado. Mismo patrón que CalendarioVisitas
@@ -255,15 +280,24 @@ function Fila({
 
   return (
     <Pressable
-      // Sin ubicar ya no es "deshabilitado": tocarlo lleva a ubicarlo en el
-      // mapa en vez de tildarlo, así que no es un checkbox para esta fila.
-      onPress={sinUbicar ? alUbicar : alTocar}
-      // No se atenúa aunque esté sin ubicar: ahora es accionable (tocarla lleva
-      // a ubicarla), y el gris de antes leía como "no se puede tocar". La
-      // pastilla "SIN UBICAR" ya comunica el estado. Mismo criterio que CalendarioVisitas.
+      // Tocar la fila TILDA, esté el cliente en el mapa o no.
+      //
+      // Antes, si no tenía dirección, el toque se iba derecho a la pantalla de
+      // ubicarlo. No era una ayuda, era el peaje: ubicarlo era la única forma de
+      // que ese cliente entrara al recorrido. Eso es exactamente lo que el
+      // vendedor pidió que se termine —"no me permite dejarlo en la lista sin
+      // tener la dirección"—, y de paso era la única fila de la lista que hacía
+      // algo distinto a las demás con el mismo gesto.
+      //
+      // Ahora todas las filas son el mismo casillero, y ubicarlo pasó a ser el
+      // botón UBICAR de al lado, para el que quiera dejarlo hecho antes de salir.
+      onPress={alTocar}
+      // No se atenúa aunque esté sin ubicar: entra al recorrido igual que
+      // cualquier otro, y el gris leería como "no se puede tocar". La pastilla
+      // "SIN UBICAR" ya comunica el estado, que es información, no un freno.
       style={[estilos.fila, elegido && estilos.filaElegida]}
-      accessibilityRole={sinUbicar ? 'button' : 'checkbox'}
-      accessibilityState={sinUbicar ? undefined : { checked: elegido }}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: elegido }}
     >
       <View style={[estilos.tilde, elegido && estilos.tildeMarcado]}>
         {elegido ? <Text style={estilos.tildeTexto}>✓</Text> : null}
@@ -298,6 +332,28 @@ function Fila({
           {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
         </View>
       </View>
+
+      {/*
+        El camino a ubicarlo, ahora al costado y no encima del toque de la fila.
+        Es un Pressable adentro de otro: el de adentro se queda con el dedo, así
+        que tocar UBICAR no tilda al cliente de yapa.
+
+        Va visible y no en un toque largo a propósito. Un toque largo no se ve, y
+        el que maneja la camioneta no va a descubrirlo solo; si el único camino
+        para ubicar a un cliente es un gesto que nadie le contó, es lo mismo que
+        haberlo sacado.
+      */}
+      {sinUbicar ? (
+        <Pressable
+          onPress={alUbicar}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Ubicar a ${candidato.razon_social} en el mapa`}
+          style={({ pressed }) => [estilos.ubicar, pressed && estilos.ubicarTocado]}
+        >
+          <Text style={estilos.ubicarTexto}>UBICAR</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   )
 }
@@ -343,6 +399,28 @@ const usarEstilos = hojaDeTema((t) => ({
    */
   filaElegida: { borderColor: t.colores.verdeOscuro, backgroundColor: t.colores.campoBlanco },
   filaApagada: { opacity: 0.55 },
+  /*
+   * UBICAR: secundario a propósito. Contorno y letra chica, no un botón lleno,
+   * porque en esta pantalla lo importante es tildar y salir; ubicar es lo que
+   * hace el que tiene un minuto. Con `minHeight: TOQUE_MINIMO` para que se
+   * pueda tocar con la camioneta en movimiento sin errarle al casillero.
+   */
+  ubicar: {
+    minHeight: TOQUE_MINIMO,
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.sm,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  ubicarTocado: { opacity: 0.65 },
+  ubicarTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.rojo,
+    letterSpacing: 0.5,
+  },
   tilde: {
     width: 26,
     height: 26,

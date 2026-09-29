@@ -1,6 +1,7 @@
 import {
   distanciaEnMetros,
   espaciado,
+  estaUbicada,
   ETIQUETA_ESTADO_PARADA,
   ETIQUETA_PRIORIDAD,
   formatearDistancia,
@@ -28,8 +29,9 @@ import {
   iniciarRecorrido,
   obtenerJornadaDeHoy,
 } from '../servicios/jornada'
-import { misCambiosPendientes } from '../servicios/cambiosDireccion'
+import { misCambiosPendientes, type CambioPendiente } from '../servicios/cambiosDireccion'
 import {
+  buscarEnMapsPorTexto,
   decodificarPolilinea,
   navegarHacia,
   optimizarRecorrido,
@@ -85,6 +87,22 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     staleTime: 60_000,
   })
   const paradas = useMemo(() => data?.paradas ?? [], [data])
+
+  /**
+   * Las que SÍ tienen punto en el mapa.
+   *
+   * Un destino puede estar en el recorrido sin estar ubicado: el vendedor
+   * agrega un cliente que ya sabe dónde queda, sale, y recién cuando llega
+   * guarda la ubicación. Para la LISTA eso no cambia nada —está, tiene número y
+   * se visita igual—, pero para el MAPA sí: sin lat/lng no hay pin que dibujar,
+   * no hay a qué encuadrar la cámara y no hay región inicial. Todo lo que mira
+   * el mapa usa esta lista; todo lo que mira el recorrido usa `paradas`.
+   *
+   * Va por `estaUbicada` y no por `p.direccion !== null` porque ese filtro
+   * además ESTRECHA el tipo: de acá para abajo `p.direccion.lat` es un dato, no
+   * un `!` que miente el día que alguien cambie el filtro.
+   */
+  const paradasUbicadas = useMemo(() => paradas.filter(estaUbicada), [paradas])
   const enCurso = jornada?.estado === 'en_curso'
 
   // El radio lo decide la oficina, no la app. Se cachea todo el día: no cambia
@@ -125,6 +143,27 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   )
 
   /**
+   * Con qué se va al próximo destino: un punto, o un domicilio escrito.
+   *
+   * Una parada sin ubicar no tiene a dónde navegar, pero casi siempre tiene el
+   * domicilio de texto que vino del sistema de gestión, y el vendedor ya sabe
+   * más o menos dónde queda. Se resuelven acá arriba —y no adentro del JSX—
+   * porque de esto dependen dos cosas distintas: qué renglón de domicilio se
+   * muestra y qué botón se ofrece al lado de LLEGUÉ.
+   *
+   * Si el vendedor propuso corregir esta dirección, manda el punto propuesto
+   * (hasta que la oficina lo aplique). Se exigen las DOS coordenadas propuestas:
+   * antes se tomaba cada una por separado con `??`, así que una propuesta a
+   * medio geocodificar mezclaba la latitud nueva con la longitud vieja y
+   * mandaba al vendedor a un punto que no existe en ningún lado.
+   */
+  const cambioDeLaProxima = proxima?.cliente?.id
+    ? cambiosPendientes?.[proxima.cliente.id]
+    : undefined
+  const puntoDeLaProxima = proxima ? puntoDeNavegacion(proxima, cambioDeLaProxima) : null
+  const domicilioDeLaProxima = proxima ? domicilioDe(proxima) : null
+
+  /**
    * Llegó al cliente: se le ofrece cargar el parte sin que lo busque.
    *
    * ── Cuándo se fija ────────────────────────────────────────────────────────
@@ -144,6 +183,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const yaPreguntado = useRef<string | null>(null)
 
   const ofrecerCargarLaVisita = useCallback(async (sigueVigente: () => boolean) => {
+    // Sin coordenadas del destino no hay contra qué medir la distancia, así que
+    // una parada SIN UBICAR nunca dispara este aviso. No es una limitación a
+    // arreglar: es la única respuesta honesta. Ahí el que sabe que llegó es el
+    // vendedor, y para eso está el botón LLEGUÉ —que sigue andando igual y es,
+    // justamente, donde va a guardar dónde queda el cliente.
     if (!proxima?.direccion || !enCurso) return
     if (yaPreguntado.current === proxima.id) return
     // Sólo con el recorrido a la vista. Este aviso también corre al volver
@@ -299,6 +343,16 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             enOrden,
             { navegar: true },
           )
+          // Un recorrido entero sin ubicar no tiene ruta que abrir: Maps se
+          // queda cerrado y, sin este cartel, el vendedor toca IR A GOOGLE MAPS
+          // y no pasa absolutamente nada. La jornada SÍ arrancó —eso es lo que
+          // mira la oficina—, así que lo que hay que decirle es cómo seguir.
+          if (!maps.abierto) {
+            setAvisoMaps(
+              'Ninguno de tus destinos tiene la ubicación guardada todavía, así que no hay ruta para abrir en Google Maps. ' +
+                'El recorrido igual arrancó: seguí la lista de acá abajo y, al llegar a cada cliente, tocá LLEGUÉ y después ESTOY ACÁ para guardar dónde queda.',
+            )
+          }
           return { maps }
         } catch {
           // La jornada ya arrancó y el seguimiento está prendido; sólo falló
@@ -343,18 +397,44 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
         (p) => p.estado === 'pendiente' || p.estado === 'en_camino',
       )
       if (pendientes.length === 0) throw new Error('No te quedan destinos por visitar.')
+
+      // Las sin ubicar no entran en un enlace de Maps: no hay punto que mandar.
+      // `previsualizarRecorrido` ya las descarta, pero si las descarta a TODAS
+      // no abre nada y se queda callado —para el vendedor, un botón muerto—.
+      // Acá se corta antes y se dice por qué, que es lo que le permite decidir.
+      const conPunto = pendientes.filter(estaUbicada)
+      if (conPunto.length === 0) {
+        throw new Error(
+          'Los destinos que te quedan todavía no tienen la ubicación guardada, así que no hay ruta que abrir. ' +
+            'Andá igual con el domicilio de la lista y, cuando llegues, tocá LLEGUÉ y después ESTOY ACÁ para guardar dónde queda.',
+        )
+      }
+
       const pos = await ubicacionActual()
-      return previsualizarRecorrido(pos, pendientes, { navegar: true })
+      const maps = await previsualizarRecorrido(pos, conPunto, { navegar: true })
+      return { maps, sinUbicar: pendientes.length - conPunto.length }
     },
-    onSuccess: (maps) => {
+    onSuccess: ({ maps, sinUbicar }) => {
       // Al cartel de Maps (su propio estado): no pisa el aviso de permiso de la
       // jornada, y al reemplazarse no se apilan avisos si se toca varias veces.
+      // Los dos motivos se juntan en un solo cartel por la misma razón: el
+      // segundo `setAvisoMaps` pisaría al primero y el vendedor se enteraría de
+      // una sola de las dos cosas que le faltan al mapa que acaba de abrir.
+      const motivos: string[] = []
       if (maps.abierto && maps.incluidas < maps.total) {
-        setAvisoMaps(
+        motivos.push(
           `Google Maps abre hasta ${maps.incluidas} destinos por vez y te quedan ${maps.total}. ` +
             'Al llegar al último, tocá de nuevo VER RECORRIDO EN GOOGLE MAPS para el resto.',
         )
       }
+      if (sinUbicar > 0) {
+        motivos.push(
+          sinUbicar === 1
+            ? 'Queda 1 destino sin ubicar: no entra en el mapa, pero está en la lista con su domicilio. Ubicalo cuando llegues.'
+            : `Quedan ${sinUbicar} destinos sin ubicar: no entran en el mapa, pero están en la lista con su domicilio. Los ubicás cuando llegues.`,
+        )
+      }
+      if (motivos.length) setAvisoMaps(motivos.join('\n\n'))
     },
     onError: (e: Error) => Alert.alert('No pudimos abrir Google Maps', e.message),
   })
@@ -456,12 +536,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
    * que el mapa no los dibujó.
    */
   const encuadrar = useCallback(() => {
-    if (paradas.length === 0 || !mapa.current) return
+    // Encuadra sobre las ubicadas: a las otras no hay dónde apuntar la cámara.
+    if (paradasUbicadas.length === 0 || !mapa.current) return
     mapa.current.fitToCoordinates(
-      paradas.map((p) => ({ latitude: p.direccion.lat, longitude: p.direccion.lng })),
+      paradasUbicadas.map((p) => ({ latitude: p.direccion.lat, longitude: p.direccion.lng })),
       { edgePadding: { top: 60, right: 60, bottom: 60, left: 60 }, animated: true },
     )
-  }, [paradas])
+  }, [paradasUbicadas])
 
   useEffect(encuadrar, [encuadrar])
 
@@ -509,11 +590,24 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               Sin paradas no se monta el mapa. Antes se montaba igual y caía al
               centro de Buenos Aires, sin un pin y sin un cartel: para el
               vendedor era indistinguible de un mapa roto.
+
+              Y hay un segundo caso, que es nuevo: SÍ hay destinos, pero ninguno
+              está ubicado todavía. El mapa tampoco se monta —no hay región
+              inicial ni pines— pero la lista de abajo sí se dibuja entera, así
+              que el cartel tiene que decir exactamente eso: que los destinos
+              están, que no se perdió nada, y que la ubicación se guarda al
+              llegar. Si dijera "no hay destinos" estaría mintiendo.
             */}
             {paradas.length === 0 ? (
               <Vacio
-                titulo="Todavía no hay destinos ubicados"
-                detalle="Agregá un destino y, si el cliente viene del listado de la oficina, confirmá su dirección para que aparezca en el mapa."
+                titulo="Todavía no hay destinos"
+                detalle="La oficina no te cargó ninguno para hoy. Podés agregar los que quieras a mano."
+                icono="📍"
+              />
+            ) : paradasUbicadas.length === 0 ? (
+              <Vacio
+                titulo="Todavía no hay nada que dibujar en el mapa"
+                detalle="Tus destinos están en la lista de acá abajo, con el domicilio de cada uno, pero ninguno tiene la ubicación guardada. Andá igual: cuando llegues, tocá LLEGUÉ y ahí guardás dónde queda."
                 icono="📍"
               />
             ) : (
@@ -527,8 +621,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 toolbarEnabled={false}
                 onMapReady={encuadrar}
                 initialRegion={{
-                  latitude: paradas[0].direccion.lat,
-                  longitude: paradas[0].direccion.lng,
+                  latitude: paradasUbicadas[0].direccion.lat,
+                  longitude: paradasUbicadas[0].direccion.lng,
                   latitudeDelta: 0.25,
                   longitudeDelta: 0.25,
                 }}
@@ -537,7 +631,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   <Polyline coordinates={trazado} strokeWidth={5} strokeColor={colores.azul} />
                 ) : null}
 
-                {paradas.map((p) => (
+                {/* Un pin por cada parada UBICADA. Las que no lo están no se
+                    dibujan —no hay coordenada que dibujar— y se las ve en la
+                    lista, con su pastilla SIN UBICAR. El número del pin sigue
+                    siendo el `orden` real, así que el mapa puede saltar del 3 al
+                    5: el 4 existe, está en la lista, y todavía no tiene lugar
+                    acá arriba. */}
+                {paradasUbicadas.map((p) => (
                   <Marker
                     key={p.id}
                     coordinate={{ latitude: p.direccion.lat, longitude: p.direccion.lng }}
@@ -566,25 +666,58 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   {proxima.orden}. {proxima.cliente?.razon_social ?? proxima.razon_social_snapshot}
                 </Text>
                 <Text style={estilos.proximaDireccion}>
-                  {proxima.direccion.direccion_formateada}
+                  {domicilioDeLaProxima ?? 'Sin domicilio cargado'}
                 </Text>
 
+                {/* La misma pastilla que en la lista, a propósito: el vendedor
+                    aprende un solo símbolo y lo reconoce donde le aparezca. */}
+                {!proxima.direccion ? (
+                  <View style={estilos.proximaPastillas}>
+                    <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} />
+                  </View>
+                ) : null}
+
                 <View style={estilos.proximaBotones}>
-                  <BotonSecundario
-                    titulo="🧭 Navegar"
-                    alTocar={() => {
-                      // Si el vendedor propuso corregir esta dirección, va al
-                      // punto nuevo (hasta que la oficina lo aplique).
-                      const cambio = proxima.cliente?.id
-                        ? cambiosPendientes?.[proxima.cliente.id]
-                        : undefined
-                      navegarHacia({
-                        lat: cambio?.lat_propuesta ?? proxima.direccion.lat,
-                        lng: cambio?.lng_propuesta ?? proxima.direccion.lng,
-                      }).catch((e: Error) => Alert.alert('Google Maps', e.message))
-                    }}
-                    style={estilos.mitad}
-                  />
+                  {/*
+                    Dos botones distintos porque son dos cosas distintas, y
+                    llamarlas igual sería mentirle al que maneja.
+
+                    Con coordenadas se NAVEGA: Google arranca la guía por voz
+                    hacia un punto que alguien confirmó. Sin coordenadas lo único
+                    que hay es el domicilio escrito que vino del sistema de
+                    gestión, y eso es una conjetura, no un dato: puede haber dos
+                    calles con ese nombre, puede faltarle la altura, puede estar
+                    escrito de una forma que Google entienda como otro lado. Por
+                    eso se BUSCA —Maps muestra los resultados y el vendedor elige
+                    cuál es— en vez de arrancar a navegar solo hacia el primero
+                    que aparezca sin decir que eligió.
+
+                    El botón no se esconde: el vendedor sabe dónde queda el
+                    cliente, y la idea es ayudarlo a llegar, no hacerle de puerta.
+                    Sólo desaparece si no hay NI punto NI domicilio escrito, que
+                    ahí sí no hay nada que abrir.
+                  */}
+                  {puntoDeLaProxima ? (
+                    <BotonSecundario
+                      titulo="🧭 Navegar"
+                      alTocar={() => {
+                        navegarHacia(puntoDeLaProxima).catch((e: Error) =>
+                          Alert.alert('Google Maps', e.message),
+                        )
+                      }}
+                      style={estilos.mitad}
+                    />
+                  ) : domicilioDeLaProxima ? (
+                    <BotonSecundario
+                      titulo="🔎 Buscar en Maps"
+                      alTocar={() => {
+                        buscarEnMapsPorTexto(domicilioDeLaProxima).catch((e: Error) =>
+                          Alert.alert('Google Maps', e.message),
+                        )
+                      }}
+                      style={estilos.mitad}
+                    />
+                  ) : null}
                   <BotonPrincipal
                     titulo="LLEGUÉ"
                     alTocar={() => {
@@ -753,6 +886,12 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const resuelta = parada.estado === 'visitada' || parada.estado === 'no_visitada'
+  // Una parada sin ubicar es una parada normal a la que le falta un dato, no
+  // una parada rota: misma fila, mismo número, mismo toque para cargar la
+  // visita. Lo único que cambia es una pastilla más y de dónde sale el
+  // domicilio. Por eso NO se le baja la opacidad ni se la deshabilita: hacerlo
+  // le diría al vendedor "esto no cuenta", justo lo contrario de lo que pasa.
+  const sinUbicar = parada.direccion === null
 
   return (
     <Pressable
@@ -760,7 +899,7 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
       disabled={!alTocar}
       style={({ pressed }) => [estilos.fila, pressed && alTocar && estilos.filaPresionada]}
       accessibilityRole={alTocar ? 'button' : 'text'}
-      accessibilityLabel={`Destino ${parada.orden}, ${parada.cliente?.razon_social ?? 'sin cliente'}, ${ETIQUETA_ESTADO_PARADA[parada.estado]}`}
+      accessibilityLabel={`Destino ${parada.orden}, ${parada.cliente?.razon_social ?? 'sin cliente'}, ${ETIQUETA_ESTADO_PARADA[parada.estado]}${sinUbicar ? ', sin ubicar' : ''}`}
     >
       <View style={[estilos.numero, { backgroundColor: colorDeEstado(parada.estado, colores) }]}>
         <Text style={estilos.numeroTexto}>{parada.orden}</Text>
@@ -771,7 +910,7 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
           {parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? 'Destino sin cliente'}
         </Text>
         <Text style={estilos.filaDireccion} numberOfLines={2}>
-          {parada.direccion.direccion_formateada}
+          {domicilioDe(parada) ?? 'Sin domicilio cargado'}
         </Text>
 
         <View style={estilos.filaPastillas}>
@@ -779,6 +918,10 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
             texto={ETIQUETA_ESTADO_PARADA[parada.estado]}
             color={colorDeEstado(parada.estado, colores)}
           />
+          {/* Primero de las opcionales: es el dato que le cambia lo que va a
+              hacer al llegar (guardar la ubicación), y en una fila angosta las
+              pastillas se van cayendo al renglón de abajo por orden. */}
+          {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
           {parada.prioridad !== 'baja' ? (
             <Pastilla
               texto={ETIQUETA_PRIORIDAD[parada.prioridad]}
@@ -796,6 +939,50 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
       {resuelta ? <Text style={estilos.tildeFila}>✓</Text> : null}
     </Pressable>
   )
+}
+
+/**
+ * El domicilio que hay para mostrar de un destino, esté ubicado o no.
+ *
+ * Con dirección confirmada se muestra la formateada por Google, que es la que
+ * coincide con el pin del mapa. Sin ella queda `direccion_snapshot`: el
+ * domicilio escrito tal cual vino del sistema de gestión ("URQUIZA OESTE
+ * PARADA16, GUALEGUAYCHÚ"). No es un punto y no siempre es prolijo, pero es
+ * exactamente el dato con el que el vendedor viene ubicando clientes desde
+ * antes de que existiera esta app, así que mostrarlo vale muchísimo más que
+ * dejar el renglón vacío.
+ *
+ * Devuelve `null` sólo cuando no hay ninguna de las dos cosas —un cliente que
+ * ni siquiera trae el domicilio de texto, 150 de los 6.536 sin ubicar—, y ahí
+ * el que llama decide qué escribir en su lugar.
+ */
+function domicilioDe(parada: ParadaCompleta): string | null {
+  return parada.direccion?.direccion_formateada ?? parada.direccion_snapshot ?? null
+}
+
+/**
+ * A qué punto se lo manda: al que él propuso, al oficial, o a ninguno.
+ *
+ * Se piden las dos coordenadas propuestas juntas. Tomarlas por separado con
+ * `??` —como estaba— dejaba pasar una propuesta a medio geocodificar y mezclaba
+ * la latitud nueva con la longitud vieja: un punto que no es ni el de antes ni
+ * el de ahora, en el medio del campo, y el vendedor manejando hacia ahí.
+ *
+ * `null` significa que este destino no tiene ubicación de ningún lado, y el que
+ * llama tiene que ofrecer otra cosa (buscar el domicilio escrito en Maps), no
+ * navegar igual con un punto inventado.
+ */
+function puntoDeNavegacion(
+  parada: ParadaCompleta,
+  cambio: CambioPendiente | undefined,
+): { lat: number; lng: number } | null {
+  if (cambio && cambio.lat_propuesta !== null && cambio.lng_propuesta !== null) {
+    return { lat: cambio.lat_propuesta, lng: cambio.lng_propuesta }
+  }
+  if (parada.direccion) {
+    return { lat: parada.direccion.lat, lng: parada.direccion.lng }
+  }
+  return null
 }
 
 /**
@@ -863,6 +1050,12 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.cuerpo,
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
+  },
+  proximaPastillas: {
+    flexDirection: 'row',
+    gap: espaciado.xs,
+    flexWrap: 'wrap',
+    marginTop: 2,
   },
   proximaBotones: {
     flexDirection: 'row',

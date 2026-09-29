@@ -255,14 +255,17 @@ export function validarDestinoExistente(
 
   if (!form.cliente) {
     errores.cliente = 'Buscá el cliente por código o razón social y elegilo de la lista'
-  } else if (form.cliente.lat === null || form.cliente.lng === null) {
-    // El cliente existe pero su ficha no tiene coordenadas: sin eso no entra
-    // en el recorrido. Ya no es un callejón sin salida —la pantalla ofrece
-    // ubicarlo ahí mismo contra Google—, así que el mensaje señala la acción
-    // en vez de mandar al vendedor a llamar a la oficina.
-    errores.cliente =
-      'Ubicá el cliente en el mapa: confirmá su dirección en el buscador de acá abajo.'
   }
+
+  /*
+   * Acá había una segunda regla: si el cliente no tenía coordenadas, no se lo
+   * dejaba agregar ("Ubicá el cliente en el mapa: confirmá su dirección en el
+   * buscador de acá abajo").
+   *
+   * Se fue con la parada sin ubicar. Un cliente sin punto ahora entra igual, al
+   * final del recorrido, y la ubicación se guarda cuando el vendedor llega. Que
+   * la ficha esté incompleta dejó de ser motivo para no poder salir a trabajar.
+   */
 
 
   return { valido: Object.keys(errores).length === 0, errores }

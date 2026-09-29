@@ -264,7 +264,8 @@ export interface Parada {
   id: string
   rol_visita_id: string
   cliente_id: string | null
-  direccion_id: string
+  /** `null` = parada SIN UBICAR (ver `ParadaCompleta.direccion`). */
+  direccion_id: string | null
   orden: number
   prioridad: PrioridadParada
   origen: OrigenParada
@@ -281,8 +282,36 @@ export interface Parada {
 /** Parada con el cliente y la dirección ya resueltos: lo que consume la UI. */
 export interface ParadaCompleta extends Parada {
   cliente: Pick<Cliente, 'id' | 'codigo' | 'razon_social' | 'contacto_nombre' | 'telefono'> | null
-  direccion: Direccion
+  /**
+   * `null` = parada SIN UBICAR: entró al recorrido sin punto en el mapa.
+   *
+   * El vendedor puede agregar un cliente que sabe dónde queda sin frenarse a
+   * buscarlo en el mapa, y guardar la ubicación recién cuando llega. Mientras
+   * tanto lo que hay para mostrar es `direccion_snapshot`, el domicilio de texto
+   * que vino del sistema de gestión.
+   *
+   * Que sea nullable acá es a propósito: obliga a que cada pantalla decida qué
+   * hace sin coordenadas en vez de romperse en tiempo de ejecución. Lo que NO es
+   * nullable es `Direccion.lat/lng`: si hay dirección, hay punto.
+   */
+  direccion: Direccion | null
   visita: Visita | null
+}
+
+/**
+ * Una parada que SÍ tiene punto en el mapa.
+ *
+ * Existe para que filtrar por "las que están ubicadas" además ESTRECHE el tipo.
+ * Sin esto, `paradas.filter((p) => p.direccion)` devuelve `ParadaCompleta[]` y
+ * TypeScript sigue exigiendo un `!` en cada `p.direccion.lat` de ahí para
+ * abajo — que es justo el `!` que después miente cuando alguien cambia el
+ * filtro. Usar `filter(estaUbicada)` deja el dato y el tipo diciendo lo mismo.
+ */
+export type ParadaUbicada = ParadaCompleta & { direccion: Direccion }
+
+/** Filtro que estrecha: `paradas.filter(estaUbicada)` da `ParadaUbicada[]`. */
+export function estaUbicada(parada: ParadaCompleta): parada is ParadaUbicada {
+  return parada.direccion !== null
 }
 
 export interface Visita {
