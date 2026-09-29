@@ -153,7 +153,12 @@ Sin CLI instalado, la vía es el panel:
 |---|---|
 | `GOOGLE_MAPS_SERVER_KEY` | la clave de servidor (ver `.env`) |
 | `GEMINI_API_KEY` | la clave de Gemini (ver `.env`) |
-| `GEMINI_MODELO` | `gemini-3.5-flash-lite` |
+| `GEMINI_MODELO` | `gemini-2.5-flash` |
+
+> **Ojo con `GEMINI_MODELO`:** este secreto **pisa** el valor por defecto que trae
+> la función. Tiene que nombrar un modelo que exista. Estuvo cargado en
+> `gemini-3.5-flash-lite`, que no existe, y con eso Gemini contesta 400 y la
+> transcripción no anda — aunque el código esté bien.
 
 Con el CLI:
 

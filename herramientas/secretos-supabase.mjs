@@ -38,6 +38,16 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
  *
  * Si mañana una función nueva necesita otra, va acá. El chequeo de abajo avisa
  * si alguna quedó sin valor en el `.env`.
+ *
+ * ─── Ojo con las que PISAN un valor por defecto ──────────────────────────────
+ *
+ * `GEMINI_MODELO` no agrega una capacidad: reemplaza el modelo que la función ya
+ * trae por defecto (`transcribir-audio/index.ts`). O sea que un valor equivocado
+ * acá no se nota al subirlo —sube bien, no avisa— y rompe la transcripción en
+ * producción aunque el código esté impecable.
+ *
+ * Ya pasó: el `.env` decía `gemini-3.5-flash-lite`, un modelo que no existe, y
+ * Gemini contestaba 400 a todo. Si se cambia, tiene que ser por un modelo real.
  */
 const DEL_SERVIDOR = [
   'GOOGLE_MAPS_SERVER_KEY',

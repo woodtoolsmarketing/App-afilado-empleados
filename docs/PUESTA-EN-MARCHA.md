@@ -52,7 +52,7 @@ npm run secretos
 |---|---|
 | `GOOGLE_MAPS_SERVER_KEY` | la clave de Maps (está en `.env`) |
 | `GEMINI_API_KEY` | la clave de Gemini (ídem) |
-| `GEMINI_MODELO` | `gemini-3.5-flash-lite` |
+| `GEMINI_MODELO` | `gemini-2.5-flash` |
 
 ---
 
