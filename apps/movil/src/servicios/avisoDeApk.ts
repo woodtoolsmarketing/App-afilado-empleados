@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { Alert, AppState, Linking } from 'react-native'
+import { Alert, AppState } from 'react-native'
 
+import { usarDescargaApk } from '../nucleo/descargaApk'
 import { buscarApkNuevo, type ApkDisponible } from './actualizacionApk'
 
 /**
@@ -65,14 +66,9 @@ export function ofrecerApk(apk: ApkDisponible) {
       { text: 'Ahora no', style: 'cancel' },
       {
         text: 'Bajar e instalar',
-        onPress: () => {
-          void Linking.openURL(apk.direccion).catch(() =>
-            Alert.alert(
-              'No pudimos abrir la página',
-              `Probá entrando a mano desde el navegador:\n${apk.direccion}`,
-            ),
-          )
-        },
+        // Baja el APK adentro de la app (con progreso, en el modal de la raíz) y
+        // lanza el instalador de Android. Ya no manda al navegador.
+        onPress: () => usarDescargaApk.getState().iniciar(apk),
       },
     ],
   )

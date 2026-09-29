@@ -195,7 +195,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.2.1',
+  version: '1.3.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -259,10 +259,13 @@ const config: ExpoConfig = {
       'ACCESS_NETWORK_STATE',
       'VIBRATE',
       'WAKE_LOCK',
-      // No se pide REQUEST_INSTALL_PACKAGES a propósito: las actualizaciones
-      // van por EAS Update (OTA), no bajando e instalando un APK a mano. Esa
-      // permission está prohibida por la política de Google Play para apps que
-      // se auto-actualizan, y nos cerraría la puerta a Managed Google Play.
+      // REQUEST_INSTALL_PACKAGES: para que la app baje el APK nuevo y lance el
+      // instalador directo, sin mandar al vendedor al navegador ni al centro de
+      // descargas. OJO (decisión tomada a propósito): la política de Google Play
+      // prohíbe esta permission para apps que se auto-actualizan, así que cierra
+      // la puerta a distribuir por (Managed) Google Play. No molesta hoy porque
+      // la flota se reparte por APK directo (tabla versiones_app), no por Play.
+      'REQUEST_INSTALL_PACKAGES',
     ],
     blockedPermissions: ['com.google.android.gms.permission.AD_ID'],
   },

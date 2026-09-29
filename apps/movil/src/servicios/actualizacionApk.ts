@@ -1,5 +1,7 @@
 import { compararVersiones } from '@woodtools/compartido'
 import Constants from 'expo-constants'
+import * as FileSystem from 'expo-file-system'
+import * as IntentLauncher from 'expo-intent-launcher'
 
 import { supabase } from '../nucleo/supabase'
 
@@ -25,14 +27,15 @@ import { supabase } from '../nucleo/supabase'
  * de 50; el enlace de EAS caduca a los 89 días. El panel lo guarda y lo sirve
  * en la misma red a la que estos teléfonos ya le hablan para imprimir.
  *
- * ─── Por qué se abre el navegador y no se instala solo ───────────────────────
+ * ─── Cómo se baja e instala ──────────────────────────────────────────────────
  *
- * Instalar un APK desde adentro de la app pide el permiso
- * `REQUEST_INSTALL_PACKAGES`, que este proyecto decidió no pedir —está anotado
- * en `app.config.ts`: lo prohíbe la política de Google Play para apps que se
- * auto-actualizan y cerraría la puerta a Managed Google Play—. El navegador sí
- * lo tiene. Así que la app lleva al vendedor hasta la puerta y Android hace el
- * resto, que además es donde tiene que estar la decisión de instalar algo.
+ * La app baja el APK adentro (con progreso) y lanza el instalador de Android
+ * directo (`descargarEInstalarApk`), sin mandar al vendedor al navegador ni al
+ * centro de descargas. Necesita el permiso `REQUEST_INSTALL_PACKAGES` (ver
+ * `app.config.ts`), así que es un cambio NATIVO: sólo anda en un APK compilado
+ * con ese permiso. Android igual pide UN toque "Instalar" y, la primera vez,
+ * que se le permita "instalar apps de esta fuente": eso no se saltea sin
+ * privilegios de sistema.
  */
 
 /** Dónde está el panel de la oficina, tal como él mismo lo publica. */
@@ -46,11 +49,52 @@ export interface ApkDisponible {
   actual: string
   /** La que hay para bajar. */
   nueva: string
-  /** A dónde mandar el navegador. */
+  /** De dónde bajar el APK. */
   direccion: string
   /** De dónde sale esa dirección, que cambia lo que hay que decirle al vendedor. */
   desde: 'panel' | 'internet'
   notas: string | null
+}
+
+/** El APK bajado se guarda acá (cache): un nombre fijo, se pisa en cada descarga. */
+const ARCHIVO_APK = FileSystem.cacheDirectory + 'woodtools-actualizacion.apk'
+
+/**
+ * Baja el APK nuevo adentro de la app y lanza el instalador de Android.
+ *
+ * `alAvanzar` recibe la fracción bajada (0 a 1) para la barra de progreso. Al
+ * terminar, Android muestra su diálogo de instalación (un toque "Instalar", y
+ * la primera vez el permiso de "instalar apps de esta fuente"): eso no se puede
+ * saltear. Sólo funciona en un APK compilado con REQUEST_INSTALL_PACKAGES.
+ */
+export async function descargarEInstalarApk(
+  apk: ApkDisponible,
+  alAvanzar?: (fraccion: number) => void,
+): Promise<void> {
+  // Un archivo viejo a medio bajar corrompe la instalación: se borra primero.
+  await FileSystem.deleteAsync(ARCHIVO_APK, { idempotent: true }).catch(() => undefined)
+
+  const descarga = FileSystem.createDownloadResumable(apk.direccion, ARCHIVO_APK, {}, (p) => {
+    if (p.totalBytesExpectedToWrite > 0) {
+      alAvanzar?.(p.totalBytesWritten / p.totalBytesExpectedToWrite)
+    }
+  })
+
+  const resultado = await descarga.downloadAsync()
+  if (!resultado?.uri) {
+    throw new Error('No se pudo bajar el instalador. Revisá la conexión y probá de nuevo.')
+  }
+
+  // El instalador de Android no puede leer un `file://` de otra app: hace falta
+  // un `content://` (lo da el FileProvider de expo-file-system) y darle permiso
+  // de lectura con FLAG_GRANT_READ_URI_PERMISSION.
+  const contentUri = await FileSystem.getContentUriAsync(resultado.uri)
+
+  await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+    data: contentUri,
+    type: 'application/vnd.android.package-archive',
+    flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+  })
 }
 
 /** El canal con el que se compiló este APK: `interno`, `beta` o `produccion`. */

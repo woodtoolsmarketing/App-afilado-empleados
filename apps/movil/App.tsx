@@ -13,6 +13,7 @@ import { useEffect } from 'react'
 import { AppState } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
+import { DescargaDeApk } from './src/componentes/DescargaDeApk'
 import { Navegacion } from './src/navegacion/Navegacion'
 import { clienteConsultas } from './src/nucleo/consultas'
 import { usarSesion } from './src/nucleo/sesion'
@@ -91,6 +92,10 @@ export default function App() {
         {/* Clara en los dos temas: abajo hay rojo intenso o casi negro. */}
         <StatusBar style="light" backgroundColor={tema.colores.fondo} />
         <Navegacion />
+        {/* El modal de "bajando la actualización", global: la descarga puede
+            arrancar desde cualquier pantalla (ofrecerApk) y el progreso se sigue
+            viendo aunque el vendedor navegue. */}
+        <DescargaDeApk />
       </QueryClientProvider>
     </SafeAreaProvider>
   )
