@@ -1,7 +1,6 @@
 import { compararVersiones } from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system'
-import * as IntentLauncher from 'expo-intent-launcher'
 
 import { supabase } from '../nucleo/supabase'
 
@@ -60,12 +59,24 @@ export interface ApkDisponible {
 const ARCHIVO_APK = FileSystem.cacheDirectory + 'woodtools-actualizacion.apk'
 
 /**
+ * ¿Este teléfono puede bajar e instalar el APK solo?
+ *
+ * Sólo desde 1.3.0, que es el APK que trae el permiso `REQUEST_INSTALL_PACKAGES`
+ * y el módulo `expo-intent-launcher`. En 1.2.1 y anteriores no están, así que la
+ * actualización sigue yendo por el navegador (lo decide `ofrecerApk`). `apk.actual`
+ * es la versión NATIVA instalada, no el JS que viaja por aire.
+ */
+export function debeAutoInstalar(apk: ApkDisponible): boolean {
+  return compararVersiones(apk.actual, '1.3.0') >= 0
+}
+
+/**
  * Baja el APK nuevo adentro de la app y lanza el instalador de Android.
  *
  * `alAvanzar` recibe la fracción bajada (0 a 1) para la barra de progreso. Al
  * terminar, Android muestra su diálogo de instalación (un toque "Instalar", y
  * la primera vez el permiso de "instalar apps de esta fuente"): eso no se puede
- * saltear. Sólo funciona en un APK compilado con REQUEST_INSTALL_PACKAGES.
+ * saltear. Sólo se llama en 1.3.0+ (ver `debeAutoInstalar`).
  */
 export async function descargarEInstalarApk(
   apk: ApkDisponible,
@@ -90,6 +101,10 @@ export async function descargarEInstalarApk(
   // de lectura con FLAG_GRANT_READ_URI_PERMISSION.
   const contentUri = await FileSystem.getContentUriAsync(resultado.uri)
 
+  // Import LAZY: expo-intent-launcher es nativo y sólo existe desde el APK 1.3.0.
+  // Importarlo arriba de todo reventaría el bundle al cargar en un teléfono 1.2.1
+  // (que igual nunca llega acá: `ofrecerApk` lo manda al navegador).
+  const IntentLauncher = await import('expo-intent-launcher')
   await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
     data: contentUri,
     type: 'application/vnd.android.package-archive',

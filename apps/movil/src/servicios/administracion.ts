@@ -1,7 +1,7 @@
 import type { Cliente, Direccion, Perfil, RolUsuario } from '@woodtools/compartido'
 import * as FileSystem from 'expo-file-system'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 /**
  * Las funciones del panel de la oficina, para el teléfono de un administrador.
@@ -137,6 +137,7 @@ export async function cambiarEstadoUsuario(perfilId: string, estado: Perfil['est
 export async function rehabilitarUsuario(perfilId: string): Promise<CredencialProvisoria> {
   const { data, error } = await supabase.functions.invoke('rehabilitar-usuario', {
     body: { perfil_id: perfilId },
+    headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
   })
   if (error) throw new Error(await mensajeDeErrorDeFuncion(error))
   return data as CredencialProvisoria
@@ -247,6 +248,7 @@ export async function crearUsuario(params: {
       foto_url,
       dominio: params.dominio ?? 'woodtools.com.ar',
     },
+    headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
   })
   if (error) throw new Error(await mensajeDeErrorDeFuncion(error))
   return data as CredencialProvisoria

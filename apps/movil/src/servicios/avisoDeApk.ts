@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
-import { Alert, AppState } from 'react-native'
+import { Alert, AppState, Linking } from 'react-native'
 
 import { usarDescargaApk } from '../nucleo/descargaApk'
-import { buscarApkNuevo, type ApkDisponible } from './actualizacionApk'
+import { buscarApkNuevo, debeAutoInstalar, type ApkDisponible } from './actualizacionApk'
 
 /**
  * Avisar del instalador nuevo sin que haya que ir a buscarlo.
@@ -66,9 +66,22 @@ export function ofrecerApk(apk: ApkDisponible) {
       { text: 'Ahora no', style: 'cancel' },
       {
         text: 'Bajar e instalar',
-        // Baja el APK adentro de la app (con progreso, en el modal de la raíz) y
-        // lanza el instalador de Android. Ya no manda al navegador.
-        onPress: () => usarDescargaApk.getState().iniciar(apk),
+        // Desde 1.3.0 baja el APK adentro (con progreso, modal de la raíz) y lanza
+        // el instalador. En 1.2.1 y anteriores no está el módulo nativo, así que
+        // sigue por el navegador —y esa es la última vez a mano: el 1.3.0 ya trae
+        // el auto-install—.
+        onPress: () => {
+          if (debeAutoInstalar(apk)) {
+            usarDescargaApk.getState().iniciar(apk)
+          } else {
+            void Linking.openURL(apk.direccion).catch(() =>
+              Alert.alert(
+                'No pudimos abrir la página',
+                `Probá entrando a mano desde el navegador:\n${apk.direccion}`,
+              ),
+            )
+          }
+        },
       },
     ],
   )

@@ -2,7 +2,7 @@ import type { Direccion, ParadaCompleta } from '@woodtools/compartido'
 import * as Linking from 'expo-linking'
 import { Platform } from 'react-native'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 /**
  * Google Maps.
@@ -45,7 +45,13 @@ import { supabase } from '../nucleo/supabase'
  * `GOOGLE_MAPS_SERVER_KEY`.
  */
 async function invocar<T>(nombre: string, cuerpo: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(nombre, { body: cuerpo })
+  // El token va EXPLÍCITO (ver `tokenDeSesion`): `functions.invoke` no siempre lo
+  // manda si venció y el refresh no llegó, y la función respondía "Falta el token".
+  const token = await tokenDeSesion()
+  const { data, error } = await supabase.functions.invoke(nombre, {
+    body: cuerpo,
+    headers: { Authorization: `Bearer ${token}` },
+  })
   if (!error) return data as T
 
   let motivo: string | null = null

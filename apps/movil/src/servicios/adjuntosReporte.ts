@@ -4,7 +4,7 @@ import * as FileSystem from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 import { DURACION_MAXIMA_MS, MIME_AUDIO, OPCIONES_AV } from './transcripcion'
 
 /**
@@ -291,6 +291,7 @@ export async function subirAdjuntosDelReporte(
     try {
       const { data, error } = await supabase.functions.invoke('transcribir-audio', {
         body: { audioBase64: base64, mimeType: MIME_AUDIO },
+        headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
       })
       if (!error && data?.transcripcion) transcripcion = data.transcripcion as string
     } catch {

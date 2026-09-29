@@ -2,7 +2,7 @@ import { Audio } from 'expo-av'
 import * as FileSystem from 'expo-file-system'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 /**
  * Dictado por voz de las observaciones.
@@ -256,6 +256,7 @@ export function usarDictado(): EstadoDictado {
 
       const { data, error: errFuncion } = await supabase.functions.invoke('transcribir-audio', {
         body: { audioBase64, mimeType: MIME_AUDIO },
+        headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
       })
 
       if (errFuncion) {

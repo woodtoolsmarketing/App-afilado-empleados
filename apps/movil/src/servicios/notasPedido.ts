@@ -39,7 +39,7 @@ import {
   type TipoServicio,
 } from '@woodtools/compartido'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 import { ubicacionActual } from './ubicacion'
 import { CLIENTE_A_MANO, VARIANTE } from '../nucleo/variante'
 
@@ -66,6 +66,7 @@ export interface Cotizacion {
 export async function obtenerCotizacion(fecha?: string): Promise<Cotizacion> {
   const { data, error } = await supabase.functions.invoke('cotizacion-dolar', {
     body: fecha ? { fecha } : {},
+    headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
   })
   if (error) throw new Error('No pudimos obtener la cotización del dólar. Revisá la conexión.')
   return data as Cotizacion

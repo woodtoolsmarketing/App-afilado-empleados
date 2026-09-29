@@ -84,5 +84,24 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON
   },
 })
 
+/**
+ * El token de sesión para mandar EXPLÍCITO al invocar una Edge Function.
+ *
+ * `functions.invoke` depende de que la capa de auth le haya sincronizado el token
+ * al cliente. Si venció y el refresh no llegó a tiempo (datos móviles flojos), la
+ * request salía sin `Authorization` —aunque el vendedor estuviera logueado— y la
+ * función contestaba "Falta el token de sesión". `getSession` refresca el token si
+ * hace falta; pasándolo a mano en el header, sale siempre.
+ */
+export async function tokenDeSesion(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error('Se cortó la sesión. Salí y volvé a entrar para seguir.')
+  }
+  return session.access_token
+}
+
 /** Caché liviana de datos no sensibles (por ejemplo, la ruta del día offline). */
 export const cacheLocal = AsyncStorage
