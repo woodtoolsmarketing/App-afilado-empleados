@@ -700,6 +700,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             <UbicarCliente
               key={elegido.cliente_id}
               cliente={elegido}
+              arrancaAbierto={route.params?.abrirUbicador === true}
               alUbicar={(ubicada) =>
                 actualizar({
                   cliente: {
@@ -766,9 +767,12 @@ interface ClienteUbicado {
 function UbicarCliente({
   cliente,
   alUbicar,
+  arrancaAbierto = false,
 }: {
   cliente: ClienteBuscado
   alUbicar: (ubicada: ClienteUbicado) => void
+  /** Lo manda quien llegó acá tocando "UBICAR" y no "agregar". */
+  arrancaAbierto?: boolean
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -794,8 +798,13 @@ function UbicarCliente({
    * Abrirlo solo era la forma de obligar: mientras el destino no entraba sin
    * coordenadas, había que resolver el mapa para poder seguir. Ya no hay nada
    * que resolver antes, así que el que lo quiera abrir lo abre.
+   *
+   * La excepción es quien llegó acá tocando "UBICAR" o "UBICARLO EN EL MAPA"
+   * —desde el calendario o desde clientes del día—. Ése ya dijo a qué vino, y
+   * hacerle buscar un bloque plegado al pie de la pantalla es contestarle otra
+   * cosa. Ahí llega abierto.
    */
-  const [abierto, setAbierto] = useState(false)
+  const [abierto, setAbierto] = useState(arrancaAbierto)
 
   const sugerido = [cliente.direccion, cliente.localidad].filter(Boolean).join(', ')
   const [texto, setTexto] = useState(sugerido)

@@ -412,6 +412,9 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
                         fecha: elegido,
                         volverA: 'CalendarioVisitas',
                         buscarA: i.codigo ?? i.razon_social,
+                        // Vino a UBICAR: el ubicador tiene que estar abierto y
+                        // a la vista, no plegado abajo del botón de agregar.
+                        abrirUbicador: true,
                       }),
                   },
                 ]

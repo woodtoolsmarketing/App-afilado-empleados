@@ -338,6 +338,12 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               (p) => p.estado === 'pendiente' || p.estado === 'en_camino',
             )
           }
+          // Cuántos quedan afuera del enlace por no tener punto. Se cuenta ACÁ
+          // y no del resultado: `previsualizarRecorrido` devuelve `total` ya
+          // filtrado a las ubicadas, así que desde afuera las que descartó son
+          // invisibles.
+          const sinUbicar = enOrden.length - enOrden.filter(estaUbicada).length
+
           const maps = await previsualizarRecorrido(
             { lat: pos.lat, lng: pos.lng },
             enOrden,
@@ -353,18 +359,18 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 'El recorrido igual arrancó: seguí la lista de acá abajo y, al llegar a cada cliente, tocá LLEGUÉ y después ESTOY ACÁ para guardar dónde queda.',
             )
           }
-          return { maps }
+          return { maps, sinUbicar }
         } catch {
           // La jornada ya arrancó y el seguimiento está prendido; sólo falló
           // abrir Maps. Va al cartel de Maps, sin pisar el de la jornada.
           setAvisoMaps(
             'No pudimos abrir Google Maps. Seguí el recorrido desde la app, o tocá VER RECORRIDO EN GOOGLE MAPS para reintentar.',
           )
-          return { maps: null }
+          return { maps: null, sinUbicar: 0 }
         }
       }
 
-      return { maps: null }
+      return { maps: null, sinUbicar: 0 }
     },
     onSuccess: (r) => {
       void cliente.invalidateQueries({ queryKey: ['jornada-hoy'] })
@@ -373,12 +379,29 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       // avisar que abrir un mapa al que le faltan paradas sin decir nada. Va en
       // su propio cartel (avisoMaps), así no pisa el de permiso/tránsito de la
       // jornada, y manda a un botón que sí existe con la jornada en curso.
+      //
+      // Los dos motivos van juntos en UN cartel, igual que en `abrirMaps`: dos
+      // `setAvisoMaps` seguidos se pisan y el vendedor se entera de uno solo.
+      const motivos: string[] = []
+
       if (r?.maps?.abierto && r.maps.incluidas < r.maps.total) {
-        setAvisoMaps(
+        motivos.push(
           `Google Maps abre hasta ${r.maps.incluidas} destinos por vez y tu recorrido tiene ${r.maps.total}. ` +
             'Cuando llegues al último, tocá VER RECORRIDO EN GOOGLE MAPS para seguir con el resto.',
         )
       }
+
+      // Y los que Maps ni siquiera vio. Sin esto, el vendedor abre el trazado
+      // con 4 de sus 6 destinos y los otros dos desaparecen sin dejar rastro.
+      if (r?.maps?.abierto && r.sinUbicar > 0) {
+        motivos.push(
+          r.sinUbicar === 1
+            ? 'Queda 1 destino sin ubicar: no entra en el mapa, pero está en la lista con su domicilio. Ubicalo cuando llegues.'
+            : `Quedan ${r.sinUbicar} destinos sin ubicar: no entran en el mapa, pero están en la lista con su domicilio. Los ubicás cuando llegues.`,
+        )
+      }
+
+      if (motivos.length > 0) setAvisoMaps(motivos.join('\n\n'))
     },
     onError: (e: Error) => Alert.alert('No pudimos iniciar el recorrido', e.message),
   })
@@ -464,8 +487,27 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       }
       return optimizarRecorrido(jornada.id, origen)
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       void cliente.invalidateQueries({ queryKey: ['jornada-hoy'] })
+
+      /*
+       * El festejo se gana, no se da por hecho.
+       *
+       * Con todos los destinos sin ubicar no hay nada contra qué medir: la
+       * función devuelve `optimizado: false` y explica por qué. Decir "Ordené
+       * los destinos por cercanía y tiempo de manejo" igual es prometer un
+       * trabajo que no se hizo — y el vendedor se queda tranquilo con una lista
+       * que quedó exactamente como estaba.
+       */
+      if (!r.optimizado) {
+        Alert.alert(
+          'No había nada que ordenar',
+          r.mensaje ??
+            'Tus destinos todavía no tienen la ubicación guardada, así que no hay distancias con qué compararlos. La lista quedó como estaba.',
+        )
+        return
+      }
+
       Alert.alert('Recorrido ordenado', 'Ordené los destinos por cercanía y tiempo de manejo.')
     },
     onError: (e: Error) => Alert.alert('No pudimos ordenar el recorrido', e.message),

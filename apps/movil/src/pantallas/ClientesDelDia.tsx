@@ -266,6 +266,8 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
                       modo: 'existente',
                       buscarA: c.codigo ?? c.razon_social,
                       volverA: 'ClientesDelDia',
+                      // Tocó UBICAR: que el ubicador llegue abierto.
+                      abrirUbicador: true,
                     })
                   }
                 />

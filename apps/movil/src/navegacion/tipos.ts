@@ -49,6 +49,17 @@ export type ParametrosApp = {
      * sería pedirle que busque lo que acaba de señalar.
      */
     buscarA?: string
+    /**
+     * Abrir el ubicador del mapa apenas se elige el cliente.
+     *
+     * Lo mandan las acciones que se llaman "UBICAR" o "UBICARLO EN EL MAPA"
+     * (calendario y clientes del día). Desde que agregar sin ubicar es lo
+     * normal, el ubicador arranca cerrado y debajo del botón de agregar — que
+     * es lo correcto para el que viene a agregar, y exactamente lo contrario de
+     * lo que vino a hacer el que tocó UBICAR. Sin esto, el botón lleva a una
+     * pantalla donde lo que pidió está plegado y abajo de todo.
+     */
+    abrirUbicador?: boolean
   }
   /** La agenda: qué hay comprometido para los próximos días. */
   CalendarioEnvios: undefined
