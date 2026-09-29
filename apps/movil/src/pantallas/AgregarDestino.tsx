@@ -982,7 +982,7 @@ function UbicarCliente({
               cliente.direccion
                 ? 'Este cliente tiene el domicilio escrito pero nunca se lo marcó en el mapa.'
                 : 'De este cliente no tenemos ni el domicilio escrito.'
-            } No hace falta resolverlo ahora —podés agregarlo igual y guardar la ubicación cuando llegues—, pero si ya sabés dónde queda, marcándolo acá el destino deja de ir al final y la dirección queda cargada para siempre.`
+            } No hace falta resolverlo ahora —podés agregarlo igual y guardar la ubicación cuando llegues—, pero si ya sabés dónde queda, marcándolo acá te queda la navegación hasta la puerta y la dirección cargada para siempre.`
           : 'Esto NO cambia la dirección para todos: manda una corrección a la oficina, que la revisa y la aplica. Tu recorrido ya te lleva al punto nuevo.'}
       </Text>
 

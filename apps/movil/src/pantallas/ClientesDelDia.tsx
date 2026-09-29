@@ -1,4 +1,4 @@
-import { espaciado, radios, TOQUE_MINIMO } from '@woodtools/compartido'
+import { espaciado, estaUbicada, radios, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
@@ -137,19 +137,52 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
       if (!jornada || jornada.paradas.length === 0) {
         throw new Error('Todavía no armaste el recorrido de hoy.')
       }
-      const donde = await ubicacionActual()
-      return previsualizarRecorrido(donde, jornada.paradas)
-    },
-    onSuccess: (r) => {
-      // El techo es de Google, no nuestro: la URL universal acepta nueve
-      // destinos intermedios y en el navegador del teléfono, tres. Decirlo es
-      // mejor que abrir un mapa al que le faltan paradas sin avisar.
-      if (r.abierto && r.incluidas < r.total) {
-        Alert.alert(
-          'Se abrió el trazado',
-          `Google Maps admite ${r.incluidas} destinos por enlace y tu recorrido tiene ${r.total}. El resto se navega desde el mapa de la app, destino por destino.`,
+      /*
+       * Las sin ubicar no entran en la URL de Maps: no hay punto que mandar.
+       * Pero hay que DECIRLO, y son dos casos distintos.
+       *
+       * Si no queda ninguna ubicada, `previsualizarRecorrido` no abre nada y
+       * devuelve `abierto: false`. Sin este corte el vendedor tocaba el botón y
+       * no pasaba absolutamente nada: ni mapa ni cartel.
+       */
+      const sinUbicar = jornada.paradas.filter((p) => !estaUbicada(p)).length
+      if (sinUbicar === jornada.paradas.length) {
+        throw new Error(
+          'Ninguno de tus destinos tiene la ubicación guardada todavía, así que no hay ruta para abrir. ' +
+            'Andá con el domicilio de la lista y, al llegar a cada cliente, tocá LLEGUÉ y después ESTOY ACÁ para guardar dónde queda.',
         )
       }
+
+      const donde = await ubicacionActual()
+      return { ...(await previsualizarRecorrido(donde, jornada.paradas)), sinUbicar }
+    },
+    onSuccess: (r) => {
+      /*
+       * Dos motivos distintos por los que el trazado puede tener menos destinos
+       * que el recorrido, y los dos se dicen juntos o no se dice ninguno.
+       *
+       * El techo es de Google, no nuestro: la URL universal acepta nueve
+       * destinos intermedios y en el navegador del teléfono, tres. Y `total` de
+       * `previsualizarRecorrido` cuenta sólo las UBICADAS, así que sin el
+       * segundo aviso las sin ubicar desaparecían del enlace sin dejar rastro.
+       */
+      const avisos: string[] = []
+
+      if (r.incluidas < r.total) {
+        avisos.push(
+          `Google Maps admite ${r.incluidas} destinos por enlace y tenés ${r.total} ubicados. El resto se navega desde el mapa de la app, destino por destino.`,
+        )
+      }
+
+      if (r.sinUbicar > 0) {
+        avisos.push(
+          r.sinUbicar === 1
+            ? 'Queda 1 destino sin ubicar: no entra en el trazado, pero está en la lista con su domicilio. Lo ubicás cuando llegues.'
+            : `Quedan ${r.sinUbicar} destinos sin ubicar: no entran en el trazado, pero están en la lista con su domicilio. Los ubicás cuando llegues.`,
+        )
+      }
+
+      if (avisos.length > 0) Alert.alert('Se abrió el trazado', avisos.join('\n\n'))
     },
     onError: (e: Error) => Alert.alert('No pudimos abrir el mapa', e.message),
   })
