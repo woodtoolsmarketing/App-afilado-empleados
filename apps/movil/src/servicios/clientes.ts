@@ -239,16 +239,11 @@ export async function agregarDestinoExistente(params: {
     p_cliente_id: params.cliente.cliente_id,
   })
 
-  if (error) {
-    // Choque con `paradas_un_cliente_por_jornada`, que ahora sólo cubre las
-    // paradas ABIERTAS: si salta, es porque el cliente está ESPERANDO en la
-    // lista. Si ya lo visitó hoy, se puede cargar de nuevo (segundo viaje), y
-    // el mensaje tiene que dejar eso claro en vez de sonar a "no se puede".
-    if (error.code === '23505') {
-      throw new Error('Ese cliente ya está esperando en tu recorrido de hoy.')
-    }
-    throw error
-  }
+  // Ya no hay índice único de cliente por jornada: el mismo cliente puede entrar
+  // varias veces (una por sucursal). El aviso de "¿es otra sucursal?" lo hace la
+  // pantalla antes de llamar acá (ver clienteYaEnRecorrido), así que este alta
+  // no rebota por duplicado.
+  if (error) throw error
   return data as ParadaCompleta
 }
 

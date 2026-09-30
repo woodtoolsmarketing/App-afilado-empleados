@@ -63,6 +63,61 @@ export async function obtenerJornadaDeHoy(vendedorId: string): Promise<JornadaCo
   return { jornada, paradas }
 }
 
+/**
+ * Se lanza cuando el vendedor agrega un cliente que YA está en su recorrido de
+ * hoy. No es un error: es la señal de que hay que preguntarle "¿es otra
+ * sucursal?" antes de agregarlo igual.
+ *
+ * Existe porque hay clientes que en el sistema son un solo código pero en la
+ * calle son varios locales (MMLC / La Viruta y sus tres sucursales). El mismo
+ * cliente puede entrar al recorrido más de una vez, una por sucursal; lo único
+ * que se quiere evitar es el doble-agregado por error, y para eso alcanza con
+ * avisar y que el vendedor confirme.
+ */
+export class SucursalDuplicadaError extends Error {
+  constructor(public razonSocial: string) {
+    super('YA_EN_RECORRIDO')
+    this.name = 'SucursalDuplicadaError'
+  }
+}
+
+/**
+ * ¿Este cliente ya tiene una parada ABIERTA en el recorrido de un día?
+ *
+ * `fecha` en ISO (YYYY-MM-DD); sin ella, hoy. Sirve tanto para el recorrido de
+ * hoy como para una jornada agendada a futuro: los dos caminos de alta que van
+ * derecho por `agregar_parada` (sin reusar) necesitan el mismo aviso, porque
+ * desde que no hay índice único de cliente por jornada nada más los frena.
+ *
+ * Mira sólo `pendiente` y `en_camino` a propósito: una visita ya cerrada no
+ * cuenta como "está en la lista", así que volver al mismo cliente a la tarde
+ * —el segundo viaje del día— no dispara la pregunta de la sucursal.
+ */
+export async function clienteYaEnRecorrido(
+  vendedorId: string,
+  clienteId: string,
+  fecha?: string,
+): Promise<boolean> {
+  const { data: jornada } = await supabase
+    .from('roles_visita')
+    .select('id')
+    .eq('vendedor_id', vendedorId)
+    .eq('fecha', fecha ?? hoyISO())
+    .maybeSingle<{ id: string }>()
+
+  if (!jornada) return false
+
+  const { data } = await supabase
+    .from('paradas')
+    .select('id')
+    .eq('rol_visita_id', jornada.id)
+    .eq('cliente_id', clienteId)
+    .in('estado', ['pendiente', 'en_camino'])
+    .limit(1)
+
+  return (data?.length ?? 0) > 0
+}
+
 export async function obtenerParadas(rolVisitaId: string): Promise<ParadaCompleta[]> {
   const { data, error } = await supabase
     .from('paradas')
@@ -290,10 +345,11 @@ export async function agregarClienteAlRecorrido(params: {
   })
 
   if (error) {
-    // La función redacta sus propios mensajes: 23505 ya está en el recorrido,
-    // 42501 cuenta no habilitada. (23514 era "todavía no está ubicado en el
-    // mapa", que ya no corta: ahora entra sin ubicar.)
-    if (['23505', '23514', '42501'].includes(error.code ?? '')) throw new Error(error.message)
+    // 42501 = cuenta no habilitada; la función redacta el mensaje. (Ya no
+    // aplican: 23514 "no ubicado" —ahora entra sin ubicar— ni 23505 "ya está en
+    // el recorrido" —el mismo cliente puede entrar varias veces; el aviso de
+    // sucursal lo hace la pantalla antes de llamar acá.)
+    if (error.code === '42501') throw new Error(error.message)
     throw error
   }
   return data as ParadaCompleta

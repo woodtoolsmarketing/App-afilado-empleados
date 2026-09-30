@@ -33,7 +33,13 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
-import { agregarParada, asegurarJornadaDe, asegurarJornadaDeHoy } from '../servicios/jornada'
+import {
+  agregarParada,
+  asegurarJornadaDe,
+  asegurarJornadaDeHoy,
+  clienteYaEnRecorrido,
+  SucursalDuplicadaError,
+} from '../servicios/jornada'
 import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
@@ -352,10 +358,57 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
    */
   const sinUbicar = elegido !== null && elegido.direccion_id === null
 
+  /**
+   * "Para ESTE cliente ya dije que sí, es otra sucursal".
+   *
+   * El aviso de sucursal corta el alta con un `SucursalDuplicadaError`; cuando
+   * el vendedor confirma, se anota acá el cliente confirmado y se vuelve a
+   * disparar el alta, que esta vez pasa de largo el chequeo.
+   *
+   * Guarda el `cliente_id`, no un booleano, a propósito: si fuera un `true`
+   * suelto y el reintento fallara por otra cosa (se cortó la señal), el flag
+   * quedaría prendido y el PRÓXIMO cliente duplicado se agregaría sin preguntar.
+   * Atado al id, sólo saltea el aviso del cliente que efectivamente se confirmó.
+   * Es un ref y no un estado porque no dibuja nada.
+   */
+  const confirmadoParaCliente = useRef<string | null>(null)
+
+  /**
+   * Candado sincrónico contra el doble-toque.
+   *
+   * `guardar.isPending` no alcanza: es estado de React y recién vale `true` en
+   * el próximo render, así que dos toques disparados en el mismo tick lo ven en
+   * `false` los dos y entran los dos. Antes la base atajaba ese doble-agregado
+   * con el índice único de cliente por jornada; desde que se sacó —para permitir
+   * las sucursales— hace falta cerrar la ventana acá. Un ref cambia en el acto.
+   */
+  const enviando = useRef(false)
+
   const guardar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
       if (!elegido) throw new Error('Elegí un cliente de la lista para agregarlo.')
+
+      /*
+       * ¿Ya está en el recorrido de ese día? Preguntar si es otra sucursal.
+       *
+       * Hay clientes que son un solo código y varios locales; el mismo cliente
+       * puede entrar más de una vez. Pero la mayoría de las veces agregar dos
+       * veces al mismo es un error, así que se avisa y se deja que el vendedor
+       * decida.
+       *
+       * Corre también agendando para OTRO día. Este camino con `fecha` inserta
+       * derecho por `agregar_parada` (no reusa como `agendar_visita`), así que
+       * desde que no hay índice único de cliente por jornada, si el aviso no
+       * corriera acá el duplicado a futuro entraría sin que nada lo frene.
+       */
+      if (
+        confirmadoParaCliente.current !== elegido.cliente_id &&
+        elegido.cliente_id &&
+        (await clienteYaEnRecorrido(perfil.id, elegido.cliente_id, route.params?.fecha))
+      ) {
+        throw new SucursalDuplicadaError(elegido.razon_social)
+      }
 
       // Con fecha, el destino entra en la jornada de ESE día: es una visita
       // agendada, no una del recorrido de hoy.
@@ -389,29 +442,18 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
        * que ordenar: la prioridad viaja igual para que la parada quede
        * coherente si algún día se la ubica.
        */
-      try {
-        return await agregarParada({
-          rolVisitaId: jornada.id,
-          direccionId: null,
-          prioridad,
-          clienteId: elegido.cliente_id,
-        })
-      } catch (e) {
-        // El único choque posible es el único por cliente y jornada. El código
-        // crudo de Postgres no le dice nada al vendedor; es el mismo mensaje
-        // que ya da el otro camino (clientes.ts) y la propia RPC de la base.
-        //
-        // "esperando" no es un adorno: desde que el índice cubre sólo las
-        // paradas abiertas, este choque SÓLO puede pasar si el cliente está
-        // pendiente en la lista. Si ya lo visitó hoy, lo puede volver a cargar
-        // —el segundo viaje del día—, y esa palabra es la que se lo dice.
-        if ((e as { code?: string } | null)?.code === '23505') {
-          throw new Error('Ese cliente ya está esperando en tu recorrido de hoy.')
-        }
-        throw e
-      }
+      // El duplicado ya se manejó arriba con el aviso de sucursal, y la base ya
+      // no tiene índice único de cliente por jornada, así que este alta no
+      // choca: si el vendedor llegó hasta acá, es porque va.
+      return await agregarParada({
+        rolVisitaId: jornada.id,
+        direccionId: null,
+        prioridad,
+        clienteId: elegido.cliente_id,
+      })
     },
     onSuccess: async (parada) => {
+      confirmadoParaCliente.current = null
       await cliente.invalidateQueries()
       /*
        * Tres mensajes, no uno.
@@ -442,17 +484,47 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
     },
-    onError: (e: Error) => Alert.alert('No pudimos agregar el destino', e.message),
+    onError: (e: Error) => {
+      // No es un error: el cliente ya está en la lista y hay que preguntar si
+      // es otra sucursal. Si el vendedor confirma, se agrega igual.
+      if (e instanceof SucursalDuplicadaError) {
+        Alert.alert(
+          'Ya está en tu recorrido',
+          `${e.razonSocial} ya está en tu recorrido ${esOtroDia ? 'de ese día' : 'de hoy'}.\n\n¿Es otra sucursal? Si es el mismo local, no hace falta agregarlo de nuevo.`,
+          [
+            { text: 'No, cancelar', style: 'cancel' },
+            {
+              text: 'Sí, es otra sucursal',
+              onPress: () => {
+                confirmadoParaCliente.current = elegido?.cliente_id ?? null
+                guardar.mutate()
+              },
+            },
+          ],
+        )
+        return
+      }
+      Alert.alert('No pudimos agregar el destino', e.message)
+    },
+    onSettled: () => {
+      // La mutación terminó (bien, mal, o cortada por el aviso de sucursal): se
+      // libera el candado del doble-toque. Un reintento por "es otra sucursal"
+      // sale del Alert, que no es toqueteable dos veces, así que no lo necesita.
+      enviando.current = false
+    },
   })
 
   function alAgregar() {
-    // Ya se agregó: un segundo toque (volviendo con Atrás a esta pantalla, que
-    // queda montada) crearía un destino/cliente duplicado.
-    if (guardar.isPending || guardar.isSuccess) return
+    // Ya se agregó, o está en vuelo: un segundo toque (rápido, o volviendo con
+    // Atrás a esta pantalla que queda montada) crearía un destino duplicado.
+    if (enviando.current || guardar.isPending || guardar.isSuccess) return
     setIntentado(true)
     const nuevos = erroresDeDestino(form)
     setErrores(nuevos)
-    if (Object.keys(nuevos).length === 0) guardar.mutate()
+    if (Object.keys(nuevos).length === 0) {
+      enviando.current = true
+      guardar.mutate()
+    }
   }
 
   return (

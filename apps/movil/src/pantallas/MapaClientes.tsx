@@ -23,7 +23,12 @@ import { Encabezado } from '../componentes/Encabezado'
 import { Pantalla } from '../componentes/Pantalla'
 import { supabase } from '../nucleo/supabase'
 import { hojaDeTema } from '../nucleo/tema'
-import { agregarClienteAlRecorrido } from '../servicios/jornada'
+import {
+  agregarClienteAlRecorrido,
+  clienteYaEnRecorrido,
+  SucursalDuplicadaError,
+} from '../servicios/jornada'
+import { usarSesion } from '../nucleo/sesion'
 import { fichaClienteParaEditar, modificarDatosCliente } from '../servicios/clientes'
 import { navegarHacia } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -113,7 +118,17 @@ function zoomDeRegion(r: Region): number {
 export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes'>) {
   const estilos = usarEstilos()
   const cliente = useQueryClient()
+  const perfil = usarSesion((s) => s.perfil)
   const mapa = useRef<MapView>(null)
+  /**
+   * Candado sincrónico contra el doble-toque en "PRÓXIMO DESTINO"/"COLA".
+   *
+   * `agregar.isPending` recién vale `true` en el próximo render, así que dos
+   * toques en el mismo tick pasan los dos. Sin el índice único de la base (que
+   * se sacó para permitir sucursales) haría dos paradas iguales por error. Un
+   * ref cambia en el acto.
+   */
+  const enviandoMapa = useRef(false)
   const [region, setRegion] = useState<Region>(REGION_INICIAL)
   const [racimos, setRacimos] = useState<
     Array<Supercluster.PointFeature<PropiedadesPin> | Supercluster.ClusterFeature<Supercluster.AnyProps>>
@@ -214,8 +229,14 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
    * no habilitada.
    */
   const agregar = useMutation({
-    mutationFn: (v: { cliente: PinTocado; prioridad: 'alta' | 'baja' }) =>
-      agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad }),
+    mutationFn: async (v: { cliente: PinTocado; prioridad: 'alta' | 'baja'; confirmado?: boolean }) => {
+      // ¿Ya está en el recorrido de hoy? Preguntar si es otra sucursal antes de
+      // agregarlo de nuevo (hay clientes con un código y varios locales).
+      if (!v.confirmado && perfil && (await clienteYaEnRecorrido(perfil.id, v.cliente.id))) {
+        throw new SucursalDuplicadaError(v.cliente.razon_social)
+      }
+      return agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad })
+    },
     onSuccess: async (_parada, v) => {
       setTocado(null)
       // Refrescar la jornada: sin esto, el Recorrido y el Menú que quedaron
@@ -245,8 +266,43 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
         )
       }
     },
-    onError: (e: Error) => Alert.alert('No se pudo agregar', e.message),
+    onError: (e: Error, v) => {
+      // El cliente ya está en la lista: preguntar si es otra sucursal. Si el
+      // vendedor confirma, se reintenta el alta con `confirmado`, que la agrega.
+      if (e instanceof SucursalDuplicadaError) {
+        Alert.alert(
+          'Ya está en tu recorrido',
+          `${e.razonSocial} ya está en tu recorrido de hoy.\n\n¿Es otra sucursal? Si es el mismo local, no hace falta agregarlo de nuevo.`,
+          [
+            { text: 'No, cancelar', style: 'cancel' },
+            {
+              text: 'Sí, es otra sucursal',
+              onPress: () => agregar.mutate({ ...v, confirmado: true }),
+            },
+          ],
+        )
+        return
+      }
+      Alert.alert('No se pudo agregar', e.message)
+    },
+    onSettled: () => {
+      // Terminó (bien, mal, o cortado por el aviso de sucursal): se libera el
+      // candado del doble-toque. El reintento por "es otra sucursal" sale del
+      // Alert, que no se toquetea dos veces.
+      enviandoMapa.current = false
+    },
   })
+
+  /**
+   * Arranca el alta desde el menú del pin, con el candado sincrónico puesto.
+   * Los botones llaman acá y no a `agregar.mutate` directo para cerrar la
+   * ventana del doble-toque (ver `enviandoMapa`).
+   */
+  function iniciarAgregar(prioridad: 'alta' | 'baja') {
+    if (enviandoMapa.current || agregar.isPending || !tocado) return
+    enviandoMapa.current = true
+    agregar.mutate({ cliente: tocado, prioridad })
+  }
 
   const abrirEdicion = useMutation({
     mutationFn: (c: PinTocado) => fichaClienteParaEditar(c.id),
@@ -396,14 +452,14 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
               <BotonMenu
                 titulo="PRÓXIMO DESTINO"
                 subtitulo="Te lleva ahora por Google Maps"
-                alTocar={() => tocado && agregar.mutate({ cliente: tocado, prioridad: 'alta' })}
+                alTocar={() => iniciarAgregar('alta')}
                 cargando={agregar.isPending && agregar.variables?.prioridad === 'alta'}
                 deshabilitado={ocupado}
               />
               <BotonMenu
                 titulo="AGREGAR A LA COLA DE VIAJES"
                 subtitulo="Al final del recorrido de hoy"
-                alTocar={() => tocado && agregar.mutate({ cliente: tocado, prioridad: 'baja' })}
+                alTocar={() => iniciarAgregar('baja')}
                 cargando={agregar.isPending && agregar.variables?.prioridad === 'baja'}
                 deshabilitado={ocupado}
               />
