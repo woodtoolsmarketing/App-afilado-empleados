@@ -159,20 +159,33 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
   const trabajando = aplicar.isPending || rechazar.isPending
 
   /**
-   * Exporta a Excel la lista que se está viendo (por defecto, los pendientes).
+   * Exporta a Excel SÓLO los cambios pendientes, sin importar si en pantalla se
+   * están viendo los resueltos.
    *
-   * Lleva lo que pidió la oficina para cargarlos en el sistema de gestión: el
-   * cliente con su código, la dirección anterior y la nueva. La "anterior" sale
-   * de `direcciones` —la que todavía tiene el sistema—, así que es fiel para los
-   * PENDIENTES; en un cambio ya APLICADO la base ya la pisó con la nueva (por eso
-   * va la columna Estado, para no leer un "anterior = nueva" como un error).
+   * Lleva lo que la oficina tiene que cargar en el sistema de gestión: el cliente
+   * con su código, la dirección anterior y la nueva. Se piden aparte (no se usa la
+   * lista en pantalla) por dos motivos: con "Ver resueltos" la consulta recorta a
+   * 100 y podría dejar pendientes afuera; y la "anterior" sólo es fiel en los
+   * pendientes —al aplicar un cambio, la base pisa esa dirección con la nueva—.
    */
   async function exportarExcel() {
-    if (cambios.length === 0) return
     setExportando(true)
+    setError(null)
     try {
+      const { data, error: err } = await supabase
+        .from('cambios_direccion')
+        .select(SELECT)
+        .eq('estado', 'pendiente')
+        .order('creado_en', { ascending: false })
+      if (err) throw err
+      const pendientes = (data ?? []) as unknown as CambioDireccion[]
+      if (pendientes.length === 0) {
+        setError('No hay cambios de dirección pendientes para exportar.')
+        return
+      }
+
       const libro = new ExcelJS.Workbook()
-      const hoja = libro.addWorksheet('Cambios de dirección')
+      const hoja = libro.addWorksheet('Cambios pendientes')
       hoja.columns = [
         { header: 'Cliente Nº', key: 'codigo', width: 14 },
         { header: 'Cliente', key: 'cliente', width: 34 },
@@ -180,12 +193,11 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
         { header: 'Dirección nueva', key: 'nueva', width: 42 },
         { header: 'Vendedor', key: 'vendedor', width: 24 },
         { header: 'Motivo', key: 'motivo', width: 28 },
-        { header: 'Estado', key: 'estado', width: 12 },
         { header: 'Fecha', key: 'fecha', width: 18 },
       ]
       hoja.getRow(1).font = { bold: true }
 
-      for (const c of cambios) {
+      for (const c of pendientes) {
         hoja.addRow({
           codigo: c.cliente?.codigo ?? '—',
           cliente: c.cliente?.razon_social ?? '—',
@@ -195,7 +207,6 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
             ? `${c.vendedor.nombre_completo}${c.vendedor.codigo_vendedor ? ` (#${c.vendedor.codigo_vendedor})` : ''}`
             : '—',
           motivo: c.motivo ?? '',
-          estado: c.estado,
           fecha: new Date(c.creado_en).toLocaleString('es-AR', {
             dateStyle: 'short',
             timeStyle: 'short',
@@ -210,9 +221,11 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
       const url = URL.createObjectURL(blob)
       const enlace = document.createElement('a')
       enlace.href = url
-      enlace.download = `cambios-direccion-${verResueltos ? 'todos' : 'pendientes'}-${fechaLocalISO(new Date())}.xlsx`
+      enlace.download = `cambios-direccion-pendientes-${fechaLocalISO(new Date())}.xlsx`
       enlace.click()
       URL.revokeObjectURL(url)
+    } catch (e) {
+      setError((e as Error).message)
     } finally {
       setExportando(false)
     }
@@ -235,11 +248,11 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
           </label>
           <button
             className="primario"
-            disabled={exportando || cambios.length === 0}
+            disabled={exportando}
             onClick={exportarExcel}
-            title="Baja una planilla con el cliente, su código, la dirección anterior y la nueva"
+            title="Baja una planilla de los cambios PENDIENTES: cliente, código, dirección anterior y nueva"
           >
-            {exportando ? 'Exportando…' : '⬇ Exportar a Excel'}
+            {exportando ? 'Exportando…' : '⬇ Exportar pendientes'}
           </button>
         </div>
       </header>
