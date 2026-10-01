@@ -309,6 +309,35 @@ Deno.serve(async (req) => {
       polilinea = ruta.polyline?.encodedPolyline ?? null
     }
 
+    /**
+     * Blindaje: `ordenFinal` tiene que ser EXACTAMENTE todas las ubicadas, una
+     * sola vez cada una.
+     *
+     * `optimizedIntermediateWaypointIndex` de Google se toma como una permutación
+     * limpia, pero no se valida. Si alguna vez devolviera un índice repetido o
+     * fuera de rango, `intermedios` duplicaría una parada y se saltearía otra: la
+     * salteada quedaría afuera de esta lista, conservaría su `orden` viejo, y al
+     * renumerar las demás encima chocaría con el índice único (rol_visita_id,
+     * orden) justo en la segunda pasada —dejándola pegada en 1.000.001—. El
+     * vendedor la ve "desaparecida" hasta que el próximo ordenamiento la rescata.
+     *
+     * Se deduplica conservando el orden de Google, y se agregan al final las
+     * ubicadas que ningún índice mencionó. En el caso normal no cambia nada: no
+     * hay duplicados ni faltantes, así que el filtro y el bucle son inofensivos.
+     */
+    const yaEnOrden = new Set<string>()
+    ordenFinal = ordenFinal.filter((p) => {
+      if (yaEnOrden.has(p.id)) return false
+      yaEnOrden.add(p.id)
+      return true
+    })
+    for (const p of pendientes) {
+      if (!yaEnOrden.has(p.id)) {
+        yaEnOrden.add(p.id)
+        ordenFinal.push(p)
+      }
+    }
+
     // ── Persistencia ─────────────────────────────────────────────────────────
     // Las sin ubicar van al final, después de todo lo que Google ordenó.
     await guardarOrden([...ordenFinal, ...sinUbicar])
