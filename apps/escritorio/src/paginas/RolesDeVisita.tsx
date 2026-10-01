@@ -26,6 +26,37 @@ const VENTANA = 200
 /** Cuántas se dibujan. Más que esto es scroll, no ayuda para elegir una. */
 const MOSTRAR = 40
 
+/** La jornada cargada: el rol y sus paradas, tal como la devuelve la consulta. */
+type JornadaPanel = { rol: RolVisita; paradas: ParadaCompleta[] }
+
+/** Mueve el elemento de `desde` a `hasta` en una copia del arreglo. */
+function conMovimiento<T>(lista: T[], desde: number, hasta: number): T[] {
+  const copia = lista.slice()
+  const [x] = copia.splice(desde, 1)
+  copia.splice(hasta, 0, x)
+  return copia
+}
+
+/**
+ * Aplica el reordenamiento de las abiertas sobre la jornada cacheada, para que la
+ * planilla se acomode en el acto antes de que conteste la base. Replica lo que
+ * hace `reordenar_paradas` del lado del servidor: las resueltas no se tocan, las
+ * abiertas toman piso+1..piso+N según `nuevoOrden` y se ordena todo por `orden`.
+ */
+function reordenarEnCache(j: JornadaPanel, nuevoOrden: string[]): JornadaPanel {
+  const piso = j.paradas
+    .filter((p) => p.estado !== 'pendiente' && p.estado !== 'en_camino')
+    .reduce((max, p) => Math.max(max, p.orden), 0)
+  const ordenPorId = new Map(nuevoOrden.map((id, i) => [id, piso + i + 1]))
+  const paradas = j.paradas
+    .map((p) => {
+      const nuevo = ordenPorId.get(p.id)
+      return nuevo === undefined ? p : { ...p, orden: nuevo }
+    })
+    .sort((a, b) => a.orden - b.orden)
+  return { ...j, paradas }
+}
+
 /**
  * Armado e impresión del Rol de Visita.
  *
@@ -249,6 +280,57 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
       ),
   })
 
+  /**
+   * Reordenar a mano, desde la oficina.
+   *
+   * Misma RPC que usa el teléfono (`reordenar_paradas`): renumera sólo las
+   * abiertas y respeta las ya visitadas. La oficina puede tocar el rol de
+   * cualquier vendedor porque la policy `paradas_admin` se lo permite. El cambio
+   * se refleja en la planilla al instante (optimista) y vuelve atrás si falla.
+   */
+  const abiertas = useMemo(
+    () =>
+      (jornada?.paradas ?? []).filter(
+        (p) => p.estado === 'pendiente' || p.estado === 'en_camino',
+      ),
+    [jornada],
+  )
+
+  const reordenar = useMutation({
+    mutationFn: async (nuevoOrden: string[]) => {
+      if (!jornada) throw new Error('No hay rol de visita cargado')
+      const { error: err } = await supabase.rpc('reordenar_paradas', {
+        p_rol_visita_id: jornada.rol.id,
+        p_orden: nuevoOrden,
+      })
+      if (err) throw err
+    },
+    onMutate: async (nuevoOrden) => {
+      setError(null)
+      await cliente.cancelQueries({ queryKey: ['rol-visita', vendedorId, fecha] })
+      const previo = cliente.getQueryData<JornadaPanel>(['rol-visita', vendedorId, fecha])
+      if (previo) {
+        cliente.setQueryData(['rol-visita', vendedorId, fecha], reordenarEnCache(previo, nuevoOrden))
+      }
+      return { previo }
+    },
+    onError: (e: Error, _n, ctx) => {
+      if (ctx?.previo) cliente.setQueryData(['rol-visita', vendedorId, fecha], ctx.previo)
+      setError(e.message)
+    },
+    onSettled: () => void cliente.invalidateQueries({ queryKey: ['rol-visita', vendedorId, fecha] }),
+  })
+
+  /** Mueve una parada abierta a la posición `hasta` (0-based entre las abiertas). */
+  function moverParada(paradaId: string, hasta: number) {
+    const ids = abiertas.map((p) => p.id)
+    const desde = ids.indexOf(paradaId)
+    if (desde < 0) return
+    const destino = Math.max(0, Math.min(ids.length - 1, hasta))
+    if (destino === desde) return
+    reordenar.mutate(conMovimiento(ids, desde, destino))
+  }
+
   const vendedor = vendedores?.find((v) => v.id === vendedorId)
 
   // Abierto en el navegador no existe el puente con el sistema, así que el
@@ -261,7 +343,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
       <header className="encabezado-pagina">
         <div>
           <h1>Roles de visita</h1>
-          <p>Armá el recorrido del día, ordenalo e imprimí la planilla.</p>
+          <p>Armá el recorrido del día, ordenalo (por cercanía o a mano) e imprimí la planilla.</p>
         </div>
         <div className="acciones">
           <button
@@ -365,7 +447,9 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                   <th style={{ width: 34 }}>Ent.</th>
                   <th style={{ width: 100 }}>Contacto</th>
                   <th>Resultado (observaciones)</th>
-                  <th className="no-imprimir" style={{ width: 80 }} />
+                  <th className="no-imprimir" style={{ width: 220 }}>
+                    Orden
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -394,25 +478,87 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                             : ETIQUETA_ESTADO_PARADA[p.estado])}
                       </td>
                       <td className="no-imprimir">
-                        <button
-                          className="chico peligro"
-                          disabled={soloLectura || p.estado === 'visitada' || p.estado === 'no_visitada'}
-                          onClick={() => {
-                            // Borrar la parada borra en cascada su visita (con la
-                            // observación y el audio). Una parada 'omitida' SÍ tiene
-                            // visita: se confirma antes de perder ese parte.
-                            if (
-                              p.visita &&
-                              !window.confirm(
-                                'Esta parada ya tiene una visita cargada. Si la quitás, se borra también esa visita, con su observación. ¿Seguro?',
-                              )
-                            )
-                              return
-                            quitar.mutate(p.id)
-                          }}
-                        >
-                          Quitar
-                        </button>
+                        {(() => {
+                          // El reordenamiento a mano opera sólo sobre las abiertas
+                          // (pendiente/en camino); las resueltas conservan su lugar.
+                          const esAbierta =
+                            p.estado === 'pendiente' || p.estado === 'en_camino'
+                          const idx = esAbierta
+                            ? abiertas.findIndex((a) => a.id === p.id)
+                            : -1
+                          const ultimo = abiertas.length - 1
+                          const bloqueado = soloLectura || reordenar.isPending
+                          return (
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 4,
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              {esAbierta && abiertas.length >= 2 ? (
+                                <>
+                                  <button
+                                    className="chico"
+                                    title="Poner primero"
+                                    disabled={bloqueado || idx <= 0}
+                                    onClick={() => moverParada(p.id, 0)}
+                                  >
+                                    Primero
+                                  </button>
+                                  <button
+                                    className="chico"
+                                    title="Subir uno"
+                                    disabled={bloqueado || idx <= 0}
+                                    onClick={() => moverParada(p.id, idx - 1)}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    className="chico"
+                                    title="Bajar uno"
+                                    disabled={bloqueado || idx >= ultimo}
+                                    onClick={() => moverParada(p.id, idx + 1)}
+                                  >
+                                    ↓
+                                  </button>
+                                  <button
+                                    className="chico"
+                                    title="Poner último"
+                                    disabled={bloqueado || idx >= ultimo}
+                                    onClick={() => moverParada(p.id, ultimo)}
+                                  >
+                                    Último
+                                  </button>
+                                </>
+                              ) : null}
+                              <button
+                                className="chico peligro"
+                                disabled={
+                                  soloLectura ||
+                                  p.estado === 'visitada' ||
+                                  p.estado === 'no_visitada'
+                                }
+                                onClick={() => {
+                                  // Borrar la parada borra en cascada su visita (con
+                                  // la observación y el audio). Una parada 'omitida'
+                                  // SÍ tiene visita: se confirma antes de perderla.
+                                  if (
+                                    p.visita &&
+                                    !window.confirm(
+                                      'Esta parada ya tiene una visita cargada. Si la quitás, se borra también esa visita, con su observación. ¿Seguro?',
+                                    )
+                                  )
+                                    return
+                                  quitar.mutate(p.id)
+                                }}
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   ))
