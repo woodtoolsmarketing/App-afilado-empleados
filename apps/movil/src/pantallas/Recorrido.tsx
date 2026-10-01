@@ -28,6 +28,8 @@ import {
   finalizarRecorrido,
   iniciarRecorrido,
   obtenerJornadaDeHoy,
+  reordenarParadas,
+  type JornadaCompleta,
 } from '../servicios/jornada'
 import { misCambiosPendientes, type CambioPendiente } from '../servicios/cambiosDireccion'
 import {
@@ -69,6 +71,8 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const [avisoMaps, setAvisoMaps] = useState<string | null>(null)
   // La ventana que pregunta CÓMO arrancar: con Google Maps o guiado por la app.
   const [eligiendoModo, setEligiendoModo] = useState(false)
+  // El id de la parada cuya hoja de "mover" está abierta, o null.
+  const [moviendo, setMoviendo] = useState<string | null>(null)
   const debeIniciar = route.params?.iniciar === true
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -104,6 +108,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
    */
   const paradasUbicadas = useMemo(() => paradas.filter(estaUbicada), [paradas])
   const enCurso = jornada?.estado === 'en_curso'
+
+  // Las que todavía hay que visitar, en orden: sobre estas opera el
+  // reordenamiento a mano. Las resueltas conservan su lugar y no se mueven.
+  const abiertas = useMemo(
+    () => paradas.filter((p) => p.estado === 'pendiente' || p.estado === 'en_camino'),
+    [paradas],
+  )
 
   // El radio lo decide la oficina, no la app. Se cachea todo el día: no cambia
   // en el medio de un recorrido y no vale una consulta por cada vez que el
@@ -513,6 +524,57 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     onError: (e: Error) => Alert.alert('No pudimos ordenar el recorrido', e.message),
   })
 
+  /**
+   * Reordenar a mano.
+   *
+   * El vendedor manda un destino al principio, al final o lo corre de a uno, "a
+   * gusto". Opera sólo sobre las abiertas —las resueltas no se mueven— y se ofrece
+   * tanto antes de arrancar como en curso: a diferencia de "Ordenar por cercanía"
+   * (automático, por eso se esconde en curso), esto es una decisión explícita del
+   * vendedor, así que mover la próxima parada es justamente lo que quiso hacer.
+   */
+  const puedeReordenar = !!jornada && !finalizada && abiertas.length >= 2
+  const idxMoviendo = moviendo ? abiertas.findIndex((p) => p.id === moviendo) : -1
+  const paradaMoviendo = idxMoviendo >= 0 ? abiertas[idxMoviendo] : null
+
+  // Si la parada que se estaba moviendo dejó de estar abierta (se cerró en otra
+  // pantalla, o se finalizó la jornada), la hoja se cierra sola.
+  useEffect(() => {
+    if (moviendo && idxMoviendo < 0) setMoviendo(null)
+  }, [moviendo, idxMoviendo])
+
+  const mover = useMutation({
+    mutationFn: (nuevoOrden: string[]) => {
+      if (!jornada) throw new Error('Todavía no cargó la jornada')
+      return reordenarParadas(jornada.id, nuevoOrden)
+    },
+    // Update optimista: la lista se acomoda en el acto, sin esperar a la base
+    // —que en la calle puede tardar—. Si la base rechaza, se vuelve atrás.
+    onMutate: async (nuevoOrden) => {
+      await cliente.cancelQueries({ queryKey: ['jornada-hoy', perfil?.id] })
+      const previo = cliente.getQueryData<JornadaCompleta>(['jornada-hoy', perfil?.id])
+      if (previo) {
+        cliente.setQueryData(['jornada-hoy', perfil?.id], reordenarEnCache(previo, nuevoOrden))
+      }
+      return { previo }
+    },
+    onError: (e: Error, _n, ctx) => {
+      if (ctx?.previo) cliente.setQueryData(['jornada-hoy', perfil?.id], ctx.previo)
+      Alert.alert('No pudimos cambiar el orden', e.message)
+    },
+    onSettled: () => cliente.invalidateQueries({ queryKey: ['jornada-hoy', perfil?.id] }),
+  })
+
+  const moverA = useCallback(
+    (hasta: number) => {
+      if (idxMoviendo < 0) return
+      const destino = Math.max(0, Math.min(abiertas.length - 1, hasta))
+      if (destino === idxMoviendo) return
+      mover.mutate(conMovimiento(abiertas.map((p) => p.id), idxMoviendo, destino))
+    },
+    [abiertas, idxMoviendo, mover],
+  )
+
   // Llegó desde "INICIAR RECORRIDO": se pregunta cómo arrancar.
   useEffect(() => {
     if (debeIniciar && jornada && !enCurso && !finalizada && !arrancar.isPending) {
@@ -785,6 +847,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             {paradas.length > 0 ? (
               <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
             ) : null}
+            {puedeReordenar ? (
+              <Text style={estilos.hintReordenar}>
+                Tocá ↕ en un destino para cambiar el orden a mano.
+              </Text>
+            ) : null}
 
             {paradas.map((p) => (
               <FilaParada
@@ -795,6 +862,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   yaPreguntado.current = p.id
                   navigation.navigate('DestinoVisitado', { paradaId: p.id })
                 }}
+                alMover={
+                  puedeReordenar && (p.estado === 'pendiente' || p.estado === 'en_camino')
+                    ? () => setMoviendo(p.id)
+                    : undefined
+                }
               />
             ))}
 
@@ -858,6 +930,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
         visible={eligiendoModo}
         alElegir={elegirModo}
         alCerrar={() => setEligiendoModo(false)}
+      />
+
+      <ModalMoverDestino
+        parada={paradaMoviendo}
+        posicion={idxMoviendo}
+        total={abiertas.length}
+        ocupado={mover.isPending}
+        alMover={moverA}
+        alCerrar={() => setMoviendo(null)}
       />
     </Pantalla>
   )
@@ -924,7 +1005,153 @@ function ModalInicioRecorrido({
   )
 }
 
-function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () => void }) {
+/**
+ * "MOVER ESTE DESTINO"
+ *
+ * La hoja que sale al tocar ↕ en un destino. Cuatro acciones —primero, subir uno,
+ * bajar uno, último— cubren el "a gusto": para el medio se sube o baja de a uno
+ * mirando cómo cambia el "Nº X de Y", que se recalcula solo con cada toque porque
+ * la lista se reacomoda en el acto. Se queda abierta para encadenar movimientos;
+ * se cierra con LISTO.
+ */
+function ModalMoverDestino({
+  parada,
+  posicion,
+  total,
+  ocupado,
+  alMover,
+  alCerrar,
+}: {
+  parada: ParadaCompleta | null
+  posicion: number
+  total: number
+  ocupado: boolean
+  alMover: (hasta: number) => void
+  alCerrar: () => void
+}) {
+  const estilos = usarEstilos()
+  const esPrimero = posicion <= 0
+  const esUltimo = posicion >= total - 1
+  const nombre =
+    parada?.cliente?.razon_social ?? parada?.razon_social_snapshot ?? 'este destino'
+
+  return (
+    <Modal visible={!!parada} transparent animationType="fade" onRequestClose={alCerrar}>
+      <Pressable style={estilos.velo} onPress={alCerrar} accessibilityLabel="Cerrar">
+        <Pressable style={estilos.hoja} onPress={() => undefined}>
+          <Text style={estilos.hojaTitulo}>MOVER ESTE DESTINO</Text>
+          <Text style={estilos.hojaNota} numberOfLines={2}>
+            {nombre} — Nº {posicion + 1} de {total}
+          </Text>
+
+          <AccionMover
+            etiqueta="⤒  Poner primero"
+            detalle="Lo manda al principio del recorrido"
+            deshabilitado={esPrimero || ocupado}
+            alTocar={() => alMover(0)}
+          />
+          <AccionMover
+            etiqueta="↑  Subir uno"
+            detalle="Un lugar más arriba"
+            deshabilitado={esPrimero || ocupado}
+            alTocar={() => alMover(posicion - 1)}
+          />
+          <AccionMover
+            etiqueta="↓  Bajar uno"
+            detalle="Un lugar más abajo"
+            deshabilitado={esUltimo || ocupado}
+            alTocar={() => alMover(posicion + 1)}
+          />
+          <AccionMover
+            etiqueta="⤓  Poner último"
+            detalle="Lo manda al final de la cola"
+            deshabilitado={esUltimo || ocupado}
+            alTocar={() => alMover(total - 1)}
+          />
+
+          <Pressable
+            onPress={alCerrar}
+            accessibilityRole="button"
+            style={({ pressed }) => [estilos.cancelar, pressed && estilos.accionTocada]}
+          >
+            <Text style={estilos.cancelarTexto}>LISTO</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+function AccionMover({
+  etiqueta,
+  detalle,
+  deshabilitado,
+  alTocar,
+}: {
+  etiqueta: string
+  detalle: string
+  deshabilitado?: boolean
+  alTocar: () => void
+}) {
+  const estilos = usarEstilos()
+  return (
+    <Pressable
+      onPress={alTocar}
+      disabled={deshabilitado}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => [
+        estilos.accion,
+        pressed && !deshabilitado && estilos.accionTocada,
+        deshabilitado && estilos.accionApagada,
+      ]}
+    >
+      <Text style={estilos.accionTexto}>{etiqueta}</Text>
+      <Text style={estilos.accionDetalle}>{detalle}</Text>
+    </Pressable>
+  )
+}
+
+/** Mueve el elemento de `desde` a `hasta` en una copia del arreglo. */
+function conMovimiento<T>(lista: T[], desde: number, hasta: number): T[] {
+  const copia = lista.slice()
+  const [x] = copia.splice(desde, 1)
+  copia.splice(hasta, 0, x)
+  return copia
+}
+
+/**
+ * Aplica un reordenamiento de las abiertas sobre la jornada cacheada, para que la
+ * lista se mueva en el acto (update optimista) antes de que conteste la base.
+ *
+ * Replica lo que hace `reordenar_paradas` del lado del servidor: las resueltas no
+ * se tocan, las abiertas toman piso+1..piso+N según `nuevoOrden`, y se ordena
+ * todo por `orden` como viene del servicio. El "piso" es el último orden ya usado
+ * por una resuelta, no cuántas hay.
+ */
+function reordenarEnCache(jc: JornadaCompleta, nuevoOrden: string[]): JornadaCompleta {
+  const piso = jc.paradas
+    .filter((p) => p.estado !== 'pendiente' && p.estado !== 'en_camino')
+    .reduce((max, p) => Math.max(max, p.orden), 0)
+  const ordenPorId = new Map(nuevoOrden.map((id, i) => [id, piso + i + 1]))
+  const paradas = jc.paradas
+    .map((p) => {
+      const nuevo = ordenPorId.get(p.id)
+      return nuevo === undefined ? p : { ...p, orden: nuevo }
+    })
+    .sort((a, b) => a.orden - b.orden)
+  return { ...jc, paradas }
+}
+
+function FilaParada({
+  parada,
+  alTocar,
+  alMover,
+}: {
+  parada: ParadaCompleta
+  alTocar?: () => void
+  alMover?: () => void
+}) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const resuelta = parada.estado === 'visitada' || parada.estado === 'no_visitada'
@@ -978,7 +1205,22 @@ function FilaParada({ parada, alTocar }: { parada: ParadaCompleta; alTocar?: () 
         </View>
       </View>
 
-      {resuelta ? <Text style={estilos.tildeFila}>✓</Text> : null}
+      {resuelta ? (
+        <Text style={estilos.tildeFila}>✓</Text>
+      ) : alMover ? (
+        // Asa para reordenar. Es su propio Pressable: tocarla abre la hoja de
+        // mover y no dispara el toque de la fila (que lleva a cargar la visita).
+        <Pressable
+          onPress={alMover}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Mover el destino ${parada.orden}`}
+          style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
+        >
+          <Text style={estilos.asaIcono}>↕</Text>
+          <Text style={estilos.asaTexto}>Mover</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   )
 }
@@ -1113,6 +1355,12 @@ const usarEstilos = hojaDeTema((t) => ({
     letterSpacing: 1,
     marginTop: espaciado.sm,
   },
+  hintReordenar: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    marginTop: -espaciado.xs,
+  },
 
   fila: {
     flexDirection: 'row',
@@ -1162,6 +1410,28 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: 22,
     color: t.colores.verdeOscuro,
   },
+  asa: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 46,
+    minHeight: 46,
+    paddingHorizontal: espaciado.xs,
+    borderRadius: radios.sm,
+    borderWidth: 1.5,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  asaTocada: { opacity: 0.6 },
+  asaIcono: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: 18,
+    color: t.colores.tinta,
+  },
+  asaTexto: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaSuave,
+  },
 
   // ── Ventana "¿cómo querés hacer el recorrido?" ─────────────────────────────
   velo: {
@@ -1201,6 +1471,7 @@ const usarEstilos = hojaDeTema((t) => ({
     gap: 2,
   },
   accionTocada: { opacity: 0.7 },
+  accionApagada: { opacity: 0.4 },
   accionTexto: {
     fontFamily: t.tipografia.familia.fuerte,
     fontSize: t.tipografia.tamano.sm,

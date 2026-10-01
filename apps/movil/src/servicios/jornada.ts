@@ -355,6 +355,34 @@ export async function agregarClienteAlRecorrido(params: {
   return data as ParadaCompleta
 }
 
+/**
+ * Reordena a mano los destinos ABIERTOS de una jornada.
+ *
+ * `ordenIds` es la secuencia COMPLETA de las paradas pendientes/en camino en el
+ * orden que el vendedor quiere, de principio a fin. La función de la base
+ * renumera sólo esas —las resueltas conservan su lugar adelante— y es atómica:
+ * o entra el orden entero, o no entra nada.
+ *
+ * Si la lista quedó vieja en el teléfono (una parada que se cerró o se agregó en
+ * otra pantalla) la base corta con P0001 en vez de dejar el recorrido a medio
+ * numerar; el que llama vuelve a leer la jornada y reintenta.
+ */
+export async function reordenarParadas(
+  rolVisitaId: string,
+  ordenIds: string[],
+): Promise<void> {
+  const { error } = await supabase.rpc('reordenar_paradas', {
+    p_rol_visita_id: rolVisitaId,
+    p_orden: ordenIds,
+  })
+
+  if (error) {
+    // P0001 = la lista ya no coincide con lo que hay en la base.
+    if (error.code === 'P0001') throw new Error(error.message)
+    throw error
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Historial
 // ─────────────────────────────────────────────────────────────────────────────
