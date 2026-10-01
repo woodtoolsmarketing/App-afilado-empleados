@@ -1,4 +1,6 @@
+import { fechaLocalISO } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import ExcelJS from 'exceljs'
 import L from 'leaflet'
 import { useEffect, useState } from 'react'
 import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet'
@@ -106,6 +108,7 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
   const [rechazando, setRechazando] = useState<string | null>(null)
   const [motivos, setMotivos] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
+  const [exportando, setExportando] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['cambios-direccion', verResueltos],
@@ -155,6 +158,66 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
   const cambios = data ?? []
   const trabajando = aplicar.isPending || rechazar.isPending
 
+  /**
+   * Exporta a Excel la lista que se está viendo (por defecto, los pendientes).
+   *
+   * Lleva lo que pidió la oficina para cargarlos en el sistema de gestión: el
+   * cliente con su código, la dirección anterior y la nueva. La "anterior" sale
+   * de `direcciones` —la que todavía tiene el sistema—, así que es fiel para los
+   * PENDIENTES; en un cambio ya APLICADO la base ya la pisó con la nueva (por eso
+   * va la columna Estado, para no leer un "anterior = nueva" como un error).
+   */
+  async function exportarExcel() {
+    if (cambios.length === 0) return
+    setExportando(true)
+    try {
+      const libro = new ExcelJS.Workbook()
+      const hoja = libro.addWorksheet('Cambios de dirección')
+      hoja.columns = [
+        { header: 'Cliente Nº', key: 'codigo', width: 14 },
+        { header: 'Cliente', key: 'cliente', width: 34 },
+        { header: 'Dirección anterior', key: 'anterior', width: 42 },
+        { header: 'Dirección nueva', key: 'nueva', width: 42 },
+        { header: 'Vendedor', key: 'vendedor', width: 24 },
+        { header: 'Motivo', key: 'motivo', width: 28 },
+        { header: 'Estado', key: 'estado', width: 12 },
+        { header: 'Fecha', key: 'fecha', width: 18 },
+      ]
+      hoja.getRow(1).font = { bold: true }
+
+      for (const c of cambios) {
+        hoja.addRow({
+          codigo: c.cliente?.codigo ?? '—',
+          cliente: c.cliente?.razon_social ?? '—',
+          anterior: c.direccion?.direccion_formateada ?? '(el cliente no tenía dirección cargada)',
+          nueva: c.direccion_propuesta,
+          vendedor: c.vendedor
+            ? `${c.vendedor.nombre_completo}${c.vendedor.codigo_vendedor ? ` (#${c.vendedor.codigo_vendedor})` : ''}`
+            : '—',
+          motivo: c.motivo ?? '',
+          estado: c.estado,
+          fecha: new Date(c.creado_en).toLocaleString('es-AR', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }),
+        })
+      }
+
+      const buffer = await libro.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const enlace = document.createElement('a')
+      enlace.href = url
+      enlace.download = `cambios-direccion-${verResueltos ? 'todos' : 'pendientes'}-${fechaLocalISO(new Date())}.xlsx`
+      enlace.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExportando(false)
+    }
+  }
+
   return (
     <>
       <header className="encabezado-pagina">
@@ -165,10 +228,20 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
             mapa y aplicalas: recién ahí se cambia la ubicación del cliente en el sistema.
           </p>
         </div>
-        <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input type="checkbox" checked={verResueltos} onChange={(e) => setVerResueltos(e.target.checked)} />
-          Ver resueltos
-        </label>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="checkbox" checked={verResueltos} onChange={(e) => setVerResueltos(e.target.checked)} />
+            Ver resueltos
+          </label>
+          <button
+            className="primario"
+            disabled={exportando || cambios.length === 0}
+            onClick={exportarExcel}
+            title="Baja una planilla con el cliente, su código, la dirección anterior y la nueva"
+          >
+            {exportando ? 'Exportando…' : '⬇ Exportar a Excel'}
+          </button>
+        </div>
       </header>
 
       {error ? <div className="aviso error">{error}</div> : null}
