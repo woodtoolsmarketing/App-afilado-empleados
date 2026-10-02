@@ -1,9 +1,18 @@
-import { ETIQUETA_ESTADO_USUARIO, type Perfil, type RolUsuario } from '@woodtools/compartido'
+import {
+  BUCKET_FOTOS,
+  ETIQUETA_ESTADO_USUARIO,
+  urlesDeFotos,
+  type Perfil,
+  type RolUsuario,
+} from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
 import { AltaUsuario } from './AltaUsuario'
+
+/** 2 MB, igual que en el alta: es la foto de un carnet, no una galería. */
+const PESO_MAXIMO_FOTO = 2 * 1024 * 1024
 
 /**
  * Altas, bajas y aprobaciones.
@@ -32,6 +41,19 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       if (error) throw error
       return data as Perfil[]
     },
+  })
+
+  /*
+   * Las fotos de los vendedores viven en un bucket privado, así que `foto_url`
+   * es la ruta del objeto y no una dirección usable. Se firman todas juntas
+   * —una sola vez por ruta— para mostrarlas en la lista. La clave incluye las
+   * rutas, así que al cambiar una foto se vuelve a firmar sola.
+   */
+  const rutasFotos = (perfiles ?? []).map((p) => p.foto_url)
+  const { data: fotosFirmadas } = useQuery({
+    queryKey: ['fotos-perfiles', [...new Set(rutasFotos.filter(Boolean))].sort().join('|')],
+    queryFn: () => urlesDeFotos(supabase, rutasFotos),
+    enabled: (perfiles ?? []).length > 0,
   })
 
   /*
@@ -275,6 +297,72 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       void cliente.invalidateQueries()
     },
     onError: (e: Error) => setMensaje(`No se pudo cambiar el email: ${e.message}`),
+  })
+
+  /**
+   * Cambiar —o quitar— la foto de un usuario.
+   *
+   * La foto es sólo `perfiles.foto_url` (la ruta en el bucket privado), así que
+   * no hace falta edge function: el administrador sube al bucket y actualiza el
+   * perfil directo, como con el código y las zonas. Se sube con un nombre nuevo
+   * (fecha incluida) en vez de pisar el anterior, para no depender de una policy
+   * de UPDATE en storage; recién cuando el perfil quedó apuntando a la nueva se
+   * borra la vieja, que ya no referencia nadie. `foto` en null sólo la quita.
+   */
+  const cambiarFoto = useMutation({
+    mutationFn: async (params: { perfil: Perfil; foto: File | null }) => {
+      const { perfil, foto } = params
+      const anterior = perfil.foto_url
+      let nuevaRuta: string | null = null
+
+      if (foto) {
+        if (foto.size > PESO_MAXIMO_FOTO) {
+          throw new Error('La foto pesa más de 2 MB. Probá con una más chica.')
+        }
+        const extension = foto.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+        const base =
+          (perfil.usuario || perfil.codigo_vendedor || 'vendedor').replace(/[^a-z0-9._-]/gi, '') ||
+          'vendedor'
+        nuevaRuta = `${base}-${Date.now()}.${extension}`
+        const { error: errSubida } = await supabase.storage
+          .from(BUCKET_FOTOS)
+          .upload(nuevaRuta, foto, { contentType: foto.type, upsert: false })
+        if (errSubida) throw new Error(`No pudimos subir la foto: ${errSubida.message}`)
+      }
+
+      const { error: errPerfil } = await supabase
+        .from('perfiles')
+        .update({ foto_url: nuevaRuta })
+        .eq('id', perfil.id)
+      if (errPerfil) {
+        // No quedó apuntando a la nueva: se borra la que se acaba de subir para
+        // no dejar un objeto huérfano en el bucket.
+        if (nuevaRuta) {
+          try {
+            await supabase.storage.from(BUCKET_FOTOS).remove([nuevaRuta])
+          } catch {
+            /* best-effort */
+          }
+        }
+        throw errPerfil
+      }
+
+      // La anterior ya no la referencia nadie: se borra. Best-effort —si la
+      // policy no dejara, no es un error para quien cambió la foto—. Las URLs
+      // completas viejas (si alguna quedó guardada así) no son del bucket.
+      if (anterior && !/^(https?:|data:|blob:)/i.test(anterior)) {
+        try {
+          await supabase.storage.from(BUCKET_FOTOS).remove([anterior])
+        } catch {
+          /* best-effort */
+        }
+      }
+    },
+    onSuccess: (_d, v) => {
+      setMensaje(v.foto ? 'Foto actualizada.' : 'Foto quitada.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo cambiar la foto: ${e.message}`),
   })
 
   const autorizarDispositivo = useMutation({
@@ -665,6 +753,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 92 }}>Foto</th>
               <th>Nombre</th>
               <th>Código</th>
               <th>Zonas a cargo</th>
@@ -677,6 +766,15 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
           <tbody>
             {resto.map((p) => (
               <tr key={p.id}>
+                <td>
+                  <FotoDePerfil
+                    perfil={p}
+                    urlFirmada={p.foto_url ? (fotosFirmadas?.get(p.foto_url) ?? null) : null}
+                    soloLectura={soloLectura}
+                    subiendo={cambiarFoto.isPending && cambiarFoto.variables?.perfil.id === p.id}
+                    alCambiar={(foto) => cambiarFoto.mutate({ perfil: p, foto })}
+                  />
+                </td>
                 <td>
                   <NombreYUsuario
                     perfil={p}
@@ -876,6 +974,103 @@ function ZonasACargo({
       ) : null}
     </div>
   )
+}
+
+/**
+ * La foto del vendedor, con "Cambiar" y "Quitar".
+ *
+ * La imagen vive en el bucket privado, así que lo que se muestra es la URL ya
+ * firmada que arma la página; sin foto —o si la firma falla— van las iniciales,
+ * que es mejor que un cuadro roto. El archivo se elige con un input oculto, para
+ * mostrar un botón propio en vez del "Elegir archivo" del navegador.
+ */
+function FotoDePerfil({
+  perfil,
+  urlFirmada,
+  soloLectura,
+  subiendo,
+  alCambiar,
+}: {
+  perfil: Perfil
+  urlFirmada: string | null
+  soloLectura: boolean
+  subiendo: boolean
+  alCambiar: (foto: File | null) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      {urlFirmada ? (
+        <img
+          src={urlFirmada}
+          alt={`Foto de ${perfil.nombre_completo}`}
+          style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }}
+        />
+      ) : (
+        <div
+          aria-hidden
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'var(--borde, #ccc)',
+            color: 'var(--tinta-tenue, #555)',
+            fontWeight: 600,
+          }}
+        >
+          {inicialesDe(perfil.nombre_completo)}
+        </div>
+      )}
+
+      {!soloLectura ? (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const archivo = e.target.files?.[0]
+              // Se limpia el input para poder volver a elegir el MISMO archivo:
+              // si no, al reintentar con el mismo nombre no vuelve a dispararse.
+              e.target.value = ''
+              if (archivo) alCambiar(archivo)
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="chico" disabled={subiendo} onClick={() => inputRef.current?.click()}>
+              {subiendo ? 'Subiendo…' : urlFirmada ? 'Cambiar' : 'Agregar'}
+            </button>
+            {urlFirmada ? (
+              <button
+                className="chico"
+                disabled={subiendo}
+                onClick={() => {
+                  if (confirm(`¿Quitar la foto de ${perfil.nombre_completo}?`)) alCambiar(null)
+                }}
+              >
+                Quitar
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/** Hasta dos iniciales del nombre, para el círculo cuando no hay foto. */
+function inicialesDe(nombre: string): string {
+  return nombre
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('')
 }
 
 /**
