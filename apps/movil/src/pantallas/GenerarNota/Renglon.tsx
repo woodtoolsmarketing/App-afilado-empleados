@@ -2058,6 +2058,17 @@ export function PasoRenglon({
           .map((c) => ({ campo: c, node: renderUno(c), full: esFull(c) }))
           .filter((s) => s.node !== null && s.node !== undefined)
 
+        // El DIÁMETRO INTERIOR se dibuja pegado al ANCHO DE CORTE, en la misma
+        // fila, aunque en la lista de campos el CÓDIGO DE CÓMPUTO caiga entre los
+        // dos: se mueve el interior a continuación del ancho y el código queda
+        // abajo del par (sigue cayendo justo debajo de la medida que lo dispara).
+        const iAncho = slots.findIndex((s) => s.campo === 'ancho_corte')
+        const iInt = slots.findIndex((s) => s.campo === 'diametro_interior')
+        if (iAncho !== -1 && iInt > iAncho + 1) {
+          const [interior] = slots.splice(iInt, 1)
+          slots.splice(iAncho + 1, 0, interior)
+        }
+
         const filas: Array<(typeof slots)[number] | [(typeof slots)[number], (typeof slots)[number]]> = []
         for (let i = 0; i < slots.length; i++) {
           const a = slots[i]
