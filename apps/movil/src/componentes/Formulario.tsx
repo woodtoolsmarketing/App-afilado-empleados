@@ -117,6 +117,7 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
 ) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   const [enfocado, setEnfocado] = useState(false)
 
   return (
@@ -138,6 +139,10 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
         style={[
           estilos.campoCaja,
           props.multiline && (multilineaFina ? estilos.campoCajaMultiFina : estilos.campoCajaMultilinea),
+          densidad === 'compacta' &&
+            (props.multiline
+              ? multilineaFina && estilos.campoCajaMultiFinaCompacta
+              : estilos.campoCajaCompacta),
           props.editable === false && estilos.campoCalculado,
           enfocado && estilos.campoEnfocado,
           !!error && estilos.campoConError,
@@ -194,6 +199,7 @@ export function Casilla({
   compacta?: boolean
 }) {
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   return (
     <Pressable
       onPress={() => alCambiar(!valor)}
@@ -203,6 +209,7 @@ export function Casilla({
       accessibilityLabel={etiqueta}
       style={({ pressed }) => [
         estilos.casillaFila,
+        densidad === 'compacta' && estilos.casillaFilaCompacta,
         pressed && estilos.filaPresionada,
         deshabilitada && estilos.deshabilitado,
       ]}
@@ -577,6 +584,7 @@ export function Desplegable<T extends string>({
   vacio?: string
 }) {
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   const [abierto, setAbierto] = useState(false)
   const elegido = items.find((i) => i.valor === valor)
 
@@ -608,12 +616,18 @@ export function Desplegable<T extends string>({
         accessibilityLabel={`${etiqueta ?? 'Opción'}: ${elegido?.etiqueta ?? marcador}`}
         style={({ pressed }) => [
           estilos.desplegableFila,
+          densidad === 'compacta' && estilos.desplegableFilaCompacta,
           pressed && estilos.filaPresionada,
           deshabilitado && estilos.deshabilitado,
         ]}
       >
         <View
-          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+          style={[
+            estilos.campoCaja,
+            estilos.desplegableCaja,
+            densidad === 'compacta' && estilos.campoCajaCompacta,
+            !!error && estilos.campoConError,
+          ]}
         >
           <Text style={[estilos.campoTexto, !elegido && estilos.marcador]} numberOfLines={1}>
             {elegido?.etiqueta ?? marcador}
@@ -668,6 +682,7 @@ export function SelectorMarca({
   marcador?: string
 }) {
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   const [abierto, setAbierto] = useState(false)
   // La primera opción limpia la marca: una sierra puede venir sin marca, y sin
   // esto —una vez elegida— sólo se podía cambiar a otra, nunca sacar.
@@ -684,10 +699,19 @@ export function SelectorMarca({
         onPress={() => setAbierto(true)}
         accessibilityRole="button"
         accessibilityLabel={`${etiqueta ?? 'Marca'}: ${texto || marcador}`}
-        style={({ pressed }) => [estilos.desplegableFila, pressed && estilos.filaPresionada]}
+        style={({ pressed }) => [
+          estilos.desplegableFila,
+          densidad === 'compacta' && estilos.desplegableFilaCompacta,
+          pressed && estilos.filaPresionada,
+        ]}
       >
         <View
-          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+          style={[
+            estilos.campoCaja,
+            estilos.desplegableCaja,
+            densidad === 'compacta' && estilos.campoCajaCompacta,
+            !!error && estilos.campoConError,
+          ]}
         >
           <Text style={[estilos.campoTexto, !texto && estilos.marcador]} numberOfLines={1}>
             {texto || marcador}
@@ -754,6 +778,7 @@ export function DesplegableMultiple<T extends string>({
   ayuda?: string
 }) {
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   const [abierto, setAbierto] = useState(false)
   const { height: altoVentana } = useWindowDimensions()
 
@@ -787,7 +812,12 @@ export function DesplegableMultiple<T extends string>({
         ]}
       >
         <View
-          style={[estilos.campoCaja, estilos.desplegableCaja, !!error && estilos.campoConError]}
+          style={[
+            estilos.campoCaja,
+            estilos.desplegableCaja,
+            densidad === 'compacta' && estilos.campoCajaCompacta,
+            !!error && estilos.campoConError,
+          ]}
         >
           <Text style={[estilos.campoTexto, !resumen && estilos.marcador]} numberOfLines={2}>
             {resumen || marcador}
@@ -915,6 +945,15 @@ const usarEstilos = hojaDeTema((t) => ({
     alignItems: 'center',
     paddingHorizontal: espaciado.md,
   },
+  // ── Variantes compactas para el renglón de la nota (ver DensidadFormulario) ─
+  // Cajas y filas más bajas —46 en vez de 56— para que entren más campos por
+  // pantalla y haya que scrollear una o dos veces, no cuatro. 46 px se sigue
+  // tocando cómodo (el mínimo recomendado es 48, pero son campos de número que
+  // se tocan de a uno); abajo de eso ya molesta.
+  campoCajaCompacta: { minHeight: 46 },
+  campoCajaMultiFinaCompacta: { minHeight: 46 },
+  desplegableFilaCompacta: { minHeight: 46 },
+  casillaFilaCompacta: { minHeight: 46 },
   campoCajaMultilinea: {
     minHeight: 150,
     alignItems: 'stretch',

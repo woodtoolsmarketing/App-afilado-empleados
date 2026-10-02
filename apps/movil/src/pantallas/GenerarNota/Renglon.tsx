@@ -1996,7 +1996,7 @@ export function PasoRenglon({
                   />
                   {!codigoConfirmado ? (
                     <Text style={estilos.confirmacionAyuda}>
-                      Revisá que sea el que corresponde y confirmalo para poder continuar.
+                      Revisalo y confirmalo para continuar.
                     </Text>
                   ) : null}
                 </View>
@@ -3011,7 +3011,8 @@ const usarEstilos = hojaDeTema((t) => ({
   // ámbar mientras falta —que es cuando frena el "continuar"—.
   confirmacionCodigo: {
     gap: espaciado.xs,
-    padding: espaciado.sm,
+    paddingHorizontal: espaciado.sm,
+    paddingVertical: espaciado.xs,
     borderRadius: radios.sm,
     borderWidth: 2,
     borderColor: t.colores.verdeOscuro,
@@ -3035,10 +3036,10 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   opcion: {
     paddingHorizontal: espaciado.md,
-    paddingVertical: espaciado.sm,
+    paddingVertical: espaciado.xs,
     borderBottomWidth: 1,
     borderBottomColor: t.colores.panelOscuro,
-    minHeight: 58,
+    minHeight: 44,
     justifyContent: 'center',
     gap: 2,
   },
