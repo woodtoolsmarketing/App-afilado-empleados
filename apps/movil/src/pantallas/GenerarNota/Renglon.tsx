@@ -1095,10 +1095,12 @@ export function PasoRenglon({
     )
   }
 
-  return (
-    <>
-      {/* Herramienta */}
-      {herramientas.length > 1 ? (
+  // Herramienta y máquina forman una sola fila cuando la herramienta se elige
+  // entre varias y además lleva máquina (sólo las fresas y los cabezales la
+  // llevan): así ocupan un renglón en lugar de dos. Si la herramienta es fija
+  // —un único valor posible— o no lleva máquina, cada control va a lo ancho.
+  const selectorHerramienta =
+    herramientas.length > 1 ? (
         <Desplegable<Herramienta>
           etiqueta={`HERRAMIENTA A ${rotuloServicio(item.servicio)}`}
           obligatorio
@@ -1154,25 +1156,41 @@ export function PasoRenglon({
             {ETIQUETA_HERRAMIENTA[item.herramienta]}
           </Text>
         </View>
-      ) : null}
+    ) : null
 
-      {/* En qué máquina trabaja. Va pegado a la herramienta porque es parte de
-          identificarla: sale impreso en la descripción general de la nota
-          —"AFILADO de fresas para tupí"— y es lo que le dice al taller de qué
-          pieza se trata cuando dos comparten medidas. Sólo en fresas y cabezales:
-          el resto de las herramientas no lleva máquina (ver `llevaMaquina`). */}
-      {llevaMaquina(item.herramienta) ? (
-        <Desplegable<string>
-          etiqueta="¿EN QUÉ MÁQUINA LA USA?"
-          marcador="Elegí la máquina"
-          valor={item.maquina || null}
-          items={maquinasDeLaHerramienta(item.herramienta).map((m) => ({
-            valor: m,
-            etiqueta: m.toUpperCase(),
-          }))}
-          alCambiar={(m) => alCambiar({ maquina: m })}
-        />
-      ) : null}
+  // En qué máquina trabaja. Va pegado a la herramienta porque es parte de
+  // identificarla: sale impreso en la descripción general de la nota —"AFILADO
+  // de fresas para tupí"— y es lo que le dice al taller de qué pieza se trata
+  // cuando dos comparten medidas. Sólo en fresas y cabezales: el resto de las
+  // herramientas no lleva máquina (ver `llevaMaquina`).
+  const selectorMaquina = llevaMaquina(item.herramienta) ? (
+    <Desplegable<string>
+      etiqueta="¿EN QUÉ MÁQUINA LA USA?"
+      marcador="Elegí la máquina"
+      valor={item.maquina || null}
+      items={maquinasDeLaHerramienta(item.herramienta).map((m) => ({
+        valor: m,
+        etiqueta: m.toUpperCase(),
+      }))}
+      alCambiar={(m) => alCambiar({ maquina: m })}
+    />
+  ) : null
+
+  return (
+    <>
+      {/* Herramienta y máquina: de a dos cuando la herramienta se elige entre
+          varias y además lleva máquina; si no, cada una ocupa su renglón. */}
+      {herramientas.length > 1 && selectorMaquina ? (
+        <View style={estilos.par}>
+          <View style={estilos.colPar}>{selectorHerramienta}</View>
+          <View style={estilos.colPar}>{selectorMaquina}</View>
+        </View>
+      ) : (
+        <>
+          {selectorHerramienta}
+          {selectorMaquina}
+        </>
+      )}
 
       {item.herramienta === 'mecha' ? (
         <Desplegable<TipoMecha>
