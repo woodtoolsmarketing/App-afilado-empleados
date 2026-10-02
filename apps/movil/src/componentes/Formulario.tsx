@@ -69,6 +69,12 @@ export interface PropsCampo extends TextInputProps {
   /** Se dibuja pegado al borde derecho del campo (por ejemplo, el micrófono). */
   accesorio?: ReactNode
   ayuda?: string
+  /**
+   * Un `multiline` que arranca de UNA línea y crece con lo que se escribe, en
+   * vez de la caja alta de siempre. Para las descripciones: ocupan poco cuando
+   * hay poco texto —que es casi siempre— y no esconden nada cuando hay mucho.
+   */
+  multilineaFina?: boolean
 }
 
 export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
@@ -80,6 +86,7 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
     contenedorStyle,
     accesorio,
     ayuda,
+    multilineaFina = false,
     style,
     ...props
   },
@@ -107,7 +114,7 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
       <View
         style={[
           estilos.campoCaja,
-          props.multiline && estilos.campoCajaMultilinea,
+          props.multiline && (multilineaFina ? estilos.campoCajaMultiFina : estilos.campoCajaMultilinea),
           props.editable === false && estilos.campoCalculado,
           enfocado && estilos.campoEnfocado,
           !!error && estilos.campoConError,
@@ -125,7 +132,11 @@ export const Campo = forwardRef<TextInput, PropsCampo>(function Campo(
             props.onBlur?.(e)
           }}
           placeholderTextColor={colores.tintaTenue}
-          style={[estilos.campoTexto, props.multiline && estilos.campoTextoMultilinea, style]}
+          style={[
+            estilos.campoTexto,
+            props.multiline && (multilineaFina ? estilos.campoTextoMultiFina : estilos.campoTextoMultilinea),
+            style,
+          ]}
           accessibilityLabel={etiqueta}
         />
         {accesorio ? <View style={estilos.accesorio}>{accesorio}</View> : null}
@@ -622,6 +633,7 @@ export function SelectorMarca({
   marcas,
   alCambiar,
   error,
+  ayuda,
   marcador = 'Elegí o escribí la marca',
 }: {
   etiqueta?: string
@@ -629,6 +641,7 @@ export function SelectorMarca({
   marcas: string[]
   alCambiar: (marca: string) => void
   error?: string | null
+  ayuda?: string
   marcador?: string
 }) {
   const estilos = usarEstilos()
@@ -660,6 +673,7 @@ export function SelectorMarca({
         <Text style={estilos.flecha}>▼</Text>
       </Pressable>
 
+      {ayuda && !error ? <Text style={estilos.ayuda}>{ayuda}</Text> : null}
       <MensajeError>{error}</MensajeError>
 
       <HojaDeOpciones
@@ -877,6 +891,17 @@ const usarEstilos = hojaDeTema((t) => ({
     alignItems: 'stretch',
     backgroundColor: t.colores.campoBlanco,
     paddingVertical: espaciado.sm,
+  },
+  /** Multilínea que arranca de una línea y crece: misma caja, sin el alto fijo. */
+  campoCajaMultiFina: {
+    minHeight: TOQUE_MINIMO,
+    alignItems: 'stretch',
+    backgroundColor: t.colores.campoBlanco,
+    paddingVertical: espaciado.sm,
+  },
+  campoTextoMultiFina: {
+    textAlignVertical: 'top',
+    minHeight: 0,
   },
   campoEnfocado: {
     borderColor: t.colores.azul,

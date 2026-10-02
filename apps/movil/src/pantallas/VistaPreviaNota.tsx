@@ -182,8 +182,8 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
 
             {incluirRolDeVisita ? (
               <Aviso tono="info">
-                Adelante de las notas se imprime el rol de visita de hoy. No se muestra acá porque
-                es la planilla del día, no parte de la nota.
+                Adelante de las notas se imprime el rol de visita de los días en que se hicieron. No
+                se muestra acá porque es la planilla del día, no parte de la nota.
               </Aviso>
             ) : null}
 

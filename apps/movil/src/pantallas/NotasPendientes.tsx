@@ -36,7 +36,10 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   const estilos = usarEstilos()
   const cliente = useQueryClient()
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
-  const [conRolDeVisita, setConRolDeVisita] = useState(false)
+  // Arranca TILDADA: lo normal es que el vendedor quiera que, junto con las
+  // notas, salga el rol de visita de los días en que las hizo. Se puede
+  // destildar si esta vez sólo quiere las notas.
+  const [conRolDeVisita, setConRolDeVisita] = useState(true)
   const [busqueda, setBusqueda] = useState('')
 
   const { data: notas, isLoading, error, refetch, isRefetching } = useQuery({
@@ -294,12 +297,14 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
             ) : null}
 
             {/*
-              Sale todo en un solo trabajo de impresión: la planilla del día
-              adelante y las notas atrás. Arranca destildado — es un agregado,
-              no lo que se viene a hacer a esta pantalla.
+              Sale todo en un solo trabajo de impresión: las planillas de rol
+              adelante y las notas atrás. Arranca TILDADA, y suma el rol de
+              visita de CADA DÍA en que se hicieron las notas que se imprimen
+              (no sólo el de hoy): el que imprime a la noche lo de varios días se
+              lleva la planilla de cada uno.
             */}
             <Casilla
-              etiqueta="SUMAR EL ROL DE VISITA DE HOY"
+              etiqueta="SUMAR EL ROL DE VISITA DE ESOS DÍAS"
               valor={conRolDeVisita}
               alCambiar={setConRolDeVisita}
             />
@@ -323,7 +328,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 !hayParaImprimir
                   ? 'Ya salieron todas: tocá una para volver a imprimirla'
                   : conRolDeVisita
-                    ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita, a la impresora de la oficina`
+                    ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita de esos días, a la impresora de la oficina`
                     : `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} a la impresora de la oficina`
               }
               alTocar={() => {

@@ -1783,7 +1783,14 @@ function estilosDeEscala(escala: number | undefined): string {
 export function generarDocumentoImpresion(
   notas: Array<{ nota: NotaParaImprimir; opciones: OpcionesImpresion }>,
   extras?: {
+    /** Un solo rol de visita (el de hoy). Para el caso de una sola jornada. */
     rolDeVisita?: RolDeVisitaParaImprimir
+    /**
+     * Varios roles de visita, uno por día. Cuando se imprimen notas de varios
+     * días, va la planilla de cada uno de esos días, en su propia hoja. Si se
+     * pasan los dos, se usan éstos y se ignora el singular.
+     */
+    rolesDeVisita?: RolDeVisitaParaImprimir[]
     /** La rendición de cobranzas del día. Va en su propia hoja, adelante. */
     planillaCobranzas?: PlanillaCobranzasParaImprimir
     /**
@@ -1807,7 +1814,15 @@ export function generarDocumentoImpresion(
   // una caja de tamaño fijo lo recortaría, que es justo el problema que se
   // acaba de sacar de la nota. Con la letra del sistema en grande el rol sale
   // más grande y puede pasar a una hoja más, pero no pierde nada.
-  if (extras?.rolDeVisita) paginas.unshift(generarHtmlRolDeVisita(extras.rolDeVisita))
+  // Uno o varios roles: cada día su planilla, en el orden recibido. El `unshift`
+  // con spread los deja adelante de las notas sin invertirlos.
+  const roles =
+    extras?.rolesDeVisita && extras.rolesDeVisita.length > 0
+      ? extras.rolesDeVisita
+      : extras?.rolDeVisita
+        ? [extras.rolDeVisita]
+        : []
+  if (roles.length > 0) paginas.unshift(...roles.map(generarHtmlRolDeVisita))
   // La planilla de cobranzas va PRIMERA de todo: es la rendición del día, y en
   // la oficina se separa de las notas apenas sale del cajón.
   if (extras?.planillaCobranzas) {
@@ -1816,7 +1831,7 @@ export function generarDocumentoImpresion(
 
   const titulo = extras?.planillaCobranzas
     ? 'Planilla de cobranzas · WoodTools'
-    : extras?.rolDeVisita
+    : roles.length > 0
       ? 'Rol de visita y notas de pedido · WoodTools'
       : 'Notas de pedido · WoodTools'
 

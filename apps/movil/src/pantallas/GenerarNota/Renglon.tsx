@@ -57,7 +57,7 @@ import {
   type TipoMecha,
   type TipoServicio,
 } from '@woodtools/compartido'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 
 import {
@@ -111,7 +111,7 @@ import { hojaDeTema, usarTema } from '../../nucleo/tema'
  */
 const ETIQUETAS: Record<CampoItem, string> = {
   sierra_clase: '¿SIERRA O INCISOR?',
-  sierra_marca: 'MARCA',
+  sierra_marca: 'MARCA (OPCIONAL)',
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR (mm)',
   diametro_interior: 'DIÁMETRO INTERIOR (mm, OPCIONAL)',
@@ -139,35 +139,6 @@ const ETIQUETAS: Record<CampoItem, string> = {
 }
 
 /**
- * Junta los campos numéricos cortos consecutivos de a dos, para que entren en
- * una fila. Cada elemento del resultado es o un campo suelto o un par.
- *
- * Se agrupan sólo los cortos y sólo si son consecutivos: así el orden que
- * define `CAMPOS_POR_HERRAMIENTA` se mantiene, y en particular el bloque de
- * códigos sigue cayendo justo después de la medida que lo dispara.
- */
-function agruparPares(campos: CampoItem[]): Array<CampoItem | [CampoItem, CampoItem]> {
-  const salida: Array<CampoItem | [CampoItem, CampoItem]> = []
-  for (let i = 0; i < campos.length; i++) {
-    const actual = campos[i]
-    const siguiente = campos[i + 1]
-    if (CORTOS.has(actual) && siguiente && CORTOS.has(siguiente)) {
-      salida.push([actual, siguiente])
-      i++
-    } else {
-      salida.push(actual)
-    }
-  }
-  return salida
-}
-
-/** Numéricos de pocos caracteres: entran holgados de a dos por fila. */
-const CORTOS = new Set<CampoItem>([
-  'cantidad', 'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
-  'largo_util', 'espesor', 'paso', 'cantidad_dientes',
-])
-
-/**
  * Herramientas cuyo catálogo no tiene un solo código con rango de medida.
  *
  * Medido sobre las listas: mechas 0 de 181, cuchillas 0 de 143. El afilado de
@@ -176,6 +147,17 @@ const CORTOS = new Set<CampoItem>([
  * y nunca va a devolver nada.
  */
 const SIN_RANGOS = new Set<Herramienta>(['mecha', 'cuchilla', 'incisor'])
+
+/**
+ * Qué herramientas llevan "¿en qué máquina la usa?".
+ *
+ * Sólo las fresas y los cabezales: van a una tupí / moldurera / escuadradora y
+ * la máquina ayuda a identificar la pieza. El resto no la usa, así que no se
+ * pregunta ni se guarda (ver el efecto "la máquina se propone sola").
+ */
+function llevaMaquina(h: Herramienta | '' | null): h is Herramienta {
+  return h === 'fresa' || h === 'cabezal'
+}
 
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
@@ -398,11 +380,24 @@ export function PasoRenglon({
 
   // ── La máquina se propone sola ───────────────────────────────────────────
   //
-  // Cada familia de herramienta va casi siempre a la misma máquina, así que se
-  // propone ésa y el vendedor la cambia si el cliente la usa en otra. Sólo se
-  // completa cuando está vacía: lo que él eligió no se pisa.
+  // Sólo las fresas y los cabezales llevan máquina: son las que van a una tupí,
+  // una moldurera o una escuadradora, y saber a cuál le dice al taller qué pieza
+  // es. En el resto —sierras, incisores, cuchillas, mechas, sierra sin fin— la
+  // máquina no agrega nada y ensuciaba la descripción ("para escuadradora"), así
+  // que ni se pregunta ni se guarda.
+  //
+  // Para las que SÍ la llevan, cada familia va casi siempre a la misma máquina,
+  // así que se propone ésa y el vendedor la cambia si el cliente la usa en otra.
+  // Sólo se completa cuando está vacía: lo que él eligió no se pisa. Para las que
+  // NO la llevan, se limpia la que hubiera quedado de una herramienta anterior o
+  // de una nota vieja cargada antes de este cambio.
   useEffect(() => {
-    if (!item.herramienta || item.maquina.trim()) return
+    if (!item.herramienta) return
+    if (!llevaMaquina(item.herramienta)) {
+      if (item.maquina) alCambiar({ maquina: '' })
+      return
+    }
+    if (item.maquina.trim()) return
     const sugerida = MAQUINA_SUGERIDA[item.herramienta]
     if (sugerida) alCambiar({ maquina: sugerida })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1141,7 +1136,9 @@ export function PasoRenglon({
               cabezal_de_cuchillas: false,
               // La marca es de la sierra: si la nueva no es sierra, se suelta.
               ...(h !== 'sierra' ? { sierra_marca: null } : {}),
-              ...(item.maquina && !maquinasDeLaHerramienta(h).includes(item.maquina)
+              // La máquina es sólo de fresas y cabezales: si la nueva no la lleva
+              // —o la que estaba no existe para la nueva— se suelta.
+              ...(item.maquina && (!llevaMaquina(h) || !maquinasDeLaHerramienta(h).includes(item.maquina))
                 ? { maquina: '' }
                 : {}),
             })
@@ -1161,9 +1158,10 @@ export function PasoRenglon({
 
       {/* En qué máquina trabaja. Va pegado a la herramienta porque es parte de
           identificarla: sale impreso en la descripción general de la nota
-          —"AFILADO de sierras circulares para escuadradora"— y es lo que le
-          dice al taller de qué pieza se trata cuando dos comparten medidas. */}
-      {item.herramienta ? (
+          —"AFILADO de fresas para tupí"— y es lo que le dice al taller de qué
+          pieza se trata cuando dos comparten medidas. Sólo en fresas y cabezales:
+          el resto de las herramientas no lleva máquina (ver `llevaMaquina`). */}
+      {llevaMaquina(item.herramienta) ? (
         <Desplegable<string>
           etiqueta="¿EN QUÉ MÁQUINA LA USA?"
           marcador="Elegí la máquina"
@@ -1367,17 +1365,12 @@ export function PasoRenglon({
       ) : null}
 
       {/* Campos propios de la herramienta.
-          Los numéricos cortos se agrupan de a dos por fila (ver `agruparPares`):
-          una medida son cinco caracteres y ocupaba el ancho entero de la
-          pantalla, que es la mitad del scroll que había que hacer. */}
-      {agruparPares(campos).map((campo) => {
-        if (Array.isArray(campo)) {
-          return (
-            <View key={campo.join('+')} style={estilos.par}>
-              {campo.map((c) => campoNumerico(c, rotulo(c), 'tercio'))}
-            </View>
-          )
-        }
+          La mayoría va DE A DOS por fila, para ahorrar scroll: `renderUno` arma
+          el elemento de cada campo y el agrupado de abajo los junta de a dos.
+          Los que necesitan el ancho entero —el código de cómputo, la
+          descripción, el tipo de pieza, la reparación— quedan solos (`esFull`). */}
+      {(() => {
+        const renderUno = (campo: CampoItem): ReactNode => {
         if (campo === 'tipo_mecha') return null
 
         /*
@@ -1427,6 +1420,7 @@ export function PasoRenglon({
               valor={item.sierra_marca}
               marcas={SIERRA_MARCAS}
               alCambiar={(m) => alCambiar({ sierra_marca: m })}
+              ayuda="La trae el cliente: dejala vacía si no la sabés."
             />
           )
         }
@@ -1534,7 +1528,7 @@ export function PasoRenglon({
               onChangeText={(t) => alCambiar({ descripcion: t })}
               placeholder="Marca, modelo, estado…"
               multiline
-              numberOfLines={3}
+              multilineaFina
               error={errores.descripcion}
               ayuda="Se completa sola con la herramienta. Agregale lo que haga falta."
             />
@@ -2035,13 +2029,58 @@ export function PasoRenglon({
           )
         }
 
-        // El resto son medidas y precios: todos numéricos. Por `rotulo` y no
-        // por `ETIQUETAS` a secas, para que las dos ramas del dibujo digan lo
-        // mismo caiga el campo suelto o en un par.
-        const anchoCampo =
-          campo === 'precio_total' || campo === 'precio_por_diente' ? 'mitad' : 'tercio'
-        return campoNumerico(campo, rotulo(campo), anchoCampo)
-      })}
+          // El resto son medidas y precios numéricos. El ancho real lo pone la
+          // columna del par (o la fila entera si va solo); el flex de acá adentro
+          // sólo reparte.
+          const anchoCampo =
+            campo === 'precio_total' || campo === 'precio_por_diente' ? 'mitad' : 'tercio'
+          return campoNumerico(campo, rotulo(campo), anchoCampo)
+        }
+
+        // Qué campos piden la fila entera; el resto se junta de a dos. El código
+        // de cómputo abre su lista justo debajo de la medida que lo dispara, la
+        // descripción y el tipo de pieza traen su texto, y la reparación su
+        // propio bloque: todos quedan a lo ancho.
+        const esFull = (c: CampoItem): boolean =>
+          c === 'codigos_computo' ||
+          c === 'descripcion' ||
+          c === 'tipo_pieza' ||
+          c === 'reparar_dientes' ||
+          // Las casillas Sí/No, a lo ancho: se leen mejor y así los dos precios
+          // quedan juntos en su par en vez de uno pegado a una casilla.
+          c === 'dientes_rotos' ||
+          c === 'afilado_reparacion' ||
+          (c === 'precio_total' && item.servicio === 'rebaje')
+
+        // Se arma el elemento de cada campo (los que no aplican dan null y se
+        // caen) y después se juntan de a dos los pareables consecutivos.
+        const slots = campos
+          .map((c) => ({ campo: c, node: renderUno(c), full: esFull(c) }))
+          .filter((s) => s.node !== null && s.node !== undefined)
+
+        const filas: Array<(typeof slots)[number] | [(typeof slots)[number], (typeof slots)[number]]> = []
+        for (let i = 0; i < slots.length; i++) {
+          const a = slots[i]
+          const b = slots[i + 1]
+          if (!a.full && b && !b.full) {
+            filas.push([a, b])
+            i++
+          } else {
+            filas.push(a)
+          }
+        }
+
+        return filas.map((f) =>
+          Array.isArray(f) ? (
+            <View key={`${f[0].campo}+${f[1].campo}`} style={estilos.par}>
+              <View style={estilos.colPar}>{f[0].node}</View>
+              <View style={estilos.colPar}>{f[1].node}</View>
+            </View>
+          ) : (
+            <Fragment key={f.campo}>{f.node}</Fragment>
+          ),
+        )
+      })()}
 
       {/* El descuento va afuera de `CAMPOS_POR_HERRAMIENTA` y al final de todo.
           Afuera porque no es una medida de la herramienta sino una condición
@@ -2805,7 +2844,9 @@ const usarEstilos = hojaDeTema((t) => ({
 
   // Los campos cortos van de a dos por fila: una medida ocupa cinco caracteres
   // y antes se comía el ancho entero, obligando a scrollear por nada.
-  par: { flexDirection: 'row', gap: espaciado.sm },
+  par: { flexDirection: 'row', gap: espaciado.sm, alignItems: 'flex-start' },
+  /** Cada columna de un par: media fila, y que el texto largo no la desborde. */
+  colPar: { flex: 1, minWidth: 0 },
   tercio: { flex: 1 },
   mitad: { flex: 1 },
 

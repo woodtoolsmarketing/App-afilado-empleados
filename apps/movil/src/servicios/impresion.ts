@@ -2,6 +2,7 @@ import {
   A4_ALTO_PT,
   A4_ANCHO_PT,
   ESTILOS_NOTA_PEDIDO,
+  fechaLocalISO,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
   rolImprimibleDesdeFilas,
@@ -27,7 +28,7 @@ import {
   respuestaIppCorrecta,
   ultimaImpresora,
 } from './ipp'
-import { obtenerJornadaDeHoy } from './jornada'
+import { obtenerJornadaDe } from './jornada'
 import { obtenerNota } from './notasPedido'
 
 /**
@@ -206,9 +207,16 @@ async function imprimirPorIpp(
 // El rol de visita del día
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Devuelve null cuando el vendedor no armó recorrido hoy: no hay nada que sumar. */
-async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImprimir | null> {
-  const jornada = await obtenerJornadaDeHoy(vendedorId)
+/**
+ * El rol de visita de un vendedor en una fecha, listo para imprimir.
+ *
+ * Devuelve null cuando ese día no armó recorrido: no hay nada que sumar.
+ */
+async function rolDeVisitaDe(
+  vendedorId: string,
+  fecha: string,
+): Promise<RolDeVisitaParaImprimir | null> {
+  const jornada = await obtenerJornadaDe(vendedorId, fecha)
   if (!jornada || jornada.paradas.length === 0) return null
 
   const { data: perfil } = await supabase
@@ -221,6 +229,11 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
     nombre: perfil?.nombre_completo ?? '',
     codigo: perfil?.codigo_vendedor ?? null,
   })
+}
+
+/** El de hoy: lo usa la impresión del rol solo, desde ROL DE VISITA. */
+async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImprimir | null> {
+  return rolDeVisitaDe(vendedorId, fechaLocalISO(new Date()))
 }
 
 /**
@@ -336,7 +349,12 @@ export async function imprimirNotas(params: {
 
   // Que el rol no salga no puede frenar la impresión de las notas: se avisa y
   // el trabajo sigue. El vendedor está parado frente a la impresora.
-  let rolDeVisita: RolDeVisitaParaImprimir | null = null
+  //
+  // Se suma el rol de visita de CADA DÍA en que se hicieron las notas que se
+  // están imprimiendo, no sólo el de hoy: el vendedor que imprime a la noche lo
+  // que cargó en varios días se lleva la planilla de cada uno. Los días salen de
+  // `creado_en` de cada nota, en hora local, y van del más viejo al más nuevo.
+  let rolesDeVisita: RolDeVisitaParaImprimir[] = []
   let advertencia: string | undefined
 
   if (params.incluirRolDeVisita) {
@@ -344,9 +362,20 @@ export async function imprimirNotas(params: {
       advertencia = 'No pudimos sumar el rol de visita: no hay sesión.'
     } else {
       try {
-        rolDeVisita = await rolDeVisitaDeHoy(vendedorId)
-        if (!rolDeVisita) {
-          advertencia = 'Hoy no armaste recorrido, así que salieron sólo las notas.'
+        const dias = Array.from(
+          new Set(
+            notas.map((n) =>
+              fechaLocalISO(new Date((n as Record<string, any>).creado_en as string)),
+            ),
+          ),
+        ).sort()
+        const roles = await Promise.all(dias.map((d) => rolDeVisitaDe(vendedorId, d)))
+        rolesDeVisita = roles.filter((r): r is RolDeVisitaParaImprimir => r !== null)
+        if (rolesDeVisita.length === 0) {
+          advertencia =
+            dias.length <= 1
+              ? 'Ese día no tenías recorrido armado, así que salieron sólo las notas.'
+              : 'No encontramos recorrido en esos días, así que salieron sólo las notas.'
         }
       } catch {
         advertencia = 'No pudimos traer el rol de visita. Salieron sólo las notas.'
@@ -373,11 +402,16 @@ export async function imprimirNotas(params: {
   )
 
   const html = generarDocumentoImpresion(paginas, {
-    rolDeVisita: rolDeVisita ?? undefined,
+    rolesDeVisita,
     escalaDeLetra,
   })
   const cuantas = `${notas.length} nota${notas.length === 1 ? '' : 's'}`
-  const conRol = rolDeVisita ? ' y el rol de visita' : ''
+  const conRol =
+    rolesDeVisita.length === 0
+      ? ''
+      : rolesDeVisita.length === 1
+        ? ' y el rol de visita'
+        : ' y los roles de visita'
 
   return entregarDocumento(html, {
     queSalio: `${cuantas}${conRol}`,

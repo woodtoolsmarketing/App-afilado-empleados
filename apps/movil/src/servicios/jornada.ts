@@ -49,11 +49,25 @@ export interface JornadaCompleta {
 }
 
 export async function obtenerJornadaDeHoy(vendedorId: string): Promise<JornadaCompleta | null> {
+  return obtenerJornadaDe(vendedorId, hoyISO())
+}
+
+/**
+ * La jornada (con sus paradas) de un vendedor en una fecha, sólo lectura.
+ *
+ * `fecha` en ISO (YYYY-MM-DD). A diferencia de `asegurarJornadaDe`, no crea nada:
+ * devuelve `null` si ese día no tiene recorrido armado. La usa la impresión para
+ * sumar el rol de visita de cada día en que se hicieron las notas.
+ */
+export async function obtenerJornadaDe(
+  vendedorId: string,
+  fecha: string,
+): Promise<JornadaCompleta | null> {
   const { data: jornada, error } = await supabase
     .from('roles_visita')
     .select('*')
     .eq('vendedor_id', vendedorId)
-    .eq('fecha', hoyISO())
+    .eq('fecha', fecha)
     .maybeSingle<RolVisita>()
 
   if (error) throw error
