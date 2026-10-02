@@ -210,6 +210,73 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
     onError: (e: Error) => setMensaje(`No se pudo guardar el número: ${e.message}`),
   })
 
+  /**
+   * El nombre y el usuario de login, corregibles después del alta.
+   *
+   * Antes el nombre quedaba fijo desde que se creaba la cuenta y no había dónde
+   * arreglar un tipeo; el usuario (con lo que entra a la app) tampoco. Los dos
+   * son del perfil, así que es un UPDATE directo que la policy de admin permite.
+   * El `usuario` es único (índice `perfiles_usuario_unico` sobre `lower(usuario)`):
+   * si choca con otro, se traduce el 23505 a algo entendible.
+   */
+  const guardarDatos = useMutation({
+    mutationFn: async (params: {
+      perfilId: string
+      nombre_completo: string
+      usuario: string | null
+    }) => {
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ nombre_completo: params.nombre_completo, usuario: params.usuario })
+        .eq('id', params.perfilId)
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Ese nombre de usuario ya lo tiene otra persona. Elegí otro.')
+        }
+        throw error
+      }
+    },
+    onSuccess: () => {
+      setMensaje('Datos del usuario actualizados.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudieron guardar: ${e.message}`),
+  })
+
+  /**
+   * Cambiar el email de un usuario.
+   *
+   * El email es la identidad de Auth —con él entra y pide restablecer la clave—,
+   * así que no se puede cambiar con un UPDATE del perfil: va por la edge function
+   * `cambiar-email-usuario` (service_role), que lo cambia en Auth y lo copia al
+   * perfil. Mismo patrón que `rehabilitar`.
+   */
+  const cambiarEmail = useMutation({
+    mutationFn: async (params: { perfilId: string; email: string }) => {
+      const { data, error: errFuncion } = await supabase.functions.invoke('cambiar-email-usuario', {
+        body: { perfil_id: params.perfilId, nuevo_email: params.email },
+      })
+      if (errFuncion) {
+        // El cuerpo del error trae el mensaje de verdad; la capa de funciones
+        // dice siempre lo mismo. Mismo patrón que el alta y la rehabilitación.
+        let detalle = errFuncion.message
+        try {
+          const cuerpo = await (errFuncion as { context?: Response }).context?.json()
+          if (cuerpo?.error) detalle = cuerpo.error
+        } catch {
+          /* se queda con el genérico */
+        }
+        throw new Error(detalle)
+      }
+      return data as { email: string }
+    },
+    onSuccess: () => {
+      setMensaje('Email actualizado. Con ese email entra a la app y pide la contraseña.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo cambiar el email: ${e.message}`),
+  })
+
   const autorizarDispositivo = useMutation({
     mutationFn: async (params: { id: string; autorizado: boolean }) => {
       const { error } = await supabase
@@ -611,15 +678,12 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
             {resto.map((p) => (
               <tr key={p.id}>
                 <td>
-                  {p.nombre_completo}
-                  <br />
-                  {/* El usuario es con lo que entra a la app; el correo, la
-                      otra forma de entrar. Los dos sirven, así que los dos se
-                      muestran. */}
-                  <small style={{ color: 'var(--tinta-tenue)' }}>
-                    {p.usuario ? `${p.usuario} · ` : ''}
-                    {p.email}
-                  </small>
+                  <NombreYUsuario
+                    perfil={p}
+                    soloLectura={soloLectura}
+                    alGuardar={(datos) => guardarDatos.mutate({ perfilId: p.id, ...datos })}
+                    alGuardarEmail={(email) => cambiarEmail.mutate({ perfilId: p.id, email })}
+                  />
                 </td>
                 <td>
                   <CodigoDeVendedor
@@ -808,6 +872,114 @@ function ZonasACargo({
       {cambio ? (
         <button className="chico primario" disabled={soloLectura} onClick={() => alGuardar(zonas)}>
           Guardar
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * El nombre, el usuario de login y el email, editables en el lugar.
+ *
+ * Mismo trato que el código y las zonas: el botón de guardar aparece recién
+ * cuando hay algo distinto. El nombre es obligatorio; el usuario puede quedar
+ * vacío (administración y supervisores entran por email).
+ *
+ * El EMAIL guarda aparte y pide confirmación: es la identidad de Auth —con él se
+ * entra y se piden las contraseñas— así que cambiarlo va por la edge function, no
+ * por el UPDATE del perfil, y conviene que no se dispare de un toque distraído.
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function NombreYUsuario({
+  perfil,
+  soloLectura,
+  alGuardar,
+  alGuardarEmail,
+}: {
+  perfil: Perfil
+  soloLectura: boolean
+  alGuardar: (datos: { nombre_completo: string; usuario: string | null }) => void
+  alGuardarEmail: (email: string) => void
+}) {
+  const usuarioGuardado = perfil.usuario ?? ''
+  const emailGuardado = perfil.email ?? ''
+  const [nombre, setNombre] = useState(perfil.nombre_completo)
+  const [usuario, setUsuario] = useState(usuarioGuardado)
+  const [email, setEmail] = useState(emailGuardado)
+
+  const cambioDatos = nombre.trim() !== perfil.nombre_completo || usuario.trim() !== usuarioGuardado
+  const nombreCorto = nombre.trim().length < 2
+  const emailLimpio = email.trim().toLowerCase()
+  const cambioEmail = emailLimpio !== emailGuardado.toLowerCase()
+  const emailValido = EMAIL_RE.test(emailLimpio)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
+      <input
+        value={nombre}
+        onChange={(e) => setNombre(e.target.value)}
+        placeholder="Nombre y apellido"
+        disabled={soloLectura}
+        aria-label={`Nombre de ${perfil.nombre_completo}`}
+      />
+      <input
+        value={usuario}
+        onChange={(e) => setUsuario(e.target.value)}
+        placeholder="usuario (para entrar)"
+        disabled={soloLectura}
+        autoCapitalize="none"
+        autoCorrect="off"
+        style={{ maxWidth: 180 }}
+        aria-label={`Usuario de ${perfil.nombre_completo}`}
+      />
+      {nombreCorto && cambioDatos ? (
+        <div className="error-campo">Escribí el nombre y apellido.</div>
+      ) : null}
+      {cambioDatos ? (
+        <button
+          className="chico primario"
+          disabled={soloLectura || nombreCorto}
+          onClick={() =>
+            alGuardar({
+              nombre_completo: nombre.trim(),
+              usuario: usuario.trim() === '' ? null : usuario.trim(),
+            })
+          }
+        >
+          Guardar
+        </button>
+      ) : null}
+
+      {/* El email: identidad de Auth, guarda por su cuenta y con confirmación. */}
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="correo@woodtools.com.ar"
+        disabled={soloLectura}
+        autoCapitalize="none"
+        autoCorrect="off"
+        aria-label={`Email de ${perfil.nombre_completo}`}
+      />
+      {cambioEmail && !emailValido ? (
+        <div className="error-campo">El email no tiene un formato válido.</div>
+      ) : null}
+      {cambioEmail && emailValido ? (
+        <button
+          className="chico"
+          disabled={soloLectura}
+          onClick={() => {
+            if (
+              confirm(
+                `¿Cambiar el email de ${perfil.nombre_completo} a ${emailLimpio}? Con ese email va a entrar a la app y pedir la contraseña.`,
+              )
+            ) {
+              alGuardarEmail(emailLimpio)
+            }
+          }}
+        >
+          Guardar email
         </button>
       ) : null}
     </div>
