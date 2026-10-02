@@ -64,6 +64,7 @@ import {
   Campo,
   CampoConOpciones,
   Casilla,
+  DensidadFormulario,
   Desplegable,
   MensajeError,
   SelectorMarca,
@@ -113,9 +114,9 @@ const ETIQUETAS: Record<CampoItem, string> = {
   sierra_clase: '¿SIERRA O INCISOR?',
   sierra_marca: 'MARCA (OPCIONAL)',
   cantidad: 'CANTIDAD',
-  diametro_exterior: 'DIÁMETRO EXTERIOR (mm)',
-  diametro_interior: 'DIÁMETRO INTERIOR (mm, OPCIONAL)',
-  diametro: 'DIÁMETRO (mm)',
+  diametro_exterior: 'Ø EXTERIOR (mm)',
+  diametro_interior: 'Ø INTERIOR (mm, opc.)',
+  diametro: 'Ø (mm)',
   ancho_corte: 'ANCHO DE CORTE (mm)',
   largo: 'LARGO (mm)',
   ancho: 'ANCHO (mm)',
@@ -183,12 +184,16 @@ const CAMPOS_CASCADA: CampoItem[] = [
 
 const CASCADA_VACIA: CascadaMedidas = { total: 0, opciones: {}, articulos: [] }
 
-/** El rótulo de "cantidad de dientes" cambia según el servicio. */
+/**
+ * El rótulo de "cantidad de dientes" cambia según el servicio. Corto —sin el
+ * "CANTIDAD DE" de antes— para que entre en una línea en el medio renglón: que
+ * es un número ya lo dice la cuenta "N × M = total" que aparece justo debajo.
+ */
 function etiquetaDientes(servicio: TipoServicio): string {
-  if (servicio === 'reparacion') return 'CANTIDAD DE DIENTES A REPARAR'
-  if (servicio === 'rectificado') return 'CANTIDAD DE DIENTES A RECTIFICAR'
-  if (servicio === 'hermanado') return 'CANTIDAD DE DIENTES A HERMANAR'
-  return 'CANTIDAD DE DIENTES A AFILAR'
+  if (servicio === 'reparacion') return 'DIENTES A REPARAR'
+  if (servicio === 'rectificado') return 'DIENTES A RECTIFICAR'
+  if (servicio === 'hermanado') return 'DIENTES A HERMANAR'
+  return 'DIENTES A AFILAR'
 }
 
 function etiquetaSiNo(campo: CampoItem, servicio: TipoServicio): string {
@@ -959,16 +964,13 @@ export function PasoRenglon({
     // renglones.
     if (campo === 'largo' && item.servicio === 'rebaje') return 'LARGO DE HOY (mm)'
     // En un cabezal portacuchillas se cobra por cuchilla, no por cabezal: la
-    // cantidad son las cuchillas. Va acá (y no sólo en la rama suelta) porque
-    // 'cantidad' se dibuja de a pares y ahí el rótulo especial se perdía, y el
-    // vendedor cargaba cabezales cobrando un cuarto.
+    // cantidad son las cuchillas, y ahí el "DE CUCHILLAS" es la aclaración que
+    // evita que se cargue un cuarto. Va acá (y no sólo en la rama suelta) porque
+    // 'cantidad' se dibuja de a pares y ahí el rótulo especial se perdía.
+    // En el resto la herramienta ya está dicha justo arriba, así que alcanza
+    // "CANTIDAD" a secas: entra en una línea en el medio renglón.
     if (campo === 'cantidad') {
-      const queCosa = comoCuchilla
-        ? SINGULAR_HERRAMIENTA.cuchilla
-        : item.herramienta
-          ? SINGULAR_HERRAMIENTA[item.herramienta]
-          : 'HERRAMIENTAS'
-      return `CANTIDAD DE ${queCosa}`
+      return comoCuchilla ? `CANTIDAD DE ${SINGULAR_HERRAMIENTA.cuchilla}` : 'CANTIDAD'
     }
     return ETIQUETAS[campo]
   }
@@ -1102,7 +1104,12 @@ export function PasoRenglon({
   const selectorHerramienta =
     herramientas.length > 1 ? (
         <Desplegable<Herramienta>
-          etiqueta={`HERRAMIENTA A ${rotuloServicio(item.servicio)}`}
+          /*
+           * Sin el "A AFILAR / A REPARAR": el servicio ya está dicho arriba
+           * (la pastilla y el TIPO DE OPERACIÓN), y así entra en una línea
+           * pegada a "¿QUÉ MÁQUINA?" en vez de partirse en dos.
+           */
+          etiqueta="HERRAMIENTA"
           obligatorio
           marcador="Elegí la herramienta"
           valor={item.herramienta}
@@ -1165,7 +1172,7 @@ export function PasoRenglon({
   // herramientas no lleva máquina (ver `llevaMaquina`).
   const selectorMaquina = llevaMaquina(item.herramienta) ? (
     <Desplegable<string>
-      etiqueta="¿EN QUÉ MÁQUINA LA USA?"
+      etiqueta="¿QUÉ MÁQUINA?"
       marcador="Elegí la máquina"
       valor={item.maquina || null}
       items={maquinasDeLaHerramienta(item.herramienta).map((m) => ({
@@ -1177,7 +1184,7 @@ export function PasoRenglon({
   ) : null
 
   return (
-    <>
+    <DensidadFormulario.Provider value="compacta">
       {/* Herramienta y máquina: de a dos cuando la herramienta se elige entre
           varias y además lleva máquina; si no, cada una ocupa su renglón. */}
       {herramientas.length > 1 && selectorMaquina ? (
@@ -1569,7 +1576,7 @@ export function PasoRenglon({
            * ofrecerle esos cinco es una sola tocada en vez de tipear.
            */
           const propsAgujero = {
-            etiqueta: 'DIÁMETRO INTERIOR (OPCIONAL)',
+            etiqueta: 'Ø INTERIOR (opc.)',
             keyboardType: 'decimal-pad' as const,
             contenedorStyle: estilos.mitad,
             placeholder: deFabrica || 'El agujero de la herramienta',
@@ -1577,7 +1584,7 @@ export function PasoRenglon({
             ayuda: deFabrica
               ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
               : agujerosPosibles.length > 1
-                ? `El catálogo tiene ${agujerosPosibles.length} agujeros para esa medida. Tocá ▼ y elegí, o cargá otra medida para achicar.`
+                ? `${agujerosPosibles.length} agujeros en la lista. Tocá ▼ y elegí, o cargá otro.`
                 : buscandoAgujero
                   ? 'Buscando el agujero de fábrica en la lista de precios…'
                   : 'Si lo dejás vacío, la nota sale sin agujero.',
@@ -2128,7 +2135,7 @@ export function PasoRenglon({
       {item.herramienta ? (
         <CampoDescuento item={item} alCambiar={alCambiar} error={errores.descuento} />
       ) : null}
-    </>
+    </DensidadFormulario.Provider>
   )
 }
 

@@ -1,5 +1,13 @@
 import { espaciado, radios, TOQUE_MINIMO } from '@woodtools/compartido'
-import { forwardRef, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  forwardRef,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   Modal,
   Pressable,
@@ -21,6 +29,19 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  * porque la consigna pide señalar exactamente qué campo está mal.
  */
 
+/**
+ * Densidad del formulario.
+ *
+ * En el renglón de la nota de pedido hay muchos campos y se arman de a dos por
+ * fila, así que la etiqueta de 17 px saltaba a dos y tres líneas y obligaba a
+ * scrollear un montón en cada uno de los doce renglones. Con la densidad
+ * `compacta` la etiqueta va más chica y con interlineado ajustado para entrar
+ * en una sola línea. El resto de la app no pasa nada por este contexto y queda
+ * en `normal`, con las etiquetas de siempre.
+ */
+export type DensidadFormularioValor = 'normal' | 'compacta'
+export const DensidadFormulario = createContext<DensidadFormularioValor>('normal')
+
 export function Etiqueta({
   children,
   sobreRojo = false,
@@ -35,10 +56,12 @@ export function Etiqueta({
   centrada?: boolean
 }) {
   const estilos = usarEstilos()
+  const densidad = useContext(DensidadFormulario)
   return (
     <Text
       style={[
         estilos.etiqueta,
+        densidad === 'compacta' && estilos.etiquetaCompacta,
         sobreRojo && estilos.etiquetaSobreRojo,
         centrada && estilos.etiquetaCentrada,
       ]}
@@ -861,6 +884,12 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.cuerpo,
     fontSize: t.tipografia.tamano.base,
     color: t.colores.tinta,
+  },
+  // Etiqueta del renglón: más chica y con el interlineado pegado, para que
+  // entre en una línea en media pantalla (ver `DensidadFormulario`).
+  etiquetaCompacta: {
+    fontSize: t.tipografia.tamano.sm,
+    lineHeight: Math.round(t.tipografia.tamano.sm * 1.15),
   },
   etiquetaCentrada: { textAlign: 'center' },
   etiquetaSobreRojo: {
