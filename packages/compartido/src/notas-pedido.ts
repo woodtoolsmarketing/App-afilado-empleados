@@ -1208,6 +1208,20 @@ export interface FormularioItemNota {
   descripcion_catalogo: string
   cantidad_dientes: string
   codigos_computo: string[]
+  /**
+   * El código de cómputo que el vendedor confirmó como correcto, o `null`.
+   *
+   * El código se propone solo por la medida —y en las sierras finas de 3,1 y
+   * 3,2 mm se fuerza el 8001, ver la regla en el formulario—, así que puede
+   * quedar puesto uno que no es el del trabajo. Para que un código propuesto no
+   * se imprima sin que nadie lo haya mirado, el renglón no se cierra hasta que
+   * el vendedor lo confirme.
+   *
+   * Guarda el código confirmado y no un sí/no: si después cambia el código, deja
+   * de coincidir con `codigos_computo[0]` y la confirmación se cae sola, sin que
+   * haya que acordarse de apagarla en cada lugar que toca el código.
+   */
+  codigo_confirmado: string | null
   precio_por_diente: string
   precio_total: string
 
@@ -1423,6 +1437,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   descripcion_catalogo: '',
   cantidad_dientes: '',
   codigos_computo: [],
+  codigo_confirmado: null,
   precio_por_diente: '',
   precio_total: '',
   diametro_exterior: '',
@@ -1679,6 +1694,16 @@ export function validarItemNota(
       if (item.codigos_computo.length === 0) {
         errores.codigos_computo =
           'Falta el código de cómputo. Completá la medida para que se busque solo, o elegilo de la lista.'
+      } else if (item.codigo_confirmado !== item.codigos_computo[0]) {
+        /*
+         * El código se propone solo (y en las sierras finas se fuerza el 8001):
+         * para que uno propuesto no se imprima sin que nadie lo mire, el renglón
+         * no se cierra hasta que el vendedor toque la casilla de confirmación.
+         * Al cambiar el código la confirmación se cae sola —`codigo_confirmado`
+         * deja de coincidir— y hay que volver a confirmarlo.
+         */
+        errores.codigos_computo =
+          'Confirmá el código de cómputo para continuar: revisá que sea el correcto y tocá la casilla.'
       }
       continue
     }

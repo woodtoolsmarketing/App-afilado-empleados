@@ -812,6 +812,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       paso: '',
       cantidad_dientes: '',
       codigos_computo: [],
+      // Renglón nuevo: su código se vuelve a proponer por la medida que se
+      // cargue y se vuelve a confirmar. Sin esto heredaría la confirmación del
+      // que se separó.
+      codigo_confirmado: null,
       precio_por_diente: '',
       precio_total: '',
       // El tipo de pieza se conserva —separar por medida es la misma clase de

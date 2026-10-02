@@ -160,6 +160,32 @@ function llevaMaquina(h: Herramienta | '' | null): h is Herramienta {
   return h === 'fresa' || h === 'cabezal'
 }
 
+/**
+ * Regla fija del 8001 para las sierras finas.
+ *
+ * Una sierra —o un incisor, que entra como sierra— de 3,1 o 3,2 mm de ancho de
+ * corte se afila con el 8001 ("AFILADO S.C. 1.5 A 3.5mm"), no con el 8002
+ * ("AFILADO DTE. CÓNCAVO 3 A 4mm"). Los dos cubren esa medida, pero el 8002
+ * tiene el rango más ajustado (3 a 4) y el catálogo lo ordena primero, así que
+ * se proponía ese —y es más caro y es otro trabajo—.
+ *
+ * Se mueve el 8001 al frente de las opciones para que sea el que se propone y el
+ * primero de la lista. No se elige por el vendedor: la confirmación obligatoria
+ * de abajo lo hace mirarlo, y si de verdad es un diente cóncavo toca el 8002.
+ */
+const CODIGO_SIERRA_FINA = '8001'
+const ANCHOS_SIERRA_FINA = new Set([3.1, 3.2])
+function promoverCodigoSierraFina(
+  item: FormularioItemNota,
+  encontrados: CodigoComputo[],
+): CodigoComputo[] {
+  if (item.herramienta !== 'sierra') return encontrados
+  if (!ANCHOS_SIERRA_FINA.has(aNumero(item.ancho_corte))) return encontrados
+  const i = encontrados.findIndex((c) => c.codigo === CODIGO_SIERRA_FINA)
+  if (i <= 0) return encontrados
+  return [encontrados[i], ...encontrados.slice(0, i), ...encontrados.slice(i + 1)]
+}
+
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
   'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
@@ -530,12 +556,14 @@ export function PasoRenglon({
       setBuscando(true)
       setSinCodigo(false)
       try {
-        const encontrados = await resolverCodigoDeItem(item)
+        const hallados = await resolverCodigoDeItem(item)
         if (!vigente) return
-        if (encontrados === null) {
+        if (hallados === null) {
           setCodigos([])
           return
         }
+        // Regla fija del 8001 para las sierras finas de 3,1 y 3,2 mm.
+        const encontrados = promoverCodigoSierraFina(item, hallados)
         setCodigos(encontrados)
         if (encontrados.length === 0) {
           setSinCodigo(true)
@@ -1877,6 +1905,12 @@ export function PasoRenglon({
         }
 
         if (campo === 'codigos_computo') {
+          // El código que quedó puesto, y si el vendedor ya lo confirmó. La
+          // confirmación es por código: si el código cambia, deja de coincidir
+          // con `codigo_confirmado` y hay que volver a tocarla.
+          const codigoElegido = item.codigos_computo[0] ?? null
+          const codigoConfirmado =
+            codigoElegido !== null && item.codigo_confirmado === codigoElegido
           return (
             <View key={campo} style={estilos.bloqueCodigos}>
               <Text style={estilos.rotulo}>CÓDIGO DE CÓMPUTO</Text>
@@ -1941,6 +1975,30 @@ export function PasoRenglon({
                       </Pressable>
                     )
                   })}
+                </View>
+              ) : null}
+
+              {/* Confirmación obligatoria del código. Se propone solo —y en las
+                  sierras finas se fuerza el 8001—, así que antes de cerrar el
+                  renglón el vendedor lo tiene que mirar y tocar la casilla. Si
+                  después cambia el código, la confirmación se cae sola. */}
+              {codigoElegido ? (
+                <View
+                  style={[
+                    estilos.confirmacionCodigo,
+                    !codigoConfirmado && estilos.confirmacionPendiente,
+                  ]}
+                >
+                  <Casilla
+                    etiqueta={`Confirmo que el código ${codigoElegido} es el correcto`}
+                    valor={codigoConfirmado}
+                    alCambiar={(v) => alCambiar({ codigo_confirmado: v ? codigoElegido : null })}
+                  />
+                  {!codigoConfirmado ? (
+                    <Text style={estilos.confirmacionAyuda}>
+                      Revisá que sea el que corresponde y confirmalo para poder continuar.
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
 
@@ -2948,6 +3006,25 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tintaSuave,
   },
   elegidos: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap' },
+
+  // La casilla de confirmación del código. Borde verde cuando está confirmado,
+  // ámbar mientras falta —que es cuando frena el "continuar"—.
+  confirmacionCodigo: {
+    gap: espaciado.xs,
+    padding: espaciado.sm,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.verdeOscuro,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  confirmacionPendiente: {
+    borderColor: t.colores.ambarOscuro,
+  },
+  confirmacionAyuda: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
 
   opciones: {
     borderWidth: 2,
