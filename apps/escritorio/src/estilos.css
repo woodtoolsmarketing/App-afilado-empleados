@@ -391,6 +391,50 @@ label {
 .aviso.exito { border-color: var(--verde-oscuro); background: rgba(0, 200, 83, 0.12); }
 .aviso.atencion { border-color: var(--ambar); background: rgba(245, 165, 36, 0.14); }
 
+/* ── Clientes a confirmar ─────────────────────────────────────────────────── */
+.confirmar-grilla {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .confirmar-grilla { grid-template-columns: 1fr; }
+}
+.confirmar-accion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(245, 165, 36, 0.1);
+  border: var(--borde);
+  border-radius: var(--radio);
+  padding: 14px;
+}
+.confirmar-accion input { width: 100%; }
+.confirmar-rotulo {
+  font-weight: 800;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ficha-datos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+  margin: 0;
+}
+@media (max-width: 620px) {
+  .ficha-datos { grid-template-columns: 1fr; }
+}
+.ficha-dato { margin: 0; }
+.ficha-dato dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--tinta-tenue);
+}
+.ficha-dato dd { margin: 0; font-size: 14px; word-break: break-word; }
+
 /* ── Ingreso ────────────────────────────────────────────────────────────── */
 
 .ingreso {

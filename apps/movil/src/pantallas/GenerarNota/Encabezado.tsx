@@ -653,9 +653,9 @@ export function PasoCliente({
           <Text
             style={[estilos.clienteElegidoNombre, estilos.mitad]}
             numberOfLines={1}
-            accessibilityLabel={`Cliente elegido: ${form.cliente_codigo}, ${form.cliente_nombre}`}
+            accessibilityLabel={`Cliente elegido: ${form.cliente_provisorio ? 'nuevo cliente' : form.cliente_codigo}, ${form.cliente_nombre}`}
           >
-            {form.cliente_codigo} · {form.cliente_nombre}
+            {form.cliente_provisorio ? 'Nuevo cliente' : form.cliente_codigo} · {form.cliente_nombre}
           </Text>
           <Pressable
             onPress={soltarCliente}
@@ -679,20 +679,36 @@ export function PasoCliente({
           terminó de tipear. `blurOnSubmit={false}` deja el teclado abierto,
           porque lo que sigue es tocar el cliente en la lista de abajo y
           cerrarlo la haría saltar justo cuando aparece. */}
-      <View style={estilos.fila}>
+      {/* Un cliente nuevo (provisorio) todavía no tiene código: la oficina se lo
+          pone al confirmarlo. Hasta entonces, en "Código de cliente" va este
+          cartel en vez de un casillero vacío, para que quede claro que la nota se
+          puede seguir y el número llega después. */}
+      {form.cliente_provisorio ? (
         <Campo
-          etiqueta="COD. CLIENTE"
-          value={form.cliente_codigo}
-          onChangeText={(t) => alTipear('cliente_codigo', t)}
-          placeholder="1003"
-          autoCapitalize="characters"
-          contenedorStyle={estilos.mitad}
-          editable={!form.cliente_nuevo}
-          returnKeyType="search"
-          blurOnSubmit={false}
-          onSubmitEditing={buscarYa}
-          accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+          etiqueta="CÓDIGO DE CLIENTE"
+          value="Nuevo cliente, completar a continuación"
+          onChangeText={() => {}}
+          editable={false}
+          ayuda="La oficina le asigna el código al confirmarlo; hasta entonces la nota queda sin número."
         />
+      ) : null}
+
+      <View style={estilos.fila}>
+        {!form.cliente_provisorio ? (
+          <Campo
+            etiqueta="COD. CLIENTE"
+            value={form.cliente_codigo}
+            onChangeText={(t) => alTipear('cliente_codigo', t)}
+            placeholder="1003"
+            autoCapitalize="characters"
+            contenedorStyle={estilos.mitad}
+            editable={!form.cliente_nuevo}
+            returnKeyType="search"
+            blurOnSubmit={false}
+            onSubmitEditing={buscarYa}
+            accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+          />
+        ) : null}
 
         {/* El número sale del perfil pero se puede corregir: hay altas sin
             código cargado y el comprobante lo necesita igual. Se imprime sin

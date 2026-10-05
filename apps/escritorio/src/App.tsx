@@ -9,6 +9,7 @@ import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaCambiosDireccion } from './paginas/CambiosDireccion'
 import { PaginaClientes } from './paginas/Clientes'
+import { PaginaClientesAConfirmar } from './paginas/ClientesAConfirmar'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaClientes } from './paginas/MapaClientes'
@@ -53,6 +54,10 @@ export function App() {
           <Route path="/" element={<PaginaTablero />} />
           <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
           <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
+          <Route
+            path="/clientes-a-confirmar"
+            element={<PaginaClientesAConfirmar soloLectura={!sesion.esAdmin} />}
+          />
           <Route path="/modificaciones" element={<PaginaModificacionesClientes />} />
           <Route
             path="/cambios-direccion"
@@ -145,6 +150,21 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  // Clientes que cargó un vendedor y la oficina todavía no confirmó (código
+  // definitivo). Van como globo para que no queden esperando sin que nadie mire.
+  const { data: clientesAConfirmar } = useQuery({
+    queryKey: ['clientes-a-confirmar-total'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('clientes')
+        .select('id', { count: 'exact', head: true })
+        .eq('provisorio', true)
+        .eq('activo', true)
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
   /**
    * Cuántas notas están esperando el papel.
    *
@@ -211,6 +231,7 @@ function BarraLateral({
     { a: '/roles', icono: '▤', texto: 'Roles de visita' },
     { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro' },
     { a: '/clientes', icono: '☰', texto: 'Clientes' },
+    { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar },
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones' },
     { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
