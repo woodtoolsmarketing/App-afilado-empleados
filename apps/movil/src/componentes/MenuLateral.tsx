@@ -1,7 +1,7 @@
 import { espaciado, radios, sombras, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useNavigation, useNavigationState } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Animated,
   Easing,
@@ -165,7 +165,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
 export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void }) {
   const estilos = usarEstilos()
   const insets = useSafeAreaInsets()
-  const { width } = useWindowDimensions()
+  const { width, height: altoVentana } = useWindowDimensions()
   const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
   // La sección de administración se muestra sólo a las cuentas admin. El backend
   // ya lo gatea, pero esconderla evita ofrecerle a un vendedor una puerta que la
@@ -179,6 +179,17 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
   // proporción es para que en una pantalla angosta no ocupe todo y deje ver que
   // atrás sigue estando la pantalla de la que uno vino.
   const ancho = Math.min(320, width * 0.84)
+
+  // Pista de "hay más abajo". La barra de scroll nativa no alcanza: el thumb de
+  // Android sólo asoma al arrastrar, y en Samsung One UI ni con
+  // `persistentScrollbar` se dibuja en reposo (medido: no aparece). Así que la
+  // dibujamos nosotros, un fundido en el borde inferior, y sólo cuando de verdad
+  // sobra contenido (admin, con la sección de administración) y todavía no se
+  // llegó al final. El vendedor común, que entra entero, no lo ve.
+  const [altoVisible, setAltoVisible] = useState(0)
+  const [altoContenido, setAltoContenido] = useState(0)
+  const [enElFondo, setEnElFondo] = useState(false)
+  const hayMasAbajo = altoContenido > altoVisible + 4 && !enElFondo
 
   const corrimiento = useRef(new Animated.Value(-ancho)).current
 
@@ -219,7 +230,18 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
         <Animated.View
           style={[
             estilos.panel,
-            { width: ancho, paddingTop: insets.top + espaciado.md, transform: [{ translateX: corrimiento }] },
+            {
+              width: ancho,
+              // Alto explícito = alto de la ventana. Sin esto el panel tomaba el
+              // alto de su CONTENIDO (no se estiraba a la pantalla como se creía),
+              // así que el `flex: 1` del ScrollView no tenía contra qué acotarse y
+              // el ScrollView crecía con su contenido: nunca scrolleaba de verdad,
+              // los últimos ítems quedaban abajo del borde y sin forma de llegar.
+              // Con un alto fijo, el ScrollView queda acotado y scrollea.
+              height: altoVentana,
+              paddingTop: insets.top + espaciado.md,
+              transform: [{ translateX: corrimiento }],
+            },
           ]}
         >
           <Pressable
@@ -241,16 +263,18 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
             // llegar a ellos.
             style={estilos.scroll}
             contentContainerStyle={[estilos.lista, { paddingBottom: insets.bottom + espaciado.md }]}
-            // La barra de scroll FIJA es la pista de que hay más abajo. El thumb
-            // común de Android sólo asoma mientras se arrastra y después se
-            // desvanece: al abrir el menú no se veía nada, y el último ítem pegado
-            // al borde parecía "el final", no "hay más". `persistentScrollbar` la
-            // deja puesta mientras haya algo que scrollear. Cuando el contenido
-            // entra entero (el vendedor no-admin, ya sin la sección de
-            // administración) no hay nada que scrollear y la barra no aparece; sólo
-            // la ve el admin, que es a quien se le va de largo.
+            // El indicador nativo se deja puesto (ayuda en los teléfonos donde sí
+            // se dibuja), pero la pista principal de "hay más abajo" es el fundido
+            // que agregamos abajo: la barra de Android no es confiable en reposo.
             showsVerticalScrollIndicator
             persistentScrollbar
+            onLayout={(e) => setAltoVisible(e.nativeEvent.layout.height)}
+            onContentSizeChange={(_ancho, alto) => setAltoContenido(alto)}
+            onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+              setEnElFondo(contentOffset.y + layoutMeasurement.height >= contentSize.height - 4)
+            }}
+            scrollEventThrottle={16}
           >
             {OPCIONES.map((o) => (
               <Opcion key={o.etiqueta} destino={o} alElegir={irA} />
@@ -272,6 +296,26 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
               <Opcion key={o.etiqueta} destino={o} alElegir={irA} secundaria />
             ))}
           </ScrollView>
+
+          {/*
+            Pista de "hay más abajo": una flecha ▾ en un botón redondo, pegada
+            sobre la barra de gestos. No intercepta toques (pointerEvents none) y
+            sólo aparece cuando sobra contenido y todavía no se llegó al final —o
+            sea, al admin, que es a quien se le va de largo—. La flecha se dibuja
+            con bordes (no es un carácter) para que no dependa de que la fuente
+            tenga el glifo. Un fundido del color del panel no servía: el fondo es
+            del mismo color, así que no se veía.
+          */}
+          {hayMasAbajo ? (
+            <View
+              pointerEvents="none"
+              style={[estilos.pistaMas, { bottom: insets.bottom + espaciado.sm }]}
+            >
+              <View style={estilos.pistaChip}>
+                <View style={estilos.pistaFlecha} />
+              </View>
+            </View>
+          ) : null}
         </Animated.View>
       </View>
     </Modal>
@@ -387,5 +431,34 @@ const usarEstilos = hojaDeTema((t) => ({
     letterSpacing: 1,
     paddingHorizontal: espaciado.xs,
     marginBottom: espaciado.xs,
+  },
+  // La pista de "hay más abajo": flecha en un botón redondo, centrada. `bottom`
+  // se setea inline con el inset para que quede sobre la barra de gestos.
+  pistaMas: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  pistaChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: t.colores.panelOscuro,
+    borderWidth: 1.5,
+    borderColor: t.colores.borde,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...sombras.flotante,
+  },
+  // Un cuadradito con sólo dos bordes, girado 45°, dibuja un "▾". El translateY lo
+  // sube un poco para que quede centrado dentro del botón.
+  pistaFlecha: {
+    width: 11,
+    height: 11,
+    borderRightWidth: 2.5,
+    borderBottomWidth: 2.5,
+    borderColor: t.colores.tinta,
+    transform: [{ translateY: -3 }, { rotate: '45deg' }],
   },
 }))
