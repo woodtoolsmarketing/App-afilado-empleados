@@ -188,15 +188,45 @@ export interface Dispositivo {
   creado_en: string
 }
 
+/**
+ * Condición del cliente frente al IVA. Decide cómo se factura.
+ *
+ * Se guarda la clave (no la etiqueta) en `clientes.condicion_iva`; para mostrarla
+ * usar `etiquetaCondicionIva`. Null en el padrón viejo (importado del Gestión).
+ */
+export type CondicionIva =
+  | 'responsable_inscripto'
+  | 'monotributo'
+  | 'exento'
+  | 'consumidor_final'
+
+export const CONDICIONES_IVA: { valor: CondicionIva; etiqueta: string }[] = [
+  { valor: 'responsable_inscripto', etiqueta: 'Responsable Inscripto' },
+  { valor: 'monotributo', etiqueta: 'Monotributo' },
+  { valor: 'exento', etiqueta: 'Exento' },
+  { valor: 'consumidor_final', etiqueta: 'Consumidor Final' },
+]
+
+/** Etiqueta legible de una condición frente al IVA (o '—' si no está cargada). */
+export function etiquetaCondicionIva(valor: string | null | undefined): string {
+  return CONDICIONES_IVA.find((c) => c.valor === valor)?.etiqueta ?? '—'
+}
+
 export interface Cliente {
   id: string
   codigo: string
   razon_social: string
   nombre_fantasia: string | null
   cuit: string | null
+  /** DNI cuando el cliente no tiene CUIT (el CUIT vive en `cuit`). */
+  documento: string | null
   telefono: string | null
   email: string | null
   contacto_nombre: string | null
+  /** Condición frente al IVA; null en el padrón viejo. */
+  condicion_iva: CondicionIva | null
+  /** Domicilio fiscal (texto, para la factura). La dirección de entrega va en `direcciones`. */
+  direccion_fiscal: string | null
   vendedor_id: string | null
   activo: boolean
   /**

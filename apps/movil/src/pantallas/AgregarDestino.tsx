@@ -1,16 +1,16 @@
 import {
+  CLIENTE_NUEVO_VACIO,
   espaciado,
   fechaLocalISO,
   FORMULARIO_DESTINO_EXISTENTE_VACIO,
-  FORMULARIO_DESTINO_NUEVO_VACIO,
   radios,
+  validarClienteNuevo,
   validarDestinoExistente,
-  validarDestinoNuevo,
+  type CampoClienteNuevo,
   type CampoDestinoExistente,
-  type CampoDestinoNuevo,
   type ClienteBuscado,
+  type FormularioClienteNuevo,
   type FormularioDestinoExistente,
-  type FormularioDestinoNuevo,
   type PrioridadParada,
   type SucursalCliente,
 } from '@woodtools/compartido'
@@ -28,7 +28,8 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
-import { Campo, Desplegable } from '../componentes/Formulario'
+import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
+import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
@@ -42,9 +43,9 @@ import {
   SucursalDuplicadaError,
 } from '../servicios/jornada'
 import {
-  agregarDestinoClienteNuevo,
   agregarDestinoExistente,
   buscarClientes,
+  crearClienteProvisorio,
   direccionesDeCliente,
   ESPERA_TECLEO,
   LIMITE_CLIENTES,
@@ -1218,112 +1219,39 @@ function UbicarCliente({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>) {
-  const { colores } = usarTema()
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
 
   /**
-   * Si `fecha` viene seteada y no es la de hoy, el destino se agenda para
-   * OTRO día. Mismo criterio que en CLIENTE EXISTENTE: la barra tiene que
-   * mostrarlo y el cartel de éxito tiene que decirlo.
+   * Si `fecha` viene seteada y no es la de hoy, el destino se agenda para OTRO
+   * día. Mismo criterio que en CLIENTE EXISTENTE: la barra tiene que mostrarlo y
+   * el cartel de éxito tiene que decirlo.
    */
   const fechaAgenda = route.params?.fecha
   const esOtroDia = !!fechaAgenda && fechaAgenda !== fechaLocalISO(new Date())
 
   /**
    * Puede arrancar con la razón social ya escrita: es lo que usa "Sin
-   * resultados" de CLIENTE EXISTENTE cuando el vendedor busca a alguien que
-   * no está en el padrón y decide cargarlo de cero, para no hacerle retipear
-   * lo que ya había puesto.
+   * resultados" de CLIENTE EXISTENTE cuando el vendedor busca a alguien que no
+   * está en el padrón y decide cargarlo de cero, para no hacerle retipear lo que
+   * ya había puesto.
    */
-  const [form, setForm] = useState<FormularioDestinoNuevo>(() => {
+  const [form, setForm] = useState<FormularioClienteNuevo>(() => {
     const nombreInicial = (route.params?.buscarA ?? '').trim()
     return nombreInicial
-      ? { ...FORMULARIO_DESTINO_NUEVO_VACIO, razon_social: nombreInicial }
-      : FORMULARIO_DESTINO_NUEVO_VACIO
+      ? { ...CLIENTE_NUEVO_VACIO, razon_social: nombreInicial }
+      : CLIENTE_NUEVO_VACIO
   })
-  const [errores, setErrores] = useState<Partial<Record<CampoDestinoNuevo, string>>>({})
+  const [errores, setErrores] = useState<Partial<Record<CampoClienteNuevo, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
-  const [texto, setTexto] = useState('')
-  const [sugerencias, setSugerencias] = useState<SugerenciaDireccion[]>([])
-  const [buscando, setBuscando] = useState(false)
-  const [elegida, setElegida] = useState(false)
-
-  // Un token de sesión por búsqueda: Google cobra el autocompletado y el
-  // detalle como una sola operación si comparten token.
-  const sesion = useRef(Crypto.randomUUID())
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (elegida) return
-    if (temporizador.current) clearTimeout(temporizador.current)
-
-    if (texto.trim().length < 4) {
-      setSugerencias([])
-      return
-    }
-
-    temporizador.current = setTimeout(async () => {
-      setBuscando(true)
-      try {
-        setSugerencias(await sugerirDirecciones(texto, sesion.current))
-      } catch {
-        setSugerencias([])
-      } finally {
-        setBuscando(false)
-      }
-    }, 350)
-
-    return () => {
-      if (temporizador.current) clearTimeout(temporizador.current)
-    }
-  }, [texto, elegida])
-
-  /**
-   * Sobre el estado anterior, no sobre la copia del render.
-   *
-   * Es el mismo error que ya se corrigió en GENERAR NUEVO CLIENTE, y acá pega
-   * en el mismo momento: entre que el vendedor toca una sugerencia de
-   * dirección y que Google contesta pasan segundos, y en esos segundos sigue
-   * tipeando el teléfono, el contacto y la prioridad. Con `{ ...form }` la
-   * respuesta se armaba con el formulario de ANTES de tocar la sugerencia, así
-   * que todo lo escrito en el medio se borraba solo.
-   */
-  function actualizar(cambios: Partial<FormularioDestinoNuevo>) {
+  function actualizar(cambios: Partial<FormularioClienteNuevo>) {
     setForm((previo) => {
       const nuevo = { ...previo, ...cambios }
-      if (intentado) setErrores(validarDestinoNuevo(nuevo).errores)
+      if (intentado) setErrores(validarClienteNuevo(nuevo).errores)
       return nuevo
     })
-  }
-
-  async function elegirSugerencia(s: SugerenciaDireccion) {
-    setElegida(true)
-    setSugerencias([])
-    setTexto(s.texto)
-    setBuscando(true)
-
-    try {
-      const d = await detallarDireccion(s.place_id, sesion.current)
-      sesion.current = Crypto.randomUUID()
-
-      actualizar({
-        direccion_formateada: d.direccion_formateada,
-        codigo_postal: d.codigo_postal ?? '',
-        lat: d.lat,
-        lng: d.lng,
-        google_place_id: d.google_place_id,
-        localidad: d.localidad,
-        provincia: d.provincia,
-      })
-    } catch (e) {
-      Alert.alert('No pudimos leer esa dirección', (e as Error).message)
-      setElegida(false)
-    } finally {
-      setBuscando(false)
-    }
   }
 
   const guardar = useMutation({
@@ -1334,24 +1262,21 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       const jornada = route.params?.fecha
         ? await asegurarJornadaDe(perfil.id, route.params.fecha)
         : await asegurarJornadaDeHoy(perfil.id)
-      // El cliente nuevo se acaba de ubicar en el mapa, así que hay contra qué
-      // medir: si el vendedor está encima, el destino se clava adelante.
-      return agregarDestinoClienteNuevo({
-        rolVisitaId: jornada.id,
-        // Para otro día no vale la cercanía de ahora (ver arriba): entra 'baja'.
-        form: {
-          ...form,
-          prioridad: esOtroDia ? 'baja' : await prioridadPorCercania(form.lat!, form.lng!),
-        },
-      })
+      // El cliente nuevo se acaba de ubicar, así que hay contra qué medir: si el
+      // vendedor está encima, el destino se clava adelante. Para otro día no vale
+      // la cercanía de ahora: entra 'baja'.
+      const prioridad: PrioridadParada = esOtroDia
+        ? 'baja'
+        : await prioridadPorCercania(form.lat!, form.lng!)
+      // Mismo alta que "GENERAR NUEVO CLIENTE", pero con rol de visita: la RPC
+      // crea el cliente, su dirección y la parada en una sola transacción.
+      return crearClienteProvisorio(form, { rolVisitaId: jornada.id, prioridad })
     },
-    onSuccess: async (parada) => {
+    onSuccess: async () => {
       await cliente.invalidateQueries()
       Alert.alert(
         'Cliente y destino creados',
-        `${form.razon_social} quedó en la posición Nº ${parada.orden}.\n\nSe cargó como cliente provisorio: la oficina le va a completar el código y los datos que falten.` +
-          // Sin esto, un destino agendado para otro día no se distingue del
-          // recorrido de hoy hasta que el vendedor lo va a buscar y no está.
+        `${form.razon_social} se agregó al recorrido.\n\nSe cargó para que la oficina lo confirme: hasta entonces no aparece en el buscador.` +
           (esOtroDia ? `\n\nQueda agendado para el ${nombrarDia(fechaAgenda!)}.` : ''),
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
@@ -1364,7 +1289,7 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
     // queda montada) crearía un destino/cliente duplicado.
     if (guardar.isPending || guardar.isSuccess) return
     setIntentado(true)
-    const { valido, errores: nuevos } = validarDestinoNuevo(form)
+    const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
     if (valido) guardar.mutate()
   }
@@ -1387,96 +1312,17 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
 
           <TituloPanel>{'CLIENTE\nNUEVO'}</TituloPanel>
 
-          <Campo
-            etiqueta="NOMBRE O RAZÓN SOCIAL"
-            obligatorio
-            value={form.razon_social}
-            onChangeText={(t) => actualizar({ razon_social: t })}
-            placeholder="Cómo figura o cómo lo conocen"
-            error={errores.razon_social}
-            autoCapitalize="words"
-          />
+          <CamposClienteNuevo form={form} actualizar={actualizar} errores={errores} />
 
-          <Campo
-            etiqueta="DIRECCIÓN"
-            obligatorio
-            value={texto}
-            onChangeText={(t) => {
-              setTexto(t)
-              setElegida(false)
-              if (form.lat !== null) {
-                // Editar el texto invalida las coordenadas que ya teníamos.
-                actualizar({ lat: null, lng: null, google_place_id: null, direccion_formateada: t })
-              }
-            }}
-            placeholder="Calle, número, localidad"
-            error={errores.direccion}
-            ayuda="Elegí una de las sugerencias de Google para que se cargue el mapa y el CP."
-            autoCapitalize="words"
-            accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-          />
-
-          {sugerencias.length > 0 ? (
-            <View style={estilos.sugerencias}>
-              {sugerencias.map((s) => (
-                <Pressable
-                  key={s.place_id}
-                  onPress={() => elegirSugerencia(s)}
-                  accessibilityRole="button"
-                  accessibilityLabel={s.texto}
-                  style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
-                >
-                  <Text style={estilos.sugerenciaPrincipal} numberOfLines={1}>
-                    {s.principal || s.texto}
-                  </Text>
-                  {s.secundario ? (
-                    <Text style={estilos.sugerenciaSecundaria} numberOfLines={1}>
-                      {s.secundario}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
-          {form.lat !== null ? (
-            <Aviso tono="exito" titulo="Dirección confirmada">
-              {form.direccion_formateada}
-            </Aviso>
-          ) : null}
-
-          <Campo
-            etiqueta="CP"
-            obligatorio
-            value={form.codigo_postal}
-            onChangeText={(t) => actualizar({ codigo_postal: t })}
-            placeholder="1704"
-            error={errores.codigo_postal}
-            autoCapitalize="characters"
-            maxLength={8}
-            contenedorStyle={estilos.campoCorto}
-            ayuda={form.lat !== null ? 'Lo completó Google. Podés corregirlo si hace falta.' : undefined}
-          />
-
-          <Campo
-            etiqueta="Teléfono (opcional)"
-            value={form.telefono}
-            onChangeText={(t) => actualizar({ telefono: t })}
-            placeholder="11 4444 5555"
-            keyboardType="phone-pad"
-          />
-
-          <Campo
-            etiqueta="Contacto (opcional)"
-            value={form.contacto_nombre}
-            onChangeText={(t) => actualizar({ contacto_nombre: t })}
-            placeholder="Con quién se habló"
-            autoCapitalize="words"
-          />
+          <MensajeError>
+            {intentado && Object.keys(errores).length > 0
+              ? 'Revisá los campos marcados en rojo.'
+              : undefined}
+          </MensajeError>
 
           <Aviso tono="info">
-            El cliente se guarda como provisorio con un código automático. La oficina completa
-            después el código real y los datos fiscales.
+            El cliente queda para que la oficina lo confirme. Hasta entonces el recorrido lo lleva,
+            pero no aparece en el buscador.
           </Aviso>
 
           <BotonMenu

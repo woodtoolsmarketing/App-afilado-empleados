@@ -14,6 +14,7 @@
 import { aPesos, PRECIO_SIN_CARGO, type Moneda } from './catalogo'
 import {
   ETIQUETA_TIPO_SERVICIO,
+  type CondicionIva,
   type ResultadoValidacion,
   type TipoNotaPedido,
   type TipoServicio,
@@ -939,12 +940,19 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
 export interface FormularioClienteNuevo {
   razon_social: string
   documento: string
+  /** Dirección de ENTREGA: geolocalizada (Google/GPS). Es `direccion` + lat/lng. */
   direccion: string
   codigo_postal: string
+  /** Condición frente al IVA; '' = todavía no elegida. */
+  condicion_iva: CondicionIva | ''
+  /** Nombre de la persona de contacto en el taller. */
+  contacto_nombre: string
   /** Varios: el formulario los agrega de a uno con el botón ⊕. */
   telefonos: string[]
   email: string
   nombre_fantasia: string
+  /** Domicilio fiscal (texto, para la factura). Opcional; puede diferir de la entrega. */
+  direccion_fiscal: string
   lat: number | null
   lng: number | null
   google_place_id: string | null
@@ -957,9 +965,12 @@ export const CLIENTE_NUEVO_VACIO: FormularioClienteNuevo = {
   documento: '',
   direccion: '',
   codigo_postal: '',
+  condicion_iva: '',
+  contacto_nombre: '',
   telefonos: [''],
   email: '',
   nombre_fantasia: '',
+  direccion_fiscal: '',
   lat: null,
   lng: null,
   google_place_id: null,
@@ -972,6 +983,8 @@ export type CampoClienteNuevo =
   | 'documento'
   | 'direccion'
   | 'codigo_postal'
+  | 'condicion_iva'
+  | 'contacto_nombre'
   | 'email'
 
 /** 7 u 8 dígitos = DNI; 11 = CUIT. */
@@ -1008,8 +1021,20 @@ export function validarClienteNuevo(
     errores.codigo_postal = 'El código postal no parece válido (ej. 1704 o B1704ARQ)'
   }
 
+  if (!form.condicion_iva) {
+    errores.condicion_iva = 'Elegí la condición frente al IVA'
+  }
+
+  if (!form.contacto_nombre.trim()) {
+    errores.contacto_nombre = 'Ingresá el nombre del contacto'
+  }
+
+  // El email pasó a ser obligatorio: la oficina lo necesita para facturar y
+  // avisar. (La dirección fiscal, en cambio, queda opcional.)
   const mail = form.email.trim()
-  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+  if (!mail) {
+    errores.email = 'Ingresá el correo electrónico'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
     errores.email = 'El correo no tiene un formato válido'
   }
 

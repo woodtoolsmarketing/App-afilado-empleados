@@ -320,6 +320,9 @@ export async function agregarDestinoClienteNuevo(params: {
  */
 export async function crearClienteProvisorio(
   form: FormularioClienteNuevo,
+  // Si viene `rolVisitaId`, el alta además lo mete en ese recorrido como parada:
+  // es el camino de "CLIENTE NUEVO" al agregar un destino, en una sola operación.
+  opciones?: { rolVisitaId?: string; prioridad?: PrioridadParada },
 ): Promise<Cliente> {
   // Varios teléfonos en un solo campo, separados con " / ": es como los anota
   // la oficina en la ficha de papel.
@@ -341,6 +344,11 @@ export async function crearClienteProvisorio(
     p_google_place_id: form.google_place_id,
     p_localidad: form.localidad,
     p_provincia: form.provincia,
+    p_contacto: form.contacto_nombre.trim() || null,
+    p_condicion_iva: form.condicion_iva || null,
+    p_direccion_fiscal: form.direccion_fiscal.trim() || null,
+    p_rol_visita_id: opciones?.rolVisitaId ?? null,
+    p_prioridad: opciones?.prioridad ?? null,
   })
 
   if (error) {
