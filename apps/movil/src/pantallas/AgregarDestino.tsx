@@ -12,8 +12,9 @@ import {
   type FormularioDestinoExistente,
   type FormularioDestinoNuevo,
   type PrioridadParada,
+  type SucursalCliente,
 } from '@woodtools/compartido'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Crypto from 'expo-crypto'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -44,6 +45,7 @@ import {
   agregarDestinoClienteNuevo,
   agregarDestinoExistente,
   buscarClientes,
+  direccionesDeCliente,
   ESPERA_TECLEO,
   LIMITE_CLIENTES,
   ubicarCliente,
@@ -359,6 +361,37 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
   const sinUbicar = elegido !== null && elegido.direccion_id === null
 
   /**
+   * Las sucursales (direcciones) del cliente, para elegir a cuál se va.
+   *
+   * La mayoría tiene una sola —la principal— y no se pregunta nada. El selector
+   * aparece recién cuando hay dos o más (lugares de entrega cargados desde el
+   * panel). Un cliente sin ubicar no tiene ninguna, así que tampoco se consulta.
+   */
+  const { data: sucursales = [] } = useQuery({
+    queryKey: ['sucursales', elegido?.cliente_id],
+    queryFn: () => direccionesDeCliente(elegido!.cliente_id),
+    enabled: !!elegido?.cliente_id && !sinUbicar,
+    staleTime: 60_000,
+  })
+
+  /** Apunta el destino a otra sucursal: le pisa la dirección al cliente elegido. */
+  function elegirSucursal(s: SucursalCliente) {
+    if (!elegido) return
+    actualizar({
+      cliente: {
+        ...elegido,
+        direccion_id: s.id,
+        direccion: s.direccion_formateada,
+        codigo_postal: s.codigo_postal,
+        lat: s.lat,
+        lng: s.lng,
+        localidad: s.localidad,
+        provincia: s.provincia,
+      },
+    })
+  }
+
+  /**
    * "Para ESTE cliente ya dije que sí, es otra sucursal".
    *
    * El aviso de sucursal corta el alta con un `SucursalDuplicadaError`; cuando
@@ -402,10 +435,18 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
        * desde que no hay índice único de cliente por jornada, si el aviso no
        * corriera acá el duplicado a futuro entraría sin que nada lo frene.
        */
+      // La clave lleva la sucursal: confirmar "es otra sucursal" para un local no
+      // saltea el aviso de OTRO local del mismo cliente.
+      const claveDestino = `${elegido.cliente_id}|${elegido.direccion_id ?? ''}`
       if (
-        confirmadoParaCliente.current !== elegido.cliente_id &&
+        confirmadoParaCliente.current !== claveDestino &&
         elegido.cliente_id &&
-        (await clienteYaEnRecorrido(perfil.id, elegido.cliente_id, route.params?.fecha))
+        (await clienteYaEnRecorrido(
+          perfil.id,
+          elegido.cliente_id,
+          route.params?.fecha,
+          elegido.direccion_id,
+        ))
       ) {
         throw new SucursalDuplicadaError(elegido.razon_social)
       }
@@ -496,7 +537,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             {
               text: 'Sí, es otra sucursal',
               onPress: () => {
-                confirmadoParaCliente.current = elegido?.cliente_id ?? null
+                confirmadoParaCliente.current = elegido
+                  ? `${elegido.cliente_id}|${elegido.direccion_id ?? ''}`
+                  : null
                 guardar.mutate()
               },
             },
@@ -698,6 +741,28 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                 }
               />
             </Aviso>
+          ) : null}
+
+          {/*
+            Varias sucursales: elegí a cuál vas. La parada y la navegación
+            apuntan a ésa. Con una sola dirección no se pregunta nada (ni
+            aparece): el selector sale recién cuando hay lugares de entrega
+            cargados además de la principal.
+          */}
+          {elegido && sucursales.length >= 2 ? (
+            <Desplegable<string>
+              etiqueta="¿A QUÉ SUCURSAL?"
+              valor={elegido.direccion_id}
+              items={sucursales.map((s) => ({
+                valor: s.id,
+                etiqueta: s.principal ? 'Principal' : s.etiqueta,
+                descripcion: s.direccion_formateada,
+              }))}
+              alCambiar={(id) => {
+                const s = sucursales.find((x) => x.id === id)
+                if (s) elegirSucursal(s)
+              }}
+            />
           ) : null}
 
           {/* La ubicación se completa sola desde la ficha del cliente. */}

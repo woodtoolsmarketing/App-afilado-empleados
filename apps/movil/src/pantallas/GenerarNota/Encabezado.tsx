@@ -11,10 +11,12 @@ import {
   type ClienteBuscado,
   type FormularioItemNota,
   type FormularioNotaEncabezado,
+  type SucursalCliente,
   type TipoServicio,
   type UbicacionCliente,
   type ZonaSugerida,
 } from '@woodtools/compartido'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 
@@ -27,7 +29,12 @@ import {
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
-import { buscarClientes, ESPERA_TECLEO, LIMITE_CLIENTES } from '../../servicios/clientes'
+import {
+  buscarClientes,
+  direccionesDeCliente,
+  ESPERA_TECLEO,
+  LIMITE_CLIENTES,
+} from '../../servicios/clientes'
 import { vendedorDeZona } from '../../servicios/notasPedido'
 import { hojaDeTema, usarTema } from '../../nucleo/tema'
 
@@ -207,6 +214,25 @@ export function PasoCliente({
    * aire en ese momento ya no tiene derecho a dibujar nada.
    */
   const vigente = useRef(0)
+
+  /**
+   * El cliente elegido completo, para rearmar los datos al cambiar de sucursal:
+   * el teléfono, el mail y el contacto son del cliente (no de la dirección), así
+   * que hay que conservarlos cuando sólo cambia el domicilio.
+   */
+  const clienteRef = useRef<ClienteBuscado | null>(null)
+
+  /**
+   * Las direcciones del cliente, para elegir a qué sucursal va el pedido. El
+   * selector sale recién cuando hay dos o más (lugares de entrega cargados desde
+   * el panel); con una sola no se pregunta nada.
+   */
+  const { data: sucursales = [] } = useQuery({
+    queryKey: ['sucursales-nota', form.cliente_id],
+    queryFn: () => direccionesDeCliente(form.cliente_id!),
+    enabled: !!form.cliente_id,
+    staleTime: 60_000,
+  })
 
   async function buscar(texto: string) {
     const mia = ++vigente.current
@@ -542,12 +568,18 @@ export function PasoCliente({
     // el campo que había dejado abierto el anterior.
     setClienteTraeCuit(!!c.cuit)
 
+    // Se guarda el cliente completo: al cambiar de sucursal hay que rearmar los
+    // datos conservando teléfono/mail/contacto, que son del cliente.
+    clienteRef.current = c
+
     alCambiar({
       cliente_id: c.cliente_id,
       cliente_codigo: c.codigo,
       cliente_nombre: c.razon_social,
       cliente_cuit: c.cuit ?? '',
       cliente_provisorio: c.provisorio,
+      // Arranca apuntando a la dirección principal (la que trajo la búsqueda).
+      direccion_id: c.direccion_id,
       // La provincia no se imprime: la necesita el IVA, porque "exento" sólo
       // vale en Tierra del Fuego.
       cliente_provincia: c.provincia ?? '',
@@ -566,6 +598,33 @@ export function PasoCliente({
     // Y borra la facturación del cliente anterior: la tendencia de este cliente
     // la vuelve a sugerir sola, en vez de quedar pegada la del que se cambió.
     alReiniciarFacturacion?.()
+  }
+
+  /** Apunta la nota a otra sucursal: cambia el domicilio y rearma los datos. */
+  function elegirSucursalNota(s: SucursalCliente) {
+    const c = clienteRef.current
+    const datos = [
+      c?.razon_social ?? form.cliente_nombre,
+      s.direccion_formateada,
+      s.codigo_postal ? `CP ${s.codigo_postal}` : null,
+      c?.telefono ? `Tel ${c.telefono}` : null,
+      c?.email,
+      c?.contacto_nombre ? `Contacto: ${c.contacto_nombre}` : null,
+    ]
+      .filter(Boolean)
+      .join(' — ')
+
+    alCambiar({
+      direccion_id: s.id,
+      datos_cliente: datos,
+      cliente_provincia: s.provincia ?? form.cliente_provincia,
+    })
+
+    // La sucursal puede estar en otra localidad: la zona se recalcula sola.
+    asignarZona(
+      { localidad: s.localidad, provincia: s.provincia, direccion: s.direccion_formateada },
+      true,
+    )
   }
 
   return (
@@ -913,6 +972,27 @@ export function PasoCliente({
       ) : null}
 
       <MensajeError>{errores.cliente}</MensajeError>
+
+      {/*
+        Varias sucursales: elegí a cuál va el pedido. Al cambiarla se rearman los
+        datos de entrega con ese domicilio. Con una sola dirección no aparece
+        (es, sin más, la principal).
+      */}
+      {form.cliente_id && sucursales.length >= 2 ? (
+        <Desplegable<string>
+          etiqueta="¿A QUÉ SUCURSAL?"
+          valor={form.direccion_id}
+          items={sucursales.map((s) => ({
+            valor: s.id,
+            etiqueta: s.principal ? 'Principal' : s.etiqueta,
+            descripcion: s.direccion_formateada,
+          }))}
+          alCambiar={(id) => {
+            const s = sucursales.find((x) => x.id === id)
+            if (s) elegirSucursalNota(s)
+          }}
+        />
+      ) : null}
 
       <DetalleDelCliente
         valor={form.datos_cliente}

@@ -866,6 +866,15 @@ export interface FormularioNotaEncabezado {
   cliente_codigo: string
   cliente_nombre: string
   cliente_cuit: string
+  /**
+   * A qué dirección/sucursal del cliente va el pedido.
+   *
+   * Un cliente puede tener la principal más lugares de entrega. Si tiene más de
+   * una, el vendedor elige a cuál apunta la nota y el id queda guardado (para
+   * reportar por sucursal); el texto de `datos_cliente` se arma con esa misma
+   * dirección. Con una sola dirección es, sin más, la principal.
+   */
+  direccion_id: string | null
   vendedor: string
   /**
    * El número que va en "Vendedor Nº". Sale del perfil, pero se puede corregir:
@@ -909,6 +918,7 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   cliente_codigo: '',
   cliente_nombre: '',
   cliente_cuit: '',
+  direccion_id: null,
   vendedor: '',
   vendedor_numero: '',
   zona: '',

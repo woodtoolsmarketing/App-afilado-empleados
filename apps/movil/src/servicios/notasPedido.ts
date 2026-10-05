@@ -913,6 +913,8 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       cliente_codigo: enc.cliente_codigo || null,
       cliente_nombre: enc.cliente_nombre,
       cliente_cuit: enc.cliente_cuit || null,
+      // A qué sucursal del cliente va el pedido (null = la principal o sin elegir).
+      direccion_id: enc.direccion_id,
       zona: enc.zona || null,
       datos_cliente: enc.datos_cliente || null,
       datos_cliente_origen: enc.datos_cliente_origen,
@@ -1226,6 +1228,7 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
       cliente_codigo: comoCadena(nota.cliente_codigo),
       cliente_nombre: comoCadena(nota.cliente_nombre),
       cliente_cuit: comoCadena(nota.cliente_cuit),
+      direccion_id: nota.direccion_id ?? null,
       vendedor: comoCadena(nota.vendedor?.nombre_completo),
       vendedor_numero: comoCadena(nota.vendedor_numero),
       zona: zonaCodigo,
@@ -1299,6 +1302,8 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
       cliente_codigo: enc.cliente_codigo || null,
       cliente_nombre: enc.cliente_nombre,
       cliente_cuit: enc.cliente_cuit || null,
+      // A qué sucursal del cliente va el pedido (null = la principal o sin elegir).
+      direccion_id: enc.direccion_id,
       zona: enc.zona || null,
       datos_cliente: enc.datos_cliente || null,
       datos_cliente_origen: enc.datos_cliente_origen,

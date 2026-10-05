@@ -106,11 +106,16 @@ export class SucursalDuplicadaError extends Error {
  * Mira sólo `pendiente` y `en_camino` a propósito: una visita ya cerrada no
  * cuenta como "está en la lista", así que volver al mismo cliente a la tarde
  * —el segundo viaje del día— no dispara la pregunta de la sucursal.
+ *
+ * Con `direccionId` mira por SUCURSAL: avisa sólo si ya está esa misma dirección,
+ * no si el cliente está con otra. Así, elegir un lugar de entrega distinto del
+ * mismo cliente no salta el aviso de duplicado —es, de hecho, otro destino—.
  */
 export async function clienteYaEnRecorrido(
   vendedorId: string,
   clienteId: string,
   fecha?: string,
+  direccionId?: string | null,
 ): Promise<boolean> {
   const { data: jornada } = await supabase
     .from('roles_visita')
@@ -121,13 +126,17 @@ export async function clienteYaEnRecorrido(
 
   if (!jornada) return false
 
-  const { data } = await supabase
+  let consulta = supabase
     .from('paradas')
     .select('id')
     .eq('rol_visita_id', jornada.id)
     .eq('cliente_id', clienteId)
     .in('estado', ['pendiente', 'en_camino'])
     .limit(1)
+
+  if (direccionId) consulta = consulta.eq('direccion_id', direccionId)
+
+  const { data } = await consulta
 
   return (data?.length ?? 0) > 0
 }
