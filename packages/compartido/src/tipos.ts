@@ -459,6 +459,27 @@ export interface ClienteBuscado {
   provincia: string | null
 }
 
+/**
+ * Una de las direcciones de un cliente, para elegir a qué sucursal se va.
+ *
+ * Un cliente puede tener la principal más varios lugares de entrega (se cargan
+ * desde el panel). Cuando tiene más de una, el vendedor elige a cuál apunta la
+ * parada del recorrido y la nota de pedido. La búsqueda de clientes sólo
+ * devuelve la principal; las demás se traen aparte (`direccionesDeCliente`).
+ */
+export interface SucursalCliente {
+  /** id de la fila en `direcciones`. */
+  id: string
+  etiqueta: string
+  direccion_formateada: string
+  codigo_postal: string | null
+  lat: number
+  lng: number
+  localidad: string | null
+  provincia: string | null
+  principal: boolean
+}
+
 /** Formulario "AGREGAR NUEVO DESTINO → Cliente existente" */
 export interface FormularioDestinoExistente {
   /** Lo que el vendedor tipeó en el campo "Código". */

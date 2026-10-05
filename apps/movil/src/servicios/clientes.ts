@@ -5,6 +5,7 @@ import type {
   FormularioDestinoNuevo,
   ParadaCompleta,
   PrioridadParada,
+  SucursalCliente,
 } from '@woodtools/compartido'
 
 import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
@@ -101,6 +102,27 @@ export async function buscarClientes(
     if (masVieja !== undefined) recordadas.delete(masVieja)
   }
   return clientes
+}
+
+/**
+ * Las direcciones de un cliente, para elegir a qué sucursal se va.
+ *
+ * La búsqueda (`buscar_clientes`) devuelve sólo la principal. Cuando el cliente
+ * tiene lugares de entrega cargados, acá vienen todas —la principal primero— y
+ * el vendedor elige a cuál apunta el destino o la nota. La RLS de `direcciones`
+ * deja al vendedor ver las de cualquier cliente activo, así que no hace falta
+ * una RPC: alcanza con la consulta directa.
+ */
+export async function direccionesDeCliente(clienteId: string): Promise<SucursalCliente[]> {
+  const { data, error } = await supabase
+    .from('direcciones')
+    .select('id, etiqueta, direccion_formateada, codigo_postal, lat, lng, localidad, provincia, principal')
+    .eq('cliente_id', clienteId)
+    .order('principal', { ascending: false })
+    .order('creado_en', { ascending: true })
+
+  if (error) throw conMensajeDeSenal(error)
+  return (data ?? []) as SucursalCliente[]
 }
 
 /**
