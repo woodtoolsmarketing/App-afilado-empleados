@@ -113,8 +113,38 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
   const { data, isLoading } = useQuery({
     queryKey: ['cambios-direccion', verResueltos],
     queryFn: async () => {
-      const base = supabase.from('cambios_direccion').select(SELECT).order('creado_en', { ascending: false })
+      // Sólo las correcciones a revisar: las ubicaciones nuevas van en su propia
+      // sección (es_ubicacion_nueva), que es informativa y no se aprueba.
+      const base = supabase
+        .from('cambios_direccion')
+        .select(SELECT)
+        .eq('es_ubicacion_nueva', false)
+        .order('creado_en', { ascending: false })
       const { data, error: err } = verResueltos ? await base.limit(100) : await base.eq('estado', 'pendiente')
+      if (err) throw err
+      return (data ?? []) as unknown as CambioDireccion[]
+    },
+    refetchInterval: 30_000,
+  })
+
+  /**
+   * Ubicaciones nuevas que cargaron los vendedores desde la calle.
+   *
+   * No son correcciones a revisar: clientes que estaban sin mapa y el vendedor
+   * ubicó por primera vez. Ya quedaron cargadas; esto es para que la oficina se
+   * entere de que pasó y quién fue. Se muestran las de los últimos 15 días.
+   */
+  const { data: ubicaciones } = useQuery({
+    queryKey: ['ubicaciones-nuevas'],
+    queryFn: async () => {
+      const desde = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString()
+      const { data, error: err } = await supabase
+        .from('cambios_direccion')
+        .select(SELECT)
+        .eq('es_ubicacion_nueva', true)
+        .gte('creado_en', desde)
+        .order('creado_en', { ascending: false })
+        .limit(80)
       if (err) throw err
       return (data ?? []) as unknown as CambioDireccion[]
     },
@@ -390,6 +420,45 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
           })}
         </div>
       )}
+
+      {/*
+        Ubicaciones nuevas: INFORMATIVO, no se aprueba.
+        Clientes que estaban sin mapa y un vendedor ubicó desde la calle. Ya
+        quedaron cargadas; esto es para que la oficina se entere de que pasó y
+        quién fue. Borde verde (= hecho) para distinguirlas de las correcciones
+        pendientes (rojo).
+      */}
+      {ubicaciones && ubicaciones.length > 0 ? (
+        <section style={{ marginTop: 32 }}>
+          <h2 style={{ marginBottom: 4 }}>📍 Ubicaciones nuevas cargadas por vendedores</h2>
+          <p style={{ fontSize: 13, color: 'var(--tinta-suave)', marginTop: 0 }}>
+            Clientes que estaban sin mapa y un vendedor ubicó desde la calle (últimos 15 días). Ya
+            quedaron cargadas: es solo para que te enteres, no hay que aprobar nada.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+            {ubicaciones.map((u) => (
+              <div
+                key={u.id}
+                className="tarjeta"
+                style={{ padding: 12, borderRadius: 8, borderLeft: '5px solid #2E7D32' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <strong>
+                    {u.cliente?.razon_social ?? 'Cliente'}
+                    {u.cliente?.codigo ? <span style={{ color: 'var(--tinta-suave)' }}> · {u.cliente.codigo}</span> : null}
+                  </strong>
+                  <span style={{ fontSize: 12, color: 'var(--tinta-suave)' }}>
+                    {u.vendedor?.nombre_completo ?? 'Vendedor'}
+                    {u.vendedor?.codigo_vendedor ? ` (#${u.vendedor.codigo_vendedor})` : ''} ·{' '}
+                    {new Date(u.creado_en).toLocaleString('es-AR')}
+                  </span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 14 }}>📍 {u.direccion_propuesta}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </>
   )
 }
