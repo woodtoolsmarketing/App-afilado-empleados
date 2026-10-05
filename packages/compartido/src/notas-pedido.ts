@@ -1552,6 +1552,18 @@ export interface OpcionesValidacionItem {
    * una pregunta de verdad y hay que contestarla.
    */
   pedirServicio?: boolean
+  /**
+   * ¿Hay que tener confirmado el código de cómputo para que el renglón valga?
+   *
+   * El vendedor pidió confirmar el código "para poder continuar" —o sea, para
+   * CERRAR la nota (CONTINUAR de la página de renglones, CREAR)—. Pero agregar
+   * OTRO renglón no es continuar: exigir la confirmación ahí lo dejaba trabado
+   * ("no me deja agregar el tercer ítem") y lo empujaba a partir el pedido en
+   * dos notas. Así que al sumar un renglón esto va en `false`: se puede seguir
+   * cargando sin confirmar, y la confirmación se exige recién al salir de la
+   * página (donde `validarRenglones` lo deja en `true`, su valor por defecto).
+   */
+  exigirConfirmacionCodigo?: boolean
 }
 
 export function validarItemNota(
@@ -1694,7 +1706,10 @@ export function validarItemNota(
       if (item.codigos_computo.length === 0) {
         errores.codigos_computo =
           'Falta el código de cómputo. Completá la medida para que se busque solo, o elegilo de la lista.'
-      } else if (item.codigo_confirmado !== item.codigos_computo[0]) {
+      } else if (
+        opciones.exigirConfirmacionCodigo !== false &&
+        item.codigo_confirmado !== item.codigos_computo[0]
+      ) {
         /*
          * El código se propone solo (y en las sierras finas se fuerza el 8001):
          * para que uno propuesto no se imprima sin que nadie lo mire, el renglón

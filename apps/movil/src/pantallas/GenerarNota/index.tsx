@@ -59,6 +59,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import {
   Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -388,6 +389,37 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       ],
     )
   }
+
+  /**
+   * Un paso atrás, de verdad.
+   *
+   * "Atrás" tiene que deshacer un paso, no tirar toda la nota. Va en orden: si
+   * está abierta la lista para elegir herramientas, la cierra; si no, retrocede
+   * de página (3→2→1); y recién desde la primera página sale de la nota. Devuelve
+   * `true` cuando hizo algo acá adentro —para que el botón físico de Android no
+   * siga y cierre la pantalla, que es lo que hacía antes: un toque al botón de
+   * atrás del teléfono en la página 3 se llevaba el pedido entero—.
+   */
+  function volverUnPaso(): boolean {
+    if (seleccionandoHerramientas) {
+      setSeleccionandoHerramientas(false)
+      return true
+    }
+    if (paso > 1) {
+      setPaso((paso - 1) as 1 | 2)
+      return true
+    }
+    return false
+  }
+
+  // El botón físico de Android: que haga lo mismo que el "‹ Atrás" de la barra
+  // —un paso atrás— en vez de cerrar la pantalla de una. Se vuelve a registrar
+  // cuando cambian el paso o el selector, para leer el estado de ahora.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', volverUnPaso)
+    return () => sub.remove()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paso, seleccionandoHerramientas])
 
   // ── La nota que se está corrigiendo ──────────────────────────────────────
   const {
@@ -808,7 +840,16 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       return
     }
     setIntentado(true)
-    const { valido, errores: e } = validarItemNota(renglon, { pedirServicio })
+    // Agregar otro renglón NO es "continuar": no se le exige tener confirmado el
+    // código de cómputo (eso se pide recién al salir de la página, en
+    // `alContinuar`/`alCrear`). Antes sí se exigía y dejaba al vendedor trabado
+    // —"no me deja agregar el tercer ítem"— teniendo que partir el pedido en dos
+    // notas. El resto del renglón sí tiene que estar completo: no se apilan
+    // renglones a medio cargar.
+    const { valido, errores: e } = validarItemNota(renglon, {
+      pedirServicio,
+      exigirConfirmacionCodigo: false,
+    })
     setErrores(e as Record<string, string | undefined>)
     if (!valido) {
       // Sube al tope para que el campo en rojo quede a la vista (ver `intentosFallidos`).
@@ -1320,7 +1361,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           subirAlTopeCuando={`${paso}·${activo}·${items.length}·${intentosFallidos}`}
         >
           <BarraPanel
-            alVolver={() => (paso > 1 ? setPaso((paso - 1) as 1 | 2) : navigation.goBack())}
+            alVolver={() => {
+              // Un paso atrás; sólo desde la primera página sale de la nota.
+              if (!volverUnPaso()) navigation.goBack()
+            }}
           />
 
           {/* Una sola línea, y más chico.
