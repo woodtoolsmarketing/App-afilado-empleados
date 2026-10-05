@@ -2,6 +2,7 @@ import type { Cliente, Direccion, Perfil } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { EditorDireccion, type DireccionEditable } from '../componentes/EditorDireccion'
 import { filtrarPorPalabras } from '../nucleo/buscarClientes'
 import { supabase } from '../nucleo/supabase'
 
@@ -108,7 +109,15 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
    * completar, y el conteo del encabezado no se movía al dar de alta uno nuevo.
    */
   function refrescarClientes() {
-    for (const clave of [['clientes'], ['clientes-provisorios'], ['clientes-total']]) {
+    // `['clientes-en-mapa']` también: si no, el Mapa de clientes se quedaba con
+    // el pin viejo (o sin pin) hasta 5 minutos después de geolocalizar acá, que
+    // es parte de "cargué la dirección y no aparece".
+    for (const clave of [
+      ['clientes'],
+      ['clientes-provisorios'],
+      ['clientes-total'],
+      ['clientes-en-mapa'],
+    ]) {
       void cliente.invalidateQueries({ queryKey: clave })
     }
   }
@@ -231,10 +240,22 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
                   */}
                   <td>
                     {c.direcciones.length > 0 ? (
-                      <small>
-                        {c.direcciones.find((d) => d.principal)?.direccion_formateada ??
-                          c.direcciones[0].direccion_formateada}
-                      </small>
+                      <>
+                        <small>
+                          {c.direcciones.find((d) => d.principal)?.direccion_formateada ??
+                            c.direcciones[0].direccion_formateada}
+                        </small>
+                        {c.direcciones.filter((d) => !d.principal).length > 0 ? (
+                          <>
+                            <br />
+                            <span className="pastilla gris">
+                              +{c.direcciones.filter((d) => !d.principal).length} lugar
+                              {c.direcciones.filter((d) => !d.principal).length === 1 ? '' : 'es'} de
+                              entrega
+                            </span>
+                          </>
+                        ) : null}
+                      </>
                     ) : c.direccion ? (
                       <>
                         <small>{[c.direccion, c.localidad].filter(Boolean).join(', ')}</small>
@@ -298,21 +319,18 @@ function FormularioCliente({
   alCerrar: () => void
   alGuardar: () => void
 }) {
-  const principal = cliente?.direcciones.find((d) => d.principal) ?? cliente?.direcciones[0]
+  const direcciones = cliente?.direcciones ?? []
+  const principal = direcciones.find((d) => d.principal) ?? direcciones[0]
+  const entregasExistentes = direcciones.filter((d) => d.id !== principal?.id)
 
   /**
    * El domicilio que trajo el listado del Gestión, cuando todavía no se ubicó.
-   *
-   * Son dos lugares distintos: los clientes importados tienen la calle escrita
-   * en su ficha (`clientes.direccion`) y ninguna fila en `direcciones`, porque
-   * ésa exige lat/lng. El formulario leía sólo la segunda, así que la ficha se
-   * abría con la dirección en blanco — justo la del cliente que la tabla de al
-   * lado estaba mostrando con el cartel "Sin ubicar en el mapa", que es el que
-   * alguien abre para completarlo.
+   * Los clientes importados tienen la calle escrita en su ficha
+   * (`clientes.direccion`) y ninguna fila en `direcciones` —ésa exige lat/lng—,
+   * así que la dirección principal arranca con ese texto, sin punto todavía.
    */
   const domicilioDelPadron = [cliente?.direccion, cliente?.localidad].filter(Boolean).join(', ')
-  // El domicilio con el que se abre la ficha; sirve para saber si se TOCÓ.
-  const direccionInicial = principal?.direccion_formateada ?? domicilioDelPadron
+  const direccionPrincipalInicial = principal?.direccion_formateada ?? domicilioDelPadron
 
   const [form, setForm] = useState({
     codigo: cliente?.codigo ?? '',
@@ -324,42 +342,78 @@ function FormularioCliente({
     contacto_nombre: cliente?.contacto_nombre ?? '',
     vendedor_id: cliente?.vendedor_id ?? '',
     notas: cliente?.notas ?? '',
-    direccion: direccionInicial,
-    codigo_postal: principal?.codigo_postal ?? cliente?.codigo_postal ?? '',
-    lat: principal?.lat?.toString() ?? '',
-    lng: principal?.lng?.toString() ?? '',
   })
-  const [error, setError] = useState<string | null>(null)
 
-  // Exigir lat/lng y escribir en `direcciones` sólo cuando de verdad se quiere
-  // guardar la dirección (hay fila geolocalizada, se tipearon coords, o se
-  // cambió el texto). Un cliente del padrón que se abre para corregir otro dato
-  // trae la calle precargada pero sin coords, y no hay que trabar el guardado.
-  const quiereGuardarDireccion =
-    form.direccion.trim() !== '' &&
-    (Boolean(principal) ||
-      form.lat.trim() !== '' ||
-      form.lng.trim() !== '' ||
-      form.direccion.trim() !== direccionInicial.trim())
+  // La dirección principal y los lugares de entrega, cada uno con su punto en el
+  // mapa. La principal que ya estaba guardada viene confirmada; el texto del
+  // padrón sin coordenadas, no.
+  const [principalDir, setPrincipalDir] = useState<DireccionEditable>(() => ({
+    id: principal?.id,
+    etiqueta: 'Principal',
+    direccion: direccionPrincipalInicial,
+    codigo_postal: principal?.codigo_postal ?? cliente?.codigo_postal ?? '',
+    lat: principal?.lat ?? null,
+    lng: principal?.lng ?? null,
+    google_place_id: principal?.google_place_id ?? null,
+    confirmada: Boolean(principal),
+  }))
+
+  const [entregas, setEntregas] = useState<DireccionEditable[]>(() =>
+    entregasExistentes.map((d) => ({
+      id: d.id,
+      etiqueta: d.etiqueta || 'Entrega',
+      direccion: d.direccion_formateada,
+      codigo_postal: d.codigo_postal ?? '',
+      lat: d.lat,
+      lng: d.lng,
+      google_place_id: d.google_place_id ?? null,
+      confirmada: true,
+    })),
+  )
+  // Para borrar en la base las que se quitaron (las que ya tenían id).
+  const [entregasAEliminar, setEntregasAEliminar] = useState<string[]>([])
+
+  const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
 
   function actualizar(campo: keyof typeof form, valor: string) {
     setForm((f) => ({ ...f, [campo]: valor }))
   }
 
-  /**
-   * Una coordenada tipeada acá, como número.
-   *
-   * Se acepta la coma: en Argentina el separador decimal es la coma y el
-   * teclado la ofrece primero, así que "-34,6037" es lo que sale naturalmente.
-   * Sin esto `Number()` daba `NaN`, el insert viajaba con la columna en null y
-   * lo que aparecía en pantalla era un error crudo de Postgres sobre una
-   * restricción `not null` — que no le dice a nadie que lo que pasó fue una
-   * coma.
-   */
-  function aCoordenada(texto: string): number {
-    return Number(texto.trim().replace(',', '.'))
+  function agregarEntrega() {
+    setEntregas((e) => [
+      ...e,
+      {
+        etiqueta: `Entrega ${e.length + 1}`,
+        direccion: '',
+        codigo_postal: '',
+        lat: null,
+        lng: null,
+        google_place_id: null,
+        confirmada: false,
+      },
+    ])
   }
+  function cambiarEntrega(i: number, v: DireccionEditable) {
+    setEntregas((e) => e.map((x, j) => (j === i ? v : x)))
+  }
+  function quitarEntrega(i: number) {
+    setEntregas((e) => {
+      const quitada = e[i]
+      if (quitada.id) setEntregasAEliminar((prev) => [...prev, quitada.id!])
+      return e.filter((_, j) => j !== i)
+    })
+  }
+
+  // ¿Guardar la dirección principal? Si tiene punto, o ya era una dirección
+  // guardada, o se cambió el texto del padrón. Abrir un cliente del padrón para
+  // tocar otro dato no obliga a geolocalizar.
+  const principalTienePunto = principalDir.lat !== null && principalDir.lng !== null
+  const guardarPrincipal =
+    principalTienePunto ||
+    Boolean(principal) ||
+    (principalDir.direccion.trim() !== '' &&
+      principalDir.direccion.trim() !== direccionPrincipalInicial.trim())
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault()
@@ -369,15 +423,28 @@ function FormularioCliente({
       setError('El código de cliente y la razón social son obligatorios.')
       return
     }
-    // Sin coordenadas el cliente no se puede meter en un recorrido: la ruta se
-    // calcula sobre lat/lng, no sobre texto. Sólo se exige al guardar la dirección.
-    if (quiereGuardarDireccion) {
-      if (!form.lat.trim() || !form.lng.trim()) {
-        setError('Si cargás una dirección, poné también la latitud y la longitud.')
+
+    // Una dirección que se quiere guardar necesita punto en el mapa (la ruta se
+    // calcula sobre lat/lng, no sobre texto) y confirmación de que la calle y la
+    // altura resueltas son las correctas.
+    if (guardarPrincipal) {
+      if (!principalTienePunto) {
+        setError('Marcá en el mapa dónde queda la dirección principal (o usá "Usar mi ubicación actual").')
         return
       }
-      if (!Number.isFinite(aCoordenada(form.lat)) || !Number.isFinite(aCoordenada(form.lng))) {
-        setError('La latitud y la longitud tienen que ser números. Ej. -34,6037 y -58,3816.')
+      if (!principalDir.confirmada) {
+        setError('Confirmá la dirección principal: revisá la calle y la altura, y tildá la casilla.')
+        return
+      }
+    }
+    for (const [i, en] of entregas.entries()) {
+      const nombre = en.etiqueta.trim() || `Entrega ${i + 1}`
+      if (en.lat === null || en.lng === null) {
+        setError(`Marcá en el mapa el lugar de entrega "${nombre}", o quitalo.`)
+        return
+      }
+      if (!en.confirmada) {
+        setError(`Confirmá el lugar de entrega "${nombre}": tildá la casilla.`)
         return
       }
     }
@@ -405,24 +472,43 @@ function FormularioCliente({
         : await supabase.from('clientes').insert(datos).select('id').single()
 
       if (errCliente) throw errCliente
+      const clienteId = guardado.id as string
 
-      if (quiereGuardarDireccion) {
-        const datosDireccion = {
-          cliente_id: guardado.id,
-          direccion_formateada: form.direccion.trim(),
-          codigo_postal: form.codigo_postal.trim() || null,
-          lat: aCoordenada(form.lat),
-          lng: aCoordenada(form.lng),
-          principal: true,
-          etiqueta: 'Principal',
+      /** Fila de `direcciones` lista para insertar/actualizar. */
+      function filaDireccion(d: DireccionEditable, esPrincipal: boolean) {
+        return {
+          cliente_id: clienteId,
+          etiqueta: esPrincipal ? 'Principal' : d.etiqueta.trim() || 'Entrega',
+          direccion_formateada: d.direccion.trim(),
+          codigo_postal: d.codigo_postal.trim() || null,
+          lat: d.lat as number,
+          lng: d.lng as number,
+          google_place_id: d.google_place_id,
+          principal: esPrincipal,
+          verificada: true,
         }
-
-        const { error: errDireccion } = principal
-          ? await supabase.from('direcciones').update(datosDireccion).eq('id', principal.id)
-          : await supabase.from('direcciones').insert(datosDireccion)
-
-        if (errDireccion) throw errDireccion
       }
+
+      async function guardarFila(d: DireccionEditable, esPrincipal: boolean) {
+        const fila = filaDireccion(d, esPrincipal)
+        const { error: err } = d.id
+          ? await supabase.from('direcciones').update(fila).eq('id', d.id)
+          : await supabase.from('direcciones').insert(fila)
+        if (err) throw err
+      }
+
+      // Las que se quitaron, primero: así se libera el único índice de principal
+      // y no choca si alguna cambió de rol.
+      if (entregasAEliminar.length > 0) {
+        const { error: errDel } = await supabase
+          .from('direcciones')
+          .delete()
+          .in('id', entregasAEliminar)
+        if (errDel) throw errDel
+      }
+
+      if (guardarPrincipal) await guardarFila(principalDir, true)
+      for (const en of entregas) await guardarFila(en, false)
 
       alGuardar()
     } catch (e) {
@@ -514,26 +600,29 @@ function FormularioCliente({
         </div>
 
         <h2 style={{ marginTop: 20 }}>Dirección principal</h2>
+        <p style={{ fontSize: 13, color: 'var(--tinta-suave, #888)', marginTop: -6 }}>
+          Marcá el punto en el mapa (o usá tu ubicación actual): la calle y la altura aparecen solas
+          para que las confirmes.
+        </p>
+        <EditorDireccion valor={principalDir} alCambiar={setPrincipalDir} esPrincipal />
 
-        <div className="campo">
-          <label htmlFor="direccion">Dirección</label>
-          <input id="direccion" value={form.direccion} onChange={(e) => actualizar('direccion', e.target.value)} />
-        </div>
-
-        <div className="fila">
-          <div className="campo">
-            <label htmlFor="cp">Código postal</label>
-            <input id="cp" value={form.codigo_postal} onChange={(e) => actualizar('codigo_postal', e.target.value)} />
-          </div>
-          <div className="campo">
-            <label htmlFor="lat">Latitud</label>
-            <input id="lat" value={form.lat} onChange={(e) => actualizar('lat', e.target.value)} placeholder="-34,6037" />
-          </div>
-          <div className="campo">
-            <label htmlFor="lng">Longitud</label>
-            <input id="lng" value={form.lng} onChange={(e) => actualizar('lng', e.target.value)} placeholder="-58,3816" />
-          </div>
-        </div>
+        <h2 style={{ marginTop: 20 }}>Lugares de entrega</h2>
+        <p style={{ fontSize: 13, color: 'var(--tinta-suave, #888)', marginTop: -6 }}>
+          Otros domicilios a donde se entrega, además de la dirección principal. Cada uno con su
+          punto en el mapa.
+        </p>
+        {entregas.map((en, i) => (
+          <EditorDireccion
+            key={en.id ?? `nueva-${i}`}
+            valor={en}
+            alCambiar={(v) => cambiarEntrega(i, v)}
+            alQuitar={() => quitarEntrega(i)}
+            esPrincipal={false}
+          />
+        ))}
+        <button type="button" onClick={agregarEntrega}>
+          ➕ Agregar lugar de entrega
+        </button>
 
         <div className="campo">
           <label htmlFor="notas">Notas</label>
