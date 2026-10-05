@@ -62,7 +62,43 @@ body {
   flex-direction: column;
   padding: 20px 14px;
   gap: 6px;
+  /* La barra no scrollea entera: scrollea la lista de enlaces (ver abajo), para
+     que el pie con "Cerrar sesión" quede siempre visible. */
+  overflow: hidden;
+}
+
+/* La lista de enlaces: toma el alto que queda y scrollea sola. `min-height: 0`
+   es lo que la deja encoger abajo del alto de su contenido —sin eso, un flex item
+   no scrollea, crece—. Mismo detalle que el menú del celular. */
+.barra-lateral-lista {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* El pie queda fijo abajo, nunca lo tapa la lista. */
+.barra-lateral-pie {
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.barra-lateral-usuario {
+  font-size: 12px;
+  opacity: 0.8;
+  padding: 0 10px 10px;
+}
+
+.boton-salir {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .marca-lateral {

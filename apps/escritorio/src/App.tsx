@@ -226,27 +226,35 @@ function BarraLateral({
         <small>Panel de administración</small>
       </div>
 
-      {enlaces.map((e) => (
-        <NavLink
-          key={e.a}
-          to={e.a}
-          end={e.a === '/'}
-          className={({ isActive }) => `enlace-lateral${isActive ? ' activo' : ''}`}
-        >
-          <span aria-hidden>{e.icono}</span>
-          {e.texto}
-          {e.globo ? <span className="globo">{e.globo}</span> : null}
-        </NavLink>
-      ))}
+      {/*
+        Los enlaces scrollean solos (flex:1 + min-height:0). Antes iban sueltos
+        dentro de la barra y, con catorce de ellos, empujaban el botón de salir
+        abajo del borde: había que scrollear toda la barra para encontrarlo, así
+        que parecía que el panel no dejaba cerrar sesión. Ahora el pie queda fijo.
+      */}
+      <div className="barra-lateral-lista">
+        {enlaces.map((e) => (
+          <NavLink
+            key={e.a}
+            to={e.a}
+            end={e.a === '/'}
+            className={({ isActive }) => `enlace-lateral${isActive ? ' activo' : ''}`}
+          >
+            <span aria-hidden>{e.icono}</span>
+            {e.texto}
+            {e.globo ? <span className="globo">{e.globo}</span> : null}
+          </NavLink>
+        ))}
+      </div>
 
-      <div style={{ marginTop: 'auto', paddingTop: 20 }}>
-        <div style={{ fontSize: 12, opacity: 0.8, padding: '0 10px 10px' }}>
+      <div className="barra-lateral-pie">
+        <div className="barra-lateral-usuario">
           {nombre}
           <br />
           <span style={{ textTransform: 'capitalize' }}>{rol}</span>
         </div>
-        <button className="chico" onClick={alSalir} style={{ width: '100%' }}>
-          Cerrar sesión
+        <button className="chico boton-salir" onClick={alSalir}>
+          <span aria-hidden>⏻</span> Cerrar sesión
         </button>
       </div>
     </nav>
