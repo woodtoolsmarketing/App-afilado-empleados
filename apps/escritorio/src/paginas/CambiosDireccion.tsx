@@ -275,7 +275,16 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
             const pendiente = c.estado === 'pendiente'
 
             return (
-              <div key={c.id} className="tarjeta" style={{ padding: 16, borderRadius: 10 }}>
+              <div
+                key={c.id}
+                className="tarjeta"
+                style={{
+                  padding: 16,
+                  borderRadius: 10,
+                  // Los pendientes saltan a la vista: borde rojo a la izquierda.
+                  borderLeft: pendiente ? '5px solid #B30F0F' : undefined,
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <strong style={{ fontSize: 15 }}>
                     {c.cliente?.razon_social ?? 'Cliente'}
@@ -289,11 +298,40 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
                   </span>
                 </div>
 
-                <div style={{ marginTop: 10, fontSize: 14 }}>
-                  <div style={{ color: 'var(--tinta-suave)' }}>Registrada hoy</div>
-                  <div>{c.direccion?.direccion_formateada ?? '— (el cliente no tenía dirección cargada)'}</div>
-                  <div style={{ color: 'var(--tinta-suave)', marginTop: 8 }}>Propuesta por el vendedor</div>
-                  <div style={{ fontWeight: 600 }}>{c.direccion_propuesta}</div>
+                {/*
+                  El cambio, de un vistazo: la dirección vieja tachada y en gris,
+                  y la NUEVA —lo que de verdad hay que mirar— en un recuadro rojo,
+                  grande y en negrita. Antes eran dos renglones de texto iguales y
+                  el cambio pasaba desapercibido.
+                */}
+                <div style={{ marginTop: 12, fontSize: 14 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--tinta-suave)' }}>
+                    Dirección actual
+                  </div>
+                  <div
+                    style={{
+                      color: 'var(--tinta-suave)',
+                      textDecoration: pendiente && c.direccion?.direccion_formateada ? 'line-through' : 'none',
+                    }}
+                  >
+                    {c.direccion?.direccion_formateada ?? '— (el cliente no tenía dirección cargada)'}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 8,
+                      background: 'rgba(179,15,15,0.08)',
+                      border: '2px solid #B30F0F',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#B30F0F' }}>
+                      📍 {pendiente ? 'Dirección nueva propuesta' : 'Dirección propuesta'}
+                    </div>
+                    <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{c.direccion_propuesta}</div>
+                  </div>
+
                   {c.motivo ? (
                     <div style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--tinta-suave)' }}>“{c.motivo}”</div>
                   ) : null}
