@@ -319,6 +319,76 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /**
+   * Tirar la nota a medio cargar y arrancar una en blanco.
+   *
+   * El vendedor cargaba media nota, se daba cuenta de que era para otro cliente
+   * o que había arrancado mal, y no tenía cómo volver a cero: el "‹ Atrás" lo
+   * saca de la pantalla pero el borrador queda, y al volver a entrar se le
+   * ofrece seguir con esa misma nota. Esto la descarta de una: limpia todos los
+   * campos a como están al abrir una nota nueva y borra el borrador guardado,
+   * así lo que vuelve a entrar arranca de verdad en blanco.
+   *
+   * Sólo en una nota nueva. Corrigiendo una ya creada, "empezar de nuevo" no
+   * querría decir nada: esa nota salió del servidor y se corrige, no se tira.
+   */
+  function empezarDeNuevo() {
+    void olvidarBorrador()
+    setPaso(1)
+    setEncabezado({
+      ...ENCABEZADO_VACIO,
+      vendedor: etiquetaVendedor(perfil),
+      vendedor_numero: perfil?.codigo_vendedor ?? '',
+    })
+    setServicios([])
+    setTipoNota(null)
+    setCondicionVenta(null)
+    setCondicionDetalle('')
+    setTendencia(null)
+    setFechaEntrega(fechaEntregaPorDefecto())
+    setCalendario(false)
+    setItems([ITEM_VACIO])
+    setActivo(0)
+    setErrores({})
+    setIntentado(false)
+    setSeleccionandoHerramientas(false)
+    setHerramientasElegidas([])
+    setObservaciones([''])
+    setObservacionesDelSistema([])
+  }
+
+  /**
+   * ¿Hay algo cargado que valga la pena poder descartar?
+   *
+   * El botón de "empezar de nuevo" no aparece en una nota en blanco —no hay nada
+   * que tirar— ni cuando se corrige una ya creada. Aparece en cuanto el vendedor
+   * eligió un cliente o cargó algo en un renglón, que es la misma regla con la
+   * que se decide si vale la pena guardar el borrador.
+   */
+  const hayAlgoCargado =
+    !corrigiendo &&
+    valeLaPenaGuardar({
+      encabezado,
+      servicios,
+      tipoNota,
+      condicionVenta,
+      condicionDetalle,
+      fechaEntrega: fechaEntrega ? fechaEntrega.toISOString() : null,
+      items,
+      observaciones,
+    })
+
+  function confirmarEmpezarDeNuevo() {
+    Alert.alert(
+      '¿Descartar esta nota?',
+      'Se borra todo lo que cargaste y arrancás una nota nueva en blanco. No se puede deshacer.',
+      [
+        { text: 'Seguir editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: empezarDeNuevo },
+      ],
+    )
+  }
+
   // ── La nota que se está corrigiendo ──────────────────────────────────────
   const {
     data: borrador,
@@ -1261,6 +1331,28 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           <TituloPanel style={estilos.titulo}>
             {corrigiendo ? 'CORREGIR NOTA DE PEDIDO' : 'NUEVA NOTA DE PEDIDO'}
           </TituloPanel>
+
+          {/*
+            Descartar lo cargado y arrancar de nuevo.
+
+            Aparece recién cuando hay algo que tirar —un cliente elegido o un
+            renglón con datos— y nunca corrigiendo. El "‹ Atrás" saca de la
+            pantalla pero deja el borrador vivo; esto es lo único que de verdad
+            vuelve la nota a cero. Va arriba, pegado al título, para que esté
+            donde el vendedor mira cuando se da cuenta de que arrancó mal, y
+            siempre pregunta antes de borrar.
+          */}
+          {hayAlgoCargado ? (
+            <Pressable
+              onPress={confirmarEmpezarDeNuevo}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Descartar esta nota y empezar de nuevo"
+              style={({ pressed }) => [estilos.empezarDeNuevo, pressed && estilos.presionado]}
+            >
+              <Text style={estilos.empezarDeNuevoTexto}>🗑  Descartar y empezar de nuevo</Text>
+            </Pressable>
+          ) : null}
 
           {corrigiendo ? (
             <Aviso tono="info" titulo={numeroDeNota(borrador?.numero ?? null, encabezado.vendedor_numero)}>
@@ -2389,6 +2481,21 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.lg,
     lineHeight: t.tipografia.tamano.lg * t.tipografia.interlineado.ajustado,
   },
+
+  /* Un renglón de texto, no un botón de barra: tirar la nota es algo que se
+     hace una vez cada tanto y no tiene que competir por tamaño con CONTINUAR. */
+  empezarDeNuevo: {
+    alignSelf: 'center',
+    paddingVertical: espaciado.xs,
+    marginTop: -espaciado.xs,
+  },
+  empezarDeNuevoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojoAccion,
+    textAlign: 'center',
+  },
+  presionado: { opacity: 0.6 },
 
   pasos: {
     flexDirection: 'row',
