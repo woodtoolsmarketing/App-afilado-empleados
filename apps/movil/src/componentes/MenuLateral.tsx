@@ -240,8 +240,17 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
             // (Clientes, Modificaciones) quedaban abajo del borde, sin forma de
             // llegar a ellos.
             style={estilos.scroll}
-            contentContainerStyle={[estilos.lista, { paddingBottom: insets.bottom + espaciado.lg }]}
-            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[estilos.lista, { paddingBottom: insets.bottom + espaciado.md }]}
+            // La barra de scroll FIJA es la pista de que hay más abajo. El thumb
+            // común de Android sólo asoma mientras se arrastra y después se
+            // desvanece: al abrir el menú no se veía nada, y el último ítem pegado
+            // al borde parecía "el final", no "hay más". `persistentScrollbar` la
+            // deja puesta mientras haya algo que scrollear. Cuando el contenido
+            // entra entero (el vendedor no-admin, ya sin la sección de
+            // administración) no hay nada que scrollear y la barra no aparece; sólo
+            // la ve el admin, que es a quien se le va de largo.
+            showsVerticalScrollIndicator
+            persistentScrollbar
           >
             {OPCIONES.map((o) => (
               <Opcion key={o.etiqueta} destino={o} alElegir={irA} />
@@ -335,8 +344,15 @@ const usarEstilos = hojaDeTema((t) => ({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: espaciado.sm,
-    minHeight: TOQUE_MINIMO,
-    paddingVertical: espaciado.sm,
+    // 48 a propósito, no el TOQUE_MINIMO (56): este menú tiene hasta 16 opciones
+    // (con la sección de administración) y con 56 no entraban todas —el vendedor
+    // veía el final cortado—. 48 es el mínimo táctil estándar (Material 48,
+    // WCAG 2.5.5 AAA 44) y acá son ítems de NAVEGACIÓN: un toque de más abre otra
+    // pantalla, no dispara nada que no se pueda deshacer, así que se baja el piso
+    // sólo en este menú. Con esto el no-admin entra sin scroll y el admin scrollea
+    // poco (y la barra fija le avisa que hay más).
+    minHeight: 48,
+    paddingVertical: espaciado.xs,
     paddingHorizontal: espaciado.xs,
     borderRadius: radios.sm,
   },
@@ -362,7 +378,7 @@ const usarEstilos = hojaDeTema((t) => ({
   linea: {
     height: 1.5,
     backgroundColor: t.colores.panelOscuro,
-    marginVertical: espaciado.sm,
+    marginVertical: espaciado.xs,
   },
   seccion: {
     fontFamily: t.tipografia.familia.subtitulo,
