@@ -120,5 +120,17 @@ export function conMensajeDeSenal(error: unknown): Error {
   if (pareceFaltaDeSenal(error)) {
     return new Error('No hay conexión. Probá de nuevo cuando tengas señal.')
   }
-  return error instanceof Error ? error : new Error(String(error))
+  if (error instanceof Error) return error
+  // Un error de PostgREST/Supabase llega como objeto plano —{ message, details,
+  // hint, code }—, no como `Error`. `String(error)` sobre eso da "[object
+  // Object]", que es lo que el vendedor terminó viendo en "No pudimos buscar".
+  // Se toma su `message`, que es lo que de verdad dice qué pasó.
+  if (
+    error &&
+    typeof error === 'object' &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return new Error((error as { message: string }).message)
+  }
+  return new Error(String(error))
 }
