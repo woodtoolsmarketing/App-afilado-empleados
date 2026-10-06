@@ -1572,20 +1572,9 @@ export function PasoRenglon({
         }
 
         if (campo === 'descripcion') {
-          return (
-            <Campo
-              key={campo}
-              etiqueta="DESCRIPCIÓN"
-              obligatorio
-              value={item.descripcion}
-              onChangeText={(t) => alCambiar({ descripcion: t })}
-              placeholder="Marca, modelo, estado…"
-              multiline
-              multilineaFina
-              error={errores.descripcion}
-              ayuda="Se completa sola con la herramienta. Agregale lo que haga falta."
-            />
-          )
+          // No se muestra: se arma sola (herramienta + marca/medidas) y sale
+          // impresa igual. Se sacó de la vista para acortar el renglón.
+          return null
         }
 
         if (campo === 'diametro_interior') {

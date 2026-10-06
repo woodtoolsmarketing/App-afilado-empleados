@@ -68,7 +68,14 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
-import { Campo, Casilla, Desplegable, MensajeError, SelectorMarca } from '../../componentes/Formulario'
+import {
+  Campo,
+  Casilla,
+  DensidadFormulario,
+  Desplegable,
+  MensajeError,
+  SelectorMarca,
+} from '../../componentes/Formulario'
 import { Aviso, Cargando, Pastilla } from '../../componentes/Estado'
 import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
@@ -1360,6 +1367,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           contentStyle={estilos.contenido}
           subirAlTopeCuando={`${paso}·${activo}·${items.length}·${intentosFallidos}`}
         >
+          {/* Todo el formulario en densidad compacta: cajas y etiquetas más bajas
+              para scrollear menos. El vendedor atiende 15-30 clientes por día con
+              poco tiempo; cada scroll de más cuesta. */}
+          <DensidadFormulario.Provider value="compacta">
           <BarraPanel
             alVolver={() => {
               // Un paso atrás; sólo desde la primera página sale de la nota.
@@ -2020,6 +2031,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               />
             </>
           ) : null}
+          </DensidadFormulario.Provider>
         </Panel>
       </KeyboardAvoidingView>
     </Pantalla>
@@ -2368,14 +2380,8 @@ function FormularioVenta({
         />
       ) : null}
 
-      <Campo
-        etiqueta="DESCRIPCIÓN"
-        value={item.descripcion}
-        onChangeText={(t) => alCambiar({ descripcion: t })}
-        multiline
-        numberOfLines={2}
-        ayuda="Es la que sale impresa. Corta, para que entre en el renglón del talonario."
-      />
+      {/* La DESCRIPCIÓN no se muestra: se arma sola (herramienta + marca) y sale
+          impresa igual. Se sacó de la vista para no alargar el renglón. */}
 
       {/* Las características de la pieza reclamada. Se cargan solas del artículo y
           quedan editables: lo que trae el cliente puede no ser exactamente el
@@ -2505,7 +2511,7 @@ function explicarTendencia(t: TendenciaCliente, cual: 'tipo' | 'condicion'): str
 
 const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
-  contenido: { gap: espaciado.md },
+  contenido: { gap: espaciado.sm },
   // Los dos plazos, lado a lado: es un solo dato con dos puntas, y verlos en
   // renglones distintos invita a completar uno y olvidarse del otro.
   parDePlazos: { flexDirection: 'row', gap: espaciado.sm },

@@ -1557,6 +1557,10 @@ const NO_OBLIGATORIOS: CampoItem[] = [
   // El agujero lo trae la lista de precios: sólo se carga cuando difiere del
   // de fábrica. Exigirlo sería pedir que copien un dato que ya tenemos.
   'diametro_interior',
+  // La descripción ya no se muestra ni se tipea: se arma sola y sale impresa
+  // igual (y si queda vacía, el papel cae al código de la herramienta). Dejó de
+  // ser un campo obligatorio del formulario.
+  'descripcion',
 ]
 
 function esNumeroValido(v: string): boolean {
