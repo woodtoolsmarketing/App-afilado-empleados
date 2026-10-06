@@ -25,10 +25,12 @@ import { supabase } from '../nucleo/supabase'
  * vendedor. Acá el documento lo arma Chromium con el tamaño que pide la
  * plantilla, sin nada del sistema operativo en el medio, y sale igual siempre.
  *
- * La orden es un pedido, no una impresión. La nota se sella recién cuando esta
- * pantalla confirma que el papel salió, y eso lo decide la persona que está
- * mirando la impresora —el diálogo de impresión aparece a propósito—. Si el
- * papel se trabó, se contesta que no salió y la nota sigue pendiente.
+ * El papel sale directo a la impresora de la oficina por IPP, sin diálogo: esta
+ * máquina arma el PDF y lo manda a la IP cargada en el panel, igual que el
+ * teléfono. La nota se sella sólo cuando la impresora confirma el trabajo —IPP
+ * contesta con el estado—; si la rechaza (sin papel, en pausa) o no se la
+ * encuentra, la nota sigue pendiente y queda para reintentar. El diálogo del
+ * sistema queda de respaldo, para cuando la impresora no aparece.
  */
 export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
@@ -113,7 +115,12 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
         rolDeVisita ? { rolDeVisita } : undefined,
       )
 
-      const salida = await window.woodtools.imprimirDocumento(html)
+      // La impresora de la oficina, para mandarle el trabajo directo por IPP. La
+      // IP la lee el renderer (que es quien tiene Supabase) y la cruza al proceso
+      // principal, que es el único que puede hacer el POST —el navegador lo corta
+      // por CORS—. Sin IP cargada, `imprimirDocumento` cae al diálogo del sistema.
+      const impresora = await obtenerImpresora()
+      const salida = await window.woodtools.imprimirDocumento(html, impresora)
 
       // Sólo se cierra la orden si el papel SALIÓ. Cancelar el diálogo o un fallo
       // ya no la marca 'fallida' —eso la sacaba de la lista para siempre mientras
@@ -143,9 +150,16 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
         ? ` El rol de visita no se pudo sumar: ese día ${orden.pedida?.nombre_completo ?? 'el vendedor'} no tenía recorrido cargado, o no pudimos traerlo.`
         : ''
 
+      // Si la impresora estaba en otra IP que la cargada, se avisa: la próxima
+      // vez el camino directo arranca por la vieja y tarda un poco más en salir.
+      const ipVieja =
+        salida.via === 'ipp' && salida.descubierta && salida.direccion
+          ? ` La impresora hoy está en ${salida.direccion}; pedile a la oficina que actualice la IP en Configuración.`
+          : ''
+
       setMensaje(
         salida.impreso
-          ? `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.${sinRol}`
+          ? `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.${sinRol}${ipVieja}`
           : `No salió: ${salida.motivo ?? 'se canceló'}. La nota sigue pendiente y queda para reintentar.`,
       )
       void cliente.invalidateQueries()
@@ -160,8 +174,8 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
       <header className="encabezado-pagina">
         <h1>Cola de impresión</h1>
         <p>
-          Lo que los vendedores mandaron a imprimir desde el celular. El papel sale por la impresora
-          de esta PC, con el mismo tamaño siempre.
+          Lo que los vendedores mandaron a imprimir desde el celular. El papel sale directo a la
+          impresora de la oficina, sin diálogo y con el mismo tamaño siempre.
         </p>
       </header>
 
@@ -304,6 +318,29 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
     nombre: orden.pedida?.nombre_completo ?? '',
     codigo: orden.pedida?.codigo_vendedor ?? null,
   })
+}
+
+/**
+ * La impresora de la oficina, para mandarle el trabajo directo por IPP.
+ *
+ * Es la misma fila que lee el teléfono (`configuracion.impresora_oficina`), así
+ * que la IP se carga en un solo lado y vale para los dos. Devuelve null cuando
+ * no hay ninguna cargada: ahí `imprimirDocumento` cae al diálogo del sistema.
+ */
+async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
+  const { data, error } = await supabase
+    .from('configuracion')
+    .select('valor')
+    .eq('clave', 'impresora_oficina')
+    .maybeSingle()
+
+  // "No hay IP" y "no pude leerla" se ven igual desde afuera; el segundo se
+  // anota para poder distinguirlo, pero en los dos casos se cae al diálogo.
+  if (error) console.warn('[cola-impresion] no pudimos leer la impresora de la oficina', error)
+
+  const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
+  if (!cfg?.ip) return null
+  return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
 }
 
 /** Una nota sin número todavía no la numeró Administración: se la nombra por el cliente. */

@@ -12,9 +12,18 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('woodtools', {
   imprimir: (): Promise<{ impreso: boolean; motivo?: string }> => ipcRenderer.invoke('imprimir'),
   // Imprime un documento armado por el panel —una nota de la cola— en vez de
-  // la ventana que se está mirando.
-  imprimirDocumento: (html: string): Promise<{ impreso: boolean; motivo?: string }> =>
-    ipcRenderer.invoke('imprimir-documento', html),
+  // la ventana que se está mirando. Con la impresora de la oficina cargada sale
+  // directo por IPP, sin diálogo; sin ella, o si no contesta, cae al diálogo.
+  imprimirDocumento: (
+    html: string,
+    impresora?: { ip: string; puerto?: number; ruta?: string } | null,
+  ): Promise<{
+    impreso: boolean
+    motivo?: string
+    via?: 'ipp' | 'sistema'
+    direccion?: string
+    descubierta?: boolean
+  }> => ipcRenderer.invoke('imprimir-documento', html, impresora ?? null),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),
 

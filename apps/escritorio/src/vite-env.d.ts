@@ -13,8 +13,20 @@ interface ImportMeta {
 interface Window {
   woodtools?: {
     imprimir: () => Promise<{ impreso: boolean; motivo?: string }>
-    /** Imprime un documento armado por el panel, no la ventana visible. */
-    imprimirDocumento?: (html: string) => Promise<{ impreso: boolean; motivo?: string }>
+    /**
+     * Imprime un documento armado por el panel, no la ventana visible. Con la
+     * impresora de la oficina cargada sale directo por IPP; si no, cae al diálogo.
+     */
+    imprimirDocumento?: (
+      html: string,
+      impresora?: { ip: string; puerto?: number; ruta?: string } | null,
+    ) => Promise<{
+      impreso: boolean
+      motivo?: string
+      via?: 'ipp' | 'sistema'
+      direccion?: string
+      descubierta?: boolean
+    }>
     abrirExterno: (url: string) => Promise<boolean>
     version: () => Promise<string>
     /** Busca a mano una actualización del panel en la nube (GitHub Releases). */

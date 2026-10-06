@@ -6,6 +6,8 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 
+import { imprimirPorIpp, PUERTO_IPP, RUTA_IPP, ubicarImpresora, type Impresora } from './ipp'
+
 const { autoUpdater } = electronUpdater
 
 /**
@@ -207,6 +209,29 @@ ipcMain.handle('imprimir', async () => {
   })
 })
 
+/** Lo que el renderer le pasa al handler: la impresora cargada en la oficina. */
+function normalizarImpresora(valor: unknown): Impresora | null {
+  if (!valor || typeof valor !== 'object') return null
+  const o = valor as Record<string, unknown>
+  if (typeof o.ip !== 'string' || o.ip.length === 0) return null
+  return {
+    ip: o.ip,
+    puerto: typeof o.puerto === 'number' ? o.puerto : PUERTO_IPP,
+    ruta: typeof o.ruta === 'string' && o.ruta.length > 0 ? o.ruta : RUTA_IPP,
+  }
+}
+
+interface ResultadoImpresionDocumento {
+  impreso: boolean
+  motivo?: string
+  /** Por dónde salió: directo a la impresora ('ipp') o el diálogo del sistema. */
+  via?: 'ipp' | 'sistema'
+  /** La dirección por la que salió, cuando fue por IPP. */
+  direccion?: string
+  /** La impresora estaba en otra IP que la cargada en la oficina. */
+  descubierta?: boolean
+}
+
 /**
  * Imprimir un documento que arma el panel, no la ventana que se está mirando.
  *
@@ -215,21 +240,28 @@ ipcMain.handle('imprimir', async () => {
  * Chromium acá, con la misma letra y el mismo tamaño siempre, sin el ajuste de
  * accesibilidad del teléfono de cada vendedor en el medio—.
  *
- * Va en una ventana propia, oculta y sin Node:
+ * El HTML se carga en una ventana propia, oculta y sin Node:
  *
- *   · propia, porque `webContents.print()` imprime lo que la ventana muestra, y
- *     no se le puede pedir al panel que se convierta en la nota y vuelva;
+ *   · propia, porque hay que renderizar la nota, no el panel;
  *   · oculta, porque el operador no tiene por qué ver parpadear una hoja;
  *   · sin Node y con `javascript: false`, porque acá entra HTML armado con
  *     datos de la base. No debería poder ejecutar nada, y no puede.
  *
- * `silent: false` a propósito: sale el diálogo de impresión. La oficina elige
- * impresora y confirma, que es lo que hoy hace a mano y no hay motivo para
- * quitárselo. Si alguna vez se quiere sin diálogo, es este parámetro.
+ * ─── Cómo sale el papel ──────────────────────────────────────────────────────
+ *
+ * Directo a la impresora de la oficina por IPP, sin diálogo: se arma el PDF con
+ * `printToPDF` y se manda a la IP cargada en el panel (`impresora_oficina`),
+ * igual que lo hace el teléfono. La oficina tocaba "Imprimir", elegía impresora
+ * y confirmaba en un diálogo cada vez; ahora toca y sale.
+ *
+ * El **diálogo del sistema queda de respaldo**, no de camino principal: si la
+ * impresora no contesta ni aparece en la red, o el renderer no mandó ninguna IP,
+ * se abre el diálogo como antes. Que la impresora esté apagada o haya cambiado
+ * de red no puede dejar a la oficina sin poder imprimir a mano.
  */
-ipcMain.handle('imprimir-documento', async (_evento, html: unknown) => {
+ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: unknown) => {
   if (typeof html !== 'string' || html.length === 0) {
-    return { impreso: false, motivo: 'No llegó el documento a imprimir' }
+    return { impreso: false, motivo: 'No llegó el documento a imprimir' } as ResultadoImpresionDocumento
   }
 
   const hoja = new BrowserWindow({
@@ -244,14 +276,44 @@ ipcMain.handle('imprimir-documento', async (_evento, html: unknown) => {
 
   try {
     await hoja.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    return await new Promise<{ impreso: boolean; motivo?: string }>((resolver) => {
+
+    // ── Camino principal: directo a la impresora por IPP, sin diálogo ─────────
+    const configurada = normalizarImpresora(impresora)
+    if (configurada) {
+      try {
+        // A4 y sin márgenes: la nota ya trae los suyos, como el PDF del teléfono.
+        const pdf = await hoja.webContents.printToPDF({
+          pageSize: 'A4',
+          printBackground: true,
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+        })
+        const ubicada = await ubicarImpresora(configurada, direccionEnLaRed())
+        if (ubicada) {
+          await imprimirPorIpp(ubicada.impresora, pdf, 'woodtools-panel')
+          return {
+            impreso: true,
+            via: 'ipp',
+            direccion: ubicada.impresora.ip,
+            descubierta: ubicada.descubierta,
+          } as ResultadoImpresionDocumento
+        }
+        // No se ubicó la impresora: cae al diálogo, abajo.
+      } catch (e) {
+        // La impresora contestó pero rechazó el trabajo, o falló el armado del
+        // PDF: se cae al diálogo para que la oficina pueda imprimir igual.
+        console.warn('[imprimir-documento] falló la impresión directa; se cae al diálogo', e)
+      }
+    }
+
+    // ── Respaldo: el diálogo del sistema, como era antes ─────────────────────
+    return await new Promise<ResultadoImpresionDocumento>((resolver) => {
       hoja.webContents.print(
         { silent: false, printBackground: true, margins: { marginType: 'none' } },
-        (impreso, motivo) => resolver({ impreso, motivo }),
+        (impreso, motivo) => resolver({ impreso, motivo, via: 'sistema' }),
       )
     })
   } catch (e) {
-    return { impreso: false, motivo: (e as Error).message }
+    return { impreso: false, motivo: (e as Error).message } as ResultadoImpresionDocumento
   } finally {
     // Pase lo que pase la ventana se cierra: una hoja oculta que queda viva es
     // memoria que nadie va a reclamar y que nadie ve.
