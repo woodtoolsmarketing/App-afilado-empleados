@@ -22,7 +22,6 @@ contextBridge.exposeInMainWorld('woodtools', {
     motivo?: string
     via?: 'ipp' | 'sistema'
     direccion?: string
-    descubierta?: boolean
   }> => ipcRenderer.invoke('imprimir-documento', html, impresora ?? null),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),

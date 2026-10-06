@@ -9,8 +9,15 @@ import http from 'node:http'
  * aquél corre en React Native —`fetch` de RN, `expo-network`, `AsyncStorage`— y
  * éste corre en Node, sin navegador. La **codificación IPP es un formato de
  * bytes sobre HTTP y no cambia**: las dos versiones arman exactamente los mismos
- * bytes, y si se toca una hay que tocar la otra. Lo que cambia es el transporte
- * (acá `http` de Node) y el descubrimiento (acá la IP de esta PC).
+ * bytes, y si se toca una hay que tocar la otra. Lo que cambia es el transporte:
+ * acá `http` de Node.
+ *
+ * A diferencia del teléfono, acá NO se barre la red buscando la impresora. El
+ * teléfono lo hace porque el vendedor está parado frente a la impresora y ve si
+ * sale el papel; en la oficina la nota se manda y el operador se va, así que
+ * mandarla "a la primera que conteste IPP" podría sellarla como impresa habiendo
+ * salido por otro aparato. Se usa la IP cargada y nada más: si no contesta, el
+ * handler cae al diálogo del sistema.
  *
  * ─── Por qué no lo hace el renderer ──────────────────────────────────────────
  *
@@ -53,11 +60,8 @@ const PAPEL_A4 = 'iso_a4_210x297mm'
 export const PUERTO_IPP = 631
 export const RUTA_IPP = '/ipp/print'
 
-/** A la impresora conocida: si está en la red, contesta en decenas de ms. */
+/** A la impresora: si está en la red, contesta en decenas de ms. */
 const ESPERA_IMPRESION_MS = 6_000
-/** Por dirección, durante el barrido, donde se prueban muchas a la vez. */
-const ESPERA_SONDEO_MS = 900
-const SONDEOS_EN_PARALELO = 24
 
 export interface Impresora {
   ip: string
@@ -183,8 +187,15 @@ function postIpp(imp: Impresora, cuerpo: Buffer, ms: number): Promise<Buffer> {
   })
 }
 
-/** ¿Hay una impresora IPP viva en esa dirección? */
-async function contestaIpp(imp: Impresora, ms = ESPERA_SONDEO_MS): Promise<boolean> {
+/**
+ * ¿Hay una impresora IPP viva en esa dirección? No imprime nada: pide los
+ * atributos de la impresora.
+ *
+ * Es el chequeo que separa "la impresora no está" de "la impresora está pero
+ * rechazó el trabajo": si contesta, el handler le manda el trabajo y confía en
+ * lo que IPP responda; si no contesta, cae al diálogo sin haber mandado nada.
+ */
+export async function contestaIpp(imp: Impresora, ms = ESPERA_IMPRESION_MS): Promise<boolean> {
   try {
     const cuerpo = await postIpp(imp, peticionAtributos(uriDe(imp)), ms)
     // Que conteste HTTP no alcanza: cualquier cosa puede escuchar en el 631. Lo
@@ -193,79 +204,6 @@ async function contestaIpp(imp: Impresora, ms = ESPERA_SONDEO_MS): Promise<boole
   } catch {
     return false
   }
-}
-
-/**
- * Busca la impresora en la red de esta PC.
- *
- * Recorre el /24 —las 254 direcciones de una red de oficina típica— de a 24 por
- * vez, empezando por las vecinas de la IP conocida: si el router le dio otra a
- * la impresora, casi siempre es una cerca. Resuelve el caso real, una IP que
- * cambió por DHCP dentro de la misma red; ya pasó con esta impresora.
- */
-async function buscarEnLaRed(params: {
-  ipDeLaPc: string
-  puerto: number
-  ruta: string
-  ipConocida?: string | null
-}): Promise<string | null> {
-  const partes = params.ipDeLaPc.split('.')
-  if (partes.length !== 4) return null
-  const prefijo = partes.slice(0, 3).join('.')
-
-  const propio = Number(partes[3])
-  const desde = Number(params.ipConocida?.split('.')[3]) || propio
-
-  const finales = Array.from({ length: 254 }, (_, i) => i + 1)
-    .filter((n) => n !== propio)
-    .sort((a, b) => Math.abs(a - desde) - Math.abs(b - desde))
-
-  for (let i = 0; i < finales.length; i += SONDEOS_EN_PARALELO) {
-    const tanda = finales.slice(i, i + SONDEOS_EN_PARALELO)
-    const resultados = await Promise.all(
-      tanda.map(async (n) => {
-        const imp: Impresora = { ip: `${prefijo}.${n}`, puerto: params.puerto, ruta: params.ruta }
-        return (await contestaIpp(imp)) ? imp.ip : null
-      }),
-    )
-    const encontrada = resultados.find(Boolean)
-    if (encontrada) return encontrada
-  }
-
-  return null
-}
-
-export interface Ubicacion {
-  impresora: Impresora
-  /** La encontramos en una dirección distinta a la cargada en la oficina. */
-  descubierta: boolean
-}
-
-/**
- * A qué dirección mandarle el trabajo, ahora.
- *
- * Primero la que tiene cargada la oficina; si no contesta, la busca en la red.
- * Devuelve null cuando no hay forma: impresora apagada o fuera de esta red.
- */
-export async function ubicarImpresora(
-  configurada: Impresora,
-  ipDeLaPc: string | null,
-): Promise<Ubicacion | null> {
-  if (await contestaIpp(configurada, ESPERA_IMPRESION_MS)) {
-    return { impresora: configurada, descubierta: false }
-  }
-
-  if (!ipDeLaPc) return null
-
-  const encontrada = await buscarEnLaRed({
-    ipDeLaPc,
-    puerto: configurada.puerto,
-    ruta: configurada.ruta,
-    ipConocida: configurada.ip,
-  })
-  if (!encontrada) return null
-
-  return { impresora: { ...configurada, ip: encontrada }, descubierta: true }
 }
 
 /** Manda el PDF a la impresora. Lanza si la impresora rechaza el trabajo. */

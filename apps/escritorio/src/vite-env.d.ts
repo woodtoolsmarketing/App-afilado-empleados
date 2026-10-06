@@ -25,7 +25,6 @@ interface Window {
       motivo?: string
       via?: 'ipp' | 'sistema'
       direccion?: string
-      descubierta?: boolean
     }>
     abrirExterno: (url: string) => Promise<boolean>
     version: () => Promise<string>

@@ -6,7 +6,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 
-import { imprimirPorIpp, PUERTO_IPP, RUTA_IPP, ubicarImpresora, type Impresora } from './ipp'
+import { contestaIpp, imprimirPorIpp, PUERTO_IPP, RUTA_IPP, type Impresora } from './ipp'
 
 const { autoUpdater } = electronUpdater
 
@@ -224,12 +224,10 @@ function normalizarImpresora(valor: unknown): Impresora | null {
 interface ResultadoImpresionDocumento {
   impreso: boolean
   motivo?: string
-  /** Por dónde salió: directo a la impresora ('ipp') o el diálogo del sistema. */
+  /** Por dónde se intentó: directo a la impresora ('ipp') o el diálogo del sistema. */
   via?: 'ipp' | 'sistema'
-  /** La dirección por la que salió, cuando fue por IPP. */
+  /** La dirección a la que se mandó, cuando fue por IPP. */
   direccion?: string
-  /** La impresora estaba en otra IP que la cargada en la oficina. */
-  descubierta?: boolean
 }
 
 /**
@@ -254,10 +252,19 @@ interface ResultadoImpresionDocumento {
  * igual que lo hace el teléfono. La oficina tocaba "Imprimir", elegía impresora
  * y confirmaba en un diálogo cada vez; ahora toca y sale.
  *
- * El **diálogo del sistema queda de respaldo**, no de camino principal: si la
- * impresora no contesta ni aparece en la red, o el renderer no mandó ninguna IP,
- * se abre el diálogo como antes. Que la impresora esté apagada o haya cambiado
- * de red no puede dejar a la oficina sin poder imprimir a mano.
+ * ─── El diálogo es respaldo, pero sólo si NO se mandó nada ────────────────────
+ *
+ * El orden importa para no imprimir dos veces. Primero se le pregunta a la
+ * impresora si está (un pedido que no imprime). Según eso:
+ *
+ *   · **No contesta** —apagada, cambió de IP, o no hay IP cargada—: no se mandó
+ *     nada, así que se abre el diálogo del sistema como antes. La oficina nunca
+ *     queda sin poder imprimir a mano.
+ *   · **Contesta**: se le manda el trabajo y se confía en lo que IPP responda.
+ *     Si lo acepta, la nota salió. Si lo rechaza o no confirma a tiempo, se
+ *     devuelve el fallo y la nota queda pendiente —pero **no** se abre el
+ *     diálogo—: el trabajo ya viajó, y reimprimir por las dudas sacaría dos
+ *     copias de la misma nota.
  */
 ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: unknown) => {
   if (typeof html !== 'string' || html.length === 0) {
@@ -279,7 +286,9 @@ ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: u
 
     // ── Camino principal: directo a la impresora por IPP, sin diálogo ─────────
     const configurada = normalizarImpresora(impresora)
-    if (configurada) {
+    if (configurada && (await contestaIpp(configurada))) {
+      // La impresora está. A partir de acá el diálogo deja de ser una opción:
+      // si algo falla después de mandar el trabajo, no se reimprime solo.
       try {
         // A4 y sin márgenes: la nota ya trae los suyos, como el PDF del teléfono.
         const pdf = await hoja.webContents.printToPDF({
@@ -287,25 +296,23 @@ ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: u
           printBackground: true,
           margins: { top: 0, bottom: 0, left: 0, right: 0 },
         })
-        const ubicada = await ubicarImpresora(configurada, direccionEnLaRed())
-        if (ubicada) {
-          await imprimirPorIpp(ubicada.impresora, pdf, 'woodtools-panel')
-          return {
-            impreso: true,
-            via: 'ipp',
-            direccion: ubicada.impresora.ip,
-            descubierta: ubicada.descubierta,
-          } as ResultadoImpresionDocumento
-        }
-        // No se ubicó la impresora: cae al diálogo, abajo.
+        await imprimirPorIpp(configurada, pdf, 'woodtools-panel')
+        return { impreso: true, via: 'ipp', direccion: configurada.ip } as ResultadoImpresionDocumento
       } catch (e) {
-        // La impresora contestó pero rechazó el trabajo, o falló el armado del
-        // PDF: se cae al diálogo para que la oficina pueda imprimir igual.
-        console.warn('[imprimir-documento] falló la impresión directa; se cae al diálogo', e)
+        // Rechazó el trabajo (sin papel, en pausa) o no confirmó a tiempo. La
+        // nota queda pendiente para reintentar; NO se cae al diálogo.
+        console.warn('[imprimir-documento] la impresora no completó el trabajo', e)
+        return {
+          impreso: false,
+          via: 'ipp',
+          direccion: configurada.ip,
+          motivo: (e as Error).message,
+        } as ResultadoImpresionDocumento
       }
     }
 
-    // ── Respaldo: el diálogo del sistema, como era antes ─────────────────────
+    // ── Respaldo: el diálogo del sistema. No se mandó nada por IPP ────────────
+    // (no hay IP cargada, o la impresora no contestó), así que es seguro.
     return await new Promise<ResultadoImpresionDocumento>((resolver) => {
       hoja.webContents.print(
         { silent: false, printBackground: true, margins: { marginType: 'none' } },

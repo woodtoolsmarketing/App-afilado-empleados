@@ -150,18 +150,25 @@ export function PaginaColaImpresion({ soloLectura }: { soloLectura: boolean }) {
         ? ` El rol de visita no se pudo sumar: ese día ${orden.pedida?.nombre_completo ?? 'el vendedor'} no tenía recorrido cargado, o no pudimos traerlo.`
         : ''
 
-      // Si la impresora estaba en otra IP que la cargada, se avisa: la próxima
-      // vez el camino directo arranca por la vieja y tarda un poco más en salir.
-      const ipVieja =
-        salida.via === 'ipp' && salida.descubierta && salida.direccion
-          ? ` La impresora hoy está en ${salida.direccion}; pedile a la oficina que actualice la IP en Configuración.`
-          : ''
-
-      setMensaje(
-        salida.impreso
-          ? `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.${sinRol}${ipVieja}`
-          : `No salió: ${salida.motivo ?? 'se canceló'}. La nota sigue pendiente y queda para reintentar.`,
-      )
+      if (salida.impreso) {
+        setMensaje(
+          `Nota ${etiquetaNota(orden)} impresa. Ya figura como impresa y no se puede corregir.${sinRol}`,
+        )
+      } else if (salida.via === 'ipp') {
+        // El trabajo YA viajó a la impresora pero no se completó —sin papel, en
+        // pausa, o no confirmó a tiempo—. Puede haber salido o no, así que se le
+        // pide al operador que mire la impresora antes de reintentar: reimprimir
+        // a ciegas sacaría dos copias de la misma nota.
+        setMensaje(
+          `La mandé a la impresora${salida.direccion ? ` (${salida.direccion})` : ''} pero no me confirmó` +
+            `${salida.motivo ? `: ${salida.motivo}` : ''}. Fijate si salió el papel antes de reintentar.` +
+            ' La nota sigue pendiente.',
+        )
+      } else {
+        setMensaje(
+          `No salió: ${salida.motivo ?? 'se canceló'}. La nota sigue pendiente y queda para reintentar.`,
+        )
+      }
       void cliente.invalidateQueries()
     },
     onError: (e: Error) => setMensaje(`No se pudo imprimir: ${e.message}`),
@@ -328,19 +335,27 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
  * no hay ninguna cargada: ahí `imprimirDocumento` cae al diálogo del sistema.
  */
 async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
-  const { data, error } = await supabase
-    .from('configuracion')
-    .select('valor')
-    .eq('clave', 'impresora_oficina')
-    .maybeSingle()
+  try {
+    const { data, error } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'impresora_oficina')
+      .maybeSingle()
 
-  // "No hay IP" y "no pude leerla" se ven igual desde afuera; el segundo se
-  // anota para poder distinguirlo, pero en los dos casos se cae al diálogo.
-  if (error) console.warn('[cola-impresion] no pudimos leer la impresora de la oficina', error)
+    // "No hay IP" y "no pude leerla" se ven igual desde afuera; el segundo se
+    // anota para poder distinguirlo, pero en los dos casos se devuelve null y
+    // la impresión cae al diálogo. No leer la IP no puede frenar el imprimir.
+    if (error) console.warn('[cola-impresion] no pudimos leer la impresora de la oficina', error)
 
-  const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
-  if (!cfg?.ip) return null
-  return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
+    const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
+    if (!cfg?.ip) return null
+    return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
+  } catch (e) {
+    // Si la consulta rechaza (red caída, sesión vencida), tampoco frena: cae al
+    // diálogo como si no hubiera IP cargada, en vez de abortar la impresión.
+    console.warn('[cola-impresion] falló leer la impresora de la oficina', e)
+    return null
+  }
 }
 
 /** Una nota sin número todavía no la numeró Administración: se la nombra por el cliente. */
