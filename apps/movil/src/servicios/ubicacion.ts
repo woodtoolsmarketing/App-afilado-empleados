@@ -350,9 +350,6 @@ export async function olvidarPermisoDeJornada(): Promise<void> {
 // Confiabilidad (Fase 2): que Android/Samsung no "duerma" la app
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CLAVE_BATERIA_OK = 'woodtools.bateria_seguimiento_ok'
-let yaOfrecioBateria = false
-
 /**
  * Abre los ajustes para sacar la app de la optimización de batería.
  *
@@ -388,8 +385,11 @@ export async function abrirAjustesDeBateria(): Promise<void> {
  *
  * El problema real: Samsung (y Android en general) mata el servicio en segundo
  * plano para ahorrar batería, y ahí el seguimiento se corta aunque todo lo demás
- * esté bien. No se puede chequear por código si la app ya está exceptuada, así
- * que se guía y se confía en el "Ya lo hice".
+ * esté bien. No se puede chequear por código si la app ya está exceptuada.
+ *
+ * NO se muestra sola: se abre A MANO desde Configuración ("QUE EL SEGUIMIENTO NO
+ * SE CORTE"). No la queremos saltando en la cara de toda la flota al arrancar;
+ * la oficina la usa con el vendedor que haga falta.
  */
 export function mostrarGuiaDeBateria(): void {
   Alert.alert(
@@ -398,30 +398,10 @@ export function mostrarGuiaDeBateria(): void {
       '1) Sacá a WoodTools de la optimización de batería (ponela en "Sin restricciones").\n' +
       '2) En Samsung, sacala también de "Apps que se duermen" / "en suspensión profunda".',
     [
-      { text: 'Más tarde', style: 'cancel' },
-      {
-        text: 'Ya lo hice',
-        onPress: () => void cacheLocal.setItem(CLAVE_BATERIA_OK, '1'),
-      },
+      { text: 'Cerrar', style: 'cancel' },
       { text: 'Abrir ajustes', onPress: () => void abrirAjustesDeBateria() },
     ],
   )
-}
-
-/**
- * Ofrece el ajuste de batería UNA vez por arranque, hasta que lo marquen hecho.
- *
- * Va después de conceder el permiso "siempre" (sin permiso, lo que falta es ese,
- * no la batería). "Más tarde" no marca nada, así que vuelve a ofrecerse el
- * próximo arranque; "Ya lo hice" lo deja tranquilo. La exención es del TELÉFONO,
- * no de la cuenta, así que NO se olvida al cambiar de cuenta.
- */
-export async function ofrecerAjustarBateriaSiFalta(): Promise<void> {
-  if (yaOfrecioBateria) return
-  if (!(await permisoDeFondo())) return
-  if (await cacheLocal.getItem(CLAVE_BATERIA_OK)) return
-  yaOfrecioBateria = true
-  mostrarGuiaDeBateria()
 }
 
 export async function detenerSeguimiento(vendedorId?: string): Promise<void> {
