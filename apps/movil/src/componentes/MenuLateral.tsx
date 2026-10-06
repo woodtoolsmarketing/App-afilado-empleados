@@ -171,6 +171,14 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
   // ya lo gatea, pero esconderla evita ofrecerle a un vendedor una puerta que la
   // base le va a cerrar.
   const esAdmin = usarSesion((s) => s.perfil?.rol === 'admin')
+  // "IMPRIMIR ROL DE VISITA" se oculta a los vendedores que la oficina no
+  // habilitó. Sólo a los vendedores: admin y supervisor imprimen siempre.
+  const ocultarImprimirRol = usarSesion(
+    (s) => s.perfil?.rol === 'vendedor' && s.perfil?.imprime_roles === false,
+  )
+  const opciones = ocultarImprimirRol
+    ? OPCIONES.filter((o) => o.etiqueta !== 'IMPRIMIR ROL DE VISITA')
+    : OPCIONES
   // Desde dónde se abrió el menú, para "REPORTAR UN PROBLEMA", con nombre legible.
   const rutaActual = useNavigationState((state) => state.routes[state.index]?.name)
   const pantallaActual = rutaActual ? (ETIQUETA_PANTALLA[rutaActual] ?? rutaActual) : undefined
@@ -276,7 +284,7 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
             }}
             scrollEventThrottle={16}
           >
-            {OPCIONES.map((o) => (
+            {opciones.map((o) => (
               <Opcion key={o.etiqueta} destino={o} alElegir={irA} />
             ))}
 

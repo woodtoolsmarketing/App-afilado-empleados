@@ -159,6 +159,11 @@ export interface Perfil {
    * conocen dos personas no identifica a ninguna.
    */
   debe_cambiar_contrasena: boolean
+  /**
+   * Si el vendedor puede imprimir el rol de visita desde la app. Lo decide la
+   * oficina desde el panel. No aplica a admin/supervisor: ellos imprimen siempre.
+   */
+  imprime_roles: boolean
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null

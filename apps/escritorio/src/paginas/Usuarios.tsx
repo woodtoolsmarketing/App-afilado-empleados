@@ -209,6 +209,27 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
   })
 
   /**
+   * Si el vendedor puede imprimir el rol de visita desde la app.
+   *
+   * La oficina decide quién sí y quién no; en la app, al que tiene esto en `false`
+   * no le aparece la opción "IMPRIMIR ROL DE VISITA". No aplica a admin/supervisor.
+   */
+  const guardarImprimeRoles = useMutation({
+    mutationFn: async (params: { perfilId: string; imprime: boolean }) => {
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ imprime_roles: params.imprime })
+        .eq('id', params.perfilId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Permiso de impresión del rol actualizado.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo guardar el permiso de impresión: ${e.message}`),
+  })
+
+  /**
    * El número de vendedor, después del alta.
    *
    * Hasta ahora se cargaba una sola vez, al aprobar el usuario, y si quedaba
@@ -757,6 +778,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
               <th>Nombre</th>
               <th>Código</th>
               <th>Zonas a cargo</th>
+              <th>Imprime rol</th>
               <th>Rol</th>
               <th>Estado</th>
               <th>Última conexión</th>
@@ -796,6 +818,34 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                     soloLectura={soloLectura}
                     alGuardar={(zonas) => guardarZonas.mutate({ perfilId: p.id, zonas })}
                   />
+                </td>
+                <td>
+                  {p.rol === 'vendedor' ? (
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: soloLectura ? 'default' : 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={p.imprime_roles}
+                        disabled={
+                          soloLectura ||
+                          (guardarImprimeRoles.isPending &&
+                            guardarImprimeRoles.variables?.perfilId === p.id)
+                        }
+                        onChange={(e) =>
+                          guardarImprimeRoles.mutate({ perfilId: p.id, imprime: e.target.checked })
+                        }
+                      />
+                      <span style={{ fontSize: 13 }}>{p.imprime_roles ? 'Sí' : 'No'}</span>
+                    </label>
+                  ) : (
+                    <small style={{ color: 'var(--tinta-tenue)' }}>Siempre</small>
+                  )}
                 </td>
                 <td style={{ textTransform: 'capitalize' }}>{p.rol}</td>
                 <td>
