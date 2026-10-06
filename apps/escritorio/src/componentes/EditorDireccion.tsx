@@ -1,8 +1,13 @@
 import L from 'leaflet'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
-import { ubicacionComoDireccion } from '../servicios/geocodificar'
+import {
+  detallarDireccion,
+  sugerirDirecciones,
+  ubicacionComoDireccion,
+  type SugerenciaDireccion,
+} from '../servicios/geocodificar'
 
 /**
  * Una dirección que se está cargando/editando en el panel, con su punto en el
@@ -78,8 +83,67 @@ export function EditorDireccion({
   const [sugerida, setSugerida] = useState<string | null>(null)
   const [errorMapa, setErrorMapa] = useState<string | null>(null)
 
+  // Autocompletado de Google al tipear la dirección (mismo recurso que el
+  // teléfono). `elegida` corta la búsqueda cuando el texto vino de una sugerencia
+  // o del pin, para no volver a buscar lo que Google ya resolvió.
+  const [sugerencias, setSugerencias] = useState<SugerenciaDireccion[]>([])
+  const [buscandoSug, setBuscandoSug] = useState(false)
+  const [elegida, setElegida] = useState(valor.lat !== null)
+  const sesionRef = useRef(crypto.randomUUID())
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const pos: [number, number] | null =
     valor.lat !== null && valor.lng !== null ? [valor.lat, valor.lng] : null
+
+  useEffect(() => {
+    if (elegida) return
+    if (temporizador.current) clearTimeout(temporizador.current)
+    const t = valor.direccion.trim()
+    if (t.length < 4) {
+      setSugerencias([])
+      return
+    }
+    temporizador.current = setTimeout(async () => {
+      setBuscandoSug(true)
+      try {
+        setSugerencias(await sugerirDirecciones(t, sesionRef.current))
+      } catch {
+        setSugerencias([])
+      } finally {
+        setBuscandoSug(false)
+      }
+    }, 350)
+    return () => {
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valor.direccion, elegida])
+
+  /** Eligió una sugerencia de Google: se fija el pin y las coordenadas de ese lugar. */
+  async function elegirSugerencia(s: SugerenciaDireccion) {
+    setElegida(true)
+    setSugerencias([])
+    setErrorMapa(null)
+    setBuscandoSug(true)
+    try {
+      const d = await detallarDireccion(s.place_id, sesionRef.current)
+      sesionRef.current = crypto.randomUUID()
+      setSugerida(d.direccion_formateada)
+      alCambiar({
+        ...valor,
+        direccion: d.direccion_formateada,
+        codigo_postal: d.codigo_postal ?? valor.codigo_postal,
+        lat: d.lat,
+        lng: d.lng,
+        google_place_id: d.google_place_id,
+        confirmada: false,
+      })
+    } catch (e) {
+      setErrorMapa((e as Error).message)
+    } finally {
+      setBuscandoSug(false)
+    }
+  }
 
   /**
    * Puso el pin (clic, arrastre o "mi ubicación"): se guardan esas coordenadas
@@ -89,6 +153,10 @@ export function EditorDireccion({
    */
   async function ponerPin([lat, lng]: [number, number]) {
     setErrorMapa(null)
+    // El pin resuelve el texto solo: cortamos el autocompletado para no volver a
+    // buscar lo que Google va a devolver por la coordenada.
+    setElegida(true)
+    setSugerencias([])
     alCambiar({ ...valor, lat, lng, confirmada: false })
     setBuscando(true)
     try {
@@ -217,13 +285,37 @@ export function EditorDireccion({
         </p>
       ) : null}
 
-      <div className="campo" style={{ marginTop: 10 }}>
+      <div className="campo" style={{ marginTop: 10, position: 'relative' }}>
         <label>Dirección (calle y altura)</label>
         <input
           value={valor.direccion}
-          onChange={(e) => alCambiar({ ...valor, direccion: e.target.value })}
-          placeholder="Marcá el punto en el mapa para que aparezca sola"
+          onChange={(e) => {
+            // Editar el texto vuelve a buscar en Google (abajo salen las
+            // sugerencias). No borra el pin: pueden corregir a mano y confirmar,
+            // o elegir una sugerencia para reubicarlo. Cambiar el texto sí pide
+            // reconfirmar, porque ya no es exactamente lo que se había mirado.
+            setElegida(false)
+            alCambiar({ ...valor, direccion: e.target.value, confirmada: false })
+          }}
+          placeholder="Escribí la calle para buscar en Google, o marcá el punto en el mapa"
         />
+        {buscandoSug && (
+          <span style={{ position: 'absolute', right: 10, top: 34, fontSize: 12, color: 'var(--tinta-suave, #888)' }}>
+            buscando…
+          </span>
+        )}
+        {sugerencias.length > 0 && (
+          <ul className="sugerencias-dir">
+            {sugerencias.map((s) => (
+              <li key={s.place_id}>
+                <button type="button" onClick={() => void elegirSugerencia(s)}>
+                  <strong>{s.principal || s.texto}</strong>
+                  {s.secundario ? <small>{s.secundario}</small> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="fila">

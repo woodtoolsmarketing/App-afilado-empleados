@@ -70,3 +70,46 @@ export async function ubicacionComoDireccion(coords: {
   }
   return data.direccion
 }
+
+export interface SugerenciaDireccion {
+  place_id: string
+  texto: string
+  principal: string
+  secundario: string
+}
+
+/**
+ * Autocompletado de direcciones mientras se escribe, desde el panel.
+ *
+ * Es la MISMA Edge Function que usa el teléfono (`operacion: 'sugerir'`), así el
+ * que carga desde la oficina puede tipear la calle en vez de buscar el punto a
+ * ojo en el mapa. `sesion` agrupa el autocompletado con el `detallar` que viene
+ * después para que Google los cobre como una sola búsqueda.
+ */
+export async function sugerirDirecciones(
+  texto: string,
+  sesion: string,
+): Promise<SugerenciaDireccion[]> {
+  const data = await invocar<{ sugerencias?: SugerenciaDireccion[] }>('geocodificar', {
+    operacion: 'sugerir',
+    texto,
+    sesion,
+  })
+  return data?.sugerencias ?? []
+}
+
+/** Coordenadas y datos completos de una sugerencia elegida. */
+export async function detallarDireccion(
+  placeId: string,
+  sesion: string,
+): Promise<DireccionResuelta> {
+  const data = await invocar<{ direccion?: DireccionResuelta }>('geocodificar', {
+    operacion: 'detallar',
+    place_id: placeId,
+    sesion,
+  })
+  if (!data?.direccion?.lat) {
+    throw new Error('Google no devolvió las coordenadas de esa dirección. Probá con otra.')
+  }
+  return data.direccion
+}
