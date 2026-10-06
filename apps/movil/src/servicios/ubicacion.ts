@@ -1,6 +1,7 @@
 import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
+import { Alert, Linking } from 'react-native'
 
 import {
   distanciaEnMetros,
@@ -343,6 +344,84 @@ export async function olvidarPermisoDeJornada(): Promise<void> {
   } catch {
     // Si no se puede olvidar, en el peor caso no se vuelve a preguntar.
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Confiabilidad (Fase 2): que Android/Samsung no "duerma" la app
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CLAVE_BATERIA_OK = 'woodtools.bateria_seguimiento_ok'
+let yaOfrecioBateria = false
+
+/**
+ * Abre los ajustes para sacar la app de la optimización de batería.
+ *
+ * En el APK 1.3.0 usa `expo-intent-launcher` (nativo, importado lazy porque en
+ * 1.2.1 no existe e importarlo arriba rompería el bundle). Si no, cae a
+ * `Linking`, que es de React Native y anda en los dos runtimes. Último recurso:
+ * los ajustes de la app.
+ */
+export async function abrirAjustesDeBateria(): Promise<void> {
+  const ACCION = 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS'
+  try {
+    const IntentLauncher = await import('expo-intent-launcher')
+    await IntentLauncher.startActivityAsync(ACCION)
+    return
+  } catch {
+    // 1.2.1 (sin el módulo nativo) o cualquier error: se intenta por Linking.
+  }
+  try {
+    await Linking.sendIntent(ACCION)
+    return
+  } catch {
+    // Si la acción no existe en este teléfono, al menos los ajustes de la app.
+  }
+  try {
+    await Linking.openSettings()
+  } catch {
+    // Que no se pueda abrir ajustes no puede romper la app.
+  }
+}
+
+/**
+ * Explica por qué el seguimiento se puede cortar y ofrece arreglarlo.
+ *
+ * El problema real: Samsung (y Android en general) mata el servicio en segundo
+ * plano para ahorrar batería, y ahí el seguimiento se corta aunque todo lo demás
+ * esté bien. No se puede chequear por código si la app ya está exceptuada, así
+ * que se guía y se confía en el "Ya lo hice".
+ */
+export function mostrarGuiaDeBateria(): void {
+  Alert.alert(
+    'Que el seguimiento no se corte',
+    'Para que la oficina te siga viendo con la pantalla apagada, Android no tiene que "dormir" la app.\n\n' +
+      '1) Sacá a WoodTools de la optimización de batería (ponela en "Sin restricciones").\n' +
+      '2) En Samsung, sacala también de "Apps que se duermen" / "en suspensión profunda".',
+    [
+      { text: 'Más tarde', style: 'cancel' },
+      {
+        text: 'Ya lo hice',
+        onPress: () => void cacheLocal.setItem(CLAVE_BATERIA_OK, '1'),
+      },
+      { text: 'Abrir ajustes', onPress: () => void abrirAjustesDeBateria() },
+    ],
+  )
+}
+
+/**
+ * Ofrece el ajuste de batería UNA vez por arranque, hasta que lo marquen hecho.
+ *
+ * Va después de conceder el permiso "siempre" (sin permiso, lo que falta es ese,
+ * no la batería). "Más tarde" no marca nada, así que vuelve a ofrecerse el
+ * próximo arranque; "Ya lo hice" lo deja tranquilo. La exención es del TELÉFONO,
+ * no de la cuenta, así que NO se olvida al cambiar de cuenta.
+ */
+export async function ofrecerAjustarBateriaSiFalta(): Promise<void> {
+  if (yaOfrecioBateria) return
+  if (!(await permisoDeFondo())) return
+  if (await cacheLocal.getItem(CLAVE_BATERIA_OK)) return
+  yaOfrecioBateria = true
+  mostrarGuiaDeBateria()
 }
 
 export async function detenerSeguimiento(vendedorId?: string): Promise<void> {

@@ -24,6 +24,7 @@ import { supabase } from './src/nucleo/supabase'
 // plano. TaskManager exige que la definición corra en el arranque, antes de que
 // el sistema pueda despertar la app para entregar ubicaciones.
 import {
+  ofrecerAjustarBateriaSiFalta,
   pedirPermisoDeSeguimientoSiFalta,
   revisarSeguimiento,
 } from './src/servicios/ubicacion'
@@ -101,7 +102,12 @@ export default function App() {
     if (estado === 'cargando') return
     const habilitado = estado === 'habilitado'
     void (async () => {
-      if (habilitado) await pedirPermisoDeSeguimientoSiFalta()
+      if (habilitado) {
+        await pedirPermisoDeSeguimientoSiFalta()
+        // Fase 2: una vez concedido el permiso, ofrecer sacar la app de la
+        // optimización de batería (lo que evita que Samsung mate el servicio).
+        await ofrecerAjustarBateriaSiFalta()
+      }
       await revisarSeguimiento(habilitado)
     })()
   }, [estado])
