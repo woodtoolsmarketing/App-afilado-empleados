@@ -19,6 +19,7 @@ import {
   type TipoServicio,
 } from './tipos'
 import type { MaterialMecha } from './afilado-mecha'
+import { operacionMecanizado } from './mecanizado'
 import { etiquetaTipoDePieza, unaPieza } from './tipos-de-pieza'
 import { CODIGO_POSTAL } from './validaciones'
 
@@ -315,6 +316,9 @@ export const HERRAMIENTAS_POR_SERVICIO: Record<TipoServicio, Herramienta[]> = {
    * RECLAMO tildado la nota no se podía crear de ninguna manera.
    */
   reclamo: ['sierra', 'fresa', 'cabezal', 'sierra_sin_fin', 'mecha', 'cuchilla'],
+  // El mecanizado del agujero sólo tiene precio de lista para sierras y fresas
+  // (códigos 6105/6103 y 7903/7902). El vendedor elige cuál de las dos es.
+  mecanizado: ['sierra', 'fresa'],
 }
 
 /**
@@ -388,6 +392,8 @@ export type CampoItem =
   | 'cantidad'
   | 'diametro_exterior'
   | 'diametro_interior'
+  /** El agujero que hay que dejarle: sólo en el mecanizado. Ver `mecanizado.ts`. */
+  | 'diametro_interior_destino'
   | 'diametro'
   | 'ancho_corte'
   | 'largo'
@@ -516,6 +522,31 @@ const CAMPOS_CABEZAL_CUCHILLA: CampoItem[] = [
 ]
 
 /**
+ * Los campos de un renglón de MECANIZADO.
+ *
+ * Primero QUÉ herramienta es —lo elige el desplegable de sierra/fresa, fuera de
+ * esta lista—; después las medidas que la identifican (diámetro exterior y
+ * cantidad de dientes son datos del taller, no cambian el precio), el agujero
+ * que tiene hoy —con el desplegable del catálogo, igual que una sierra— y el
+ * que hay que dejarle. De la diferencia entre esos dos sale la operación (buje
+ * o agrandado) y el código, que no se cotiza por medida sino por herramienta +
+ * operación. El precio es PLANO por pieza: no lleva `precio_por_diente`, lleva
+ * `precio_total` como las mechas y las cuchillas.
+ *
+ * `codigos_computo` va pegado al destino, que es la respuesta que lo dispara.
+ */
+const CAMPOS_MECANIZADO: CampoItem[] = [
+  'cantidad', 'diametro_exterior', 'cantidad_dientes',
+  'diametro_interior', 'diametro_interior_destino', 'codigos_computo',
+  'descripcion', 'precio_total',
+]
+
+/** ¿Este renglón es un mecanizado del agujero (sierra o fresa)? */
+export function esMecanizado(item: FormularioItemNota): boolean {
+  return item.servicio === 'mecanizado'
+}
+
+/**
  * ¿Este renglón es un cabezal que se afila como cuchillas?
  *
  * Sólo en el afilado: en venta, reparación o rectificado el cabezal sigue
@@ -541,6 +572,9 @@ export function cabezalAfiladoComoCuchilla(item: FormularioItemNota): boolean {
  */
 export function camposDelItem(item: FormularioItemNota): CampoItem[] {
   if (cabezalAfiladoComoCuchilla(item)) return CAMPOS_CABEZAL_CUCHILLA
+  // El mecanizado tiene sus propios campos, no los del afilado de sierra/fresa:
+  // no cobra por diente ni por ancho de corte, y suma el agujero a hacer.
+  if (esMecanizado(item)) return CAMPOS_MECANIZADO
   return item.herramienta ? CAMPOS_POR_HERRAMIENTA[item.herramienta] : []
 }
 
@@ -1264,6 +1298,15 @@ export interface FormularioItemNota {
   diametro_interior: string
   /** El de fábrica, que trae el catálogo. No lo tipea nadie. */
   diametro_interior_catalogo: string
+  /**
+   * El agujero que hay que DEJARLE: sólo en el mecanizado.
+   *
+   * Es el otro extremo del trabajo —el `diametro_interior` es el que la pieza
+   * tiene hoy, éste es el que va a tener—. De comparar los dos sale la operación
+   * (más chico → buje, más grande → agrandado) y, con la herramienta, el código.
+   * Ver `operacionMecanizado` y `codigoMecanizado`.
+   */
+  diametro_interior_destino: string
   diametro: string
   ancho_corte: string
   largo: string
@@ -1469,6 +1512,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   diametro_exterior: '',
   diametro_interior: '',
   diametro_interior_catalogo: '',
+  diametro_interior_destino: '',
   diametro: '',
   ancho_corte: '',
   largo: '',
@@ -1511,6 +1555,7 @@ const ETIQUETA_CAMPO: Record<CampoItem, string> = {
   cantidad: 'la cantidad',
   diametro_exterior: 'el diámetro exterior',
   diametro_interior: 'el diámetro interior',
+  diametro_interior_destino: 'el diámetro interior a hacer',
   diametro: 'el diámetro',
   ancho_corte: 'el ancho de corte',
   largo: 'el largo',
@@ -1571,7 +1616,8 @@ function esNumeroValido(v: string): boolean {
 }
 
 const CAMPOS_NUMERICOS = new Set<CampoItem>([
-  'cantidad', 'diametro_exterior', 'diametro_interior', 'diametro', 'ancho_corte',
+  'cantidad', 'diametro_exterior', 'diametro_interior', 'diametro_interior_destino',
+  'diametro', 'ancho_corte',
   'largo', 'ancho', 'largo_util', 'largo_rebajado', 'espesor', 'paso', 'cantidad_dientes',
   'precio_por_diente', 'precio_total', 'dientes_rotos_cantidad',
 ])
@@ -1657,6 +1703,27 @@ export function validarItemNota(
     return { valido: false, errores }
   }
 
+  // ── Mecanizado del agujero ──────────────────────────────────────────────────
+  // El diámetro interior que la pieza tiene HOY no es opcional acá —sí lo es en
+  // el afilado, por eso está en NO_OBLIGATORIOS—: es uno de los dos extremos del
+  // trabajo. El destino lo exige el recorrido de campos (numérico, obligatorio);
+  // acá se controla que exista una operación posible, o sea que los dos agujeros
+  // sean distintos: achicarlo o agrandarlo hasta la misma medida no es un trabajo.
+  if (item.servicio === 'mecanizado') {
+    if (!esNumeroValido(item.diametro_interior)) {
+      errores.diametro_interior = 'Elegí el diámetro interior que tiene hoy'
+    } else if (
+      esNumeroValido(item.diametro_interior_destino) &&
+      operacionMecanizado(
+        aNumero(item.diametro_interior),
+        aNumero(item.diametro_interior_destino),
+      ) === null
+    ) {
+      errores.diametro_interior_destino =
+        'El diámetro a hacer tiene que ser distinto del que tiene hoy (más chico lleva buje, más grande se agranda)'
+    }
+  }
+
   // ── Dientes rotos ─────────────────────────────────────────────────────────
   // Se valida aparte porque es condicional: los campos existen siempre pero
   // sólo se exigen cuando el vendedor marcó que hay dientes rotos.
@@ -1733,6 +1800,18 @@ export function validarItemNota(
        * el código al facturar.
        */
       if (item.servicio === 'rebaje') continue
+      // El mecanizado no pide confirmación del código: no se propone por medida
+      // ni hay ambigüedad —sale fijo de la herramienta y la operación—, así que
+      // sólo se exige que esté puesto (lo resuelve el selector con los dos
+      // diámetros). Exigir el tilde de confirmación sería fricción sin nada que
+      // revisar.
+      if (item.servicio === 'mecanizado') {
+        if (item.codigos_computo.length === 0) {
+          errores.codigos_computo =
+            'Falta el código del mecanizado. Completá el diámetro interior que tiene y el que hay que hacer.'
+        }
+        continue
+      }
       if (item.codigos_computo.length === 0) {
         errores.codigos_computo =
           'Falta el código de cómputo. Completá la medida para que se busque solo, o elegilo de la lista.'
@@ -1886,6 +1965,24 @@ export function resumenRenglon(item: FormularioItemNota): string {
   }
 
   if (!item.herramienta) return 'Renglón sin herramienta'
+
+  // El mecanizado se resume por su operación y los dos agujeros, no por las
+  // medidas sueltas: "FRESAS · MECANIZADO · Ø int 30→40 · agrandar · × 2".
+  if (item.servicio === 'mecanizado') {
+    const op = operacionMecanizado(
+      aNumero(item.diametro_interior),
+      aNumero(item.diametro_interior_destino),
+    )
+    const partes = [ETIQUETA_HERRAMIENTA[item.herramienta], 'MECANIZADO']
+    if (item.diametro_exterior) partes.push(`Ø ext ${item.diametro_exterior}`)
+    if (item.diametro_interior && item.diametro_interior_destino) {
+      partes.push(`Ø int ${item.diametro_interior}→${item.diametro_interior_destino}`)
+    }
+    if (op) partes.push(op === 'buje' ? 'buje' : 'agrandar')
+    const cuantas = aNumero(item.cantidad)
+    if (cuantas > 1) partes.push(`× ${cuantas}`)
+    return partes.join(' · ')
+  }
 
   // Un incisor se anuncia como incisor, aunque se haya cargado en SIERRAS.
   const partes: string[] = [
@@ -2274,6 +2371,8 @@ export type ConceptoComputo =
   | 'reparacion'
   | 'rascador'
   | 'venta'
+  /** El mecanizado del agujero: no es un afilado, va en su propia línea. */
+  | 'mecanizado'
 
 export interface LineaComputo {
   concepto: ConceptoComputo
@@ -2564,13 +2663,18 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
         ? 'reparacion'
         : item.servicio === 'rectificado'
           ? 'rectificado'
-          : 'afilado',
+          : item.servicio === 'mecanizado'
+            ? 'mecanizado'
+            : 'afilado',
     cantidad: Math.max(1, Math.round(aNumero(comoArticulo ? item.unidades : item.cantidad)) || 1),
     // Un cabezal que se afila como cuchillas se cobra por largo, no por diente:
     // aunque el tipo de pieza haya dejado un número de dientes cargado, acá vale
     // 0 para que la cuenta caiga en la rama del precio total (por 100 mm).
+    // El mecanizado carga la cantidad de dientes como dato del taller, pero se
+    // cobra PLANO por pieza (como la mecha): forzar 0 lo manda a la rama de
+    // precio total en `lineasDeComputo`, no a la cuenta por diente.
     dientesPorHerramienta:
-      comoArticulo || cabezalAfiladoComoCuchilla(item) || !tiene('cantidad_dientes')
+      comoArticulo || cabezalAfiladoComoCuchilla(item) || esMecanizado(item) || !tiene('cantidad_dientes')
         ? 0
         : aNumero(item.cantidad_dientes),
     precioUnitario: comoArticulo
@@ -2724,6 +2828,14 @@ export function agujeroDelRenglon(item: FormularioItemNota): AgujeroDelRenglon {
   // pieza del cliente contra la cual comparar, así que no se genera ajuste.
   if (esRenglonDeArticulo(item.servicio)) {
     return { medida: catalogo || cargado, ajuste: 'de_fabrica', comparable: false }
+  }
+
+  // El mecanizado no compara contra el de fábrica: su "agrandado / buje" es la
+  // OPERACIÓN —del agujero de hoy al que hay que hacer—, y la cuenta esa la
+  // escribe `avisosDeMecanizado`. Acá sólo se reporta el agujero que tiene hoy,
+  // sin disparar el aviso de ajuste de fábrica (que sería otra cosa).
+  if (item.servicio === 'mecanizado') {
+    return { medida: cargado || catalogo, ajuste: 'de_fabrica', comparable: false }
   }
 
   if (!cargado) {
@@ -3006,7 +3118,12 @@ export function descripcionGeneralDeLaNota(
   textoDelVendedor: string,
   items: FormularioItemNota[],
 ): string {
-  return [lineaDeServicio(items), ...avisosDeAgujero(items), textoDelVendedor.trim()]
+  return [
+    lineaDeServicio(items),
+    ...avisosDeAgujero(items),
+    ...avisosDeMecanizado(items),
+    textoDelVendedor.trim(),
+  ]
     .filter(Boolean)
     .join('\n')
 }
@@ -3037,8 +3154,36 @@ export function avisosDeAgujero(items: FormularioItemNota[]): string[] {
   return avisos
 }
 
+/**
+ * Los avisos del mecanizado que van a la descripción general.
+ *
+ * Uno por renglón de mecanizado, con la herramienta, qué se le hace al agujero
+ * y las dos medidas —la que tiene y la que hay que dejarle—. Es lo que el taller
+ * lee para saber qué pieza mecanizar y hasta dónde: "S.C.: agrandar el agujero
+ * de 30 mm a 40 mm", "Fresa: achicar con buje el agujero de 40 mm a 30 mm".
+ */
+export function avisosDeMecanizado(items: FormularioItemNota[]): string[] {
+  const avisos: string[] = []
+  for (const item of items) {
+    if (item.servicio !== 'mecanizado' || !item.herramienta) continue
+    const actual = aNumero(item.diametro_interior)
+    const destino = aNumero(item.diametro_interior_destino)
+    const op = operacionMecanizado(actual, destino)
+    if (!op) continue
+    const que = DESCRIPCION_SERVICIO[item.herramienta]
+    const verbo = op === 'buje' ? 'achicar con buje' : 'agrandar'
+    avisos.push(
+      `${que}: ${verbo} el agujero de ${item.diametro_interior.trim()} mm a ${item.diametro_interior_destino.trim()} mm`,
+    )
+  }
+  return avisos
+}
+
 /** Cómo empiezan las líneas que agrega `avisosDeAgujero`. */
 const LINEA_DE_AGUJERO = /\bcon (agujero agrandado|buje reductor):\s/
+
+/** Cómo se reconoce una línea que agrega `avisosDeMecanizado`. */
+const LINEA_DE_MECANIZADO = /: (achicar con buje|agrandar) el agujero de /
 
 /**
  * La descripción general **como la escribió el vendedor**, sin los avisos de
@@ -3051,7 +3196,7 @@ const LINEA_DE_AGUJERO = /\bcon (agujero agrandado|buje reductor):\s/
 export function sinAvisosDeAgujero(texto: string | null | undefined): string {
   return String(texto ?? '')
     .split('\n')
-    .filter((linea) => !LINEA_DE_AGUJERO.test(linea))
+    .filter((linea) => !LINEA_DE_AGUJERO.test(linea) && !LINEA_DE_MECANIZADO.test(linea))
     .join('\n')
     .trim()
 }

@@ -82,6 +82,7 @@ const SERVICIOS_BASE: TipoServicio[] = [
   'reparacion',
   'rectificado',
   'hermanado',
+  'mecanizado',
 ]
 
 /** Una línea que diga qué es cada operación, para no elegir por el nombre solo. */
@@ -93,6 +94,7 @@ const QUE_ES_LA_OPERACION: Partial<Record<TipoServicio, string>> = {
   hermanado: 'Igualar incisores entre sí',
   rebaje: 'Sólo cuchillas, y sólo si hay afilado',
   reclamo: 'Sobre un trabajo que ya hicimos',
+  mecanizado: 'Achicar o agrandar el agujero (sierras y fresas)',
 }
 
 export function PasoCliente({

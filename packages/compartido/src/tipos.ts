@@ -58,6 +58,11 @@ export type TipoServicio =
   | 'hermanado'
   | 'rebaje'
   | 'reclamo'
+  /**
+   * Mecanizado del agujero: achicar (buje) o agrandar el diámetro interior.
+   * Sólo sierras y fresas. Ver `packages/compartido/src/mecanizado.ts`.
+   */
+  | 'mecanizado'
 
 /** El tipo define si la nota impresa lleva el logo: FACTURA sí, PRESUPUESTO no. */
 export type TipoNotaPedido = 'factura' | 'presupuesto'
@@ -78,6 +83,7 @@ export const ETIQUETA_TIPO_SERVICIO: Record<TipoServicio, string> = {
   hermanado: 'HERMANADO',
   rebaje: 'REBAJE',
   reclamo: 'RECLAMO',
+  mecanizado: 'MECANIZADO',
 }
 
 export const ETIQUETA_TIPO_NOTA: Record<TipoNotaPedido, string> = {

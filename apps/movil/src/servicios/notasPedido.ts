@@ -176,6 +176,22 @@ export interface CodigoCuchilla {
 }
 
 /**
+ * Uno de los cuatro códigos de mecanizado del agujero, ya clasificado por
+ * herramienta y operación. `precio_pesos` es PLANO por pieza —no por diente ni
+ * por milímetro—: la cuenta la hace `totalMecanizado`.
+ */
+export interface CodigoMecanizado {
+  codigo: string
+  descripcion: string
+  precio: number
+  moneda: 'ARS' | 'USD' | null
+  precio_pesos: number | null
+  a_cotizar: boolean
+  herramienta: 'sierra' | 'fresa'
+  operacion: 'buje' | 'agrandado'
+}
+
+/**
  * Uno de los nueve códigos de afilado de mecha, ya clasificado.
  *
  * `tipos` dice a qué tipos de mecha sirve, y en null quiere decir "a
@@ -220,6 +236,19 @@ export async function codigosAfiladoCuchilla(): Promise<CodigoCuchilla[]> {
   const { data, error } = await supabase.rpc('codigos_afilado_cuchilla')
   if (error) throw error
   return aplicarSinCargo((data ?? []) as CodigoCuchilla[])
+}
+
+/**
+ * Los cuatro códigos de mecanizado del agujero, con el precio ya en pesos.
+ *
+ * No se cotizan por medida: el código sale de la herramienta y la operación
+ * (ver `codigoMecanizado` en compartido), y acá sólo se trae la fila con el
+ * precio. Espejo de `codigosAfiladoMecha`.
+ */
+export async function codigosMecanizado(): Promise<CodigoMecanizado[]> {
+  const { data, error } = await supabase.rpc('codigos_mecanizado')
+  if (error) throw error
+  return aplicarSinCargo((data ?? []) as CodigoMecanizado[])
 }
 
 /**
@@ -770,6 +799,9 @@ function filaDeItem(i: FormularioItemNota, orden: number) {
         // cargaron. Va siempre, para que la fábrica no tenga que buscarlo.
         diametro_interior: agujeroDelRenglon(i).medida,
         diametro_interior_catalogo: i.diametro_interior_catalogo,
+        // El agujero a hacer: sólo en el mecanizado. Es el otro extremo del
+        // trabajo, y de él (contra el de arriba) sale la operación y el código.
+        diametro_interior_destino: i.diametro_interior_destino,
         ajuste_agujero: agujeroDelRenglon(i).ajuste,
         diametro: i.diametro,
         ancho_corte: i.ancho_corte,
@@ -1148,6 +1180,7 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     diametro_exterior: comoCadena(detalle.diametro_exterior),
     diametro_interior: agujeroCargado,
     diametro_interior_catalogo: agujeroCatalogo,
+    diametro_interior_destino: comoCadena(detalle.diametro_interior_destino),
     diametro: comoCadena(detalle.diametro),
     ancho_corte: comoCadena(detalle.ancho_corte),
     largo: comoCadena(detalle.largo),

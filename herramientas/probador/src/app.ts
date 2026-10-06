@@ -1421,6 +1421,7 @@ const ETIQUETAS_CAMPO: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
   diametro_exterior: 'DIÁMETRO EXTERIOR',
   diametro_interior: 'DIÁMETRO INTERIOR (OPCIONAL)',
+  diametro_interior_destino: 'DIÁMETRO INTERIOR A HACER',
   diametro: 'DIÁMETRO',
   ancho_corte: 'ANCHO DE CORTE',
   largo: 'LARGO',

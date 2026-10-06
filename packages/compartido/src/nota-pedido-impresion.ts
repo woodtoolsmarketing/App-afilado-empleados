@@ -21,6 +21,7 @@
 import { formatearMoneda, type Moneda } from './catalogo'
 import { LOGO_WOODTOOLS } from './logo'
 import {
+  aNumero,
   consolidarLineasDeComputo,
   describirCondicionVenta,
   esRenglonDeArticulo,
@@ -32,6 +33,7 @@ import {
   VENDEDORES_CON_CERO,
   type DatosComputo,
 } from './notas-pedido'
+import { operacionMecanizado } from './mecanizado'
 import {
   ESTILOS_PLANILLA_COBRANZAS,
   generarHtmlPlanillaCobranzas,
@@ -1397,7 +1399,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           ? 'reparacion'
           : i.servicio === 'rectificado'
             ? 'rectificado'
-            : 'afilado',
+            : i.servicio === 'mecanizado'
+              ? 'mecanizado'
+              : 'afilado',
     cantidad: Math.max(1, Number(i.cantidad) || 1),
     // En una VENTA los dientes son una característica de la herramienta que se
     // vende, no algo que se cobre por unidad: lo que se computa son las
@@ -1410,6 +1414,7 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     // el cabezal entero al reimprimir.
     dientesPorHerramienta:
       esRenglonDeArticulo(i.servicio) ||
+      i.servicio === 'mecanizado' ||
       (i.herramienta === 'cabezal' &&
         i.servicio === 'afilado' &&
         i.detalle?.cabezal_de_cuchillas === true)
@@ -1555,10 +1560,24 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         i.servicio === 'reclamo'
           ? (i.detalle?.servicio_reclamado as string | undefined)
           : undefined
+      // Para el mecanizado: qué se le hace al agujero y hasta qué medida, pegado
+      // a la descripción como el sufijo del reclamo. "S.C. (agrandar a 40 mm)".
+      let sufijoMecanizado = ''
+      if (i.servicio === 'mecanizado') {
+        const op = operacionMecanizado(
+          aNumero(d(i, 'diametro_interior')),
+          aNumero(d(i, 'diametro_interior_destino')),
+        )
+        const destino = d(i, 'diametro_interior_destino')
+        if (op && destino) {
+          sufijoMecanizado = op === 'buje' ? ` (buje a ${destino} mm)` : ` (agrandar a ${destino} mm)`
+        }
+      }
       return {
         descripcion:
           (i.descripcion ?? i.codigo_herramienta ?? '') +
-          (reclamado ? ` (${ETIQUETA_RECLAMO[reclamado] ?? reclamado})` : ''),
+          (reclamado ? ` (${ETIQUETA_RECLAMO[reclamado] ?? reclamado})` : '') +
+          sufijoMecanizado,
         afilado: trabajo(i.servicio === 'afilado', 'afilado'),
         rectificado: trabajo(i.servicio === 'rectificado', 'rectificado'),
         // También cuando se reparan los dientes rotos de una herramienta que
@@ -1573,7 +1592,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
         ),
         tensado: false,
         rellenado: false,
-        otro: ['hermanado', 'rebaje', 'reclamo', 'venta'].includes(i.servicio) ? i.servicio : '',
+        otro: ['hermanado', 'rebaje', 'reclamo', 'venta', 'mecanizado'].includes(i.servicio)
+          ? i.servicio
+          : '',
         cantidad: i.cantidad,
         // "ØExt.-Largo" y "ØInt.-Ancho" son columnas de doble uso: una sierra
         // trae diámetros y una cuchilla trae largo y ancho.

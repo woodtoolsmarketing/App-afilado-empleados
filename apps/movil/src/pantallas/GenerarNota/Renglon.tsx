@@ -16,6 +16,10 @@ import {
   type CuchillaTrabajo,
   cabezalAfiladoComoCuchilla,
   camposDelItem,
+  esMecanizado,
+  codigoMecanizado,
+  operacionMecanizado,
+  totalMecanizado,
   describirRango,
   descripcionSugerida,
   SIERRA_MARCAS,
@@ -76,6 +80,7 @@ import {
   agujeroDeFabrica,
   codigosAfiladoCuchilla,
   codigosAfiladoMecha,
+  codigosMecanizado,
   mechasDelTipo,
   codigosSinRango,
   medidasDisponibles,
@@ -84,6 +89,7 @@ import {
   type CascadaMedidas,
   type CodigoAfiladoMecha,
   type CodigoCuchilla,
+  type CodigoMecanizado,
   resolverCodigoDeItem,
   type CodigoComputo,
   type ModeloMecha,
@@ -116,6 +122,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   cantidad: 'CANTIDAD',
   diametro_exterior: 'Ø EXTERIOR (mm)',
   diametro_interior: 'Ø INTERIOR (mm, opc.)',
+  diametro_interior_destino: 'Ø INTERIOR A HACER (mm)',
   diametro: 'Ø (mm)',
   ancho_corte: 'ANCHO DE CORTE (mm)',
   largo: 'LARGO (mm)',
@@ -189,7 +196,7 @@ function promoverCodigoSierraFina(
 /** Los campos que son una medida en milímetros, no una cantidad ni un precio. */
 const MEDIDAS = new Set<CampoItem>([
   'diametro_exterior', 'diametro', 'ancho_corte', 'largo', 'ancho',
-  'largo_util', 'espesor', 'paso',
+  'largo_util', 'espesor', 'paso', 'diametro_interior_destino',
 ])
 
 /**
@@ -219,6 +226,9 @@ function etiquetaDientes(servicio: TipoServicio): string {
   if (servicio === 'reparacion') return 'DIENTES A REPARAR'
   if (servicio === 'rectificado') return 'DIENTES A RECTIFICAR'
   if (servicio === 'hermanado') return 'DIENTES A HERMANAR'
+  // El mecanizado no afila: la cantidad de dientes es sólo para identificar la
+  // pieza en el taller.
+  if (servicio === 'mecanizado') return 'CANTIDAD DE DIENTES'
   return 'DIENTES A AFILAR'
 }
 
@@ -315,10 +325,12 @@ export function PasoRenglon({
    */
   const comoCuchilla = cabezalAfiladoComoCuchilla(item)
   const esCabezalAfilado = item.herramienta === 'cabezal' && item.servicio === 'afilado'
+  const esMec = esMecanizado(item)
   const campos = camposDelItem(item)
   // No se cotiza por medida: el código lo elige el selector, no la búsqueda por
-  // ancho. El cabezal portacuchillas se suma a los de siempre (mecha, cuchilla).
-  const sinRangos = comoCuchilla || SIN_RANGOS.has(item.herramienta as Herramienta)
+  // ancho. El cabezal portacuchillas se suma a los de siempre (mecha, cuchilla),
+  // y el mecanizado también —su código sale de la herramienta y la operación—.
+  const sinRangos = comoCuchilla || esMec || SIN_RANGOS.has(item.herramienta as Herramienta)
 
   /**
    * Tildar (o destildar) "es de cuchillas" cambia la forma del renglón, así que
@@ -547,6 +559,10 @@ export function PasoRenglon({
   useEffect(() => {
     if (temporizador.current) clearTimeout(temporizador.current)
     if (!item.herramienta) return
+    // El mecanizado no se cotiza por medida: su código lo pone el
+    // `SelectorMecanizado` con los dos diámetros, y esta búsqueda por ancho de
+    // corte no tiene nada que hacer acá —sólo podría pisarlo—.
+    if (esMec) return
 
     // Si la medida cambia mientras esta búsqueda está en vuelo, la respuesta
     // vieja no tiene que pisar la nueva: en la calle, con red lenta, la de una
@@ -1537,6 +1553,12 @@ export function PasoRenglon({
         }
 
         if (campo === 'cantidad_dientes') {
+          // En el mecanizado los dientes son sólo un dato para identificar la
+          // pieza en el taller: no se cobra por diente, así que no va la cuenta
+          // "N × M = total" ni la resta de rotos. Un campo y nada más.
+          if (esMec) {
+            return campoNumerico(campo, etiquetaDientes(item.servicio), 'mitad')
+          }
           // Los dientes se cargan POR herramienta. Lo que se computa y se cobra
           // es el total, así que si hay más de una se muestra la cuenta hecha:
           // que el vendedor la vea antes de firmar, no después.
@@ -1593,18 +1615,27 @@ export function PasoRenglon({
            * ofrecerle esos cinco es una sola tocada en vez de tipear.
            */
           const propsAgujero = {
-            etiqueta: 'Ø INTERIOR (opc.)',
+            // En el mecanizado el agujero NO es opcional: es el que la pieza
+            // tiene hoy, el punto de partida del trabajo. Se reusa el mismo
+            // desplegable del catálogo, pero el rótulo lo dice claro.
+            etiqueta: esMec ? 'Ø INTERIOR ACTUAL (mm)' : 'Ø INTERIOR (opc.)',
             keyboardType: 'decimal-pad' as const,
             contenedorStyle: estilos.mitad,
-            placeholder: deFabrica || 'El agujero de la herramienta',
+            placeholder: esMec
+              ? deFabrica || 'El agujero que tiene hoy'
+              : deFabrica || 'El agujero de la herramienta',
             error: errores.diametro_interior,
-            ayuda: deFabrica
-              ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
-              : agujerosPosibles.length > 1
-                ? `${agujerosPosibles.length} agujeros en la lista. Tocá ▼ y elegí, o cargá otro.`
-                : buscandoAgujero
-                  ? 'Buscando el agujero de fábrica en la lista de precios…'
-                  : 'Si lo dejás vacío, la nota sale sin agujero.',
+            ayuda: esMec
+              ? agujerosPosibles.length > 1
+                ? `${agujerosPosibles.length} agujeros en la lista. Tocá ▼ y elegí el que tiene, o cargalo.`
+                : 'El agujero que la pieza tiene hoy. Abajo cargás el que hay que hacer.'
+              : deFabrica
+                ? `De fábrica: ${formatearMedida(deFabrica)}. Dejalo vacío si es ése.`
+                : agujerosPosibles.length > 1
+                  ? `${agujerosPosibles.length} agujeros en la lista. Tocá ▼ y elegí, o cargá otro.`
+                  : buscandoAgujero
+                    ? 'Buscando el agujero de fábrica en la lista de precios…'
+                    : 'Si lo dejás vacío, la nota sale sin agujero.',
           }
 
           return (
@@ -1894,6 +1925,19 @@ export function PasoRenglon({
         }
 
         if (campo === 'codigos_computo') {
+          // En el mecanizado el código no se busca por medida ni se elige de una
+          // lista: sale fijo de la herramienta y la operación (buje/agrandado),
+          // que a su vez se deducen de los dos diámetros. El selector lo resuelve,
+          // muestra qué quedó y fija el precio plano. No lleva confirmación: no
+          // hay nada ambiguo que revisar.
+          if (esMec) {
+            return (
+              <View key={campo} style={estilos.bloqueCodigos}>
+                <SelectorMecanizado item={item} alCambiar={alCambiar} />
+                <MensajeError>{errores.codigos_computo}</MensajeError>
+              </View>
+            )
+          }
           // El código que quedó puesto, y si el vendedor ya lo confirmó. La
           // confirmación es por código: si el código cambia, deja de coincidir
           // con `codigo_confirmado` y hay que volver a tocarla.
@@ -2521,6 +2565,164 @@ function SelectorAfiladoMecha({
           duro. Cargá el código y el precio total a mano, o consultá con la oficina.
         </Aviso>
       ) : null}
+    </View>
+  )
+}
+
+/**
+ * El mecanizado del agujero: qué código le toca y cuánto sale.
+ *
+ * El código no sale de una medida. Lo eligen la HERRAMIENTA —sierra o fresa— y
+ * la OPERACIÓN, que a su vez sale de comparar el agujero que la pieza tiene hoy
+ * con el que hay que dejarle: más chico lleva buje, más grande se agranda. Con
+ * esas dos respuestas sale uno de los cuatro códigos (6105/6103/7903/7902) y su
+ * precio de lista, que es PLANO por pieza —no por diente ni por milímetro—.
+ *
+ * Mismo mecanismo que el afilado de mecha, calcado a propósito: el vendedor ya
+ * lo conoce, y el código y el total salen solos sin tipear nada de memoria.
+ */
+function SelectorMecanizado({
+  item,
+  alCambiar,
+}: {
+  item: FormularioItemNota
+  alCambiar: (cambios: Partial<FormularioItemNota>) => void
+}) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
+  const [opciones, setOpciones] = useState<CodigoMecanizado[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [fallo, setFallo] = useState(false)
+
+  useEffect(() => {
+    let cancelado = false
+    codigosMecanizado()
+      .then((c) => {
+        if (!cancelado) setOpciones(c)
+      })
+      .catch(() => {
+        if (!cancelado) setFallo(true)
+      })
+      .finally(() => {
+        if (!cancelado) setCargando(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
+
+  const herramienta =
+    item.herramienta === 'sierra' || item.herramienta === 'fresa' ? item.herramienta : null
+  const operacion = operacionMecanizado(
+    aNumero(item.diametro_interior),
+    aNumero(item.diametro_interior_destino),
+  )
+  const codigo = codigoMecanizado(herramienta, operacion)
+  const elegida = codigo ? opciones.find((o) => o.codigo === codigo) : undefined
+
+  // Lo que determinaba el total al abrir el renglón: igual que en la mecha, para
+  // no pisar un PRECIO TOTAL ya puesto cuando el componente se vuelve a montar
+  // (volver a la tarjeta, corregir la nota).
+  const cotizadoAlMontar = useRef({ codigo: item.codigos_computo[0] ?? '', cantidad: item.cantidad })
+
+  useEffect(() => {
+    // Sin operación posible —faltan los diámetros o son iguales— no hay código:
+    // se limpia lo que hubiera quedado para que el renglón no cierre con un
+    // código y un precio de una operación que ya no es.
+    if (!operacion) {
+      if (item.codigos_computo.length > 0 || item.precio_total) {
+        alCambiar({ codigos_computo: [], precio_total: '' })
+      }
+      return
+    }
+    // Hay operación, pero todavía no llegaron los precios del catálogo: se
+    // espera sin tocar nada. Esto es clave al REABRIR una nota ya guardada —el
+    // código y el total están puestos y `opciones` todavía viene vacío—: borrar
+    // acá los perdería antes de poder recotizar.
+    if (!elegida) return
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const total = elegida.precio_pesos ? totalMecanizado(elegida.precio_pesos, unidades) : 0
+
+    const cambios: Partial<FormularioItemNota> = {}
+    if (item.codigos_computo[0] !== elegida.codigo) {
+      cambios.codigos_computo = [elegida.codigo]
+      // El mecanizado se cobra en pesos y nunca va sin cargo por sí mismo.
+      cambios.sin_cargo = false
+      cambios.moneda = 'ARS'
+    }
+    const cambioLoQueCotiza =
+      elegida.codigo !== cotizadoAlMontar.current.codigo ||
+      item.cantidad !== cotizadoAlMontar.current.cantidad
+    if (
+      total > 0 &&
+      (cambioLoQueCotiza || !item.precio_total.trim()) &&
+      Math.abs(total - aNumero(item.precio_total)) > 0.005
+    ) {
+      cambios.precio_total = String(total).replace('.', ',')
+    }
+    if (Object.keys(cambios).length > 0) alCambiar(cambios)
+    cotizadoAlMontar.current = { codigo: elegida.codigo, cantidad: item.cantidad }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operacion, elegida?.codigo, elegida?.precio_pesos, item.cantidad])
+
+  if (cargando) {
+    return (
+      <View style={estilos.bloqueCodigos}>
+        <ActivityIndicator size="small" color={colores.rojo} />
+      </View>
+    )
+  }
+
+  if (fallo || opciones.length === 0) {
+    return (
+      <Aviso tono="atencion" titulo="No pudimos traer los precios del mecanizado">
+        Revisá la señal. Podés cargar el código y el precio total a mano.
+      </Aviso>
+    )
+  }
+
+  const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+
+  // Todavía no hay con qué decidir la operación: faltan los diámetros, o son
+  // iguales. Se dice qué falta en vez de proponer un código al azar.
+  if (!operacion) {
+    return (
+      <Aviso titulo="Falta el agujero a hacer">
+        Cargá el Ø interior que la pieza tiene hoy y el que hay que dejarle. De la
+        diferencia sale si es un buje (más chico) o un agrandado (más grande), y con
+        eso el código y el precio.
+      </Aviso>
+    )
+  }
+
+  return (
+    <View style={estilos.bloqueCodigos}>
+      {elegida ? (
+        <View style={estilos.afiladoElegido}>
+          <Text style={estilos.afiladoDatoValor}>
+            {operacion === 'buje' ? 'ACHICAR (buje reductor)' : 'AGRANDAR'} · de{' '}
+            {item.diametro_interior.trim()} mm a {item.diametro_interior_destino.trim()} mm
+          </Text>
+          <Text style={estilos.afiladoCodigo}>{elegida.codigo}</Text>
+          <Text style={estilos.afiladoDescripcion}>{elegida.descripcion}</Text>
+          <Text style={estilos.afiladoPrecio}>
+            {elegida.precio_pesos
+              ? `${formatearPesos(Number(elegida.precio_pesos))} cada una${
+                  unidades > 1
+                    ? ` · ${unidades} = ${formatearPesos(
+                        totalMecanizado(Number(elegida.precio_pesos), unidades),
+                      )}`
+                    : ''
+                }`
+              : 'Falta la cotización para pasarlo a pesos'}
+          </Text>
+        </View>
+      ) : (
+        <Aviso tono="atencion" titulo="Sin precio de lista para ese mecanizado">
+          No encontramos el código en el catálogo. Cargá el código y el precio total a
+          mano, o consultá con la oficina.
+        </Aviso>
+      )}
     </View>
   )
 }

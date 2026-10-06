@@ -694,6 +694,7 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
             diametro_exterior: i.diametro_exterior,
             diametro_interior: agujeroDelRenglon(i).medida,
             diametro_interior_catalogo: i.diametro_interior_catalogo,
+            diametro_interior_destino: i.diametro_interior_destino,
             ajuste_agujero: agujeroDelRenglon(i).ajuste,
             diametro: i.diametro,
             ancho_corte: i.ancho_corte,
