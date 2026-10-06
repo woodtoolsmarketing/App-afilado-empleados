@@ -14,7 +14,6 @@
 import { aPesos, PRECIO_SIN_CARGO, type Moneda } from './catalogo'
 import {
   ETIQUETA_TIPO_SERVICIO,
-  type CondicionIva,
   type ResultadoValidacion,
   type TipoNotaPedido,
   type TipoServicio,
@@ -943,8 +942,6 @@ export interface FormularioClienteNuevo {
   /** Dirección de ENTREGA: geolocalizada (Google/GPS). Es `direccion` + lat/lng. */
   direccion: string
   codigo_postal: string
-  /** Condición frente al IVA; '' = todavía no elegida. */
-  condicion_iva: CondicionIva | ''
   /** Nombre de la persona de contacto en el taller. */
   contacto_nombre: string
   /** Varios: el formulario los agrega de a uno con el botón ⊕. */
@@ -965,7 +962,6 @@ export const CLIENTE_NUEVO_VACIO: FormularioClienteNuevo = {
   documento: '',
   direccion: '',
   codigo_postal: '',
-  condicion_iva: '',
   contacto_nombre: '',
   telefonos: [''],
   email: '',
@@ -983,7 +979,6 @@ export type CampoClienteNuevo =
   | 'documento'
   | 'direccion'
   | 'codigo_postal'
-  | 'condicion_iva'
   | 'contacto_nombre'
   | 'email'
 
@@ -1019,10 +1014,6 @@ export function validarClienteNuevo(
     errores.codigo_postal = 'Falta el código postal'
   } else if (!CODIGO_POSTAL.test(form.codigo_postal.trim())) {
     errores.codigo_postal = 'El código postal no parece válido (ej. 1704 o B1704ARQ)'
-  }
-
-  if (!form.condicion_iva) {
-    errores.condicion_iva = 'Elegí la condición frente al IVA'
   }
 
   if (!form.contacto_nombre.trim()) {

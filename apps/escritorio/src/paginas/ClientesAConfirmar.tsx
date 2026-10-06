@@ -1,9 +1,4 @@
-import {
-  etiquetaCondicionIva,
-  type Cliente,
-  type Direccion,
-  type Perfil,
-} from '@woodtools/compartido'
+import { type Cliente, type Direccion, type Perfil } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 
@@ -172,7 +167,6 @@ function TarjetaProvisorio({
           <dl className="ficha-datos">
             <Dato rotulo="Código provisorio" valor={<code>{cliente.codigo}</code>} />
             <Dato rotulo="DNI / CUIT" valor={cliente.cuit ?? cliente.documento ?? '—'} />
-            <Dato rotulo="Condición IVA" valor={etiquetaCondicionIva(cliente.condicion_iva)} />
             <Dato rotulo="Contacto" valor={cliente.contacto_nombre ?? '—'} />
             <Dato rotulo="Teléfono" valor={cliente.telefono ?? '—'} />
             <Dato rotulo="Email" valor={cliente.email ?? '—'} />

@@ -345,7 +345,9 @@ export async function crearClienteProvisorio(
     p_localidad: form.localidad,
     p_provincia: form.provincia,
     p_contacto: form.contacto_nombre.trim() || null,
-    p_condicion_iva: form.condicion_iva || null,
+    // La condición frente al IVA se sacó del formulario; la columna queda en la
+    // base por si vuelve a hacer falta, pero el alta ya no la carga.
+    p_condicion_iva: null,
     p_direccion_fiscal: form.direccion_fiscal.trim() || null,
     p_rol_visita_id: opciones?.rolVisitaId ?? null,
     p_prioridad: opciones?.prioridad ?? null,

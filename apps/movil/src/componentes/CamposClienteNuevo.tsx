@@ -1,9 +1,7 @@
 import {
-  CONDICIONES_IVA,
   espaciado,
   radios,
   type CampoClienteNuevo,
-  type CondicionIva,
   type FormularioClienteNuevo,
 } from '@woodtools/compartido'
 import { useMutation } from '@tanstack/react-query'
@@ -12,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu } from './Botones'
-import { Campo, Desplegable } from './Formulario'
+import { Campo } from './Formulario'
 import { Aviso } from './Estado'
 import {
   detallarDireccion,
@@ -199,16 +197,6 @@ export function CamposClienteNuevo({
         keyboardType="numbers-and-punctuation"
         contenedorStyle={estilos.medio}
         error={errores.documento}
-      />
-
-      <Desplegable<CondicionIva>
-        etiqueta="CONDICIÓN FRENTE AL IVA"
-        obligatorio
-        marcador="Elegí una opción"
-        valor={form.condicion_iva === '' ? null : form.condicion_iva}
-        items={CONDICIONES_IVA.map((c) => ({ valor: c.valor, etiqueta: c.etiqueta }))}
-        alCambiar={(v) => actualizar({ condicion_iva: v })}
-        error={errores.condicion_iva}
       />
 
       <Campo
