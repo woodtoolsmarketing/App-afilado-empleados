@@ -1,16 +1,8 @@
 import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
-import { Alert, Linking } from 'react-native'
 
-import {
-  distanciaEnMetros,
-  enHorarioDeSeguimiento,
-  fechaLocalISO,
-  horarioSeguimientoDesde,
-  HORARIO_SEGUIMIENTO_DEFECTO,
-  type HorarioSeguimiento,
-} from '@woodtools/compartido'
+import { distanciaEnMetros, fechaLocalISO } from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
 
@@ -39,12 +31,7 @@ const MAX_EN_COLA = 500
 
 interface ContextoSeguimiento {
   vendedorId: string
-  /**
-   * El recorrido en curso, o `null` cuando se rastrea por JORNADA (horario
-   * laboral) sin un recorrido: los puntos van al histórico con `rol_visita_id`
-   * nulo y al pin en vivo con `en_recorrido: false`.
-   */
-  rolVisitaId: string | null
+  rolVisitaId: string
   /**
    * El día local (Argentina) de la jornada. La tarea corta el seguimiento
    * cuando el reloj pasa a otro día: sin esto, un recorrido que no se finaliza
@@ -53,16 +40,10 @@ interface ContextoSeguimiento {
    * se trata como "sin fecha" y no se corta por este motivo.
    */
   fecha?: string
-  /**
-   * El horario de seguimiento, fijado al arrancar. La tarea corta a la hora de
-   * fin (p. ej. 17) con ESTO, sin pegarle a la base por cada punto. Si falta
-   * (contexto viejo), rige el default.
-   */
-  horario?: HorarioSeguimiento
 }
 
 interface PuntoEncolado {
-  rol_visita_id: string | null
+  rol_visita_id: string
   vendedor_id: string
   lat: number
   lng: number
@@ -191,8 +172,8 @@ async function arrancarTarea(): Promise<void> {
     distanceInterval: distanciaMin,
     // Sin esto, Android mata el seguimiento apenas se apaga la pantalla.
     foregroundService: {
-      notificationTitle: 'WoodTools · seguimiento activo',
-      notificationBody: 'La oficina ve tu ubicación durante el horario laboral.',
+      notificationTitle: 'WoodTools · recorrido en curso',
+      notificationBody: 'La oficina puede ver tu ubicación mientras dure el recorrido.',
       notificationColor: '#B30F0F',
       killServiceOnDestroy: false,
     },
@@ -204,223 +185,29 @@ async function arrancarTarea(): Promise<void> {
 
 /** Seguimiento de recorrido: se prende al iniciar un viaje y guarda la traza. */
 export async function iniciarSeguimiento(contexto: ContextoSeguimiento): Promise<void> {
-  // El día local y el horario quedan grabados en el contexto: es contra esto que
-  // la tarea decide cortar cuando cambia el día o cuando termina el horario. Si
-  // el llamador no los pasa, son los de hoy (que es cuando se inicia o se reanuda
-  // una jornada).
+  // El día local queda grabado en el contexto: es contra esto que la tarea
+  // decide cortar cuando cambia el día. Si el llamador no lo pasa, es el de hoy
+  // (que es cuando se inicia o se reanuda una jornada).
   const conFecha: ContextoSeguimiento = {
     ...contexto,
     fecha: contexto.fecha ?? fechaLocalISO(new Date()),
-    horario: contexto.horario ?? (await horarioDeSeguimiento()),
   }
   await cacheLocal.setItem(CLAVE_CONTEXTO, JSON.stringify(conFecha))
   await arrancarTarea()
 }
 
-/** El horario de seguimiento que configuró la oficina (o el default). */
-async function horarioDeSeguimiento(): Promise<HorarioSeguimiento> {
-  try {
-    const { data } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'seguimiento_horario')
-      .maybeSingle()
-    return horarioSeguimientoDesde((data as { valor: unknown } | null)?.valor)
-  } catch {
-    return HORARIO_SEGUIMIENTO_DEFECTO
-  }
-}
-
-async function permisoDeFondo(): Promise<boolean> {
-  try {
-    return (await Location.getBackgroundPermissionsAsync()).granted
-  } catch {
-    return false
-  }
-}
-
-/**
- * Prende o APAGA el seguimiento de jornada según corresponda (Fase 1).
- *
- * Se llama al loguearse, al volver la app al frente, y por un reloj cada pocos
- * minutos (para no quedar prendido ni apagado por depender sólo de un evento).
- *
- *  · Debe rastrear (habilitado + horario laboral) y NO está → arranca la jornada,
- *    si hay permiso "siempre" y sesión.
- *  · NO debe (fuera de horario, o dejó de estar habilitado) y SÍ está:
- *     - si no está habilitado → corta del todo (un equipo bloqueado o
- *       desautorizado no sigue reportando, esté en recorrido o no);
- *     - si es sólo por horario → corta el modo jornada; un recorrido explícito lo
- *       cierra la propia tarea (corte por hora) o el "finalizar".
- *
- * Que ya esté en un recorrido cuenta como "ya rastreando": no lo pisa.
- */
-export async function revisarSeguimiento(habilitado: boolean): Promise<void> {
-  const activo = await seguimientoActivo()
-  const horario = await horarioDeSeguimiento()
-  const debeRastrear = habilitado && enHorarioDeSeguimiento(new Date(), horario)
-
-  if (debeRastrear && !activo) {
-    if (!(await permisoDeFondo())) return
-    const { data } = await supabase.auth.getSession()
-    const vendedorId = data.session?.user.id
-    if (!vendedorId) return
-    await iniciarSeguimiento({ vendedorId, rolVisitaId: null, horario })
-    return
-  }
-
-  if (!debeRastrear && activo) {
-    const ctx = await leerContexto()
-    if (!ctx) {
-      await detenerSeguimiento()
-      return
-    }
-    // Sin habilitación: corta siempre. Sólo por horario: corta únicamente la
-    // jornada (si hay recorrido, lo maneja el corte por hora de la tarea).
-    if (!habilitado || ctx.rolVisitaId === null) {
-      await detenerSeguimiento(ctx.vendedorId)
-    }
-  }
-}
-
-/**
- * Terminar un recorrido SIN cortar el seguimiento de jornada.
- *
- * Antes, finalizar el recorrido apagaba la tarea entera. Con el seguimiento
- * continuo, si todavía es horario laboral y está el permiso, el seguimiento
- * sigue —ahora en modo jornada, sin recorrido—; recién se apaga del todo fuera
- * de horario (o al cerrar sesión, que llama a `detenerSeguimiento`).
- */
-export async function terminarRecorrido(vendedorId?: string): Promise<void> {
-  const horario = await horarioDeSeguimiento()
-
-  if (vendedorId && (await permisoDeFondo()) && enHorarioDeSeguimiento(new Date(), horario)) {
-    const ctx = await leerContexto()
-    if (ctx) {
-      // Bajar a modo jornada: sacar el recorrido del contexto, la tarea sigue.
-      await cacheLocal.setItem(CLAVE_CONTEXTO, JSON.stringify({ ...ctx, rolVisitaId: null, horario }))
-    }
-    await supabase
-      .from('posiciones_actuales')
-      .update({ en_recorrido: false, actualizado_en: new Date().toISOString() })
-      .eq('vendedor_id', vendedorId)
-      .then(undefined, () => undefined)
-    return
-  }
-
-  await detenerSeguimiento(vendedorId)
-}
-
-/**
- * Pide el permiso "permitir siempre" una vez, para que el seguimiento de jornada
- * pueda andar. Se llama al loguearse. Si ya está concedido o ya se preguntó una
- * vez, no molesta de nuevo (el inicio de un recorrido lo vuelve a pedir si hace
- * falta).
- */
-const CLAVE_PIDIO_PERMISO = 'woodtools.pidio_permiso_jornada'
-export async function pedirPermisoDeSeguimientoSiFalta(): Promise<void> {
-  try {
-    if (await permisoDeFondo()) return
-    if (await cacheLocal.getItem(CLAVE_PIDIO_PERMISO)) return
-    await cacheLocal.setItem(CLAVE_PIDIO_PERMISO, '1')
-    await pedirPermisosUbicacion()
-    // El arranque del seguimiento queda a cargo de `revisarSeguimiento`, que el
-    // que la llama corre justo después: así no se dispara dos veces.
-  } catch {
-    // Que falle pedir el permiso no puede tumbar el arranque de la app.
-  }
-}
-
-/**
- * Olvida que ya se pidió el permiso de jornada.
- *
- * Va al cambiar de cuenta / cerrar sesión: la clave es del teléfono, no de la
- * cuenta, así que sin esto un segundo vendedor en el mismo equipo nunca recibía
- * el pedido de "permitir siempre" y su seguimiento de jornada no arrancaba.
- */
-export async function olvidarPermisoDeJornada(): Promise<void> {
-  try {
-    await cacheLocal.removeItem(CLAVE_PIDIO_PERMISO)
-  } catch {
-    // Si no se puede olvidar, en el peor caso no se vuelve a preguntar.
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Confiabilidad (Fase 2): que Android/Samsung no "duerma" la app
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Abre los ajustes para sacar la app de la optimización de batería.
- *
- * En el APK 1.3.0 usa `expo-intent-launcher` (nativo, importado lazy porque en
- * 1.2.1 no existe e importarlo arriba rompería el bundle). Si no, cae a
- * `Linking`, que es de React Native y anda en los dos runtimes. Último recurso:
- * los ajustes de la app.
- */
-export async function abrirAjustesDeBateria(): Promise<void> {
-  const ACCION = 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS'
-  try {
-    const IntentLauncher = await import('expo-intent-launcher')
-    await IntentLauncher.startActivityAsync(ACCION)
-    return
-  } catch {
-    // 1.2.1 (sin el módulo nativo) o cualquier error: se intenta por Linking.
-  }
-  try {
-    await Linking.sendIntent(ACCION)
-    return
-  } catch {
-    // Si la acción no existe en este teléfono, al menos los ajustes de la app.
-  }
-  try {
-    await Linking.openSettings()
-  } catch {
-    // Que no se pueda abrir ajustes no puede romper la app.
-  }
-}
-
-/**
- * Explica por qué el seguimiento se puede cortar y ofrece arreglarlo.
- *
- * El problema real: Samsung (y Android en general) mata el servicio en segundo
- * plano para ahorrar batería, y ahí el seguimiento se corta aunque todo lo demás
- * esté bien. No se puede chequear por código si la app ya está exceptuada.
- *
- * NO se muestra sola: se abre A MANO desde Configuración ("QUE EL SEGUIMIENTO NO
- * SE CORTE"). No la queremos saltando en la cara de toda la flota al arrancar;
- * la oficina la usa con el vendedor que haga falta.
- */
-export function mostrarGuiaDeBateria(): void {
-  Alert.alert(
-    'Que el seguimiento no se corte',
-    'Para que la oficina te siga viendo con la pantalla apagada, Android no tiene que "dormir" la app.\n\n' +
-      '1) Sacá a WoodTools de la optimización de batería (ponela en "Sin restricciones").\n' +
-      '2) En Samsung, sacala también de "Apps que se duermen" / "en suspensión profunda".',
-    [
-      { text: 'Cerrar', style: 'cancel' },
-      { text: 'Abrir ajustes', onPress: () => void abrirAjustesDeBateria() },
-    ],
-  )
-}
-
 export async function detenerSeguimiento(vendedorId?: string): Promise<void> {
-  // Si no viene el id, se saca del contexto ANTES de borrarlo: así el pin en
-  // vivo se apaga igual. Sin esto, parar sin pasar el id dejaba la fila con
-  // `activo: true` de un seguimiento que ya no corre.
-  const idReset = vendedorId ?? (await leerContexto())?.vendedorId
-
   const corriendo = await Location.hasStartedLocationUpdatesAsync(TAREA_UBICACION).catch(() => false)
   if (corriendo) await Location.stopLocationUpdatesAsync(TAREA_UBICACION)
 
   await cacheLocal.removeItem(CLAVE_CONTEXTO)
   await vaciarCola()
 
-  if (idReset) {
+  if (vendedorId) {
     await supabase
       .from('posiciones_actuales')
       .update({ en_recorrido: false, activo: false, actualizado_en: new Date().toISOString() })
-      .eq('vendedor_id', idReset)
+      .eq('vendedor_id', vendedorId)
       .then(undefined, () => undefined)
   }
 }
@@ -451,15 +238,6 @@ TaskManager.defineTask(TAREA_UBICACION, async ({ data, error }) => {
   // atribuir puntos de hoy a la jornada de ayer. `detenerSeguimiento` apaga la
   // tarea, drena lo que quedó de ayer y marca al vendedor fuera de recorrido.
   if (contexto.fecha && fechaLocalISO(new Date(ultima.timestamp)) !== contexto.fecha) {
-    await detenerSeguimiento(contexto.vendedorId)
-    return
-  }
-
-  // Fuera del horario de seguimiento (p. ej. pasadas las 17, o un sábado): se
-  // corta acá aunque la app no se haya abierto. El horario viene fijado en el
-  // contexto al arrancar, así que esto no le pega a la base por cada punto.
-  const horario = contexto.horario ?? HORARIO_SEGUIMIENTO_DEFECTO
-  if (!enHorarioDeSeguimiento(new Date(ultima.timestamp), horario)) {
     await detenerSeguimiento(contexto.vendedorId)
     return
   }
@@ -501,10 +279,9 @@ async function publicarPunto(punto: PuntoEncolado): Promise<void> {
       rumbo: punto.rumbo,
       bateria_pct: punto.bateria_pct,
       // `activo` es lo que el panel muestra (acotado por el horario 8-17 según su
-      // reloj); `en_recorrido` marca que además tiene un recorrido en curso —en
-      // modo jornada (sin recorrido) va en false.
+      // reloj); `en_recorrido` marca que además tiene un recorrido en curso.
       activo: true,
-      en_recorrido: punto.rol_visita_id !== null,
+      en_recorrido: true,
       actualizado_en: punto.registrado_en,
     },
     { onConflict: 'vendedor_id' },

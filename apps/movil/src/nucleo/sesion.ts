@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store'
 import { create } from 'zustand'
 
 import { olvidarBorrador } from '../servicios/borradorDeNota'
-import { detenerSeguimiento, olvidarPermisoDeJornada } from '../servicios/ubicacion'
+import { detenerSeguimiento } from '../servicios/ubicacion'
 import { clienteConsultas } from './consultas'
 import {
   datosDeCuenta,
@@ -150,9 +150,6 @@ async function limpiarLocalDelUsuario(): Promise<void> {
   }
   olvidarFotos()
   await olvidarLoRecordado().catch(() => undefined)
-  // El permiso de jornada se preguntó una vez para ESTE teléfono: al cambiar de
-  // cuenta, que el próximo vendedor lo vuelva a recibir.
-  await olvidarPermisoDeJornada().catch(() => undefined)
 }
 
 /**

@@ -40,10 +40,10 @@ import {
   previsualizarRecorrido,
 } from '../servicios/mapas'
 import {
+  detenerSeguimiento,
   iniciarSeguimiento,
   pedirPermisosUbicacion,
   radioDeLlegadaM,
-  terminarRecorrido,
   ubicacionActual,
 } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -612,9 +612,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       try {
         await finalizarRecorrido(jornada.id)
       } finally {
-        // Baja a seguimiento de jornada si todavía es horario laboral; si no,
-        // corta del todo. Antes cortaba siempre.
-        await terminarRecorrido(perfil?.id).catch(() => undefined)
+        await detenerSeguimiento(perfil?.id).catch(() => undefined)
       }
     },
     onSuccess: () => {

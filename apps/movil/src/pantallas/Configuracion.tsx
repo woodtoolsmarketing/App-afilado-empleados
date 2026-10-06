@@ -23,7 +23,6 @@ import { obtenerJornadaDeHoy } from '../servicios/jornada'
 import {
   detenerSeguimiento,
   iniciarSeguimiento,
-  mostrarGuiaDeBateria,
   seguimientoActivo,
 } from '../servicios/ubicacion'
 import type { PropsPantalla, SeccionDeConfiguracion } from '../navegacion/tipos'
@@ -376,7 +375,7 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
 
             {siguiendo ? (
               <Aviso tono="atencion" titulo="Seguimiento activo">
-                La oficina está viendo tu ubicación durante el horario de trabajo.
+                La oficina está viendo tu ubicación. Se corta solo al finalizar el recorrido.
               </Aviso>
             ) : null}
 
@@ -440,12 +439,6 @@ export function PantallaConfiguracion({ navigation, route }: PropsPantalla<'Conf
                 }
               />
             ) : null}
-
-            <BotonMenu
-              titulo="QUE EL SEGUIMIENTO NO SE CORTE"
-              subtitulo="Sacar la app de la optimización de batería para que ande con la pantalla apagada"
-              alTocar={mostrarGuiaDeBateria}
-            />
 
             <BotonMenu
               titulo="CAMBIAR DE CUENTA"
