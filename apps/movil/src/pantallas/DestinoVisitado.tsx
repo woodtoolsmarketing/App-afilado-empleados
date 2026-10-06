@@ -52,8 +52,8 @@ import {
   type DireccionResuelta,
 } from '../servicios/mapas'
 import {
-  detenerSeguimiento,
   permisoDeUbicacionPuntual,
+  terminarRecorrido,
   ubicacionActual,
 } from '../servicios/ubicacion'
 import { usarDictado, DURACION_MAXIMA_MS } from '../servicios/transcripcion'
@@ -416,7 +416,9 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       try {
         await finalizarRecorrido(data!.jornada.id)
       } finally {
-        await detenerSeguimiento(perfil?.id).catch(() => undefined)
+        // Baja a seguimiento de jornada si todavía es horario laboral; si no,
+        // corta del todo.
+        await terminarRecorrido(perfil?.id).catch(() => undefined)
       }
     },
     onSuccess: async () => {

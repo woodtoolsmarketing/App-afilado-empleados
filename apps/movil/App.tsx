@@ -20,10 +20,13 @@ import { usarSesion } from './src/nucleo/sesion'
 import { usarAjustesDeTema, usarTema } from './src/nucleo/tema'
 import { supabase } from './src/nucleo/supabase'
 
-// Se importa por su efecto secundario: registra la tarea de segundo plano.
-// TaskManager exige que la definición corra en el arranque, antes de que el
-// sistema pueda despertar la app para entregar ubicaciones.
-import './src/servicios/ubicacion'
+// Se importa también por su efecto secundario: registra la tarea de segundo
+// plano. TaskManager exige que la definición corra en el arranque, antes de que
+// el sistema pueda despertar la app para entregar ubicaciones.
+import {
+  pedirPermisoDeSeguimientoSiFalta,
+  revisarSeguimiento,
+} from './src/servicios/ubicacion'
 
 void SplashScreen.preventAutoHideAsync()
 
@@ -79,9 +82,39 @@ export default function App() {
       focusManager.setFocused(activo)
       if (activo) supabase.auth.startAutoRefresh()
       else supabase.auth.stopAutoRefresh()
+      // Seguimiento continuo (Fase 1): al volver al frente se revisa si hay que
+      // prender (horario laboral + habilitado) o apagar (fuera de horario, o
+      // dejó de estar habilitado) el seguimiento de jornada.
+      if (activo) {
+        void revisarSeguimiento(usarSesion.getState().estado === 'habilitado')
+      }
     })
     supabase.auth.startAutoRefresh()
     return () => suscripcion.remove()
+  }, [])
+
+  // Seguimiento continuo (Fase 1): cuando cambia el acceso, se revisa. Al quedar
+  // habilitado se pide el permiso "siempre" si falta (una vez) y arranca si es
+  // horario laboral. Si DEJÓ de estar habilitado (versión vieja, dispositivo
+  // desautorizado, suspensión) sin cerrar sesión, `revisarSeguimiento` lo corta.
+  useEffect(() => {
+    if (estado === 'cargando') return
+    const habilitado = estado === 'habilitado'
+    void (async () => {
+      if (habilitado) await pedirPermisoDeSeguimientoSiFalta()
+      await revisarSeguimiento(habilitado)
+    })()
+  }, [estado])
+
+  // Un reloj cada pocos minutos revisa el seguimiento: cubre cruzar las 8 o las
+  // 17 con la app abierta y quieta, cuando no hay un cambio de foco ni un punto
+  // nuevo que dispare el arranque o el corte.
+  useEffect(() => {
+    const t = setInterval(
+      () => void revisarSeguimiento(usarSesion.getState().estado === 'habilitado'),
+      5 * 60_000,
+    )
+    return () => clearInterval(t)
   }, [])
 
   if (!fuentesListas || !temaListo) return null
