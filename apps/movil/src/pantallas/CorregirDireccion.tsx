@@ -11,7 +11,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 import { proponerCambioDireccion } from '../servicios/cambiosDireccion'
-import { navegarHacia } from '../servicios/mapas'
+import { navegarHacia, ubicacionComoDireccion } from '../servicios/mapas'
 import { ubicacionActual } from '../servicios/ubicacion'
 
 /** Un punto de partida cualquiera (Obelisco) cuando no hay coordenada ni GPS todavía. */
@@ -37,6 +37,7 @@ export function PantallaCorregirDireccion({ navigation, route }: PropsPantalla<'
     lat != null && lng != null ? { lat, lng } : null,
   )
   const [buscandoGps, setBuscandoGps] = useState(false)
+  const [resolviendo, setResolviendo] = useState(false)
 
   const regionInicial = {
     latitude: lat ?? CENTRO_POR_DEFECTO.latitude,
@@ -45,19 +46,41 @@ export function PantallaCorregirDireccion({ navigation, route }: PropsPantalla<'
     longitudeDelta: 0.008,
   }
 
+  /**
+   * Fija el pin Y resuelve la dirección de esa coordenada en Google.
+   *
+   * El bug que había: al mover el pin o usar el GPS sólo se guardaba la
+   * coordenada, y el texto quedaba igual que la dirección vieja. Así la oficina
+   * veía "propuesta = actual". Ahora el texto pasa a ser el domicilio que Google
+   * da para el punto marcado. El vendedor puede corregirlo a mano después (lo
+   * último que marque o escriba es lo que se envía).
+   */
+  async function fijarPunto(lat: number, lng: number) {
+    setPunto({ lat, lng })
+    setResolviendo(true)
+    try {
+      const d = await ubicacionComoDireccion({ lat, lng })
+      setDireccion(d.direccion_formateada)
+    } catch {
+      // Google no resolvió: dejamos el pin y el texto que haya; la oficina lo ve.
+    } finally {
+      setResolviendo(false)
+    }
+  }
+
   function moverPin(coord: { latitude: number; longitude: number }) {
-    setPunto({ lat: coord.latitude, lng: coord.longitude })
+    void fijarPunto(coord.latitude, coord.longitude)
   }
 
   async function usarMiUbicacion() {
     setBuscandoGps(true)
     try {
       const u = await ubicacionActual()
-      setPunto({ lat: u.lat, lng: u.lng })
       mapaRef.current?.animateToRegion(
         { latitude: u.lat, longitude: u.lng, latitudeDelta: 0.004, longitudeDelta: 0.004 },
         400,
       )
+      await fijarPunto(u.lat, u.lng)
     } catch {
       Alert.alert('No pudimos tomar tu ubicación', 'Revisá que el GPS esté prendido y probá de nuevo.')
     } finally {
@@ -130,6 +153,11 @@ export function PantallaCorregirDireccion({ navigation, route }: PropsPantalla<'
           onChangeText={setDireccion}
           placeholder="Calle y número, localidad"
           multiline
+          ayuda={
+            resolviendo
+              ? 'Buscando en Google la dirección del punto…'
+              : 'Se completa sola con lo que Google ve en el pin. Corregila si hace falta.'
+          }
         />
         <Campo
           etiqueta="POR QUÉ (OPCIONAL)"
