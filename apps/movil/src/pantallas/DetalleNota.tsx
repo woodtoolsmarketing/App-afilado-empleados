@@ -34,7 +34,7 @@ import {
   sePuedeCorregir,
 } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
-import { usarSesion } from '../nucleo/sesion'
+import { usarPermisos } from '../servicios/permisos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
@@ -102,8 +102,9 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   const estilos = usarEstilos()
   const { notaId } = route.params
   const cliente = useQueryClient()
-  // Cobranzas quedó restringida al administrador.
-  const esAdmin = usarSesion((s) => s.perfil?.rol === 'admin')
+  // "Cobré esta nota" sigue la misma matriz de permisos que el resto de
+  // Cobranzas (arranca admin-only): si el rol no la tiene, no se ofrece el atajo.
+  const { puedeVer } = usarPermisos()
 
   const { data: nota, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['nota', notaId],
@@ -337,7 +338,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             cobrar. Atarlos obligaba a una de las dos cosas para hacer la otra.
             El comprobante y el cliente viajan puestos: es lo que el vendedor
             tiene delante cuando cobra. */}
-        {anulada || !esAdmin ? null : (
+        {anulada || !puedeVer('cobranzas') ? null : (
           <BotonSecundario
             titulo="💵  COBRÉ ESTA NOTA"
             alTocar={() =>

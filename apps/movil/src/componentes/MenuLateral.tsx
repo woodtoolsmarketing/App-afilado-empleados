@@ -1,4 +1,4 @@
-import { espaciado, radios, sombras, TOQUE_MINIMO } from '@woodtools/compartido'
+import { espaciado, radios, sombras, TOQUE_MINIMO, type ClaveFuncion } from '@woodtools/compartido'
 import { useNavigation, useNavigationState } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useEffect, useRef, useState } from 'react'
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { hojaDeTema } from '../nucleo/tema'
 import { usarSesion } from '../nucleo/sesion'
+import { usarPermisos } from '../servicios/permisos'
 import type { ParametrosApp } from '../navegacion/tipos'
 
 /**
@@ -49,25 +50,36 @@ interface Destino {
    * ignora.
    */
   ir: (navegacion: NativeStackNavigationProp<ParametrosApp>, pantallaActual?: string) => void
+  /**
+   * La función de permisos a la que pertenece esta entrada. Si el rol no la
+   * tiene habilitada (ver el apartado "Permisos" del panel), la entrada se
+   * esconde, igual que en el menú principal. Las que no tienen `permiso`
+   * (Reportar, Buscar actualización, etc.) se ven siempre.
+   */
+  permiso?: ClaveFuncion
 }
 
 const OPCIONES: Destino[] = [
   {
     etiqueta: 'VER DESTINOS DEL DÍA DE HOY',
     ir: (n) => n.navigate('Visitas'),
+    permiso: 'visitas',
   },
   {
     etiqueta: 'CALENDARIO DE VISITAS',
     ir: (n) => n.navigate('CalendarioVisitas'),
+    permiso: 'calendario',
   },
   {
     etiqueta: 'CREAR NOTA DE PEDIDO',
     ir: (n) => n.navigate('GenerarNota'),
+    permiso: 'notas_pedido',
   },
   {
     // Las pendientes son, literalmente, las que están esperando el papel.
     etiqueta: 'IMPRIMIR NOTAS DE PEDIDO',
     ir: (n) => n.navigate('NotasPendientes'),
+    permiso: 'notas_pedido',
   },
   {
     // La planilla del recorrido de hoy: la misma que arma la oficina, para
@@ -82,6 +94,7 @@ const OPCIONES: Destino[] = [
   {
     etiqueta: 'HISTORIAL NOTAS DE PEDIDO',
     ir: (n) => n.navigate('HistorialNotas'),
+    permiso: 'notas_pedido',
   },
   {
     etiqueta: 'REPORTAR UN PROBLEMA',
@@ -92,6 +105,7 @@ const OPCIONES: Destino[] = [
   {
     etiqueta: 'COMUNICACIÓN INTERNA',
     ir: (n) => n.navigate('ComunicacionInterna'),
+    permiso: 'comunicacion_interna',
   },
   {
     etiqueta: 'BUSCAR ACTUALIZACIÓN',
@@ -176,9 +190,14 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
   const ocultarImprimirRol = usarSesion(
     (s) => s.perfil?.rol === 'vendedor' && s.perfil?.imprime_roles === false,
   )
-  const opciones = ocultarImprimirRol
-    ? OPCIONES.filter((o) => o.etiqueta !== 'IMPRIMIR ROL DE VISITA')
-    : OPCIONES
+  // Mismas funciones que el menú principal: cada entrada con `permiso` se
+  // esconde si el rol no lo tiene habilitado (admin ve todo).
+  const { puedeVer } = usarPermisos()
+  const opciones = OPCIONES.filter(
+    (o) =>
+      (!o.permiso || puedeVer(o.permiso)) &&
+      !(ocultarImprimirRol && o.etiqueta === 'IMPRIMIR ROL DE VISITA'),
+  )
   // Desde dónde se abrió el menú, para "REPORTAR UN PROBLEMA", con nombre legible.
   const rutaActual = useNavigationState((state) => state.routes[state.index]?.name)
   const pantallaActual = rutaActual ? (ETIQUETA_PANTALLA[rutaActual] ?? rutaActual) : undefined

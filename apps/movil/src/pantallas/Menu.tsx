@@ -8,6 +8,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarSesion, VERSION_APP } from '../nucleo/sesion'
 import { obtenerResumenDeHoy } from '../servicios/jornada'
 import { notasPendientes as listarNotasPendientes } from '../servicios/notasPedido'
+import { usarPermisos } from '../servicios/permisos'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema } from '../nucleo/tema'
 
@@ -26,6 +27,9 @@ import { hojaDeTema } from '../nucleo/tema'
 export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
+  // Qué opciones ve este rol. La oficina lo configura desde el panel; admin ve
+  // todo. Cada botón de abajo se esconde si el rol no tiene su función.
+  const { puedeVer } = usarPermisos()
 
   const { data: resumen } = useQuery({
     queryKey: ['resumen-hoy', perfil?.id],
@@ -54,41 +58,49 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           MENÚ
         </Text>
 
-        <BotonMenu
-          titulo="VISITAS"
-          subtitulo={
-            pendientes === null
-              ? undefined
-              : pendientes > 0
-                ? `${pendientes} destino${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'} hoy`
-                : 'Sin destinos pendientes hoy'
-          }
-          alTocar={() => navigation.navigate('Visitas')}
-        />
+        {puedeVer('visitas') ? (
+          <BotonMenu
+            titulo="VISITAS"
+            subtitulo={
+              pendientes === null
+                ? undefined
+                : pendientes > 0
+                  ? `${pendientes} destino${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'} hoy`
+                  : 'Sin destinos pendientes hoy'
+            }
+            alTocar={() => navigation.navigate('Visitas')}
+          />
+        ) : null}
 
-        <BotonMenu
-          titulo="NOTAS DE PEDIDO"
-          subtitulo={
-            notasPendientes === undefined
-              ? undefined
-              : notasPendientes > 0
-                ? `${notasPendientes} pendiente${notasPendientes === 1 ? '' : 's'}`
-                : 'Sin notas pendientes'
-          }
-          alTocar={() => navigation.navigate('NotasPedido')}
-        />
+        {puedeVer('notas_pedido') ? (
+          <BotonMenu
+            titulo="NOTAS DE PEDIDO"
+            subtitulo={
+              notasPendientes === undefined
+                ? undefined
+                : notasPendientes > 0
+                  ? `${notasPendientes} pendiente${notasPendientes === 1 ? '' : 's'}`
+                  : 'Sin notas pendientes'
+            }
+            alTocar={() => navigation.navigate('NotasPedido')}
+          />
+        ) : null}
 
-        <BotonMenu
-          titulo="CALENDARIO DE VISITAS"
-          subtitulo="La semana entera: a quién ver cada día"
-          alTocar={() => navigation.navigate('CalendarioVisitas')}
-        />
+        {puedeVer('calendario') ? (
+          <BotonMenu
+            titulo="CALENDARIO DE VISITAS"
+            subtitulo="La semana entera: a quién ver cada día"
+            alTocar={() => navigation.navigate('CalendarioVisitas')}
+          />
+        ) : null}
 
-        <BotonMenu
-          titulo="LISTA SEMANAL"
-          subtitulo="A quién visitás cada día, fijo"
-          alTocar={() => navigation.navigate('ListaSemanal')}
-        />
+        {puedeVer('lista_semanal') ? (
+          <BotonMenu
+            titulo="LISTA SEMANAL"
+            subtitulo="A quién visitás cada día, fijo"
+            alTocar={() => navigation.navigate('ListaSemanal')}
+          />
+        ) : null}
 
         {/*
           El mapa existe desde hace rato: vive adentro de VISITAS → VER
@@ -96,11 +108,13 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           preparación", así que el que buscaba el mapa por su nombre concluía
           que todavía no estaba hecho.
         */}
-        <BotonMenu
-          titulo="MAPA DE VISITAS"
-          subtitulo="El recorrido de hoy sobre el mapa"
-          alTocar={() => navigation.navigate('Recorrido')}
-        />
+        {puedeVer('mapa_recorrido') ? (
+          <BotonMenu
+            titulo="MAPA DE VISITAS"
+            subtitulo="El recorrido de hoy sobre el mapa"
+            alTocar={() => navigation.navigate('Recorrido')}
+          />
+        ) : null}
 
         {/*
           "MAPA" aparece SÓLO en los APK que tienen la clave de Google Maps.
@@ -114,7 +128,7 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           del APK, que el OTA no puede falsear: de la 1.0.9 en adelante todos los
           APK se compilan con la clave (ver eas.json), así que ésa es la línea.
         */}
-        {compararVersiones(VERSION_APP, '1.0.9') >= 0 ? (
+        {compararVersiones(VERSION_APP, '1.0.9') >= 0 && puedeVer('mapa_clientes') ? (
           <BotonMenu
             titulo="MAPA"
             subtitulo="Todos los clientes ubicados, alrededor tuyo"
@@ -122,22 +136,26 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           />
         ) : null}
 
-        <BotonMenu
-          titulo="CLIENTES DE HOY"
-          subtitulo="A quién te toca visitar, para armar el recorrido"
-          alTocar={() => navigation.navigate('ClientesDelDia')}
-        />
+        {puedeVer('clientes_hoy') ? (
+          <BotonMenu
+            titulo="CLIENTES DE HOY"
+            subtitulo="A quién te toca visitar, para armar el recorrido"
+            alTocar={() => navigation.navigate('ClientesDelDia')}
+          />
+        ) : null}
 
-        <BotonMenu
-          titulo="PRÓXIMAS VISITAS"
-          subtitulo="Lo agendado para los próximos días"
-          alTocar={() => navigation.navigate('CalendarioEnvios')}
-        />
+        {puedeVer('proximas_visitas') ? (
+          <BotonMenu
+            titulo="PRÓXIMAS VISITAS"
+            subtitulo="Lo agendado para los próximos días"
+            alTocar={() => navigation.navigate('CalendarioEnvios')}
+          />
+        ) : null}
 
-        {/* Cobranzas quedó restringida al administrador: se esconde a vendedor,
-            administración y supervisor (y la ruta también se gatea, ver
-            Navegacion). */}
-        {perfil?.rol === 'admin' ? (
+        {/* Cobranzas y todo lo demás ya no se gatean a mano acá: lo decide la
+            matriz de permisos del panel (Cobranzas arranca admin-only). La ruta
+            también se gatea, ver Navegacion. */}
+        {puedeVer('cobranzas') ? (
           <BotonMenu
             titulo="COBRANZAS DEL DÍA"
             subtitulo="Lo que cobraste hoy, y la planilla para rendir"
@@ -145,11 +163,13 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           />
         ) : null}
 
-        <BotonMenu
-          titulo="COMUNICACIÓN INTERNA"
-          subtitulo="Los teléfonos de la oficina, a un toque"
-          alTocar={() => navigation.navigate('ComunicacionInterna')}
-        />
+        {puedeVer('comunicacion_interna') ? (
+          <BotonMenu
+            titulo="COMUNICACIÓN INTERNA"
+            subtitulo="Los teléfonos de la oficina, a un toque"
+            alTocar={() => navigation.navigate('ComunicacionInterna')}
+          />
+        ) : null}
 
         <BotonMenu
           titulo="CONFIGURACIÓN"

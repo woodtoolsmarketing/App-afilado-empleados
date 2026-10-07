@@ -22,6 +22,87 @@ export const ETIQUETA_ROL: Record<RolUsuario, string> = {
   admin: 'Administrador',
 }
 
+/** Los roles que se pueden tildar en la matriz de permisos. admin NO va: ve todo siempre. */
+export const ROLES_CONFIGURABLES: RolUsuario[] = ['vendedor', 'supervisor', 'administracion']
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Permisos por rol (qué opciones de la app ve cada rol)
+//
+// Un apartado del panel deja al administrador habilitar o esconder cada opción
+// del menú por rol, igual que "Cobranzas del día". La app lee este catálogo y
+// esconde lo que el rol no tenga habilitado. admin SIEMPRE ve todo —no se puede
+// autobloquear—, y una clave ausente del catálogo se considera visible para
+// todos, así una opción nueva no queda escondida hasta configurarla.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Las opciones de la app que se pueden limitar por rol. */
+export type ClaveFuncion =
+  | 'visitas'
+  | 'notas_pedido'
+  | 'calendario'
+  | 'lista_semanal'
+  | 'mapa_recorrido'
+  | 'mapa_clientes'
+  | 'clientes_hoy'
+  | 'proximas_visitas'
+  | 'cobranzas'
+  | 'comunicacion_interna'
+
+/** Una fila del catálogo de funciones (lo que configura el panel y lee la app). */
+export interface Funcion {
+  clave: ClaveFuncion
+  etiqueta: string
+  descripcion: string | null
+  orden: number
+  /** Los roles (además de admin) que ven esta opción. */
+  roles_habilitados: RolUsuario[]
+}
+
+/**
+ * El catálogo canónico: la lista de opciones limitables, su etiqueta para el
+ * panel, y a quién se le muestran POR DEFECTO. Es la fuente de la semilla de la
+ * base (ver la migración) y el respaldo de la app mientras no llegó la config.
+ *
+ * Por defecto todo se ve para los tres roles; Cobranzas y Mapa arrancan
+ * admin-only (roles_habilitados vacío), que es lo pedido.
+ */
+export const CATALOGO_FUNCIONES: Funcion[] = [
+  { clave: 'visitas', etiqueta: 'Visitas', descripcion: 'Los destinos del día y el recorrido', orden: 10, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'notas_pedido', etiqueta: 'Notas de pedido', descripcion: 'Crear, imprimir y ver notas de pedido', orden: 20, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'calendario', etiqueta: 'Calendario de visitas', descripcion: 'La semana entera, a quién ver cada día', orden: 30, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'lista_semanal', etiqueta: 'Lista semanal', descripcion: 'A quién visita cada día, fijo', orden: 40, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'mapa_recorrido', etiqueta: 'Mapa de visitas', descripcion: 'El recorrido de hoy sobre el mapa', orden: 50, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'mapa_clientes', etiqueta: 'Mapa (todos los clientes)', descripcion: 'Todos los clientes ubicados, con buscador', orden: 60, roles_habilitados: [] },
+  { clave: 'clientes_hoy', etiqueta: 'Clientes de hoy', descripcion: 'A quién toca visitar, para armar el recorrido', orden: 70, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'proximas_visitas', etiqueta: 'Próximas visitas', descripcion: 'Lo agendado para los próximos días', orden: 80, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+  { clave: 'cobranzas', etiqueta: 'Cobranzas del día', descripcion: 'Lo cobrado hoy y la planilla para rendir', orden: 90, roles_habilitados: [] },
+  { clave: 'comunicacion_interna', etiqueta: 'Comunicación interna', descripcion: 'Los teléfonos de la oficina', orden: 100, roles_habilitados: ['vendedor', 'supervisor', 'administracion'] },
+]
+
+/** Las claves que arrancan admin-only: el respaldo de la app en el arranque en frío. */
+export const FUNCIONES_SOLO_ADMIN_POR_DEFECTO: ClaveFuncion[] = CATALOGO_FUNCIONES.filter(
+  (f) => f.roles_habilitados.length === 0,
+).map((f) => f.clave)
+
+/**
+ * ¿El rol puede ver esta opción, según el catálogo cargado?
+ *
+ * admin ve todo. Una clave que no está en el catálogo se considera visible para
+ * todos. Si `catalogo` es null (todavía no llegó del servidor), se cae al
+ * respaldo: admin-only para las que arrancan así, visibles para el resto.
+ */
+export function rolPuedeVer(
+  clave: ClaveFuncion,
+  rol: RolUsuario,
+  catalogo: Map<ClaveFuncion, RolUsuario[]> | null,
+): boolean {
+  if (rol === 'admin') return true
+  if (!catalogo) return !FUNCIONES_SOLO_ADMIN_POR_DEFECTO.includes(clave)
+  const roles = catalogo.get(clave)
+  if (!roles) return true
+  return roles.includes(rol)
+}
+
 export type EstadoUsuario =
   | 'pendiente'
   | 'aprobado'

@@ -21,6 +21,7 @@ import { PaginaRolMaestro } from './paginas/RolMaestro'
 import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
 import { PaginaTablero } from './paginas/Tablero'
 import { PaginaUsuarios } from './paginas/Usuarios'
+import { PaginaPermisos } from './paginas/Permisos'
 
 export function App() {
   const sesion = usarSesion()
@@ -53,6 +54,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<PaginaTablero />} />
           <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
+          <Route path="/permisos" element={<PaginaPermisos soloLectura={!sesion.esAdmin} />} />
           <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
           <Route
             path="/clientes-a-confirmar"
@@ -235,6 +237,7 @@ function BarraLateral({
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones' },
     { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
+    { a: '/permisos', icono: '🔒', texto: 'Permisos' },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
     { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas },
     { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones' },

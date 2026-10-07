@@ -1,6 +1,7 @@
 import {
   BUCKET_FOTOS,
   ETIQUETA_ESTADO_USUARIO,
+  ETIQUETA_ROL,
   urlesDeFotos,
   type Perfil,
   type RolUsuario,
@@ -227,6 +228,29 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       void cliente.invalidateQueries()
     },
     onError: (e: Error) => setMensaje(`No se pudo guardar el permiso de impresión: ${e.message}`),
+  })
+
+  /**
+   * Cambiar el rol de un usuario.
+   *
+   * Va por la RPC `cambiar_rol_usuario` y no por un UPDATE directo: la función
+   * del servidor es la que garantiza que lo pida un admin, que nadie se quite a
+   * sí mismo el admin, y que no quede la oficina sin ningún administrador. Qué
+   * ve cada rol en la app se configura aparte, en "Permisos".
+   */
+  const cambiarRol = useMutation({
+    mutationFn: async (params: { perfilId: string; rol: RolUsuario }) => {
+      const { error } = await supabase.rpc('cambiar_rol_usuario', {
+        p_usuario_id: params.perfilId,
+        p_rol: params.rol,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Rol actualizado. Qué ve ese rol en la app se configura en "Permisos".')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo cambiar el rol: ${e.message}`),
   })
 
   /**
@@ -847,7 +871,27 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                     <small style={{ color: 'var(--tinta-tenue)' }}>Siempre</small>
                   )}
                 </td>
-                <td style={{ textTransform: 'capitalize' }}>{p.rol}</td>
+                <td>
+                  {soloLectura ? (
+                    <span style={{ textTransform: 'capitalize' }}>{ETIQUETA_ROL[p.rol]}</span>
+                  ) : (
+                    <select
+                      value={p.rol}
+                      disabled={cambiarRol.isPending && cambiarRol.variables?.perfilId === p.id}
+                      onChange={(e) =>
+                        cambiarRol.mutate({ perfilId: p.id, rol: e.target.value as RolUsuario })
+                      }
+                    >
+                      {(['vendedor', 'supervisor', 'administracion', 'admin'] as RolUsuario[]).map(
+                        (r) => (
+                          <option key={r} value={r}>
+                            {ETIQUETA_ROL[r]}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  )}
+                </td>
                 <td>
                   <span className={`pastilla ${claseEstado(p.estado)}`}>
                     {ETIQUETA_ESTADO_USUARIO[p.estado]}

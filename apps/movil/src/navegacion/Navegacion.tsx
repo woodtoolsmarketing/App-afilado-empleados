@@ -42,6 +42,7 @@ import { PantallaUsuarios } from '../pantallas/admin/Usuarios'
 import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarBloqueoDeCaptura } from '../servicios/bloqueoDeCaptura'
+import { usarPermisos } from '../servicios/permisos'
 import { usarCandado } from '../servicios/presencia'
 import type { ParametrosApp } from './tipos'
 
@@ -121,6 +122,15 @@ export function Navegacion() {
    */
   usarBloqueoDeCaptura()
 
+  /**
+   * Los permisos por rol, para gatear las rutas sensibles (Cobranzas, Mapa).
+   *
+   * Va acá arriba por lo mismo que los otros hooks: no puede quedar del otro
+   * lado de un return. Esconder el botón no alcanza; registrar la ruta sólo
+   * cuando el rol la tiene habilitada cierra también un navigate directo.
+   */
+  const { puedeVer } = usarPermisos()
+
   if (estado === 'cargando') {
     return (
       <Pantalla>
@@ -193,17 +203,20 @@ export function Navegacion() {
             <Pila.Screen name="GenerarNota" component={PantallaGenerarNota} />
             <Pila.Screen name="NuevoCliente" component={PantallaNuevoCliente} />
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
-            {/* Cobranzas quedó restringida al administrador: la ruta se registra
-                sólo para admin, así un navigate directo desde otro lado tampoco
-                la abre. El menú y el botón "Cobré esta nota" también se esconden. */}
-            {esAdmin ? <Pila.Screen name="Cobranzas" component={PantallaCobranzas} /> : null}
+            {/* Cobranzas y Mapa se gatean por la matriz de permisos del panel
+                (arrancan admin-only): la ruta se registra sólo si el rol la tiene
+                habilitada, así un navigate directo desde otro lado tampoco la
+                abre. El menú y el botón "Cobré esta nota" también se esconden. */}
+            {puedeVer('cobranzas') ? <Pila.Screen name="Cobranzas" component={PantallaCobranzas} /> : null}
             <Pila.Screen name="CalendarioEnvios" component={PantallaCalendarioEnvios} />
             <Pila.Screen name="CalendarioVisitas" component={PantallaCalendarioVisitas} />
             <Pila.Screen name="ComunicacionInterna" component={PantallaComunicacionInterna} />
             <Pila.Screen name="ReportarProblema" component={PantallaReportarProblema} />
             <Pila.Screen name="ClientesDelDia" component={PantallaClientesDelDia} />
             <Pila.Screen name="ListaSemanal" component={PantallaListaSemanal} />
-            <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
+            {puedeVer('mapa_clientes') ? (
+              <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
+            ) : null}
             <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
             {esAdmin ? (
               <>
