@@ -1136,8 +1136,20 @@ function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
    */
   const agujeroGuardado = comoCadena(detalle.diametro_interior)
   const agujeroCatalogo = comoCadena(detalle.diametro_interior_catalogo)
+  /**
+   * En el MECANIZADO el agujero actual NO es el "opcional que cae al de fábrica"
+   * del afilado: es el punto de partida obligatorio del trabajo, y lo normal es
+   * que coincida con el de fábrica (la pieza viene como salió y el trabajo lo
+   * cambia). Si se colapsara a '' como en el afilado, al reabrir la nota la
+   * operación quedaría sin resolver y el selector borraría el código y el precio
+   * ya cotizados. Por eso acá vuelve tal cual se guardó.
+   */
   const agujeroCargado =
-    agujeroGuardado && agujeroGuardado !== agujeroCatalogo ? agujeroGuardado : ''
+    servicio === 'mecanizado'
+      ? agujeroGuardado
+      : agujeroGuardado && agujeroGuardado !== agujeroCatalogo
+        ? agujeroGuardado
+        : ''
 
   return {
     ...ITEM_VACIO,
