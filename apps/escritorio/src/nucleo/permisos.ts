@@ -30,7 +30,7 @@ export function usarPermisosPanel(rol: RolUsuario | undefined): {
   puedeVer: (clave: ClaveFuncionPanel) => boolean
   listo: boolean
 } {
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ['funciones-panel'],
     queryFn: traerFuncionesPanel,
     staleTime: 10 * 60 * 1000,
@@ -48,6 +48,9 @@ export function usarPermisosPanel(rol: RolUsuario | undefined): {
     return roles ? roles.includes(rol) : false
   }
 
-  // admin no necesita esperar la consulta: ve todo igual.
-  return { puedeVer, listo: rol === 'admin' || !!data }
+  // admin no necesita esperar la consulta: ve todo igual. Si la consulta falla
+  // (y react-query ya reintentó), tampoco se deja al no-admin colgado en
+  // "Cargando…": `listo` pasa a true y queda viendo sólo el Tablero —la landing
+  // segura— en vez de un panel trabado.
+  return { puedeVer, listo: rol === 'admin' || !!data || isError }
 }

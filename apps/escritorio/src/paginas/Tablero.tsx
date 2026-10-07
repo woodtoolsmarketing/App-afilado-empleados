@@ -2,6 +2,7 @@ import {
   fechaLocalISO,
   formatearDistancia,
   formatearDuracion,
+  type ClaveFuncionPanel,
   type ResumenJornada,
   type RolUsuario,
 } from '@woodtools/compartido'
@@ -16,12 +17,18 @@ import { supabase } from '../nucleo/supabase'
  * quién usa la app). Es un router sin hooks propios para que cada tablero tenga
  * los suyos sin romper la cuenta de hooks.
  */
-export function PaginaTablero({ rol }: { rol: RolUsuario }) {
-  return rol === 'administracion' ? <TableroAdministracion /> : <TableroDelDia />
+export function PaginaTablero({
+  rol,
+  puedeVer,
+}: {
+  rol: RolUsuario
+  puedeVer: (clave: ClaveFuncionPanel) => boolean
+}) {
+  return rol === 'administracion' ? <TableroAdministracion /> : <TableroDelDia puedeVer={puedeVer} />
 }
 
 /** Tablero del día: cómo viene la jornada y quién está usando la app. */
-function TableroDelDia() {
+function TableroDelDia({ puedeVer }: { puedeVer: (clave: ClaveFuncionPanel) => boolean }) {
   /**
    * En el calendario de acá, no en UTC.
    *
@@ -98,9 +105,12 @@ function TableroDelDia() {
           <h1>Tablero del día</h1>
           <p>{new Date().toLocaleDateString('es-AR', { dateStyle: 'full' })}</p>
         </div>
-        <Link to="/mapa">
-          <button className="rojo">Ver mapa en vivo</button>
-        </Link>
+        {/* Sólo si el rol puede abrir el mapa en vivo: si no, el botón rebotaría. */}
+        {puedeVer('panel_mapa_en_vivo') ? (
+          <Link to="/mapa">
+            <button className="rojo">Ver mapa en vivo</button>
+          </Link>
+        ) : null}
       </header>
 
       <div className="rejilla" style={{ marginBottom: 18 }}>
@@ -117,7 +127,13 @@ function TableroDelDia() {
 
         {!jornadas || jornadas.length === 0 ? (
           <p className="vacio">
-            Todavía no hay roles de visita para hoy. Armalos desde <Link to="/roles">Roles de visita</Link>.
+            Todavía no hay roles de visita para hoy.
+            {puedeVer('panel_roles_visita') ? (
+              <>
+                {' '}
+                Armalos desde <Link to="/roles">Roles de visita</Link>.
+              </>
+            ) : null}
           </p>
         ) : (
           <table>

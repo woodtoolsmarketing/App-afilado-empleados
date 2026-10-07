@@ -108,3 +108,13 @@ begin
   return fila;
 end;
 $$;
+
+-- `create or replace` RESETEA el ACL de la función a PUBLIC EXECUTE, así que hay
+-- que volver a cerrarlo (mismo endurecimiento que la migración original). Sin
+-- esto cualquier rol podría EJECUTARLAS —aunque el chequeo interno igual gatea—.
+revoke all on function public.aplicar_cambio_direccion(uuid) from public;
+revoke all on function public.aplicar_cambio_direccion(uuid) from anon;
+grant execute on function public.aplicar_cambio_direccion(uuid) to authenticated;
+revoke all on function public.rechazar_cambio_direccion(uuid, text) from public;
+revoke all on function public.rechazar_cambio_direccion(uuid, text) from anon;
+grant execute on function public.rechazar_cambio_direccion(uuid, text) to authenticated;

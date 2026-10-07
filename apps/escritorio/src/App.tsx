@@ -79,7 +79,7 @@ export function App() {
         <Routes>
           {/* El Tablero es el landing de cualquiera que entre al panel.
               Administración ve el suyo (sus colas de trabajo); el resto, el del día. */}
-          <Route path="/" element={<PaginaTablero rol={sesion.perfil.rol} />} />
+          <Route path="/" element={<PaginaTablero rol={sesion.perfil.rol} puedeVer={permisos.puedeVer} />} />
           {/* Permisos es sólo de admin: no entra al catálogo configurable. */}
           <Route
             path="/permisos"
