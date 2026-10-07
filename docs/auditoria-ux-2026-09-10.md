@@ -34,6 +34,29 @@ Implementado y con `tsc` en verde. Falta probarlo en el teléfono y publicar OTA
 
 ---
 
+## ✅ Mecanizado — HECHO, PROBADO y PUBLICADO (feature nuevo, fuera de los 37 hallazgos)
+
+_Registrado el 2026-10-07. Pedido aparte de la auditoría; queda acá para no perder el rastro._
+
+Nuevo servicio **MECANIZADO** del agujero (achicar con buje / agrandar), sólo para sierras y fresas. La
+operación se **deriva** de comparar el Ø interior actual con el que hay que hacer (más chico = buje, más
+grande = agrandado); con eso y la herramienta sale el código fijo (6105/6103 sierra, 7903/7902 fresa) y el
+precio **plano por pieza** del catálogo. Calcado del patrón del afilado de mecha: un `SelectorMecanizado`
+resuelve código + precio en un `useEffect`, sin pedir confirmación porque no hay nada ambiguo que revisar.
+
+- **Dónde:** `packages/compartido/src/mecanizado.ts` (nuevo), `notas-pedido.ts`, `tipos.ts`,
+  `nota-pedido-impresion.ts`; `GenerarNota/Renglon.tsx` (`SelectorMecanizado`) y `Encabezado.tsx`;
+  `servicios/notasPedido.ts`. Base: enum `tipo_servicio` += `mecanizado` + RPC `codigos_mecanizado`.
+- **Estado:** `tsc` en verde en los 4 proyectos · **probado en el teléfono (1.3.0)** por adb (agrandar
+  30→40 = 6103 / $ 53.988, buje 30→25 = 6105 / $ 22.249,60) · **OTA publicado** a interno 1.3.0 y 1.2.1 ·
+  nota en el changelog de la 1.3.0.
+- Un bug propio, encontrado por la revisión adversarial del diff y arreglado: al reabrir una nota de
+  mecanizado el Ø interior actual se blanqueaba (lógica del afilado, donde el agujero es opcional) y eso
+  borraba el código y el precio ya cotizados. — `servicios/notasPedido.ts` (`itemDeFila`)
+- Commits `bcd750f` (+ auto `2ec355e`) · migraciones `20261006192410`, `20261006192442`, `20261007121648`.
+
+---
+
 ## 🟢 Listo para hacer — sin riesgo (reuso de patrones ya existentes)
 
 Todo esto es de bajo esfuerzo y copia código que ya funciona en otra parte de la app.
