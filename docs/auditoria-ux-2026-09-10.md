@@ -57,6 +57,25 @@ resuelve código + precio en un `useEffect`, sin pedir confirmación porque no h
 
 ---
 
+## ✅ Afilado de sierra: 8005 por default en 4,4 y 4,5 mm — HECHO, PROBADO y PUBLICADO (fuera de los 37 hallazgos)
+
+_Registrado el 2026-10-07._
+
+A 4,5 mm el catálogo proponía el **8006** (AFIL. DTE. CÓNCAVO 4,5–5,5, $ 768) por tener rango más ajustado
+que el **8005** (AFILADO S.C. MD 3,6–5, $ 307,20) —el mismo problema que ya resolvía la regla fija del 8001
+en 3,1/3,2—. Se generalizó `promoverCodigoSierra` a una tabla ancho→código para forzar el afilado común al
+frente en 4,4 y 4,5 mm (a 4,4 el 8005 ya era el único afilado). La **confirmación obligatoria** del código
+sigue igual: se propone, pero el vendedor lo tilda; y si de verdad es diente cóncavo toca el 8006.
+
+- **Dónde:** `apps/movil/src/pantallas/GenerarNota/Renglon.tsx` (`CODIGO_SIERRA_POR_ANCHO` / `promoverCodigoSierra`).
+  Es UI del móvil únicamente. Sumar otro default = una línea más en la tabla.
+- **Estado:** `tsc` verde · premisa confirmada contra el catálogo real · **probado en el teléfono (1.3.0)** por
+  adb (4,4 y 4,5 → 8005, con la confirmación obligatoria) · **OTA publicado** a interno 1.3.0 y 1.2.1 · nota en
+  el changelog de la 1.3.0.
+- Commit `35f4751` · migración `20261007123643` (changelog).
+
+---
+
 ## 🟢 Listo para hacer — sin riesgo (reuso de patrones ya existentes)
 
 Todo esto es de bajo esfuerzo y copia código que ya funciona en otra parte de la app.
