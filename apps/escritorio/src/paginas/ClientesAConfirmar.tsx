@@ -126,15 +126,14 @@ function TarjetaProvisorio({
         throw new Error('Ese es el código provisorio. Poné el código definitivo (sin "P-").')
       }
 
-      // 1) Darlo de alta: código real + dejar de ser provisorio.
-      const { error: errCli } = await supabase
-        .from('clientes')
-        .update({ codigo: cod, provisorio: false })
-        .eq('id', cliente.id)
-      if (errCli) {
-        if (errCli.code === '23505') throw new Error('Ya existe un cliente con ese código.')
-        throw errCli
-      }
+      // 1) Darlo de alta: código real + dejar de ser provisorio. Va por un RPC
+      //    (no un update directo) para que administración también pueda, sin
+      //    abrirle la escritura de toda la tabla de clientes.
+      const { error: errCli } = await supabase.rpc('confirmar_cliente_provisorio', {
+        p_cliente_id: cliente.id,
+        p_codigo: cod,
+      })
+      if (errCli) throw new Error(errCli.message)
 
       // 2) Las notas que lo estaban esperando ya pueden recibir su número: el
       //    cliente dejó de ser provisorio, así que `asignar_cliente_a_nota` lo acepta.

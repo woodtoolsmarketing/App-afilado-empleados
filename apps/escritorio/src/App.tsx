@@ -89,7 +89,7 @@ export function App() {
           <Route path="/clientes" element={gate('panel_clientes', <PaginaClientes soloLectura={!sesion.esAdmin} />)} />
           <Route
             path="/clientes-a-confirmar"
-            element={gate('panel_clientes_a_confirmar', <PaginaClientesAConfirmar soloLectura={!sesion.esAdmin} />)}
+            element={gate('panel_clientes_a_confirmar', <PaginaClientesAConfirmar soloLectura={!sesion.esAdministracion} />)}
           />
           <Route
             path="/modificaciones"
@@ -97,7 +97,7 @@ export function App() {
           />
           <Route
             path="/cambios-direccion"
-            element={gate('panel_cambios_direccion', <PaginaCambiosDireccion soloLectura={!sesion.esAdmin} />)}
+            element={gate('panel_cambios_direccion', <PaginaCambiosDireccion soloLectura={!sesion.esAdministracion} />)}
           />
           <Route
             path="/a-confirmar"
