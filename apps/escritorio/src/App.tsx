@@ -69,7 +69,9 @@ export function App() {
           />
           <Route
             path="/notas"
-            element={<PaginaNotasPedido soloLectura={!sesion.esAdministracion} />}
+            element={
+              <PaginaNotasPedido soloLectura={!sesion.esAdministracion} esAdmin={sesion.esAdmin} />
+            }
           />
           <Route
             path="/cola-impresion"

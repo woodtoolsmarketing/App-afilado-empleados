@@ -25,3 +25,22 @@ export const supabase: SupabaseClient = createClient(URL, CLAVE, {
   },
   global: { headers: { 'x-aplicacion': 'woodtools-escritorio' } },
 })
+
+/**
+ * El token de sesión para mandar EXPLÍCITO al invocar una Edge Function.
+ *
+ * `functions.invoke` depende de que la capa de auth le haya sincronizado el
+ * token al cliente. Si venció y el refresh no llegó a tiempo, la request salía
+ * sin `Authorization` —aunque el usuario estuviera logueado— y la función
+ * contestaba "Falta el token de sesión". `getSession` refresca el token si hace
+ * falta; pasándolo a mano en el header, sale siempre. (Espejo del móvil.)
+ */
+export async function tokenDeSesion(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error('Se cortó la sesión. Salí y volvé a entrar para seguir.')
+  }
+  return session.access_token
+}
