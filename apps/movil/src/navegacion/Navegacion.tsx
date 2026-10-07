@@ -41,6 +41,7 @@ import { PantallaModificaciones } from '../pantallas/admin/Modificaciones'
 import { PantallaUsuarios } from '../pantallas/admin/Usuarios'
 import { PantallaReportarProblema } from '../pantallas/ReportarProblema'
 import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
+import { usarBloqueoDeCaptura } from '../servicios/bloqueoDeCaptura'
 import { usarCandado } from '../servicios/presencia'
 import type { ParametrosApp } from './tipos'
 
@@ -109,6 +110,16 @@ export function Navegacion() {
    * quedar del otro lado de un return.
    */
   const candado = usarCandado(estado === 'habilitado')
+
+  /**
+   * El bloqueo de capturas de pantalla.
+   *
+   * Va acá por lo mismo que el candado y el aviso de la app: es de la app entera
+   * y tiene que correr antes del corte de abajo (un hook no puede quedar del
+   * otro lado de un return). Lee el rol solo: bloquea a vendedor y
+   * administración, y deja afuera a admin y supervisor.
+   */
+  usarBloqueoDeCaptura()
 
   if (estado === 'cargando') {
     return (

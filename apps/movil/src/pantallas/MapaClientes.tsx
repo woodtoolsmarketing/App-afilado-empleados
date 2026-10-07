@@ -233,6 +233,10 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
     if (temporizadorBusqueda.current) clearTimeout(temporizadorBusqueda.current)
     const texto = consulta.trim()
     if (texto.length < 2) {
+      // Invalidar cualquier búsqueda en vuelo: si no, una respuesta de "ab" que
+      // vuelve DESPUÉS de que borraste a "a" (o vaciaste) repoblaría la lista
+      // sobre un campo ya vacío. Es la misma marca que usa el tecleo y irAlCliente.
+      vigente.current++
       setResultados([])
       setBuscando(false)
       return

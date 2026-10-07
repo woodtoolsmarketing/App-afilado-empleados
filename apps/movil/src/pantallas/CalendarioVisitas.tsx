@@ -130,36 +130,46 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   const [moviendo, setMoviendo] = useState<ItemDeAgenda | null>(null)
 
   /**
-   * Las paradas ABIERTAS del día elegido, en orden de recorrido.
+   * Las paradas ABIERTAS del día, separadas en las que tienen hora y las que no.
    *
-   * Es sobre estas que opera el reordenamiento a mano: las resueltas conservan
-   * su número y no se mueven, y las sugeridas todavía no son paradas. Van en
-   * orden de `orden` —la secuencia del recorrido— porque es la que
-   * `reordenar_paradas` renumera y la que el modal numera ("Nº 3 de 7").
+   * El reordenamiento a mano opera SÓLO sobre las SIN hora, y por una razón de
+   * fondo: la lista (`delDia`) muestra las de hora primero, ordenadas por hora,
+   * y recién después las sin hora por `orden`. Entre las sin hora, entonces, el
+   * orden que se ve ES el `orden` —así subir/bajar se ve de verdad y el "Nº X de
+   * N" coincide con lo que el vendedor tiene delante—. Una parada con hora, en
+   * cambio, la posiciona el reloj: moverla no cambiaría nada en pantalla, así
+   * que no se ofrece.
    *
-   * La función del servidor exige la secuencia EXACTA de abiertas (ni una de
-   * más ni de menos), y todas las de un día pertenecen a la misma jornada, así
-   * que esta lista es justo lo que hay que mandarle.
+   * Pero las de hora SÍ viajan en la secuencia que se le manda al servidor
+   * (primero, fijas): `reordenar_paradas` exige la lista EXACTA y COMPLETA de
+   * abiertas —si falta una corta con P0001— y todas las de un día son de la
+   * misma jornada.
    */
-  const abiertasDelDia = useMemo(
-    () =>
-      (agenda ?? [])
-        .filter(
-          (i) =>
-            i.fecha === elegido &&
-            i.tipo === 'agendada' &&
-            (i.estado === 'pendiente' || i.estado === 'en_camino'),
-        )
-        .sort(
-          (a, b) =>
-            (a.orden ?? 9999) - (b.orden ?? 9999) ||
-            a.razon_social.localeCompare(b.razon_social),
-        ),
-    [agenda, elegido],
-  )
+  const abiertasDelDia = useMemo(() => {
+    const abiertas = (agenda ?? []).filter(
+      (i) =>
+        i.fecha === elegido &&
+        i.tipo === 'agendada' &&
+        (i.estado === 'pendiente' || i.estado === 'en_camino'),
+    )
+    const conHora = abiertas
+      .filter((i) => i.hora)
+      .sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''))
+    const sinHora = abiertas
+      .filter((i) => !i.hora)
+      .sort(
+        (a, b) =>
+          (a.orden ?? 9999) - (b.orden ?? 9999) ||
+          a.razon_social.localeCompare(b.razon_social),
+      )
+    return { conHora, sinHora }
+  }, [agenda, elegido])
 
+  // El reorden se numera y se mueve sobre las SIN hora, que son las que el
+  // vendedor ve justamente en ese orden. idxMoviendo es la posición ahí.
+  const reordenables = abiertasDelDia.sinHora
   const idxMoviendo = moviendo
-    ? abiertasDelDia.findIndex((i) => i.parada_id === moviendo.parada_id)
+    ? reordenables.findIndex((i) => i.parada_id === moviendo.parada_id)
     : -1
 
   // Si la parada que se estaba moviendo dejó de estar abierta (se resolvió o se
@@ -268,13 +278,18 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   /** Mueve la parada que está en la hoja de "mover" a la posición `hasta`. */
   function moverEnRecorrido(hasta: number) {
     if (idxMoviendo < 0 || !moviendo?.rol_visita_id) return
-    const destino = Math.max(0, Math.min(abiertasDelDia.length - 1, hasta))
+    const destino = Math.max(0, Math.min(reordenables.length - 1, hasta))
     if (destino === idxMoviendo) return
-    const ids = abiertasDelDia.map((i) => i.parada_id!)
-    reordenar.mutate({
-      rolVisitaId: moviendo.rol_visita_id,
-      orden: conMovimiento(ids, idxMoviendo, destino),
-    })
+    // La secuencia COMPLETA que exige el RPC: las de hora primero (fijas), y
+    // después las sin hora en el orden nuevo. Es el mismo orden en que las
+    // muestra la lista, así que el movimiento se ve tal cual.
+    const sinHoraIds = conMovimiento(
+      reordenables.map((i) => i.parada_id!),
+      idxMoviendo,
+      destino,
+    )
+    const orden = [...abiertasDelDia.conHora.map((i) => i.parada_id!), ...sinHoraIds]
+    reordenar.mutate({ rolVisitaId: moviendo.rol_visita_id, orden })
   }
 
   const esPasado = elegido < hoyISO
@@ -519,9 +534,10 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
                         },
                       ]
                     : []),
-                  // Reordenar a mano sólo tiene sentido con dos o más paradas
-                  // abiertas ese día; con una, no hay a dónde moverla.
-                  ...(abiertasDelDia.length >= 2
+                  // Reordenar a mano se ofrece sólo para las paradas SIN hora
+                  // (las de hora las ubica el reloj, moverlas no se vería) y con
+                  // dos o más reordenables ese día; con una, no hay a dónde.
+                  ...(!enAccion.hora && reordenables.length >= 2
                     ? [
                         {
                           etiqueta: '⇅  MOVERLO EN EL RECORRIDO',
@@ -560,7 +576,7 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
       <ModalMover
         item={moviendo}
         posicion={idxMoviendo}
-        total={abiertasDelDia.length}
+        total={reordenables.length}
         ocupado={reordenar.isPending}
         alMover={moverEnRecorrido}
         alCerrar={() => setMoviendo(null)}
