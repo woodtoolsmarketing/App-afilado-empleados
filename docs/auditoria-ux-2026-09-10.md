@@ -76,6 +76,45 @@ sigue igual: se propone, pero el vendedor lo tilda; y si de verdad es diente có
 
 ---
 
+## ✅ Seguridad y permisos — HECHO, PROBADO y PUBLICADO (1.4.0 + 1.5.0, fuera de los 37 hallazgos)
+
+_Registrado el 2026-10-07. Pedido aparte de la auditoría; queda acá para no perder el rastro._
+
+Lote de cambios de seguridad/UX pedidos por la oficina, en dos APK (1.4.0 y 1.5.0). Nada sale por OTA
+desde la 1.4.0 en adelante: el bloqueo de captura es un módulo nativo nuevo, así que **todo viaja
+horneado en el APK** (publicar el bundle por OTA a un runtime viejo lo reventaría).
+
+- **Sin PDF ni diálogo de impresión** en notas de pedido y rol de visita: la única salida es la
+  impresora de la oficina por IPP (se sacó `expo-sharing`/`Print.printAsync` de esos caminos; sigue en
+  Modificaciones para el CSV). — `servicios/impresion.ts`, `NotasPendientes.tsx`, `VistaPreviaNota.tsx`,
+  `RolDeVisita.tsx`, `DetalleNota.tsx`
+- **Buscador en "Clientes de hoy"** (filtra la lista del día por nombre/código con `comparable()`). — `ClientesDelDia.tsx`
+- **Buscador único en el Mapa** (nombre / razón social / número; centra el pin y abre acciones; marca
+  SIN UBICAR). Reusa `buscarClientes` difuso. — `MapaClientes.tsx`
+- **Reordenar a mano el recorrido en el Calendario** (subir/bajar/primero/último), con update optimista,
+  reusando `reordenar_paradas`. Opera sólo sobre las paradas SIN hora (las de hora las ubica el reloj). — `CalendarioVisitas.tsx`
+- **Bloqueo de captura de pantalla (#5, NATIVO):** `expo-screen-capture` (import diferido) pone
+  FLAG_SECURE para **vendedor y administración**; la captura sale en negro y la app no aparece en
+  recientes. admin/supervisor no se bloquean. — `servicios/bloqueoDeCaptura.ts` (nuevo), `Navegacion.tsx`
+- **Sistema de permisos por rol, configurable desde el panel (#1, #2, #3):** tabla `funciones`
+  (opción→roles) + RLS (sólo admin modifica); hook `usarPermisos()` esconde cada opción del menú por
+  rol (admin ve todo). **Mapa (todos los clientes) y Cobranzas arrancan admin-only** (#1). Panel: página
+  **Permisos** (matriz Opciones × Roles) y selector de **rol** en Usuarios (RPC `cambiar_rol_usuario`,
+  con guardas). — `servicios/permisos.ts`, `compartido/tipos.ts`, `Menu.tsx`, `MenuLateral.tsx`,
+  `Navegacion.tsx`, `DetalleNota.tsx`; panel `Permisos.tsx` (nuevo), `Usuarios.tsx`, `App.tsx`. Base:
+  migraciones `20261007145733`, `20261007145750`.
+- **Estado:** `tsc` verde en los 4 proyectos · dos pasadas de revisión adversarial (hallazgos reales
+  corregidos) · **probado en el teléfono** (1.5.0, por adb): arranca sin crash en admin/supervisor/
+  vendedor; Mapa y Cobranzas ocultos para no-admin; captura en negro en vendedor; matriz de Permisos
+  verificada en el panel · **publicado**: APK interno 1.5.0 en `versiones_app` (auto-instala a la flota),
+  panel 0.8.1 en GitHub (auto-actualiza).
+- **Gotcha de testing** (anotado en memoria): FLAG_SECURE bloquea también `uiautomator dump`; para ver
+  el gating del menú en no-admin se usa el rol `supervisor` (gateado pero no bloqueado para captura).
+- Commits `1171a6e` (1.4.0 OTA batch), `53a39ba` (#5 + 1.4.0), `e1bbf51` (permisos + 1.5.0), `6dd99bb`
+  (panel 0.8.1).
+
+---
+
 ## 🟢 Listo para hacer — sin riesgo (reuso de patrones ya existentes)
 
 Todo esto es de bajo esfuerzo y copia código que ya funciona en otra parte de la app.
