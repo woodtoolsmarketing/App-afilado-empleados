@@ -77,8 +77,9 @@ export function App() {
 
       <main className="contenido">
         <Routes>
-          {/* El Tablero es el landing de cualquiera que entre al panel. */}
-          <Route path="/" element={<PaginaTablero />} />
+          {/* El Tablero es el landing de cualquiera que entre al panel.
+              Administración ve el suyo (sus colas de trabajo); el resto, el del día. */}
+          <Route path="/" element={<PaginaTablero rol={sesion.perfil.rol} />} />
           {/* Permisos es sólo de admin: no entra al catálogo configurable. */}
           <Route
             path="/permisos"
@@ -104,7 +105,10 @@ export function App() {
           />
           <Route
             path="/notas"
-            element={gate('panel_notas_pedido', <PaginaNotasPedido soloLectura={!sesion.esAdministracion} />)}
+            element={gate(
+              'panel_notas_pedido',
+              <PaginaNotasPedido soloLectura={!sesion.esAdministracion} esAdmin={sesion.esAdmin} />,
+            )}
           />
           <Route
             path="/cola-impresion"

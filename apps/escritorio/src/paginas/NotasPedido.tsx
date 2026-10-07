@@ -75,7 +75,13 @@ function DondeSeHizo({ notaId }: { notaId: string }) {
   )
 }
 
-export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
+export function PaginaNotasPedido({
+  soloLectura,
+  esAdmin,
+}: {
+  soloLectura: boolean
+  esAdmin: boolean
+}) {
   const consola = usarConsola()
   const cliente = useQueryClient()
   const [filtro, setFiltro] = useState<'todas' | 'sin_cliente' | 'pendientes'>('sin_cliente')
@@ -133,6 +139,38 @@ export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
       setMensaje('Cliente asignado. La nota ya tiene número y el vendedor la ve actualizada.')
       setAsignando(null)
       void cliente.invalidateQueries({ queryKey: ['notas-pedido-panel'] })
+    },
+    onError: (e: Error) => {
+      setMensaje(null)
+      setError(e.message)
+    },
+  })
+
+  /**
+   * Anular una nota (sólo admin, por ahora). No se borra: queda 'anulada' con
+   * quién/cuándo, y si estaba esperando el papel se saca de la cola. Se confirma
+   * con un `window.confirm` porque es destructiva y poco frecuente.
+   */
+  const anular = useMutation({
+    mutationFn: async (nota: NotaFila) => {
+      const motivo = window.prompt(
+        `Anular la nota ${nota.numero ?? 'sin número'} de ${nota.cliente_nombre}.\n\nMotivo (opcional):`,
+      )
+      // `prompt` devuelve null si cancelan: ahí no se anula nada.
+      if (motivo === null) return { cancelado: true as const }
+      const { error: err } = await supabase.rpc('anular_nota_pedido', {
+        p_nota_id: nota.id,
+        p_motivo: motivo,
+      })
+      if (err) throw err
+      return { cancelado: false as const }
+    },
+    onSuccess: (r) => {
+      if (r.cancelado) return
+      setError(null)
+      setMensaje('Nota anulada. Queda registrada como anulada, no se borró.')
+      void cliente.invalidateQueries({ queryKey: ['notas-pedido-panel'] })
+      void cliente.invalidateQueries({ queryKey: ['cola-impresion-total'] })
     },
     onError: (e: Error) => {
       setMensaje(null)
@@ -294,18 +332,32 @@ export function PaginaNotasPedido({ soloLectura }: { soloLectura: boolean }) {
                     </small>
                   </td>
                   <td>
-                    {n.estado === 'pendiente_cliente' ? (
-                      <button
-                        className="primario chico"
-                        disabled={soloLectura}
-                        onClick={() => {
-                          setAsignando(n)
-                          setError(null)
-                        }}
-                      >
-                        Dar Cod. Cliente
-                      </button>
-                    ) : null}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {n.estado === 'pendiente_cliente' ? (
+                        <button
+                          className="primario chico"
+                          disabled={soloLectura}
+                          onClick={() => {
+                            setAsignando(n)
+                            setError(null)
+                          }}
+                        >
+                          Dar Cod. Cliente
+                        </button>
+                      ) : null}
+                      {/* Anular es sólo de admin por ahora. No aparece en una nota
+                          ya anulada. */}
+                      {esAdmin && n.estado !== 'anulada' ? (
+                        <button
+                          className="chico"
+                          style={{ color: 'var(--rojo-accion)' }}
+                          disabled={anular.isPending && anular.variables?.id === n.id}
+                          onClick={() => anular.mutate(n)}
+                        >
+                          Anular
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

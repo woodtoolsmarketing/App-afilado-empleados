@@ -3,14 +3,25 @@ import {
   formatearDistancia,
   formatearDuracion,
   type ResumenJornada,
+  type RolUsuario,
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { supabase } from '../nucleo/supabase'
 
+/**
+ * El Tablero depende del rol. Administración ve SU tablero —las colas de trabajo
+ * de la oficina—; admin y supervisor ven el del día (cómo viene la jornada y
+ * quién usa la app). Es un router sin hooks propios para que cada tablero tenga
+ * los suyos sin romper la cuenta de hooks.
+ */
+export function PaginaTablero({ rol }: { rol: RolUsuario }) {
+  return rol === 'administracion' ? <TableroAdministracion /> : <TableroDelDia />
+}
+
 /** Tablero del día: cómo viene la jornada y quién está usando la app. */
-export function PaginaTablero() {
+function TableroDelDia() {
   /**
    * En el calendario de acá, no en UTC.
    *
@@ -224,6 +235,114 @@ export function PaginaTablero() {
         </table>
       </section>
     </>
+  )
+}
+
+/**
+ * Tablero de administración: las colas de trabajo de la oficina en vez de las
+ * métricas del recorrido. Cada número es un link a su lista.
+ */
+function TableroAdministracion() {
+  const { data: clientesAConfirmar } = useQuery({
+    queryKey: ['clientes-a-confirmar-total'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('clientes')
+        .select('id', { count: 'exact', head: true })
+        .eq('provisorio', true)
+        .eq('activo', true)
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
+  const { data: cambiosDir } = useQuery({
+    queryKey: ['cambios-direccion-pendientes'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('cambios_direccion')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente')
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
+  // `clientes_modificaciones` es un log (no tiene "pendiente"): lo útil es cuántos
+  // datos de clientes se cambiaron HOY, desde la medianoche local.
+  const { data: modificacionesHoy } = useQuery({
+    queryKey: ['modificaciones-hoy'],
+    queryFn: async () => {
+      const inicio = new Date()
+      inicio.setHours(0, 0, 0, 0)
+      const { count } = await supabase
+        .from('clientes_modificaciones')
+        .select('id', { count: 'exact', head: true })
+        .gte('modificado_en', inicio.toISOString())
+      return count ?? 0
+    },
+    refetchInterval: 60_000,
+  })
+
+  return (
+    <>
+      <header className="encabezado-pagina">
+        <div>
+          <h1>Tablero</h1>
+          <p>{new Date().toLocaleDateString('es-AR', { dateStyle: 'full' })}</p>
+        </div>
+      </header>
+
+      <div className="rejilla" style={{ marginBottom: 18 }}>
+        <TarjetaTablero
+          a="/clientes-a-confirmar"
+          valor={clientesAConfirmar ?? 0}
+          etiqueta="Clientes a confirmar"
+          color={clientesAConfirmar ? 'var(--rojo-accion)' : undefined}
+        />
+        <TarjetaTablero
+          a="/cambios-direccion"
+          valor={cambiosDir ?? 0}
+          etiqueta="Cambios de dirección pendientes"
+          color={cambiosDir ? 'var(--rojo-accion)' : undefined}
+        />
+        <TarjetaTablero
+          a="/modificaciones"
+          valor={modificacionesHoy ?? 0}
+          etiqueta="Modificaciones de clientes hoy"
+        />
+      </div>
+
+      <section className="tarjeta">
+        <h2>Tu trabajo</h2>
+        <p className="vacio">
+          Desde acá confirmás los clientes nuevos que cargan los vendedores, aplicás los cambios de
+          dirección que proponen y seguís las notas de pedido. Tocá cada número para ir a su lista.
+        </p>
+      </section>
+    </>
+  )
+}
+
+/** Un indicador del tablero que lleva a su lista al tocarlo. */
+function TarjetaTablero({
+  a,
+  valor,
+  etiqueta,
+  color,
+}: {
+  a: string
+  valor: number
+  etiqueta: string
+  color?: string
+}) {
+  return (
+    <Link to={a} className="indicador" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="valor" style={color ? { color } : undefined}>
+        {valor}
+      </div>
+      <div className="etiqueta">{etiqueta}</div>
+    </Link>
   )
 }
 
