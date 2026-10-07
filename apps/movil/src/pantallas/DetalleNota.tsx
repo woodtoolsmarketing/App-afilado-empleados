@@ -34,6 +34,7 @@ import {
   sePuedeCorregir,
 } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { usarSesion } from '../nucleo/sesion'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
@@ -101,6 +102,8 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   const estilos = usarEstilos()
   const { notaId } = route.params
   const cliente = useQueryClient()
+  // Cobranzas quedó restringida al administrador.
+  const esAdmin = usarSesion((s) => s.perfil?.rol === 'admin')
 
   const { data: nota, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['nota', notaId],
@@ -108,17 +111,15 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   })
 
   const imprimir = useMutation({
-    mutationFn: async (comoPdf: boolean) => {
-      const r = await imprimirNotas({ notaIds: [notaId], comoPdf })
-      // Sólo se marca cuando la impresora confirmó el trabajo. El diálogo del
-      // sistema vuelve apenas se abre, así que por ahí no sabemos si salió el
-      // papel o si el vendedor canceló.
+    mutationFn: async () => {
+      const r = await imprimirNotas({ notaIds: [notaId] })
+      // Se marca porque la impresora de la oficina confirma el trabajo por IPP.
       if (r.confirmado) await marcarImpresas([notaId])
       return r
     },
-    onSuccess: (r, comoPdf) => {
+    onSuccess: (r) => {
       void cliente.invalidateQueries()
-      Alert.alert(comoPdf ? 'PDF generado' : 'Enviado a la impresora', r.mensaje)
+      Alert.alert('Enviado a la impresora', r.mensaje)
     },
     onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
   })
@@ -336,7 +337,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             cobrar. Atarlos obligaba a una de las dos cosas para hacer la otra.
             El comprobante y el cliente viajan puestos: es lo que el vendedor
             tiene delante cuando cobra. */}
-        {anulada ? null : (
+        {anulada || !esAdmin ? null : (
           <BotonSecundario
             titulo="💵  COBRÉ ESTA NOTA"
             alTocar={() =>
@@ -354,7 +355,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
         <BotonMenu
           titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
           subtitulo="Original y duplicado"
-          alTocar={() => imprimir.mutate(false)}
+          alTocar={() => imprimir.mutate()}
           cargando={imprimir.isPending}
         />
 
@@ -369,12 +370,6 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             cargando={encolar.isPending}
           />
         )}
-
-        <BotonSecundario
-          titulo="Guardar como PDF"
-          alTocar={() => imprimir.mutate(true)}
-          cargando={imprimir.isPending}
-        />
       </Panel>
     </Pantalla>
   )

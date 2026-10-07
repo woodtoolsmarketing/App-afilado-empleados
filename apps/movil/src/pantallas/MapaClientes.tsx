@@ -1,10 +1,11 @@
-import { espaciado, radios } from '@woodtools/compartido'
+import { espaciado, radios, type ClienteBuscado } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Location from 'expo-location'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -29,7 +30,13 @@ import {
   SucursalDuplicadaError,
 } from '../servicios/jornada'
 import { usarSesion } from '../nucleo/sesion'
-import { fichaClienteParaEditar, modificarDatosCliente } from '../servicios/clientes'
+import {
+  buscarClientes,
+  ESPERA_TECLEO,
+  fichaClienteParaEditar,
+  LIMITE_CLIENTES,
+  modificarDatosCliente,
+} from '../servicios/clientes'
 import { navegarHacia } from '../servicios/mapas'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -140,6 +147,18 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   const [form, setForm] = useState({ razon_social: '', nombre_fantasia: '', direccion: '' })
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
 
+  // ── Buscador de clientes (nombre / razón social / número) ───────────────────
+  // Un solo campo que busca por lo que sea (reusa la búsqueda difusa de
+  // buscar_clientes). Al elegir uno, se centra el mapa en su pin y se abre el
+  // menú de acciones.
+  const [consulta, setConsulta] = useState('')
+  const [resultados, setResultados] = useState<ClienteBuscado[]>([])
+  const [buscando, setBuscando] = useState(false)
+  // Anti-carrera: si la medida cambia mientras una búsqueda está en vuelo, la
+  // respuesta vieja no debe pisar la nueva.
+  const vigente = useRef(0)
+  const temporizadorBusqueda = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const { data, isLoading } = useQuery({
     queryKey: ['clientes-en-mapa'],
     queryFn: async (): Promise<ClienteMapa[]> => {
@@ -208,6 +227,63 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
       vivo = false
     }
   }, [])
+
+  // Busca mientras se tipea (con una espera, para no consultar en cada tecla).
+  useEffect(() => {
+    if (temporizadorBusqueda.current) clearTimeout(temporizadorBusqueda.current)
+    const texto = consulta.trim()
+    if (texto.length < 2) {
+      setResultados([])
+      setBuscando(false)
+      return
+    }
+    setBuscando(true)
+    const miTurno = ++vigente.current
+    temporizadorBusqueda.current = setTimeout(async () => {
+      try {
+        const r = await buscarClientes(texto)
+        if (miTurno === vigente.current) setResultados(r)
+      } catch {
+        if (miTurno === vigente.current) setResultados([])
+      } finally {
+        if (miTurno === vigente.current) setBuscando(false)
+      }
+    }, ESPERA_TECLEO)
+    return () => {
+      if (temporizadorBusqueda.current) clearTimeout(temporizadorBusqueda.current)
+    }
+  }, [consulta])
+
+  /**
+   * Ir al cliente elegido del buscador: centrar el mapa en su pin y abrir el
+   * menú de acciones. Un cliente SIN UBICAR (sin coordenadas) no tiene pin, así
+   * que no se puede centrar: se avisa.
+   */
+  function irAlCliente(c: ClienteBuscado) {
+    Keyboard.dismiss()
+    vigente.current++
+    setResultados([])
+    setConsulta('')
+    if (c.lat === null || c.lng === null) {
+      Alert.alert(
+        'Ese cliente no está en el mapa',
+        `${c.razon_social} todavía no tiene una ubicación cargada, así que no aparece como pin. Se lo puede ubicar desde AGREGAR DESTINO.`,
+      )
+      return
+    }
+    // Delta chico: el racimo que lo contenía se abre y el pin queda individual.
+    mapa.current?.animateToRegion(
+      { latitude: c.lat, longitude: c.lng, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+      400,
+    )
+    setTocado({
+      id: c.cliente_id,
+      codigo: c.codigo,
+      razon_social: c.razon_social,
+      lat: c.lat,
+      lng: c.lng,
+    })
+  }
 
   // ── Acciones del pin ────────────────────────────────────────────────────────
 
@@ -432,6 +508,54 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
             </Text>
           </View>
         )}
+
+        {/* Buscador: un solo campo que acepta nombre, razón social o número de
+            cliente. Flota sobre el mapa (zIndex + elevation para Android). */}
+        <View style={estilos.buscador} pointerEvents="box-none">
+          <Campo
+            placeholder="Buscar por nombre o número de cliente"
+            value={consulta}
+            onChangeText={setConsulta}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            accesorio={buscando ? <ActivityIndicator size="small" /> : undefined}
+          />
+          {resultados.length > 0 ? (
+            <ScrollView
+              style={estilos.resultados}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              {resultados.map((c) => (
+                <Pressable
+                  key={c.cliente_id}
+                  onPress={() => irAlCliente(c)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [estilos.resultado, pressed && estilos.resultadoTocado]}
+                >
+                  <View style={estilos.resultadoFila}>
+                    <Text style={estilos.resultadoCodigo}>{c.codigo || 'Sin código'}</Text>
+                    {c.lat === null ? <Text style={estilos.sinUbicar}>SIN UBICAR</Text> : null}
+                  </View>
+                  <Text style={estilos.resultadoNombre} numberOfLines={1}>
+                    {c.razon_social}
+                  </Text>
+                  {c.direccion ? (
+                    <Text style={estilos.resultadoDireccion} numberOfLines={1}>
+                      {c.direccion}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))}
+              {resultados.length >= LIMITE_CLIENTES ? (
+                <Text style={estilos.resultadoAyuda}>
+                  Son muchos: mostramos los primeros {LIMITE_CLIENTES}. Escribí un poco más.
+                </Text>
+              ) : null}
+            </ScrollView>
+          ) : null}
+        </View>
       </View>
 
       {/* ── Menú de acciones al tocar un pin ─────────────────────────────────── */}
@@ -595,8 +719,9 @@ const usarEstilos = hojaDeTema((t) => ({
     borderColor: '#fff',
   },
   cargando: {
+    // Debajo del buscador, que ocupa la franja de arriba, para no taparse con él.
     position: 'absolute' as const,
-    top: 12,
+    top: 74,
     alignSelf: 'center' as const,
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
@@ -607,6 +732,60 @@ const usarEstilos = hojaDeTema((t) => ({
     borderRadius: 8,
   },
   cargandoTexto: { fontSize: 13, color: '#111' },
+
+  // ── Buscador flotante ─────────────────────────────────────────────────────
+  // Franja de arriba del mapa. zIndex + elevation para que quede por encima de
+  // los pines (Android ordena por elevation, no por orden de dibujo).
+  buscador: {
+    position: 'absolute' as const,
+    top: 10,
+    left: 10,
+    right: 10,
+    zIndex: 20,
+    elevation: 8,
+  },
+  resultados: {
+    marginTop: 6,
+    maxHeight: 300,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: t.colores.negro,
+    borderRadius: 8,
+    overflow: 'hidden' as const,
+  },
+  resultado: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#ddd',
+  },
+  resultadoTocado: { backgroundColor: '#f0e9df' },
+  resultadoFila: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+  },
+  resultadoCodigo: { fontSize: 12, fontWeight: '700' as const, color: '#555' },
+  sinUbicar: {
+    fontSize: 10,
+    fontWeight: '800' as const,
+    color: '#fff',
+    backgroundColor: t.colores.rojo,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden' as const,
+  },
+  resultadoNombre: { fontSize: 14, fontWeight: '600' as const, color: '#111', marginTop: 2 },
+  resultadoDireccion: { fontSize: 12, color: '#666', marginTop: 1 },
+  resultadoAyuda: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textAlign: 'center' as const,
+  },
   contador: {
     position: 'absolute' as const,
     bottom: 12,

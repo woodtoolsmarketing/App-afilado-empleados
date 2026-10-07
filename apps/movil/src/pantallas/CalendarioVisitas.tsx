@@ -8,7 +8,7 @@ import {
   type Paleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
@@ -27,6 +27,7 @@ import {
   quitarDeLaAgenda,
   type ItemDeAgenda,
 } from '../servicios/agenda'
+import { reordenarParadas } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -63,10 +64,12 @@ import type { PropsPantalla } from '../navegacion/tipos'
  *
  * ─── Qué se puede cambiar ───────────────────────────────────────────────────
  *
- * Ponerle hora a un destino, moverlo a otro día, sacarlo de la agenda, y
- * agendar a un sugerido. Lo que ya pasó no se toca: una visita registrada
- * tiene su hora, su observación y su ubicación colgando, y moverla de día
- * haría que un trabajo hecho el martes figure como hecho el jueves.
+ * Ponerle hora a un destino, moverlo a otro día, reordenarlo dentro del
+ * recorrido de su día (subirlo, bajarlo, mandarlo al principio o al final),
+ * sacarlo de la agenda, y agendar a un sugerido. Lo que ya pasó no se toca: una
+ * visita registrada tiene su hora, su observación y su ubicación colgando, y
+ * moverla de día haría que un trabajo hecho el martes figure como hecho el
+ * jueves.
  */
 export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'CalendarioVisitas'>) {
   const estilos = usarEstilos()
@@ -123,6 +126,47 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   const [enAccion, setEnAccion] = useState<ItemDeAgenda | null>(null)
   const [pidiendoHora, setPidiendoHora] = useState<ItemDeAgenda | null>(null)
   const [pidiendoFecha, setPidiendoFecha] = useState<ItemDeAgenda | null>(null)
+  // El destino cuya hoja de "moverlo en el recorrido" está abierta, o null.
+  const [moviendo, setMoviendo] = useState<ItemDeAgenda | null>(null)
+
+  /**
+   * Las paradas ABIERTAS del día elegido, en orden de recorrido.
+   *
+   * Es sobre estas que opera el reordenamiento a mano: las resueltas conservan
+   * su número y no se mueven, y las sugeridas todavía no son paradas. Van en
+   * orden de `orden` —la secuencia del recorrido— porque es la que
+   * `reordenar_paradas` renumera y la que el modal numera ("Nº 3 de 7").
+   *
+   * La función del servidor exige la secuencia EXACTA de abiertas (ni una de
+   * más ni de menos), y todas las de un día pertenecen a la misma jornada, así
+   * que esta lista es justo lo que hay que mandarle.
+   */
+  const abiertasDelDia = useMemo(
+    () =>
+      (agenda ?? [])
+        .filter(
+          (i) =>
+            i.fecha === elegido &&
+            i.tipo === 'agendada' &&
+            (i.estado === 'pendiente' || i.estado === 'en_camino'),
+        )
+        .sort(
+          (a, b) =>
+            (a.orden ?? 9999) - (b.orden ?? 9999) ||
+            a.razon_social.localeCompare(b.razon_social),
+        ),
+    [agenda, elegido],
+  )
+
+  const idxMoviendo = moviendo
+    ? abiertasDelDia.findIndex((i) => i.parada_id === moviendo.parada_id)
+    : -1
+
+  // Si la parada que se estaba moviendo dejó de estar abierta (se resolvió o se
+  // movió de día en otra pantalla), se cierra la hoja: no hay qué mover.
+  useEffect(() => {
+    if (moviendo && idxMoviendo < 0) setMoviendo(null)
+  }, [moviendo, idxMoviendo])
 
   /**
    * Correr la semana se lleva el día elegido con ella.
@@ -190,8 +234,52 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
     onError: (e: Error) => Alert.alert('No pudimos sacarlo', e.message),
   })
 
+  /**
+   * Reordenar a mano las paradas del día.
+   *
+   * La clave de la semana que está a la vista; el día elegido siempre cae
+   * dentro de ella (`correrSemana` se lo lleva), así que su agenda vive en esta
+   * caché. El update optimista reescribe `orden` acá para que la lista se
+   * acomode en el acto —como en el recorrido—, y si la base rechaza, se vuelve
+   * atrás. Al asentar se invalida todo (igual que agendar/mover/quitar): si el
+   * día es hoy, la jornada en curso que leen el recorrido, el menú y los
+   * clientes del día también cambió.
+   */
+  const semanaKey = useMemo(() => ['agenda', fechaLocalISO(lunes)] as const, [lunes])
+
+  const reordenar = useMutation({
+    mutationFn: (v: { rolVisitaId: string; orden: string[] }) =>
+      reordenarParadas(v.rolVisitaId, v.orden),
+    onMutate: async (v) => {
+      await consultas.cancelQueries({ queryKey: semanaKey })
+      const previo = consultas.getQueryData<ItemDeAgenda[]>(semanaKey)
+      if (previo) {
+        consultas.setQueryData(semanaKey, reordenarAgendaEnCache(previo, v.rolVisitaId, v.orden))
+      }
+      return { previo }
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.previo) consultas.setQueryData(semanaKey, ctx.previo)
+      Alert.alert('No pudimos reordenarlo', e.message)
+    },
+    onSettled: refrescar,
+  })
+
+  /** Mueve la parada que está en la hoja de "mover" a la posición `hasta`. */
+  function moverEnRecorrido(hasta: number) {
+    if (idxMoviendo < 0 || !moviendo?.rol_visita_id) return
+    const destino = Math.max(0, Math.min(abiertasDelDia.length - 1, hasta))
+    if (destino === idxMoviendo) return
+    const ids = abiertasDelDia.map((i) => i.parada_id!)
+    reordenar.mutate({
+      rolVisitaId: moviendo.rol_visita_id,
+      orden: conMovimiento(ids, idxMoviendo, destino),
+    })
+  }
+
   const esPasado = elegido < hoyISO
-  const trabajando = agendar.isPending || mover.isPending || quitar.isPending
+  const trabajando =
+    agendar.isPending || mover.isPending || quitar.isPending || reordenar.isPending
 
   return (
     <Pantalla>
@@ -431,6 +519,17 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
                         },
                       ]
                     : []),
+                  // Reordenar a mano sólo tiene sentido con dos o más paradas
+                  // abiertas ese día; con una, no hay a dónde moverla.
+                  ...(abiertasDelDia.length >= 2
+                    ? [
+                        {
+                          etiqueta: '⇅  MOVERLO EN EL RECORRIDO',
+                          detalle: 'Subirlo, bajarlo o mandarlo al principio o al final',
+                          hacer: (i: ItemDeAgenda) => setMoviendo(i),
+                        },
+                      ]
+                    : []),
                   {
                     etiqueta: 'MOVERLO A OTRO DÍA',
                     hacer: (i) => setPidiendoFecha(i),
@@ -455,6 +554,16 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
                 ]
             : []
         }
+      />
+
+      {/* La hoja para reordenar la parada tocada dentro del recorrido del día. */}
+      <ModalMover
+        item={moviendo}
+        posicion={idxMoviendo}
+        total={abiertasDelDia.length}
+        ocupado={reordenar.isPending}
+        alMover={moverEnRecorrido}
+        alCerrar={() => setMoviendo(null)}
       />
 
       {/*
@@ -652,10 +761,153 @@ function HojaDeAcciones({
   )
 }
 
+/**
+ * La hoja para reordenar una parada dentro del recorrido del día.
+ *
+ * Es la misma idea que "MOVER ESTE DESTINO" del recorrido de hoy: mandarla al
+ * principio, al final, o correrla de a uno. No se cierra al mover —el vendedor
+ * suele dar varios toques— y la posición se actualiza sola porque el update
+ * optimista reacomoda la lista en el acto.
+ */
+function ModalMover({
+  item,
+  posicion,
+  total,
+  ocupado,
+  alMover,
+  alCerrar,
+}: {
+  item: ItemDeAgenda | null
+  posicion: number
+  total: number
+  ocupado: boolean
+  alMover: (hasta: number) => void
+  alCerrar: () => void
+}) {
+  const estilos = usarEstilos()
+  const esPrimero = posicion <= 0
+  const esUltimo = posicion >= total - 1
+
+  return (
+    <Modal visible={!!item} transparent animationType="fade" onRequestClose={alCerrar}>
+      <Pressable style={estilos.velo} onPress={alCerrar} accessibilityLabel="Cerrar">
+        <Pressable style={estilos.hoja} onPress={() => undefined}>
+          <Text style={estilos.hojaTitulo}>MOVERLO EN EL RECORRIDO</Text>
+          <Text style={estilos.hojaNota} numberOfLines={2}>
+            {item?.razon_social} — Nº {posicion + 1} de {total}
+          </Text>
+
+          <OpcionMover
+            etiqueta="⤒  Ponerlo primero"
+            detalle="Al principio del recorrido"
+            deshabilitado={esPrimero || ocupado}
+            alTocar={() => alMover(0)}
+          />
+          <OpcionMover
+            etiqueta="↑  Subirlo uno"
+            detalle="Un lugar más arriba"
+            deshabilitado={esPrimero || ocupado}
+            alTocar={() => alMover(posicion - 1)}
+          />
+          <OpcionMover
+            etiqueta="↓  Bajarlo uno"
+            detalle="Un lugar más abajo"
+            deshabilitado={esUltimo || ocupado}
+            alTocar={() => alMover(posicion + 1)}
+          />
+          <OpcionMover
+            etiqueta="⤓  Ponerlo último"
+            detalle="Al final de la cola"
+            deshabilitado={esUltimo || ocupado}
+            alTocar={() => alMover(total - 1)}
+          />
+
+          <Pressable
+            onPress={alCerrar}
+            accessibilityRole="button"
+            style={({ pressed }) => [estilos.cancelar, pressed && estilos.tocado]}
+          >
+            <Text style={estilos.cancelarTexto}>LISTO</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+function OpcionMover({
+  etiqueta,
+  detalle,
+  deshabilitado,
+  alTocar,
+}: {
+  etiqueta: string
+  detalle: string
+  deshabilitado?: boolean
+  alTocar: () => void
+}) {
+  const estilos = usarEstilos()
+  return (
+    <Pressable
+      onPress={alTocar}
+      disabled={deshabilitado}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => [
+        estilos.accion,
+        pressed && !deshabilitado && estilos.tocado,
+        deshabilitado && estilos.accionApagada,
+      ]}
+    >
+      <Text style={estilos.accionTexto}>{etiqueta}</Text>
+      <Text style={estilos.accionDetalle}>{detalle}</Text>
+    </Pressable>
+  )
+}
+
 // ─── Cuentas sueltas ─────────────────────────────────────────────────────────
 //
 // Ninguna de estas es un componente: reciben la paleta en vez de pedirla, para
 // no llamar a un gancho de React desde adentro de un `map`.
+
+/** Mueve el elemento de `desde` a `hasta` en una copia del arreglo. */
+function conMovimiento<T>(lista: T[], desde: number, hasta: number): T[] {
+  const copia = lista.slice()
+  const [x] = copia.splice(desde, 1)
+  copia.splice(hasta, 0, x)
+  return copia
+}
+
+/**
+ * Aplica un reordenamiento sobre la agenda cacheada, para que la lista se mueva
+ * en el acto (update optimista) antes de que conteste la base.
+ *
+ * Replica lo que hace `reordenar_paradas`: las resueltas no se tocan, las
+ * abiertas toman piso+1..piso+N según `nuevoOrden`, y la lista se reordena sola
+ * porque `delDia` ordena por `orden`. El "piso" es el último orden YA USADO por
+ * una resuelta de esa jornada, no cuántas hay.
+ */
+function reordenarAgendaEnCache(
+  items: ItemDeAgenda[],
+  rolVisitaId: string,
+  nuevoOrden: string[],
+): ItemDeAgenda[] {
+  const piso = items
+    .filter(
+      (i) =>
+        i.rol_visita_id === rolVisitaId &&
+        i.tipo === 'agendada' &&
+        i.estado !== 'pendiente' &&
+        i.estado !== 'en_camino',
+    )
+    .reduce((max, i) => Math.max(max, i.orden ?? 0), 0)
+  const ordenPorId = new Map(nuevoOrden.map((id, i) => [id, piso + i + 1]))
+  return items.map((i) =>
+    i.parada_id && ordenPorId.has(i.parada_id)
+      ? { ...i, orden: ordenPorId.get(i.parada_id)! }
+      : i,
+  )
+}
 
 function correrSemanas(lunes: Date, cuantas: number): Date {
   const d = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate())
@@ -835,6 +1087,12 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.subtitulo,
     fontSize: t.tipografia.tamano.base,
     color: t.colores.tinta,
+    marginBottom: espaciado.xs,
+  },
+  hojaNota: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
     marginBottom: espaciado.xs,
   },
   accion: {

@@ -134,11 +134,16 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           alTocar={() => navigation.navigate('CalendarioEnvios')}
         />
 
-        <BotonMenu
-          titulo="COBRANZAS DEL DÍA"
-          subtitulo="Lo que cobraste hoy, y la planilla para rendir"
-          alTocar={() => navigation.navigate('Cobranzas')}
-        />
+        {/* Cobranzas quedó restringida al administrador: se esconde a vendedor,
+            administración y supervisor (y la ruta también se gatea, ver
+            Navegacion). */}
+        {perfil?.rol === 'admin' ? (
+          <BotonMenu
+            titulo="COBRANZAS DEL DÍA"
+            subtitulo="Lo que cobraste hoy, y la planilla para rendir"
+            alTocar={() => navigation.navigate('Cobranzas')}
+          />
+        ) : null}
 
         <BotonMenu
           titulo="COMUNICACIÓN INTERNA"

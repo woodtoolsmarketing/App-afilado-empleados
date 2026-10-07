@@ -182,7 +182,10 @@ export function Navegacion() {
             <Pila.Screen name="GenerarNota" component={PantallaGenerarNota} />
             <Pila.Screen name="NuevoCliente" component={PantallaNuevoCliente} />
             <Pila.Screen name="NotasPendientes" component={PantallaNotasPendientes} />
-            <Pila.Screen name="Cobranzas" component={PantallaCobranzas} />
+            {/* Cobranzas quedó restringida al administrador: la ruta se registra
+                sólo para admin, así un navigate directo desde otro lado tampoco
+                la abre. El menú y el botón "Cobré esta nota" también se esconden. */}
+            {esAdmin ? <Pila.Screen name="Cobranzas" component={PantallaCobranzas} /> : null}
             <Pila.Screen name="CalendarioEnvios" component={PantallaCalendarioEnvios} />
             <Pila.Screen name="CalendarioVisitas" component={PantallaCalendarioVisitas} />
             <Pila.Screen name="ComunicacionInterna" component={PantallaComunicacionInterna} />

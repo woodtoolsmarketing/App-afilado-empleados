@@ -71,7 +71,7 @@ const OPCIONES: Destino[] = [
   },
   {
     // La planilla del recorrido de hoy: la misma que arma la oficina, para
-    // imprimirla o mandarla por WhatsApp como PDF.
+    // imprimirla en la impresora de la oficina.
     etiqueta: 'IMPRIMIR ROL DE VISITA',
     ir: (n) => n.navigate('RolDeVisita'),
   },

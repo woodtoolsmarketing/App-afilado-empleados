@@ -11,7 +11,6 @@ import {
 } from '@woodtools/compartido'
 import * as FileSystem from 'expo-file-system'
 import * as Print from 'expo-print'
-import * as Sharing from 'expo-sharing'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
@@ -286,17 +285,18 @@ function escalaDeLetraDelSistema(): number {
 export interface ResultadoImpresion {
   mensaje: string
   uri?: string
-  via: 'ipp' | 'sistema' | 'pdf'
+  /**
+   * Por dónde salió el papel. Hoy sólo queda la impresora de la oficina por
+   * IPP: por seguridad se sacaron la exportación a PDF (compartir) y el diálogo
+   * de impresión de Android, que permitía "Guardar como PDF" y elegir cualquier
+   * impresora/Drive. La impresión directa es la única salida.
+   */
+  via: 'ipp'
   /** Lo que se pidió y no se pudo incluir. Se avisa, no se falla. */
   advertencia?: string
   /**
-   * ¿Sabemos que el papel salió?
-   *
-   * Sólo por IPP, que responde con el estado del trabajo. El diálogo del
-   * sistema de Android vuelve apenas se abre —no cuando el usuario imprime o
-   * cancela—, así que por esa vía no hay forma de saberlo, y marcar las notas
-   * como impresas ahí las sacaba de la cola aunque el vendedor hubiera
-   * cancelado. Con `false`, la pantalla pregunta en vez de asumir.
+   * ¿Sabemos que el papel salió? Sólo por IPP, que responde con el estado del
+   * trabajo. Siempre true por este camino.
    */
   confirmado: boolean
 }
@@ -315,18 +315,8 @@ export interface ResultadoImpresion {
 export async function imprimirNotas(params: {
   notaIds: string[]
   incluirRolDeVisita?: boolean
-  comoPdf?: boolean
   /** Para contar qué está pasando cuando hay que buscar la impresora. */
   alAvisar?: (mensaje: string) => void
-  /**
-   * Abre el diálogo de impresión de Android en vez de fallar.
-   *
-   * Es la salida de emergencia y va apagada: la impresión la hace la app
-   * contra la impresora de la oficina, sin mandar al vendedor a otra pantalla.
-   * Sólo se prende cuando lo pide él, desde el botón que aparece si el intento
-   * directo no salió.
-   */
-  usarDialogoDelSistema?: boolean
 }): Promise<ResultadoImpresion> {
   if (params.notaIds.length === 0) throw new Error('No hay notas para imprimir')
 
@@ -417,9 +407,7 @@ export async function imprimirNotas(params: {
     queSalio: `${cuantas}${conRol}`,
     plural: notas.length !== 1,
     nombreDelArchivo: 'notas-de-pedido',
-    comoPdf: params.comoPdf,
     alAvisar: params.alAvisar,
-    usarDialogoDelSistema: params.usarDialogoDelSistema,
     advertencia,
   })
 }
@@ -441,23 +429,16 @@ async function entregarDocumento(
     queSalio: string
     plural: boolean
     nombreDelArchivo: string
-    comoPdf?: boolean
     alAvisar?: (mensaje: string) => void
-    usarDialogoDelSistema?: boolean
     advertencia?: string
   },
 ): Promise<ResultadoImpresion> {
   const { data: sesionActual } = await supabase.auth.getSession()
   const advertencia = opciones.advertencia
+  // El PDF se arma igual —es lo que se manda por IPP—, pero ya no se comparte
+  // ni se abre en el diálogo del sistema: ésas eran las salidas a "Guardar como
+  // PDF" y se cerraron por seguridad.
   const { uri } = await armarPdf(html)
-
-  if (opciones.comoPdf) {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' })
-    }
-    // Un PDF guardado no es papel impreso: no se marca nada.
-    return { mensaje: 'PDF generado', uri, via: 'pdf', advertencia, confirmado: false }
-  }
 
   const configurada = await obtenerImpresora()
   const ubicada = await ubicarImpresora(configurada, opciones.alAvisar)
@@ -488,50 +469,32 @@ async function entregarDocumento(
       // con la bandeja abierta. Ese mensaje es más útil que cualquier cosa que
       // podamos deducir después, así que sube tal cual.
       console.warn('[impresion] la impresora rechazó el trabajo', e)
-      if (!opciones.usarDialogoDelSistema) {
-        throw new Error(
-          e instanceof Error && e.message
-            ? `${e.message} (${ubicada.impresora.ip})`
-            : `No pudimos imprimir en ${ubicada.impresora.ip}.`,
-        )
-      }
+      throw new Error(
+        e instanceof Error && e.message
+          ? `${e.message} (${ubicada.impresora.ip})`
+          : `No pudimos imprimir en ${ubicada.impresora.ip}.`,
+      )
     }
   }
 
   // ── No se pudo imprimir directo ─────────────────────────────────────────
   //
-  // Acá terminaba abriendo el diálogo de impresión de Android. Eso sacaba al
-  // vendedor de la app —otra pantalla, otra lista de impresoras, otro toque— y
-  // hacía difícil distinguir "no llegué a la impresora" de "elegiste mal en el
-  // diálogo". La impresión es de la app: si no salió, lo dice y se puede
-  // reintentar sin irse a ningún lado.
-  //
-  // El diálogo del sistema queda como salida explícita, no automática: la
-  // pantalla lo ofrece como un botón aparte.
+  // Antes, acá se abría el diálogo de impresión de Android como salida de
+  // emergencia. Se sacó por seguridad: ese diálogo permitía "Guardar como PDF"
+  // y elegir cualquier impresora/Drive, que es justo lo que no queremos. Ahora
+  // la única salida es la impresora de la oficina: si no se alcanzó, se explica
+  // el motivo y se puede reintentar.
   const red = await estadoDeRed()
-
-  if (!opciones.usarDialogoDelSistema) {
-    const donde = configurada ? ` en ${configurada.ip}` : ''
-    throw new Error(
-      !red.conectado
-        ? 'El teléfono no tiene conexión. Conectate al wifi de la oficina y volvé a intentar.'
-        : !red.enWifi
-          ? 'Estás con datos móviles. La impresora de la oficina está en la red local: conectate a ese wifi y volvé a intentar.'
-          : configurada
-            ? `No pudimos alcanzar la impresora${donde}, y tampoco la encontramos en esta red. Fijate que esté encendida y en el mismo wifi.`
-            : 'No hay ninguna impresora cargada. Pedile a la oficina que cargue la IP en el panel.',
-    )
-  }
-
-  await Print.printAsync({ uri })
-  return {
-    mensaje:
-      'Se abrió el diálogo de impresión de Android. Cuando termine, confirmá si salió el papel.',
-    uri,
-    via: 'sistema',
-    advertencia,
-    confirmado: false,
-  }
+  const donde = configurada ? ` en ${configurada.ip}` : ''
+  throw new Error(
+    !red.conectado
+      ? 'El teléfono no tiene conexión. Conectate al wifi de la oficina y volvé a intentar.'
+      : !red.enWifi
+        ? 'Estás con datos móviles. La impresora de la oficina está en la red local: conectate a ese wifi y volvé a intentar.'
+        : configurada
+          ? `No pudimos alcanzar la impresora${donde}, y tampoco la encontramos en esta red. Fijate que esté encendida y en el mismo wifi.`
+          : 'No hay ninguna impresora cargada. Pedile a la oficina que cargue la IP en el panel.',
+  )
 }
 
 export { ESTILOS_NOTA_PEDIDO }
@@ -547,8 +510,6 @@ export { ESTILOS_NOTA_PEDIDO }
 export async function imprimirPlanillaCobranzas(params?: {
   fecha?: string
   alAvisar?: (mensaje: string) => void
-  comoPdf?: boolean
-  usarDialogoDelSistema?: boolean
 }): Promise<ResultadoImpresion> {
   const { data: sesionActual } = await supabase.auth.getSession()
   const vendedorId = sesionActual.session?.user.id
@@ -589,28 +550,24 @@ export async function imprimirPlanillaCobranzas(params?: {
     queSalio: 'la planilla de cobranzas',
     plural: false,
     nombreDelArchivo: `planilla-cobranzas-${fecha}`,
-    comoPdf: params?.comoPdf,
     alAvisar: params?.alAvisar,
-    usarDialogoDelSistema: params?.usarDialogoDelSistema,
   })
 }
 
 /**
- * Imprime (o comparte) la planilla del rol de visita del día.
+ * Imprime la planilla del rol de visita del día.
  *
  * Es la misma hoja que arma la oficina en el panel —"Roles de Visita"— pero
- * salida del teléfono: el vendedor puede imprimirla en la impresora o
- * compartirla como PDF por WhatsApp. Sale sola, sin notas, por el mismo camino
- * que todo el resto (`entregarDocumento`), para no tener otro modo de imprimir
- * que se rompa por su cuenta.
+ * salida del teléfono: sale sola, sin notas, por el mismo camino que todo el
+ * resto (`entregarDocumento`), directo a la impresora de la oficina. Antes
+ * también se podía compartir como PDF (WhatsApp); esa salida se cerró por
+ * seguridad.
  *
  * Sin recorrido armado hoy no hay planilla: se avisa y no se genera una hoja
  * vacía, igual que la de cobranzas cuando no hay cobros.
  */
 export async function imprimirRolDeVisita(params?: {
   alAvisar?: (mensaje: string) => void
-  comoPdf?: boolean
-  usarDialogoDelSistema?: boolean
 }): Promise<ResultadoImpresion> {
   const { data: sesionActual } = await supabase.auth.getSession()
   const vendedorId = sesionActual.session?.user.id
@@ -630,8 +587,6 @@ export async function imprimirRolDeVisita(params?: {
     queSalio: 'el rol de visita',
     plural: false,
     nombreDelArchivo: `rol-de-visita-${hoyLocal()}`,
-    comoPdf: params?.comoPdf,
     alAvisar: params?.alAvisar,
-    usarDialogoDelSistema: params?.usarDialogoDelSistema,
   })
 }

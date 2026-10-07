@@ -106,28 +106,16 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   const imprimir = useMutation<
     ResultadoImpresion & { ids: string[]; selladoFallo: boolean },
     Error,
-    { comoPdf: boolean; conDialogo?: boolean }
+    void
   >({
-    mutationFn: async (opciones: { comoPdf: boolean; conDialogo?: boolean }) => {
-      /**
-       * Los ids se congelan ACÁ, antes de imprimir.
-       *
-       * Entre que se manda el trabajo y que el vendedor contesta si salió el
-       * papel pasa un rato, y en el medio puede haber tocado la lista. La
-       * confirmación tiene que sellar lo que se imprimió, no lo que quedó
-       * seleccionado después.
-       */
+    mutationFn: async () => {
+      // Los ids se congelan ACÁ, antes de imprimir: entre el envío y el refresco
+      // de la lista el vendedor puede haber tocado la selección.
       const ids = objetivo.map((n) => n.id)
       const resultado = await imprimirNotas({
         notaIds: ids,
         incluirRolDeVisita: conRolDeVisita,
-        comoPdf: opciones.comoPdf,
-        usarDialogoDelSistema: opciones.conDialogo,
       })
-      // Idem: sin confirmación de la impresora, las notas siguen pendientes.
-      // Marcarlas igual las sacaba de esta lista para siempre aunque el
-      // vendedor hubiera cancelado el diálogo de Android.
-      //
       // El sellado es un UPDATE por internet que puede fallar aunque el papel
       // (IPP, red local) ya haya salido. Si falla NO se trata como error de
       // impresión —el "Reintentar" del onError volvería a sacar el papel—: se
@@ -142,7 +130,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       }
       return { ...resultado, ids, selladoFallo }
     },
-    onSuccess: (r, opciones) => {
+    onSuccess: (r) => {
       void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
       // El papel salió pero no se pudo sellar: se avisa y se ofrece sellar sin
       // volver a imprimir (la mutación `confirmar` sólo marca, no saca papel).
@@ -157,53 +145,16 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
         )
         return
       }
-      const base = opciones.comoPdf ? 'Podés compartirlo o guardarlo.' : r.mensaje
-      // Que el rol no saliera no invalida la impresión: se cuenta abajo, sin
-      // convertirlo en un error.
-      const texto = r.advertencia ? `${base}\n\n${r.advertencia}` : base
-
-      /**
-       * Por el diálogo del sistema hay que PREGUNTAR.
-       *
-       * Android lo cierra apenas se abre, así que la app no se entera de si
-       * salió el papel o si el vendedor canceló. Darlo por impreso saca las
-       * notas de esta lista para siempre —y sin poder corregirlas— con la hoja
-       * sin salir; darlo por no impreso deja pendientes notas que el cliente ya
-       * tiene en la mano. Lo sabe una sola persona, y está parada frente a la
-       * impresora.
-       */
-      if (!opciones.comoPdf && r.via === 'sistema') {
-        Alert.alert(
-          '¿Salió el papel?',
-          `${texto}\n\nAndroid no nos avisa si se imprimió o si cancelaste, así que hace falta que lo digas vos.`,
-          [
-            { text: 'No salió', style: 'cancel' },
-            { text: 'Sí, salió', onPress: () => confirmar.mutate(r.ids) },
-          ],
-        )
-        return
-      }
-
-      Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto)
+      // Que el rol no saliera no invalida la impresión: se cuenta, sin convertirlo en error.
+      const texto = r.advertencia ? `${r.mensaje}\n\n${r.advertencia}` : r.mensaje
+      Alert.alert('Enviado a la impresora', texto)
     },
     // Es la pantalla del "llego a la oficina e imprimo todo lo del día": el
-    // reintento tiene que estar a un toque, sin volver a armar la selección.
-    onError: (e: Error, opciones) => {
-      // Si lo que falló fue generar el PDF, "Reintentar" tiene que volver a
-      // intentar el PDF, no mandar las notas a la impresora.
-      if (opciones.comoPdf) {
-        Alert.alert('No pudimos generar el PDF', e.message, [
-          { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: true }) },
-          { text: 'Cancelar', style: 'cancel' },
-        ])
-        return
-      }
+    // reintento tiene que estar a un toque. Ya no hay "Elegir otra impresora"
+    // (el diálogo de Android dejaba guardar PDF): la única salida es la oficina.
+    onError: (e: Error) => {
       Alert.alert('No pudimos imprimir', e.message, [
-        { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
-        {
-          text: 'Elegir otra impresora',
-          onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
-        },
+        { text: 'Reintentar', onPress: () => imprimir.mutate() },
         { text: 'Cancelar', style: 'cancel' },
       ])
     },
@@ -333,17 +284,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               }
               alTocar={() => {
                 if (!hayParaImprimir) return
-                imprimir.mutate({ comoPdf: false })
-              }}
-              cargando={imprimir.isPending}
-            />
-
-            {/* La exportación a PDF sólo existe acá, como pidieron. */}
-            <BotonSecundario
-              titulo="Guardar como PDF"
-              alTocar={() => {
-                if (!hayParaImprimir) return
-                imprimir.mutate({ comoPdf: true })
+                imprimir.mutate()
               }}
               cargando={imprimir.isPending}
             />

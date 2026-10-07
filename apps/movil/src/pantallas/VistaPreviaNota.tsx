@@ -64,91 +64,32 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
   /** Lo que se está haciendo mientras tanto: buscar la impresora tarda. */
   const [avance, setAvance] = useState<string | null>(null)
 
-  /** El vendedor confirmó que el papel salió: recién ahí se sellan las notas. */
-  const confirmar = useMutation({
-    mutationFn: () => marcarImpresas(notaIds),
-    onSuccess: async () => {
-      await cliente.invalidateQueries()
-      Alert.alert('Listo', 'Las notas quedaron como impresas.', [
-        { text: 'Listo', onPress: terminar },
-      ])
-    },
-    onError: (e: Error) =>
-      Alert.alert(
-        'No pudimos marcarlas',
-        `${e.message}\n\nEl papel salió igual. Siguen figurando como pendientes: volvé a imprimirlas cuando tengas señal, o avisá a la oficina.`,
-      ),
-  })
-
   // Los genéricos van explícitos porque `onError` vuelve a llamar a
   // `imprimir` —el reintento— y TypeScript no puede inferir un tipo que se
   // referencia a sí mismo mientras lo está construyendo.
-  const imprimir = useMutation<
-    ResultadoImpresion,
-    Error,
-    { comoPdf: boolean; conDialogo?: boolean }
-  >({
-    mutationFn: async (opciones: { comoPdf: boolean; conDialogo?: boolean }) => {
+  const imprimir = useMutation<ResultadoImpresion, Error, void>({
+    mutationFn: async () => {
       setAvance(null)
-      const r = await imprimirNotas({
-        notaIds,
-        incluirRolDeVisita,
-        comoPdf: opciones.comoPdf,
-        usarDialogoDelSistema: opciones.conDialogo,
-        alAvisar: setAvance,
-      })
-      // Sólo se marca cuando la impresora confirmó el trabajo, igual que en
-      // NOTAS PENDIENTES y en el detalle. El diálogo del sistema vuelve apenas
-      // se abre —no cuando el vendedor imprime o cancela—, así que por esa vía
-      // no sabemos si salió el papel. Marcarlas igual las sacaba de PENDIENTES
-      // para siempre y sin poder corregirlas, con la hoja sin salir.
-      if (!opciones.comoPdf && r.confirmado) await marcarImpresas(notaIds)
+      const r = await imprimirNotas({ notaIds, incluirRolDeVisita, alAvisar: setAvance })
+      // La impresora de la oficina confirma el trabajo por IPP, así que se
+      // puede marcar sin preguntar: ya no hay diálogo del sistema (que volvía
+      // sin saber si salió el papel).
+      if (r.confirmado) await marcarImpresas(notaIds)
       return r
     },
-    onSuccess: async (r, opciones) => {
+    onSuccess: async (r) => {
       setAvance(null)
       await cliente.invalidateQueries()
       const texto = [r.mensaje, r.advertencia].filter(Boolean).join('\n\n')
-
-      /**
-       * Por el diálogo del sistema hay que PREGUNTAR.
-       *
-       * Es el mismo caso que en NOTAS PENDIENTES: Android cierra el diálogo
-       * apenas se abre, así que no sabemos si salió el papel o si el vendedor
-       * canceló. Marcarlas igual las dejaba impresas y sin poder corregir con
-       * la hoja sin salir.
-       */
-      if (!opciones.comoPdf && r.via === 'sistema') {
-        Alert.alert(
-          '¿Salió el papel?',
-          `${texto}\n\nAndroid no nos avisa si se imprimió o si cancelaste, así que hace falta que lo digas vos.`,
-          [
-            { text: 'No salió', style: 'cancel', onPress: () => navigation.goBack() },
-            { text: 'Sí, salió', onPress: () => confirmar.mutate() },
-          ],
-        )
-        return
-      }
-
-      Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto, [
-        { text: 'Listo', onPress: terminar },
-      ])
+      Alert.alert('Enviado a la impresora', texto, [{ text: 'Listo', onPress: terminar }])
     },
-    /**
-     * El error se muestra acá y se puede reintentar sin salir de la pantalla.
-     *
-     * El diálogo de Android queda como tercera opción, y sólo si el vendedor
-     * la elige: antes se abría solo, lo sacaba de la app y hacía imposible
-     * distinguir "no llegué a la impresora" de "elegí mal en el diálogo".
-     */
+    // El error se muestra acá y se puede reintentar sin salir de la pantalla.
+    // Ya no hay "Elegir otra impresora" (el diálogo de Android dejaba guardar
+    // PDF y elegir cualquier impresora): la única salida es la de la oficina.
     onError: (e: Error) => {
       setAvance(null)
       Alert.alert('No pudimos imprimir', e.message, [
-        { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
-        {
-          text: 'Elegir otra impresora',
-          onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
-        },
+        { text: 'Reintentar', onPress: () => imprimir.mutate() },
         { text: 'Cancelar', style: 'cancel' },
       ])
     },
@@ -194,12 +135,7 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
             <BotonMenu
               titulo={'IMPRIMIR'}
               subtitulo={`${notaIds.length} nota${notaIds.length === 1 ? '' : 's'} · original y duplicado`}
-              alTocar={() => imprimir.mutate({ comoPdf: false })}
-              cargando={imprimir.isPending}
-            />
-            <BotonSecundario
-              titulo="Guardar como PDF"
-              alTocar={() => imprimir.mutate({ comoPdf: true })}
+              alTocar={() => imprimir.mutate()}
               cargando={imprimir.isPending}
             />
             <BotonSecundario titulo="Volver y corregir" alTocar={() => navigation.goBack()} />

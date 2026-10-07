@@ -25,9 +25,9 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  *
  * Es la misma planilla que la oficina arma en el panel ("Roles de Visita"),
  * ahora salida del teléfono: el vendedor la imprime en la impresora de la
- * oficina o la comparte como PDF por WhatsApp. Muestra un resumen del recorrido
- * —los mismos destinos que van en la hoja— y dos botones; la hoja de verdad, en
- * A4, se ve con "Guardar / compartir PDF".
+ * oficina. Muestra un resumen del recorrido —los mismos destinos que van en la
+ * hoja— y el botón para imprimirla. (Antes también se podía compartir como PDF
+ * por WhatsApp; esa salida se cerró por seguridad.)
  */
 export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>) {
   const { colores } = usarTema()
@@ -50,51 +50,26 @@ export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>
   // Los genéricos van explícitos porque `onError` vuelve a llamar a `imprimir`
   // —el reintento— y TypeScript no puede inferir un tipo que se referencia a sí
   // mismo mientras lo está construyendo.
-  const imprimir = useMutation<ResultadoImpresion, Error, { comoPdf: boolean; conDialogo?: boolean }>({
-    mutationFn: async (opciones) => {
+  const imprimir = useMutation<ResultadoImpresion, Error, void>({
+    mutationFn: async () => {
       setAvance(null)
-      return imprimirRolDeVisita({
-        comoPdf: opciones.comoPdf,
-        usarDialogoDelSistema: opciones.conDialogo,
-        alAvisar: setAvance,
-      })
+      return imprimirRolDeVisita({ alAvisar: setAvance })
     },
-    onSuccess: (r, opciones) => {
+    onSuccess: (r) => {
       setAvance(null)
       const texto = [r.mensaje, r.advertencia].filter(Boolean).join('\n\n')
-
-      // Por el diálogo del sistema Android no avisa si salió el papel; acá no
-      // hay nada que marcar, así que sólo se informa.
-      if (!opciones.comoPdf && r.via === 'sistema') {
-        Alert.alert('Se abrió el diálogo de impresión', texto, [{ text: 'Entendido' }])
-        return
-      }
-
-      Alert.alert(opciones.comoPdf ? 'PDF generado' : 'Enviado a la impresora', texto, [
-        { text: 'Listo' },
-      ])
+      Alert.alert('Enviado a la impresora', texto, [{ text: 'Listo' }])
     },
-    // El error se muestra acá y se puede reintentar sin salir de la pantalla, en
-    // el MISMO modo que falló: si el vendedor quería el PDF para WhatsApp,
-    // reintentar tiene que volver a generar el PDF, no mandar el trabajo a la
-    // impresora. El diálogo de Android sólo aplica a la impresión.
-    onError: (e: Error, variables) => {
+    // El error se muestra acá y se puede reintentar sin salir de la pantalla. Ya
+    // no hay "Elegir otra impresora" ni compartir como PDF (el diálogo de
+    // Android dejaba guardar PDF y elegir cualquier impresora): la única salida
+    // es la impresora de la oficina.
+    onError: (e: Error) => {
       setAvance(null)
-      const titulo = variables.comoPdf ? 'No pudimos generar el PDF' : 'No pudimos imprimir'
-      const botones = variables.comoPdf
-        ? [
-            { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: true }) },
-            { text: 'Cancelar', style: 'cancel' as const },
-          ]
-        : [
-            { text: 'Reintentar', onPress: () => imprimir.mutate({ comoPdf: false }) },
-            {
-              text: 'Elegir otra impresora',
-              onPress: () => imprimir.mutate({ comoPdf: false, conDialogo: true }),
-            },
-            { text: 'Cancelar', style: 'cancel' as const },
-          ]
-      Alert.alert(titulo, e.message, botones)
+      Alert.alert('No pudimos imprimir', e.message, [
+        { text: 'Reintentar', onPress: () => imprimir.mutate() },
+        { text: 'Cancelar', style: 'cancel' as const },
+      ])
     },
   })
 
@@ -187,12 +162,7 @@ export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>
             <BotonMenu
               titulo="IMPRIMIR"
               subtitulo="En la impresora de la oficina"
-              alTocar={() => imprimir.mutate({ comoPdf: false })}
-              cargando={imprimir.isPending}
-            />
-            <BotonSecundario
-              titulo="Guardar / compartir PDF"
-              alTocar={() => imprimir.mutate({ comoPdf: true })}
+              alTocar={() => imprimir.mutate()}
               cargando={imprimir.isPending}
             />
           </>

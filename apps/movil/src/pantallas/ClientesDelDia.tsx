@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
+import { Campo, comparable } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -44,6 +45,9 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   const perfil = usarSesion((s) => s.perfil)
   const cliente = useQueryClient()
   const [elegidos, setElegidos] = useState<Set<string>>(new Set())
+  // Para buscar dentro de la lista del día por nombre o código, en vez de
+  // tener que recorrerla a mano.
+  const [filtro, setFiltro] = useState('')
 
   const { data: candidatos, isLoading, error, refetch } = useQuery({
     queryKey: ['candidatos-del-dia'],
@@ -56,7 +60,17 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   // —entran todos—, sólo si hace falta explicarle al vendedor qué va a pasar
   // con ellos cuando los tilde.
   const sinUbicar = lista.filter((c) => c.lat === null).length
-  const todosElegidos = lista.length > 0 && lista.every((c) => elegidos.has(c.cliente_id))
+  // Lo que se muestra: la lista del día, filtrada por el buscador (nombre o
+  // código, sin acentos). Vacío el buscador, se ve todo el plan de hoy.
+  const q = comparable(filtro.trim())
+  const visibles = q
+    ? lista.filter(
+        (c) => comparable(c.razon_social).includes(q) || comparable(c.codigo ?? '').includes(q),
+      )
+    : lista
+  // "Tildar todos" opera sobre lo que se está viendo, no sobre lo que el filtro
+  // esconde.
+  const todosElegidos = visibles.length > 0 && visibles.every((c) => elegidos.has(c.cliente_id))
 
   function alternar(id: string) {
     setElegidos((previos) => {
@@ -80,7 +94,12 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
    * silencio, porque el atajo diría "todos" y no los estaría contando.
    */
   function alternarTodos() {
-    setElegidos(todosElegidos ? new Set() : new Set(lista.map((c) => c.cliente_id)))
+    setElegidos((previos) => {
+      const nuevos = new Set(previos)
+      if (todosElegidos) visibles.forEach((c) => nuevos.delete(c.cliente_id))
+      else visibles.forEach((c) => nuevos.add(c.cliente_id))
+      return nuevos
+    })
   }
 
   const armar = useMutation({
@@ -219,6 +238,15 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
               sugiere, no lo que tenés que hacer sí o sí.
             </Text>
 
+            <Campo
+              placeholder="Buscar por nombre o código"
+              value={filtro}
+              onChangeText={setFiltro}
+              autoCapitalize="none"
+              autoCorrect={false}
+              contenedorStyle={estilos.buscador}
+            />
+
             {/*
               El aviso pasó de "atención" a "info" y dejó de ser una traba.
               Antes avisaba que esos clientes NO iban a poder entrar, que era el
@@ -244,8 +272,14 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
               </Text>
             </Pressable>
 
+            {q && visibles.length === 0 ? (
+              <Aviso tono="info">
+                Ninguno de los de hoy coincide con “{filtro.trim()}”. Probá con otro nombre o código.
+              </Aviso>
+            ) : null}
+
             <View style={estilos.lista}>
-              {lista.map((c) => (
+              {visibles.map((c) => (
                 <Fila
                   key={c.cliente_id}
                   candidato={c}
@@ -400,6 +434,7 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
   },
+  buscador: { marginBottom: espaciado.xs },
   lista: { gap: espaciado.xs },
   atajo: {
     minHeight: TOQUE_MINIMO,
