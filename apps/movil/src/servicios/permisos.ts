@@ -29,6 +29,7 @@ async function traerFunciones(): Promise<Funcion[]> {
   const { data, error } = await supabase
     .from('funciones')
     .select('clave, etiqueta, descripcion, orden, roles_habilitados')
+    .eq('ambito', 'app')
     .order('orden')
   if (error) throw error
   return (data ?? []) as Funcion[]
@@ -47,8 +48,10 @@ export function usarPermisos(): { puedeVer: (clave: ClaveFuncion) => boolean; ca
     enabled: !!rol,
   })
 
+  // `clave` es `string` en el tipo compartido (lo comparte con las secciones del
+  // panel); acá sólo llegan las de la app, así que el cast es seguro.
   const catalogo: Map<ClaveFuncion, RolUsuario[]> | null = data
-    ? new Map(data.map((f) => [f.clave, f.roles_habilitados]))
+    ? new Map(data.map((f) => [f.clave as ClaveFuncion, f.roles_habilitados]))
     : null
 
   function puedeVer(clave: ClaveFuncion): boolean {

@@ -50,13 +50,38 @@ export type ClaveFuncion =
 
 /** Una fila del catálogo de funciones (lo que configura el panel y lee la app). */
 export interface Funcion {
-  clave: ClaveFuncion
+  clave: string
   etiqueta: string
   descripcion: string | null
   orden: number
   /** Los roles (además de admin) que ven esta opción. */
   roles_habilitados: RolUsuario[]
+  /** 'app' = opción de la app móvil; 'panel' = sección del panel de escritorio. */
+  ambito?: 'app' | 'panel'
 }
+
+/**
+ * Las secciones del PANEL de escritorio que se pueden limitar por rol.
+ *
+ * El Tablero (landing de todos) y Permisos (sólo admin) quedan afuera a
+ * propósito: no se configuran. admin ve todo el panel siempre; vendedor no entra
+ * al panel. Lo configurable aplica a administración y supervisor.
+ */
+export type ClaveFuncionPanel =
+  | 'panel_mapa_en_vivo'
+  | 'panel_mapa_clientes'
+  | 'panel_notas_pedido'
+  | 'panel_cola_impresion'
+  | 'panel_roles_visita'
+  | 'panel_rol_maestro'
+  | 'panel_clientes'
+  | 'panel_clientes_a_confirmar'
+  | 'panel_modificaciones'
+  | 'panel_cambios_direccion'
+  | 'panel_usuarios'
+  | 'panel_articulos_confirmar'
+  | 'panel_problemas'
+  | 'panel_actualizaciones'
 
 /**
  * El catálogo canónico: la lista de opciones limitables, su etiqueta para el
@@ -82,7 +107,7 @@ export const CATALOGO_FUNCIONES: Funcion[] = [
 /** Las claves que arrancan admin-only: el respaldo de la app en el arranque en frío. */
 export const FUNCIONES_SOLO_ADMIN_POR_DEFECTO: ClaveFuncion[] = CATALOGO_FUNCIONES.filter(
   (f) => f.roles_habilitados.length === 0,
-).map((f) => f.clave)
+).map((f) => f.clave as ClaveFuncion)
 
 /**
  * ¿El rol puede ver esta opción, según el catálogo cargado?

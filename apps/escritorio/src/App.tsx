@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import type { ClaveFuncionPanel, RolUsuario } from '@woodtools/compartido'
 
 import { supabase } from './nucleo/supabase'
+import { usarPermisosPanel } from './nucleo/permisos'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
 import { ProveedorConsola } from './nucleo/consola'
 import { usarSesion } from './nucleo/sesion'
@@ -33,6 +36,11 @@ export function App() {
   // bajarse la app nueva. Se publica sola: el router puede cambiarla.
   usarPublicarDireccionDelPanel(sesion.esAdmin)
 
+  // Qué secciones del panel ve este rol. admin ve todo; administración y
+  // supervisor, lo que el admin les habilitó en "Permisos". Va antes de los
+  // returns de abajo porque un hook no puede quedar del otro lado de un return.
+  const permisos = usarPermisosPanel(sesion.perfil?.rol)
+
   if (sesion.cargando) {
     return (
       <div className="ingreso">
@@ -45,46 +53,71 @@ export function App() {
     return <PaginaIngreso error={sesion.error} alIngresar={sesion.recargar} />
   }
 
+  // Gatea una ruta por permiso de panel. Mientras la config no llegó se muestra
+  // un cargando (no se rebota: si no, al que SÍ tiene acceso lo mandaba a `/`).
+  const gate = (clave: ClaveFuncionPanel, element: ReactNode): ReactNode =>
+    !permisos.listo ? (
+      <div style={{ padding: 24, color: 'var(--tinta-tenue)' }}>Cargando…</div>
+    ) : permisos.puedeVer(clave) ? (
+      element
+    ) : (
+      <Navigate to="/" replace />
+    )
+
   return (
     <ProveedorConsola rutaActual={ubicacion.pathname}>
     <div className="marco">
-      <BarraLateral nombre={sesion.perfil.nombre_completo} rol={sesion.perfil.rol} alSalir={sesion.salir} />
+      <BarraLateral
+        nombre={sesion.perfil.nombre_completo}
+        rol={sesion.perfil.rol}
+        puedeVer={permisos.puedeVer}
+        esAdmin={sesion.esAdmin}
+        alSalir={sesion.salir}
+      />
 
       <main className="contenido">
         <Routes>
+          {/* El Tablero es el landing de cualquiera que entre al panel. */}
           <Route path="/" element={<PaginaTablero />} />
-          <Route path="/usuarios" element={<PaginaUsuarios soloLectura={!sesion.esAdmin} />} />
-          <Route path="/permisos" element={<PaginaPermisos soloLectura={!sesion.esAdmin} />} />
-          <Route path="/clientes" element={<PaginaClientes soloLectura={!sesion.esAdmin} />} />
+          {/* Permisos es sólo de admin: no entra al catálogo configurable. */}
+          <Route
+            path="/permisos"
+            element={sesion.esAdmin ? <PaginaPermisos soloLectura={false} /> : <Navigate to="/" replace />}
+          />
+          <Route path="/usuarios" element={gate('panel_usuarios', <PaginaUsuarios soloLectura={!sesion.esAdmin} />)} />
+          <Route path="/clientes" element={gate('panel_clientes', <PaginaClientes soloLectura={!sesion.esAdmin} />)} />
           <Route
             path="/clientes-a-confirmar"
-            element={<PaginaClientesAConfirmar soloLectura={!sesion.esAdmin} />}
+            element={gate('panel_clientes_a_confirmar', <PaginaClientesAConfirmar soloLectura={!sesion.esAdmin} />)}
           />
-          <Route path="/modificaciones" element={<PaginaModificacionesClientes />} />
+          <Route
+            path="/modificaciones"
+            element={gate('panel_modificaciones', <PaginaModificacionesClientes />)}
+          />
           <Route
             path="/cambios-direccion"
-            element={<PaginaCambiosDireccion soloLectura={!sesion.esAdmin} />}
+            element={gate('panel_cambios_direccion', <PaginaCambiosDireccion soloLectura={!sesion.esAdmin} />)}
           />
           <Route
             path="/a-confirmar"
-            element={<PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />}
+            element={gate('panel_articulos_confirmar', <PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />)}
           />
           <Route
             path="/notas"
-            element={<PaginaNotasPedido soloLectura={!sesion.esAdministracion} />}
+            element={gate('panel_notas_pedido', <PaginaNotasPedido soloLectura={!sesion.esAdministracion} />)}
           />
           <Route
             path="/cola-impresion"
-            element={<PaginaColaImpresion soloLectura={!sesion.esAdministracion} />}
+            element={gate('panel_cola_impresion', <PaginaColaImpresion soloLectura={!sesion.esAdministracion} />)}
           />
-          <Route path="/roles" element={<PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />} />
-          <Route path="/rol-maestro" element={<PaginaRolMaestro soloLectura={!sesion.esAdmin} />} />
-          <Route path="/mapa" element={<PaginaMapaEnVivo />} />
-          <Route path="/clientes-mapa" element={<PaginaMapaClientes />} />
-          <Route path="/problemas" element={<PaginaProblemas soloLectura={!sesion.esAdmin} />} />
+          <Route path="/roles" element={gate('panel_roles_visita', <PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />)} />
+          <Route path="/rol-maestro" element={gate('panel_rol_maestro', <PaginaRolMaestro soloLectura={!sesion.esAdmin} />)} />
+          <Route path="/mapa" element={gate('panel_mapa_en_vivo', <PaginaMapaEnVivo />)} />
+          <Route path="/clientes-mapa" element={gate('panel_mapa_clientes', <PaginaMapaClientes />)} />
+          <Route path="/problemas" element={gate('panel_problemas', <PaginaProblemas soloLectura={!sesion.esAdmin} />)} />
           <Route
             path="/actualizaciones"
-            element={<PaginaActualizaciones soloLectura={!sesion.esAdmin} />}
+            element={gate('panel_actualizaciones', <PaginaActualizaciones soloLectura={!sesion.esAdmin} />)}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -97,10 +130,14 @@ export function App() {
 function BarraLateral({
   nombre,
   rol,
+  puedeVer,
+  esAdmin,
   alSalir,
 }: {
   nombre: string
   rol: string
+  puedeVer: (clave: ClaveFuncionPanel) => boolean
+  esAdmin: boolean
   alSalir: () => void
 }) {
   // El globo rojo sobre "Usuarios" es lo que hace que las altas pendientes no
@@ -224,24 +261,38 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
-  const enlaces = [
+  // Cada enlace sabe a qué permiso de panel pertenece. El Tablero no tiene
+  // permiso (lo ve cualquiera que entre); Permisos es `soloAdmin`. El resto se
+  // esconde si el rol no lo tiene habilitado (admin ve todo).
+  const enlaces: Array<{
+    a: string
+    icono: string
+    texto: string
+    globo?: number
+    permiso?: ClaveFuncionPanel
+    soloAdmin?: boolean
+  }> = [
     { a: '/', icono: '▦', texto: 'Tablero' },
-    { a: '/mapa', icono: '◉', texto: 'Mapa en vivo' },
-    { a: '/clientes-mapa', icono: '🗺', texto: 'Mapa' },
-    { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente },
-    { a: '/cola-impresion', icono: '🖨', texto: 'Cola de impresión', globo: aImprimir },
-    { a: '/roles', icono: '▤', texto: 'Roles de visita' },
-    { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro' },
-    { a: '/clientes', icono: '☰', texto: 'Clientes' },
-    { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar },
-    { a: '/modificaciones', icono: '✎', texto: 'Modificaciones' },
-    { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir },
-    { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes },
-    { a: '/permisos', icono: '🔒', texto: 'Permisos' },
-    { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar },
-    { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas },
-    { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones' },
+    { a: '/mapa', icono: '◉', texto: 'Mapa en vivo', permiso: 'panel_mapa_en_vivo' },
+    { a: '/clientes-mapa', icono: '🗺', texto: 'Mapa', permiso: 'panel_mapa_clientes' },
+    { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente, permiso: 'panel_notas_pedido' },
+    { a: '/cola-impresion', icono: '🖨', texto: 'Cola de impresión', globo: aImprimir, permiso: 'panel_cola_impresion' },
+    { a: '/roles', icono: '▤', texto: 'Roles de visita', permiso: 'panel_roles_visita' },
+    { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro', permiso: 'panel_rol_maestro' },
+    { a: '/clientes', icono: '☰', texto: 'Clientes', permiso: 'panel_clientes' },
+    { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar, permiso: 'panel_clientes_a_confirmar' },
+    { a: '/modificaciones', icono: '✎', texto: 'Modificaciones', permiso: 'panel_modificaciones' },
+    { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir, permiso: 'panel_cambios_direccion' },
+    { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes, permiso: 'panel_usuarios' },
+    { a: '/permisos', icono: '🔒', texto: 'Permisos', soloAdmin: true },
+    { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar, permiso: 'panel_articulos_confirmar' },
+    { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas, permiso: 'panel_problemas' },
+    { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones', permiso: 'panel_actualizaciones' },
   ]
+
+  const visibles = enlaces.filter((e) =>
+    e.soloAdmin ? esAdmin : e.permiso ? puedeVer(e.permiso) : true,
+  )
 
   return (
     <nav className="barra-lateral">
@@ -257,7 +308,7 @@ function BarraLateral({
         que parecía que el panel no dejaba cerrar sesión. Ahora el pie queda fijo.
       */}
       <div className="barra-lateral-lista">
-        {enlaces.map((e) => (
+        {visibles.map((e) => (
           <NavLink
             key={e.a}
             to={e.a}
