@@ -168,27 +168,40 @@ function llevaMaquina(h: Herramienta | '' | null): h is Herramienta {
 }
 
 /**
- * Regla fija del 8001 para las sierras finas.
+ * Códigos de afilado que se fuerzan al frente en ciertas sierras, por ancho de
+ * corte.
  *
- * Una sierra —o un incisor, que entra como sierra— de 3,1 o 3,2 mm de ancho de
- * corte se afila con el 8001 ("AFILADO S.C. 1.5 A 3.5mm"), no con el 8002
- * ("AFILADO DTE. CÓNCAVO 3 A 4mm"). Los dos cubren esa medida, pero el 8002
- * tiene el rango más ajustado (3 a 4) y el catálogo lo ordena primero, así que
- * se proponía ese —y es más caro y es otro trabajo—.
+ * El catálogo ordena los códigos por rango más ajustado, y a veces el más
+ * ajustado es un afilado de diente CÓNCAVO —otro trabajo, más caro— que se
+ * proponía por default sin serlo. En esos anchos se empuja al frente el afilado
+ * común:
  *
- * Se mueve el 8001 al frente de las opciones para que sea el que se propone y el
- * primero de la lista. No se elige por el vendedor: la confirmación obligatoria
- * de abajo lo hace mirarlo, y si de verdad es un diente cóncavo toca el 8002.
+ *   · 3,1 y 3,2 mm → 8001 ("AFILADO S.C. 1.5 A 3.5mm"), no el 8002 ("DTE.
+ *     CÓNCAVO 3 A 4mm"), que tiene rango 3–4 y el catálogo ordena primero.
+ *   · 4,4 y 4,5 mm → 8005 ("AFILADO S.C. MD 3.6 A 5mm"), no el 8006 ("DTE.
+ *     CÓNCAVO 4.5 A 5.5mm"), que a 4,5 ordena primero por ser más ajustado.
+ *     (A 4,4 el 8005 ya es el único afilado, así que ahí la regla no cambia nada.)
+ *
+ * No lo elige el vendedor: la confirmación obligatoria de abajo lo hace mirarlo,
+ * y si de verdad es un diente cóncavo toca el otro.
+ *
+ * Sólo actúa cuando el código ya está entre los encontrados (o sea, en el
+ * afilado): en un rectificado o una reparación esos códigos no aparecen y la
+ * regla no hace nada. Vale también para el incisor, que entra como sierra.
  */
-const CODIGO_SIERRA_FINA = '8001'
-const ANCHOS_SIERRA_FINA = new Set([3.1, 3.2])
-function promoverCodigoSierraFina(
+const CODIGO_SIERRA_POR_ANCHO: { anchos: Set<number>; codigo: string }[] = [
+  { anchos: new Set([3.1, 3.2]), codigo: '8001' },
+  { anchos: new Set([4.4, 4.5]), codigo: '8005' },
+]
+function promoverCodigoSierra(
   item: FormularioItemNota,
   encontrados: CodigoComputo[],
 ): CodigoComputo[] {
   if (item.herramienta !== 'sierra') return encontrados
-  if (!ANCHOS_SIERRA_FINA.has(aNumero(item.ancho_corte))) return encontrados
-  const i = encontrados.findIndex((c) => c.codigo === CODIGO_SIERRA_FINA)
+  const ancho = aNumero(item.ancho_corte)
+  const regla = CODIGO_SIERRA_POR_ANCHO.find((r) => r.anchos.has(ancho))
+  if (!regla) return encontrados
+  const i = encontrados.findIndex((c) => c.codigo === regla.codigo)
   if (i <= 0) return encontrados
   return [encontrados[i], ...encontrados.slice(0, i), ...encontrados.slice(i + 1)]
 }
@@ -578,8 +591,8 @@ export function PasoRenglon({
           setCodigos([])
           return
         }
-        // Regla fija del 8001 para las sierras finas de 3,1 y 3,2 mm.
-        const encontrados = promoverCodigoSierraFina(item, hallados)
+        // Reglas fijas por ancho de corte: 8001 en 3,1/3,2; 8005 en 4,4/4,5.
+        const encontrados = promoverCodigoSierra(item, hallados)
         setCodigos(encontrados)
         if (encontrados.length === 0) {
           setSinCodigo(true)
