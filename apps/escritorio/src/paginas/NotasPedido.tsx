@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { usarConsola } from '../nucleo/consola'
 import { supabase } from '../nucleo/supabase'
+import { EditorNota, type NotaParaEditar } from './EditorNota'
 
 /**
  * Notas de pedido de todos los vendedores.
@@ -38,6 +39,8 @@ interface NotaFila {
   servicios: TipoServicio[]
   total: number | null
   creado_en: string
+  /** Cuándo salió por la impresora. El editor avisa que la copia en papel queda distinta. */
+  impresa_en: string | null
   vendedor: { nombre_completo: string; codigo_vendedor: string | null } | null
 }
 
@@ -80,6 +83,7 @@ export function PaginaNotasPedido({
   esAdmin,
 }: {
   soloLectura: boolean
+  /** Sólo un administrador puede MODIFICAR o anular una nota. */
   esAdmin: boolean
 }) {
   const consola = usarConsola()
@@ -87,6 +91,7 @@ export function PaginaNotasPedido({
   const [filtro, setFiltro] = useState<'todas' | 'sin_cliente' | 'pendientes'>('sin_cliente')
   const [busqueda, setBusqueda] = useState('')
   const [asignando, setAsignando] = useState<NotaFila | null>(null)
+  const [modificando, setModificando] = useState<NotaParaEditar | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,7 +101,7 @@ export function PaginaNotasPedido({
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'id, numero, vendedor_numero, tipo_nota, estado, cliente_id, cliente_codigo, cliente_nombre, cliente_cuit, zona, servicios, total, creado_en, vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor)',
+          'id, numero, vendedor_numero, tipo_nota, estado, cliente_id, cliente_codigo, cliente_nombre, cliente_cuit, zona, servicios, total, creado_en, impresa_en, vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor)',
         )
         .order('creado_en', { ascending: false })
         .limit(500)
@@ -332,7 +337,7 @@ export function PaginaNotasPedido({
                     </small>
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {n.estado === 'pendiente_cliente' ? (
                         <button
                           className="primario chico"
@@ -343,6 +348,26 @@ export function PaginaNotasPedido({
                           }}
                         >
                           Dar Cod. Cliente
+                        </button>
+                      ) : null}
+                      {/* Modificar la nota entera: admin-only, como anular. Pasa por
+                          encima del papel (acepta cualquier estado, incluso impresa). */}
+                      {esAdmin && n.estado !== 'anulada' ? (
+                        <button
+                          className="chico"
+                          onClick={() => {
+                            setModificando({
+                              id: n.id,
+                              numero: n.numero,
+                              vendedor_numero: n.vendedor_numero,
+                              estado: n.estado,
+                              impresa_en: n.impresa_en,
+                            })
+                            setError(null)
+                            setMensaje(null)
+                          }}
+                        >
+                          Modificar
                         </button>
                       ) : null}
                       {/* Anular es sólo de admin por ahora. No aparece en una nota
@@ -372,6 +397,18 @@ export function PaginaNotasPedido({
           guardando={asignar.isPending}
           alCerrar={() => setAsignando(null)}
           alElegir={(clienteId) => asignar.mutate({ notaId: asignando.id, clienteId })}
+        />
+      )}
+
+      {modificando && (
+        <EditorNota
+          nota={modificando}
+          alCerrar={() => setModificando(null)}
+          alGuardado={() => {
+            setModificando(null)
+            setMensaje('Nota modificada. Si ya estaba impresa, reimprimila desde la cola.')
+            void cliente.invalidateQueries({ queryKey: ['notas-pedido-panel'] })
+          }}
         />
       )}
     </>

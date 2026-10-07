@@ -1,30 +1,28 @@
 import {
   agruparParaNotas,
-  agujeroDelRenglon,
   aNumero,
+  comoCadena,
+  comoTexto,
   descripcionGeneralDeLaNota,
   CONDICIONES_CON_DETALLE,
   aplicarSinCargo,
   ENCABEZADO_VACIO,
   esObservacionDelSistema,
+  ESTADOS_EDITABLES,
   FAMILIA_CATALOGO,
-  ITEM_VACIO,
+  filaDeItem,
+  itemDeFila,
   reconocerHerramienta,
   MEDIDA_PARA_CODIGO,
   sinAvisosDeAgujero,
   sinLineaDeServicio,
-  descuentoDelRenglon,
   EN_LA_DESCRIPCION,
-  esRenglonDeArticulo,
-  camposDelItem,
   ETIQUETA_TIPO_SERVICIO,
-  totalDeListaDelRenglon,
-  totalDelRenglon,
   ZONAS,
+  type BorradorNota,
   type CondicionVenta,
   type CuchillaMaterial,
   type CuchillaTipo,
-  type SierraClase,
   type CuchillaTrabajo,
   type EstadoNotaPedido,
   type FormularioItemNota,
@@ -33,11 +31,18 @@ import {
   type Herramienta,
   type ManoMecha,
   type MaterialMecha,
-  type OrigenFresa,
   type TipoMecha,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
+
+// `filaDeItem`, `itemDeFila`, `ESTADOS_EDITABLES`, `sePuedeCorregir` y
+// `BorradorNota` se mudaron a @woodtools/compartido para que el panel de
+// escritorio y el móvil compartan EXACTAMENTE el mismo mapeo. Se reexportan
+// para las pantallas que ya las toman de este módulo (DetalleNota,
+// NotasPendientes, GenerarNota).
+export { ESTADOS_EDITABLES, sePuedeCorregir } from '@woodtools/compartido'
+export type { BorradorNota } from '@woodtools/compartido'
 
 import { supabase, tokenDeSesion } from '../nucleo/supabase'
 import { ubicacionActual } from './ubicacion'
@@ -704,183 +709,6 @@ export interface NotaCreada {
 }
 
 /**
- * La fila de `notas_pedido_items` que corresponde a un renglón del formulario.
- *
- * Sin `nota_id`: la nota todavía no existe cuando esto se arma. Lo completa el
- * servidor, que es el único que sabe con qué id quedó cada nota.
- */
-function filaDeItem(i: FormularioItemNota, orden: number) {
-  /**
-   * De qué campo sale cada número lo decide el SERVICIO, no cuál está lleno.
-   *
-   * Antes era un `||`: `i.cantidad || i.unidades` y `i.precio_por_diente ||
-   * i.precio`. Eso da por sentado que un renglón de venta nunca tiene cargados
-   * los campos del afilado, y deja de ser cierto en cuanto el vendedor cambia
-   * la operación del renglón —que es justamente para lo que está el
-   * desplegable—: al pasar de AFILADO a VENTA se limpian la herramienta y el
-   * código, pero la cantidad y el precio por diente quedan pegados, y como van
-   * primero en el `||`, **ganan** sobre las unidades y el precio que el
-   * vendedor acaba de cargar.
-   *
-   * El total de la nota salía bien —lo calcula `computoDeRenglon`, que sí mira
-   * el servicio— pero la fila guardada quedaba con la cantidad y el unitario
-   * del afilado, y la impresión los lee de ahí. La nota impresa no cerraba
-   * contra su propio total.
-   */
-  // La venta y el reclamo se cargan como artículo: la cantidad son UNIDADES y el
-  // unitario es PRECIO. El resto (afilado, etc.) usa CANTIDAD y PRECIO POR DIENTE.
-  const comoArticulo = esRenglonDeArticulo(i.servicio)
-  const cuantas = aNumero(comoArticulo ? i.unidades : i.cantidad)
-  const unitario = aNumero(comoArticulo ? i.precio : i.precio_por_diente)
-  // Qué campos son de ESTA herramienta: una cuchilla, una mecha o una sierra
-  // sin fin no tiene dientes ni precio por diente (ni como plata ni como
-  // característica). Si quedaron pegados de otra herramienta no se guardan, para
-  // que la reimpresión no los tome y cobre por diente lo que se cotizó por largo.
-  const campos = camposDelItem(i)
-
-  return {
-    orden,
-    servicio: i.servicio,
-    herramienta: i.herramienta,
-    codigo_herramienta: i.codigo_herramienta || null,
-    descripcion: i.descripcion || null,
-    cantidad: Math.max(1, Math.round(cuantas) || 1),
-    /**
-     * Los dientes van SIEMPRE, también en la venta.
-     *
-     * Estaban en null: "los dientes son del afilado". Es cierto para lo que se
-     * COBRA —una sierra de 72 dientes se vende por unidad, no por diente— y ese
-     * riesgo ya está atajado donde corresponde: `computoDeRenglon` y
-     * `computoDeFila` ponen `dientesPorHerramienta: 0` cuando el servicio es
-     * venta, así que el precio no se multiplica por 72 venga o no el número.
-     *
-     * Pero además de un precio los dientes son una CARACTERÍSTICA de la pieza,
-     * como el diámetro o el ancho de corte, y van a la columna Z-Paso de la
-     * tabla técnica igual que las otras. Nulos acá, la nota de una venta de
-     * sierras salía impresa sin decir de cuántos dientes eran, que es
-     * justamente lo que la fábrica necesita para saber qué le llegó. Los pone
-     * solo el buscador de la lista, del "Z=72" de la descripción: 124 de las
-     * 130 sierras del catálogo lo traen.
-     */
-    cantidad_dientes: campos.includes('cantidad_dientes') ? aNumero(i.cantidad_dientes) || null : null,
-    // El unitario es lo que sale de la lista de precios —por diente en el
-    // afilado, por unidad en la venta— y el total es la multiplicación.
-    precio_unitario: comoArticulo
-      ? unitario || null
-      : campos.includes('precio_por_diente')
-        ? unitario || null
-        : null,
-    // A precio de LISTA, igual que el unitario. Lo que se cobra de verdad sale
-    // de aplicarle `descuento_porcentaje`, y el total ya descontado de la nota
-    // entera esta en `notas_pedido.total`.
-    //
-    // Guardarlo ya descontado rompia la reimpresion: al volver a imprimir, esta
-    // columna alimenta `precioTotalDirecto` en las herramientas que no se
-    // cobran por diente, y el descuento se habria aplicado dos veces.
-    precio_total: totalDeListaDelRenglon(i) || null,
-    // En qué moneda están esos dos. El afilado siempre en pesos; la venta,
-    // en la de la lista de precios de la que salió el artículo.
-    moneda: i.servicio === 'venta' ? i.moneda : 'ARS',
-    codigos_computo: i.codigos_computo,
-    promocion: i.promocion,
-    // El porcentaje va a su propia columna: es plata, y la oficina tiene que
-    // poder preguntar cuanto se desconto sin abrir el jsonb renglon por
-    // renglon. `precio_unitario` y `precio_total` se quedan en precio de
-    // lista: son los que se imprimen, y son los que hacen que la cuenta de la
-    // hoja cierre contra el porcentaje.
-    descuento_porcentaje: descuentoDelRenglon(i) || null,
-    dientes_rotos: i.dientes_rotos,
-    // Las medidas propias de cada herramienta. Se guardan sólo las que tienen
-    // valor, para que el detalle no se llene de campos vacíos.
-    detalle: Object.fromEntries(
-      Object.entries({
-        diametro_exterior: i.diametro_exterior,
-        // El agujero que lleva la pieza: el cargado, o el de fábrica si no lo
-        // cargaron. Va siempre, para que la fábrica no tenga que buscarlo.
-        diametro_interior: agujeroDelRenglon(i).medida,
-        diametro_interior_catalogo: i.diametro_interior_catalogo,
-        // El agujero a hacer: sólo en el mecanizado. Es el otro extremo del
-        // trabajo, y de él (contra el de arriba) sale la operación y el código.
-        diametro_interior_destino: i.diametro_interior_destino,
-        ajuste_agujero: agujeroDelRenglon(i).ajuste,
-        diametro: i.diametro,
-        ancho_corte: i.ancho_corte,
-        largo: i.largo,
-        ancho: i.ancho,
-        largo_util: i.largo_util,
-        // A qué largo se rebaja. Es la mitad del trabajo —la otra es el largo
-        // que tiene hoy— así que sin esto la fábrica no sabe qué hacer.
-        largo_rebajado: i.largo_rebajado,
-        espesor: i.espesor,
-        paso: i.paso,
-        // Qué tipo de pieza es. Va guardado y no derivado de la descripción:
-        // al reabrir la nota el desplegable tiene que volver contestado, y de
-        // un texto ya armado no se saca de vuelta el valor que lo generó.
-        tipo_pieza: i.tipo_pieza,
-        // Que este cabezal se afila como cuchillas. Se guarda para reabrir el
-        // renglón con la forma correcta y —clave— para que la reimpresión sepa
-        // que se cobra por largo y no por diente. Sólo cuando es cierto: el
-        // filtro de abajo descarta el `null`.
-        cabezal_de_cuchillas: i.cabezal_de_cuchillas ? true : null,
-        // Sierra o incisor. Va guardado por lo mismo que el tipo de pieza: la
-        // descripción del renglón sale de acá —"Incisor" en vez de "S.C."— y
-        // de un texto ya armado no se saca de vuelta la respuesta que lo
-        // generó. Al reabrir la nota el desplegable tiene que volver
-        // contestado.
-        sierra_clase: i.sierra_clase,
-        // La marca de la sierra. El filtro de abajo la descarta si está vacía
-        // (herramientas que no son sierra, o sierra sin marca).
-        sierra_marca: i.sierra_marca,
-        tipo_mecha: i.tipo_mecha,
-        // Las dos respuestas que eligen el código de afilado de la mecha. Se
-        // guardan por lo mismo que las tres de la cuchilla: al reabrir la nota
-        // el selector tiene que volver contestado, no en blanco con el código
-        // puesto y sin que se vea de dónde salió.
-        mecha_material: i.mecha_material,
-        mecha_dientes: aNumero(i.mecha_dientes) || null,
-        mano: i.mano,
-        // Las tres respuestas que eligen el código de afilado de cuchilla. No
-        // se imprimen: se guardan para que al volver a abrir la nota el
-        // selector aparezca contestado y no en blanco con el código puesto.
-        cuchilla_tipo: i.cuchilla_tipo,
-        cuchilla_material: i.cuchilla_material,
-        cuchilla_trabajo: i.cuchilla_trabajo,
-        afilado_reparacion: i.afilado_reparacion,
-        origen_fresa: i.origen_fresa,
-        // En un reclamo, sobre qué trabajo se reclama. El filtro de abajo lo
-        // descarta cuando es null (los renglones que no son reclamo).
-        servicio_reclamado: i.servicio_reclamado,
-        // En qué máquina trabaja la pieza. Va guardado porque la descripción
-        // general se rearma al corregir la nota, y sin esto la línea perdería
-        // el "para escuadradora" en cada corrección.
-        maquina: i.maquina,
-        // De qué servicio venía antes de que los dientes rotos lo pasaran a
-        // rectificado: sin esto, al reabrir la nota destildar "dientes rotos"
-        // no sabría a qué servicio volver.
-        servicio_antes_de_rotos: i.servicio_antes_de_rotos,
-        // Los dientes rotos y su reparación. La impresión los necesita para
-        // separar la línea de afilado de la de reparación.
-        dientes_rotos_cantidad: i.dientes_rotos ? aNumero(i.dientes_rotos_cantidad) || null : null,
-        reparar_dientes: i.dientes_rotos ? i.reparar_dientes : null,
-        codigo_reparacion: i.codigo_reparacion,
-        precio_reparacion_unitario: aNumero(i.precio_reparacion_por_diente) || null,
-        // Los rascadores: cuántos, con qué código y a qué precio. Sin esto la
-        // nota impresa no puede rehacer su línea, que es plata aparte de la de
-        // los dientes.
-        rascadores: aNumero(i.rascadores) || null,
-        codigo_rascador: i.codigo_rascador,
-        precio_rascador_unitario: aNumero(i.precio_rascador_unitario) || null,
-        // Sólo se guardan cuando son ciertas: `null` lo descarta el filtro de
-        // abajo, y así el detalle no se llena de "sin_cargo: false". El reclamo
-        // va sin cargo siempre, tenga la marca puesta o no.
-        sin_cargo: i.sin_cargo || i.servicio === 'reclamo' ? true : null,
-        reparacion_sin_cargo: i.reparacion_sin_cargo ? true : null,
-      }).filter(([, v]) => v !== '' && v !== null && v !== undefined),
-    ),
-  }
-}
-
-/**
  * Crea las notas de pedido del cliente.
  *
  * **Devuelve varias**, no una: el afilado y la venta se facturan distinto y no
@@ -1059,184 +887,6 @@ interface FilaNotaCreada {
 // `pendiente_cliente`—; acá sólo se traduce entre las filas de la base y el
 // formulario, que son dos formas distintas de escribir lo mismo.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Los estados en los que una nota todavía se puede corregir. */
-export const ESTADOS_EDITABLES: EstadoNotaPedido[] = ['pendiente', 'pendiente_cliente']
-
-/**
- * ¿Se puede corregir?
- *
- * **Lo que cierra la puerta es el papel, no el estado.** Hay un caso, hecho a
- * propósito, donde la nota se imprime y el estado no cambia: las que esperan el
- * código de cliente quedan en `pendiente_cliente` con `impresa_en` sellado,
- * para no caerse de la cola de Administración. Mirando sólo el estado, ésas
- * salían en papel y se seguían pudiendo editar: la fábrica con un comprobante
- * y la base con otro.
- *
- * `impresaEn` es opcional para no romper a quien todavía llame con el estado
- * solo, pero todas las pantallas se lo pasan.
- */
-export function sePuedeCorregir(
-  estado: string | null | undefined,
-  impresaEn?: string | null,
-): boolean {
-  if (impresaEn) return false
-  return ESTADOS_EDITABLES.includes(estado as EstadoNotaPedido)
-}
-
-/** Una nota traída de la base, lista para volver a abrirse en el formulario. */
-export interface BorradorNota {
-  notaId: string
-  numero: number | null
-  estado: EstadoNotaPedido
-  encabezado: FormularioNotaEncabezado
-  servicios: TipoServicio[]
-  tipoNota: TipoNotaPedido | null
-  /** ISO corto (`2026-08-20`), como lo guarda la base. */
-  fechaEntrega: string | null
-  condicionVenta: CondicionVenta | null
-  condicionDetalle: string
-  /** Sólo las del vendedor: las que escribe el servidor van aparte. */
-  observaciones: string[]
-  /** Las del servidor ("Va con nota de pedido…"), para devolverlas al guardar. */
-  observacionesDelSistema: string[]
-  items: FormularioItemNota[]
-  /** Vacío cuando la nota no lleva tipo de cambio (las de afilado). */
-  tipoCambio: string
-  cotizacionFecha: string | null
-}
-
-/** Un número de la base al texto que el formulario sabe leer y escribir. */
-function comoTexto(valor: unknown): string {
-  if (valor === null || valor === undefined || valor === '') return ''
-  // Con coma: el resto de la app tipea a la argentina y `aNumero` desambigua
-  // mirando la coma primero. Un "1234.56" que vuelve de la base se leería como
-  // mil doscientos treinta y cuatro con la lectura de miles.
-  return String(valor).replace('.', ',')
-}
-
-function comoCadena(valor: unknown): string {
-  return valor === null || valor === undefined ? '' : String(valor)
-}
-
-/** Reverso de `filaDeItem`: una fila de la base vuelta renglón del formulario. */
-function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
-  const detalle = (fila.detalle ?? {}) as Record<string, unknown>
-  const servicio = (fila.servicio as TipoServicio) ?? 'afilado'
-  // La venta y el reclamo se guardaron como artículo (la cantidad son UNIDADES);
-  // el resto como servicio (CANTIDAD y PRECIO POR DIENTE). Se reabre con la
-  // misma forma con que se guardó.
-  const comoArticulo = esRenglonDeArticulo(servicio)
-
-  /**
-   * El agujero se guarda siempre —el cargado, o el de fábrica si no cargaron—
-   * así que al volver hay que distinguir cuál de los dos era. Si coincide con
-   * el de catálogo, el vendedor no había cargado nada: el campo vuelve vacío,
-   * que es como estaba.
-   */
-  const agujeroGuardado = comoCadena(detalle.diametro_interior)
-  const agujeroCatalogo = comoCadena(detalle.diametro_interior_catalogo)
-  /**
-   * En el MECANIZADO el agujero actual NO es el "opcional que cae al de fábrica"
-   * del afilado: es el punto de partida obligatorio del trabajo, y lo normal es
-   * que coincida con el de fábrica (la pieza viene como salió y el trabajo lo
-   * cambia). Si se colapsara a '' como en el afilado, al reabrir la nota la
-   * operación quedaría sin resolver y el selector borraría el código y el precio
-   * ya cotizados. Por eso acá vuelve tal cual se guardó.
-   */
-  const agujeroCargado =
-    servicio === 'mecanizado'
-      ? agujeroGuardado
-      : agujeroGuardado && agujeroGuardado !== agujeroCatalogo
-        ? agujeroGuardado
-        : ''
-
-  return {
-    ...ITEM_VACIO,
-    servicio,
-    // Ya fue decidida cuando se creó la nota: no se vuelve a preguntar.
-    servicio_elegido: true,
-    herramienta: (fila.herramienta as Herramienta | null) ?? null,
-
-    codigo_herramienta: comoCadena(fila.codigo_herramienta),
-    unidades: comoArticulo ? comoCadena(fila.cantidad) : '',
-    promocion: fila.promocion === true,
-    // `numeric` vuelve como '10.00'; el desplegable trabaja con '10'.
-    descuento:
-      fila.descuento_porcentaje == null ? '' : String(Number(fila.descuento_porcentaje)),
-    /**
-     * El unitario va a los dos campos a propósito.
-     *
-     * En la base es una sola columna, pero el formulario lo lee de dos lugares
-     * según la herramienta: `precio_por_diente` en las que se cobran por
-     * diente, `precio` en las mechas —donde el total se recalcula al cambiar
-     * las unidades—. Dejarlo sólo en el primero hacía que una mecha corregida
-     * no volviera a calcular su total. Para la cuenta es inocuo: en un renglón
-     * de servicio `precio` no interviene.
-     */
-    precio: comoTexto(fila.precio_unitario),
-    origen_fresa: (detalle.origen_fresa as OrigenFresa | null) ?? null,
-    servicio_reclamado: (detalle.servicio_reclamado as TipoServicio | null) ?? null,
-    maquina: comoCadena(detalle.maquina),
-    servicio_antes_de_rotos:
-      (detalle.servicio_antes_de_rotos as TipoServicio | null) ?? null,
-    moneda: fila.moneda === 'USD' ? 'USD' : 'ARS',
-
-    cantidad: comoArticulo ? '' : comoCadena(fila.cantidad),
-    descripcion: comoCadena(fila.descripcion),
-    cantidad_dientes: comoCadena(fila.cantidad_dientes),
-    codigos_computo: Array.isArray(fila.codigos_computo) ? (fila.codigos_computo as string[]) : [],
-    precio_por_diente: comoArticulo ? '' : comoTexto(fila.precio_unitario),
-    precio_total: comoArticulo ? '' : comoTexto(fila.precio_total),
-
-    diametro_exterior: comoCadena(detalle.diametro_exterior),
-    diametro_interior: agujeroCargado,
-    diametro_interior_catalogo: agujeroCatalogo,
-    diametro_interior_destino: comoCadena(detalle.diametro_interior_destino),
-    diametro: comoCadena(detalle.diametro),
-    ancho_corte: comoCadena(detalle.ancho_corte),
-    largo: comoCadena(detalle.largo),
-    ancho: comoCadena(detalle.ancho),
-    largo_util: comoCadena(detalle.largo_util),
-    largo_rebajado: comoCadena(detalle.largo_rebajado),
-    espesor: comoCadena(detalle.espesor),
-    paso: comoCadena(detalle.paso),
-
-    tipo_pieza: (detalle.tipo_pieza as string | null) || null,
-    cabezal_de_cuchillas: detalle.cabezal_de_cuchillas === true,
-    // En las notas cargadas antes de que existiera el desplegable no está, y
-    // vuelve en blanco: es honesto, nadie contestó esa pregunta todavía.
-    sierra_clase: (detalle.sierra_clase as SierraClase | null) ?? null,
-    sierra_marca: comoCadena(detalle.sierra_marca) || null,
-    tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
-    mecha_material: (detalle.mecha_material as MaterialMecha | null) ?? null,
-    mecha_dientes: comoCadena(detalle.mecha_dientes),
-    mano: (detalle.mano as ManoMecha | null) ?? null,
-
-    dientes_rotos: fila.dientes_rotos === true,
-    afilado_reparacion: detalle.afilado_reparacion === true,
-    dientes_rotos_cantidad: comoCadena(detalle.dientes_rotos_cantidad),
-    reparar_dientes:
-      detalle.reparar_dientes === null || detalle.reparar_dientes === undefined
-        ? null
-        : detalle.reparar_dientes === true,
-    codigo_reparacion: comoCadena(detalle.codigo_reparacion),
-    precio_reparacion_por_diente: comoTexto(detalle.precio_reparacion_unitario),
-    rascadores: comoTexto(detalle.rascadores),
-    codigo_rascador: comoCadena(detalle.codigo_rascador),
-    precio_rascador_unitario: comoTexto(detalle.precio_rascador_unitario),
-
-    // Sólo en el afilado de cuchillas: son las tres respuestas que eligen el
-    // código. En las notas viejas no están guardadas y el selector va a
-    // aparecer en blanco; el código y el precio vuelven igual.
-    cuchilla_tipo: (detalle.cuchilla_tipo as CuchillaTipo | null) ?? null,
-    cuchilla_material: (detalle.cuchilla_material as CuchillaMaterial | null) ?? null,
-    cuchilla_trabajo: (detalle.cuchilla_trabajo as CuchillaTrabajo | null) ?? null,
-
-    sin_cargo: detalle.sin_cargo === true || servicio === 'reclamo',
-    reparacion_sin_cargo: detalle.reparacion_sin_cargo === true,
-  }
-}
 
 /**
  * Trae una nota y la devuelve como estaba en el formulario.
