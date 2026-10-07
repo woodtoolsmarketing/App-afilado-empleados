@@ -10,6 +10,7 @@ import {
 } from 'react'
 import {
   Modal,
+  PixelRatio,
   Pressable,
   ScrollView,
   Text,
@@ -1031,13 +1032,21 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.blanco,
     backgroundColor: t.colores.rojoAccion,
-    // La placa escala con la letra (no queda fija en 20): con la fuente al
-    // máximo el "!" salía recortado por el overflow:'hidden' de una placa chica.
-    width: Math.round(t.tipografia.tamano.sm * 1.3),
-    height: Math.round(t.tipografia.tamano.sm * 1.3),
-    borderRadius: Math.round((t.tipografia.tamano.sm * 1.3) / 2),
+    // La placa escala con la letra, INCLUIDA la del sistema. El "!" es un
+    // <Text>: Android le multiplica el fontSize por su tamaño de letra, pero el
+    // ancho y el alto son px que NO reciben ese factor, así que con el teléfono
+    // en "letra grande" el glifo crecía solo contra una caja fija y el
+    // overflow:'hidden' lo recortaba (pasar de 20 fijo a sm*1.3 seguía la
+    // escala del DISEÑO, no la del sistema, por eso seguía cortando al máximo).
+    // Se multiplica la caja por el MISMO factor que recibe el glifo —
+    // PixelRatio.getFontScale(), el que ya usa escalaEfectiva() en tema.ts— para
+    // que placa y "!" crezcan juntos. El lineHeight va a mano porque Android no
+    // lo escala; se lee al armar la hoja, igual que el resto del tema.
+    width: Math.round(t.tipografia.tamano.sm * 1.3 * PixelRatio.getFontScale()),
+    height: Math.round(t.tipografia.tamano.sm * 1.3 * PixelRatio.getFontScale()),
+    borderRadius: Math.round((t.tipografia.tamano.sm * 1.3 * PixelRatio.getFontScale()) / 2),
     textAlign: 'center',
-    lineHeight: Math.round(t.tipografia.tamano.sm * 1.3),
+    lineHeight: Math.round(t.tipografia.tamano.sm * 1.3 * PixelRatio.getFontScale()),
     overflow: 'hidden',
   },
   errorTexto: {

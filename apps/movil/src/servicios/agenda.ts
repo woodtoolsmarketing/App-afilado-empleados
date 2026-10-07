@@ -1,5 +1,6 @@
 import { fechaLocalISO } from '@woodtools/compartido'
 
+import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
 import { supabase } from '../nucleo/supabase'
 
 /**
@@ -45,7 +46,10 @@ export async function agendaEntre(desde: Date, hasta: Date): Promise<ItemDeAgend
     p_vendedor_id: null,
   })
 
-  if (error) throw error
+  // El calendario es lo primero que abre el vendedor y lo abre en la calle: sin
+  // esto, quedarse sin señal muestra "Network request failed" en inglés en vez de
+  // decir que es la conexión. Ver `conMensajeDeSenal`.
+  if (error) throw conMensajeDeSenal(error)
   return (data ?? []) as ItemDeAgenda[]
 }
 

@@ -8,6 +8,7 @@ import type {
   Visita,
 } from '@woodtools/compartido'
 
+import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
 import { supabase } from '../nucleo/supabase'
 
 /**
@@ -70,7 +71,9 @@ export async function obtenerJornadaDe(
     .eq('fecha', fecha)
     .maybeSingle<RolVisita>()
 
-  if (error) throw error
+  // Abrir la jornada es lo primero del día y suele pasar todavía sin señal: el
+  // error crudo de la red va en castellano. Ver `conMensajeDeSenal`.
+  if (error) throw conMensajeDeSenal(error)
   if (!jornada) return null
 
   const paradas = await obtenerParadas(jornada.id)
@@ -153,7 +156,7 @@ export async function obtenerParadas(rolVisitaId: string): Promise<ParadaComplet
     .eq('rol_visita_id', rolVisitaId)
     .order('orden', { ascending: true })
 
-  if (error) throw error
+  if (error) throw conMensajeDeSenal(error)
 
   // `visita` viene como arreglo por la relación uno-a-uno de PostgREST.
   return (data ?? []).map((fila: Record<string, unknown>) => ({
@@ -283,7 +286,9 @@ export async function registrarVisita(datos: DatosRegistroVisita): Promise<Visit
         'La observación es obligatoria: escribí al menos una frase contando qué pasó en la visita.',
       )
     }
-    throw error
+    // Cerrar la visita es la escritura más sensible del día y se hace adentro de
+    // un taller: sin señal, que lo diga en castellano y no el crudo de la red.
+    throw conMensajeDeSenal(error)
   }
 
   return data as Visita

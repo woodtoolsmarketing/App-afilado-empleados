@@ -65,7 +65,12 @@ export function PantallaIniciarSesion() {
     if (agregandoCuenta) return
     if (usuarioRecordado) {
       setUsuario(usuarioRecordado)
-      refContrasena.current?.focus()
+      // El `.focus()` pedido en el mismo tick del montaje no prende: el
+      // TextInput todavía no está listo para recibirlo —en Android el pedido
+      // llega antes que la vista nativa— y el salto a la contraseña se pierde.
+      // Diferido un instante, con el campo ya montado, sí engancha.
+      const reloj = setTimeout(() => refContrasena.current?.focus(), 150)
+      return () => clearTimeout(reloj)
     }
   }, [usuarioRecordado, agregandoCuenta])
 

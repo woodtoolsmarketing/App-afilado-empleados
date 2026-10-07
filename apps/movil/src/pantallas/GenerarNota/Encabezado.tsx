@@ -1275,7 +1275,7 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.subtitulo,
     // Un escalón más que el resto de las ayudas: es el único camino para
     // corregir una zona mal deducida, y al sol la letra más chica no se lee.
-    fontSize: t.tipografia.tamano.xs,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.rojo,
   },
 
@@ -1356,7 +1356,7 @@ const usarEstilos = hojaDeTema((t) => ({
   cambiarClienteTexto: {
     fontFamily: t.tipografia.familia.subtitulo,
     // Un escalón más: es el único camino para corregir un cliente mal elegido.
-    fontSize: t.tipografia.tamano.xs,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.rojo,
   },
   tocado: { opacity: 0.7 },

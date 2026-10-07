@@ -115,58 +115,48 @@ horneado en el APK** (publicar el bundle por OTA a un runtime viejo lo reventar�
 
 ---
 
-## 🟢 Listo para hacer — sin riesgo (reuso de patrones ya existentes)
+## ✅ Lotes 🟢 y 🔵 — EJECUTADOS Y VERIFICADOS (2026-10-07)
 
-Todo esto es de bajo esfuerzo y copia código que ya funciona en otra parte de la app.
+Al ir a **hacer** estos dos lotes se encontró que la **gran mayoría YA ESTABA implementada**: esta
+auditoría es del 2026-09-10 y el commit `1bafd20` ("Mejoras de UX y automatización en toda la app
+móvil", 2026-09-11) resolvió casi todo **sin que se tachara acá**. Se revisaron los 24 hallazgos uno
+por uno (lectura del código real + spot-checks por grep), y lo que de verdad faltaba se implementó
+ahora.
 
-- **Buscador en las 3 listas de notas** (PENDIENTES, IMPRESAS, HISTORIAL): hoy sólo se puede
-  scrollear. Reusar `comparable()` que ya normaliza tildes. — `NotasPendientes.tsx`, `NotasImpresas.tsx`, `HistorialNotas.tsx` · **alta**
-- **"Clientes de hoy": fila "SIN UBICAR" apagada.** El atajo "UBICARLO EN EL MAPA" ya existe en
-  Calendario; falta cablear el `onPress`. — `ClientesDelDia.tsx:160-164` · **alta**
-- **Agendar un destino para otro día no dice para qué día es** (la barra siempre marca hoy).
-  Pasar `fecha` a `BarraPanel` + línea en el cartel de éxito. — `AgregarDestino.tsx:329,878` · **alta**
-- **4 pantallas sin botón "Reintentar"** en error (Visitas, ClientesDelDia, HistorialVisitas,
-  CalendarioVisitas): obligan a salir y volver a entrar. Recorrido y DetalleVisita ya lo tienen. · **media**
-- **"Deslizar para actualizar" (RefreshControl)** en las listas: hoy no hay forma de forzar
-  relectura si la consulta ya resolvió con datos viejos. — `Pantalla.tsx` (prop) · **baja**
-- **Al sumar un renglón con un dato faltante, la pantalla no sube** a mostrar el error en rojo. — `GenerarNota/index.tsx:1193-1196` · **media**
-- **Checkbox de selección en PENDIENTES es 30×30** (el estándar de la app es 56 / el componente `Casilla` es 36). — `NotasPendientes.tsx:371-379` · **media**
-- **DNI/CUIT no se formatea al escribir** (el placeholder muestra guiones que hay que tipear a mano). — `NuevoCliente.tsx:204-213` · **media**
-- **Con el usuario recordado, el foco no salta a la contraseña.** — `IniciarSesion.tsx:46-48` · **baja**
-- **"CAMBIAR" (cliente/zona) usa la letra más chica de la app**, siendo el único camino para
-  corregir. Subir un escalón. — `Encabezado.tsx:1114,1195` · **baja**
-- **`registrarCobranza` no traduce el error 23514** a español como los demás servicios. — `cobranzas.ts:44-77` · **media (preventivo)**
-- **La placa "!" del mensaje de error no crece con la letra grande** (queda recortada al máximo). — `Formulario.tsx:840-851` · **media**
-- **`BotonSecundario` ignora `accessibilityLabel`** (los otros dos botones la respetan). — `Botones.tsx:126` · **baja**
-- **`cobranzas.ts` recalcula "hoy" a mano** en vez de usar `fechaLocalISO` compartido. — `cobranzas.ts:134-138` · **baja**
-- **Código muerto:** `ITEMS_PRIORIDAD` quedó de cuando la prioridad se elegía a mano. — `AgregarDestino.tsx:985-989` · **baja**
+**Hecho ahora (2026-10-07) — `tsc` verde en los 4 proyectos:**
 
----
+- **Checkbox de PENDIENTES** al estándar táctil: el área que se toca pasó a TOQUE_MINIMO (56)
+  envolviendo el recuadro visible de 36, sin depender del `hitSlop`. — `NotasPendientes.tsx`
+- **Foco a la contraseña** con usuario recordado: el `.focus()` se difiere 150 ms (en el mismo tick
+  del montaje no prendía, el TextInput todavía no estaba listo). — `IniciarSesion.tsx`
+- **"CAMBIAR" (cliente/zona)** un escalón más de fuente (`xs`→`sm`). — `GenerarNota/Encabezado.tsx`
+- **Placa "!" del error** ahora escala también con la letra **DEL SISTEMA** (× `PixelRatio.getFontScale()`),
+  ya no se recorta con el teléfono en "letra grande". — `Formulario.tsx`
+- **Errores "sin señal" en castellano** en los servicios de uso diario (`agenda.ts`, `jornada.ts`;
+  `clientes.ts` ya lo tenía): el error de red deja de salir como "Network request failed". Vía
+  `conMensajeDeSenal`. — `agenda.ts`, `jornada.ts`
 
-## 🔵 Automatización de mayor valor (esfuerzo medio, alto impacto)
+**Ya estaba hecho (commit `1bafd20` y otros) — sólo faltaba tacharlo:**
 
-- **La nota de pedido no arranca con el cliente de la parada que la originó.** Es el camino más
-  transitado (la mayoría de las notas nacen del rol de visita) y el vendedor llega a una pantalla
-  vacía y tiene que volver a buscar al cliente que la app ya le mostró. Precargar desde `paradaId`
-  (los datos ya viajan en `parada.cliente`/`parada.direccion`), dejando "✕ CAMBIAR". — `DestinoVisitado.tsx:465`, `GenerarNota/index.tsx` · **alta**
-- **Cargar un cobro desde el menú obliga a tipear cliente y código a mano**, sin el buscador que ya
-  existe en GenerarNota; además el cobro queda sin `cliente_id`. Reusar `buscarClientes` + `CampoConOpciones`. — `Cobranzas.tsx:197-212` · **alta**
-- **La pantalla de cuenta bloqueada dice "avisá a la oficina" pero no da ningún botón** para llamar
-  ni escribir. Reusar `CONTACTOS_INTERNOS`/`enlaceWhatsapp` (funcionan sin sesión). Y prellenar el
-  código de habilitación en el WhatsApp. — `EstadoCuenta.tsx:79-146` · **alta**
-- **Las casillas VENDIÓ/RETIRÓ/ENTREGÓ no se completan solas** aunque ya haya una nota cargada en
-  esa visita: si el vendedor se olvida de tildar, la oficina no cuenta la operación. Versión
-  conservadora: recordatorio "Ya cargaste una nota con venta acá. ¿Marco VENDIÓ?". — `DestinoVisitado.tsx:379-403` · **alta**
-- **Los servicios de uso diario no usan la detección de "sin señal"** que ya existe: el vendedor ve
-  el error crudo de Supabase ("Network request failed", en inglés) en vez de "No hay conexión". — `clientes.ts`, `agenda.ts`, `jornada.ts`… · **alta**
-- **Buscar un cliente sin resultados obliga a retipear el nombre** en el alta. Botón "Cargar '…'
-  como cliente nuevo" que lleve el texto. — `AgregarDestino.tsx:423-434` · **media**
-- **"Nuevo cliente" no ofrece geolocalizar con el GPS** (existe en AgregarDestino): un taller sobre
-  una ruta no aparece en Google y hoy no se puede dar de alta parado ahí. — `NuevoCliente.tsx:215-261` · **media**
-- **Reportar un problema desde el menú lateral no manda la pantalla de origen** (Configuración sí lo
-  hace): a Marketing le llega sin saber dónde falló. — `MenuLateral.tsx:76` · **media**
-- **El candado biométrico exige un toque de más** ("DESBLOQUEAR") antes del diálogo nativo. Disparar
-  el diálogo solo, dejando el botón como reintento. **Probar en la calle** (con guantes/de reojo). — `Navegacion.tsx:115-132` · **alta**
+- 🟢: buscador en las 3 listas de notas · "SIN UBICAR" cableado en Clientes de hoy · agendar para
+  otro día dice para qué día es · botón Reintentar en las 4 pantallas · scroll al error al sumar un
+  renglón · DNI/CUIT se formatea al escribir · `registrarCobranza` traduce el 23514 · `BotonSecundario`
+  respeta `accessibilityLabel` · `cobranzas.ts` usa `fechaLocalISO` · código muerto `ITEMS_PRIORIDAD`
+  eliminado.
+- 🔵: la nota arranca con el cliente de la parada (+ "✕ CAMBIAR") · cobro con buscador de cliente y
+  `cliente_id` guardado · cuenta bloqueada con botones de llamar/WhatsApp (con el código prellenado) ·
+  recordatorio VENDIÓ/RETIRÓ/ENTREGÓ · buscar un cliente sin resultados → "cargar como nuevo" con el
+  texto · "Nuevo cliente" con geolocalización por GPS · reportar un problema desde el menú lateral
+  manda la pantalla de origen · candado biométrico dispara el diálogo nativo solo.
+
+**Queda pendiente (chico):**
+
+- 🟢 **"Deslizar para actualizar" (RefreshControl)** en las listas — baja; no se encaró en esta
+  vuelta (es la única del lote 🟢 que sigue abierta). — `Pantalla.tsx` (prop)
+- 🔵 **Refinación de "la nota arranca con el cliente de la parada":** hoy arranca en la dirección
+  PRINCIPAL del cliente; si el recorrido se planificó a una **sucursal** no-principal, la nota no
+  arranca en esa sucursal. Cerrarlo es más grande (arrastra la query de sucursales) y **necesita tu
+  decisión** si vale la pena. — `GenerarNota`
 
 ---
 

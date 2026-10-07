@@ -5,6 +5,7 @@ import {
   formatearPesos,
   numeroDeNotaImpreso,
   radios,
+  TOQUE_MINIMO,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -314,15 +315,22 @@ function FilaNota({
 
   return (
     <View style={[estilos.fila, elegida && estilos.filaElegida]}>
+      {/*
+        El recuadro se ve de 36 —igual que el del componente `Casilla`— pero lo
+        que se toca es el Pressable que lo envuelve, de TOQUE_MINIMO (56): el
+        área táctil queda al estándar de la app sin depender del hitSlop para
+        llegar al tamaño.
+      */}
       <Pressable
         onPress={alAlternar}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: elegida }}
         accessibilityLabel={`Seleccionar nota ${nota.numero ?? 'pendiente'}`}
-        hitSlop={10}
-        style={[estilos.casilla, elegida && estilos.casillaMarcada]}
+        style={estilos.casillaToque}
       >
-        {elegida ? <Text style={estilos.tilde}>✓</Text> : null}
+        <View style={[estilos.casilla, elegida && estilos.casillaMarcada]}>
+          {elegida ? <Text style={estilos.tilde}>✓</Text> : null}
+        </View>
       </Pressable>
 
       <Pressable style={estilos.filaCuerpo} onPress={alVer} accessibilityRole="button">
@@ -395,6 +403,15 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   filaElegida: { backgroundColor: t.colores.panelClaro, borderColor: t.colores.rojo },
 
+  // El área que se toca para marcar la nota: un cuadrado de TOQUE_MINIMO (56)
+  // que centra el recuadro de 36. Así el toque llega al estándar de la app sin
+  // depender del hitSlop, y el recuadro visible queda del tamaño del `Casilla`.
+  casillaToque: {
+    width: TOQUE_MINIMO,
+    height: TOQUE_MINIMO,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   casilla: {
     width: 36,
     height: 36,
