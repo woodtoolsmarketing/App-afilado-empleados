@@ -62,19 +62,7 @@ interface DispositivoConDuenio {
   perfiles: { nombre_completo: string; codigo_vendedor: string | null } | null
 }
 
-export function PaginaActualizaciones({
-  soloLectura,
-  puedePublicar,
-}: {
-  soloLectura: boolean
-  /**
-   * Si este rol puede publicar/compilar. Es un PERMISO (se configura en
-   * Permisos, arranca sólo admin), distinto de `proyectoDisponible` —que es si
-   * esta PC tiene el código para hacerlo—. Sin el permiso, los botones de
-   * publicar/compilar ni se muestran; el resto de la sección se ve igual.
-   */
-  puedePublicar: boolean
-}) {
+export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [minimaEditada, setMinimaEditada] = useState<string | null>(null)
@@ -437,14 +425,9 @@ export function PaginaActualizaciones({
           sólo a los que están en la versión actual.
         </p>
 
-        {/* Publicar/compilar son un permiso (Permisos → "Publicar
-            actualizaciones"): sin él estos botones ni se muestran; el resto de
-            la sección (ver versiones, APK publicados) se ve igual. */}
-        {puedePublicar && (
-          <>
-            {/* Si el circuito está apagado, publicar no sirve y decirlo vale más
-                que un botón que miente. */}
-            {proyectoDisponible && !otaPrendido && (
+        {/* Si el circuito está apagado, publicar no sirve y decirlo vale más
+            que un botón que miente. */}
+        {proyectoDisponible && !otaPrendido && (
           <div className="aviso atencion" style={{ marginBottom: 12 }}>
             <strong>Las actualizaciones por aire están apagadas.</strong> Falta completar{' '}
             <code>EAS_UPDATE_URL</code> en el <code>.env</code> del proyecto. Mientras esté vacía,
@@ -590,8 +573,6 @@ export function PaginaActualizaciones({
             </div>
           )}
         </div>
-          </>
-        )}
 
         {/* ── Lo que hay para bajar ──────────────────────────────────────── */}
         {versiones && versiones.length > 0 && (

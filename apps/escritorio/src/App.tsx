@@ -123,10 +123,7 @@ export function App() {
             path="/actualizaciones"
             element={gate(
               'panel_actualizaciones',
-              <PaginaActualizaciones
-                soloLectura={!sesion.esAdmin}
-                puedePublicar={permisos.puedeVer('panel_publicar_actualizaciones')}
-              />,
+              <PaginaActualizaciones soloLectura={!sesion.esAdmin} />,
             )}
           />
           <Route path="*" element={<Navigate to="/" replace />} />

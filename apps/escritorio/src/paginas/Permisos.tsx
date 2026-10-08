@@ -105,11 +105,10 @@ export function PaginaPermisos({ soloLectura }: { soloLectura: boolean }) {
           </section>
 
           <section className="tarjeta">
-            <h2>Secciones y acciones del panel</h2>
+            <h2>Secciones del panel</h2>
             <p style={{ marginTop: -8, color: 'var(--tinta-tenue)' }}>
-              Qué secciones del panel ve cada rol, y qué acciones puede hacer (como publicar
-              actualizaciones). El Tablero lo ve cualquiera que entre, y los vendedores no usan el
-              panel.
+              Qué secciones del panel ve cada rol. El Tablero lo ve cualquiera que entre, y los
+              vendedores no usan el panel.
             </p>
             <TablaPermisos
               funciones={dePanel}
