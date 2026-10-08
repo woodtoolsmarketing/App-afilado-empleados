@@ -9,7 +9,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import L from 'leaflet'
 import { useEffect, useState } from 'react'
-import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet'
+import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
 
 import { supabase } from '../nucleo/supabase'
 
@@ -43,7 +43,6 @@ const CENTRO_AMBA: [number, number] = [-34.6037, -58.3816]
 
 export function PaginaMapaEnVivo() {
   const cliente = useQueryClient()
-  const [seleccionado, setSeleccionado] = useState<string | null>(null)
 
   // El horario de seguimiento configurado (lun-vie 8-17 por defecto). El panel
   // decide mostrar o no con SU propio reloj.
@@ -94,25 +93,6 @@ export function PaginaMapaEnVivo() {
     refetchInterval: 30_000,
   })
 
-  // Traza del recorrido del vendedor seleccionado.
-  const { data: traza } = useQuery({
-    queryKey: ['traza', seleccionado],
-    queryFn: async () => {
-      const posicion = posiciones?.find((p) => p.vendedor_id === seleccionado)
-      if (!posicion?.rol_visita_id) return []
-
-      const { data, error } = await supabase
-        .from('posiciones')
-        .select('lat, lng')
-        .eq('rol_visita_id', posicion.rol_visita_id)
-        .order('registrado_en', { ascending: true })
-        .limit(2000)
-      if (error) throw error
-      return (data ?? []).map((p) => [p.lat, p.lng] as [number, number])
-    },
-    enabled: !!seleccionado,
-  })
-
   // Suscripción en vivo: cada UPSERT de posición refresca el mapa sin esperar
   // al refetch periódico.
   useEffect(() => {
@@ -155,17 +135,8 @@ export function PaginaMapaEnVivo() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {seleccionado && traza && traza.length > 1 ? (
-            <Polyline positions={traza} color="#1d6fe0" weight={4} opacity={0.75} />
-          ) : null}
-
           {activos.map((p) => (
-            <Marker
-              key={p.vendedor_id}
-              position={[p.lat, p.lng]}
-              icon={iconoVendedor(p)}
-              eventHandlers={{ click: () => setSeleccionado(p.vendedor_id) }}
-            >
+            <Marker key={p.vendedor_id} position={[p.lat, p.lng]} icon={iconoVendedor(p)}>
               <Popup>
                 <strong>{p.perfiles?.nombre_completo ?? 'Vendedor'}</strong>
                 {p.perfiles?.codigo_vendedor ? ` (#${p.perfiles.codigo_vendedor})` : ''}
@@ -180,32 +151,11 @@ export function PaginaMapaEnVivo() {
                   ? `Velocidad: ${Math.round(p.velocidad_mps * 3.6)} km/h`
                   : 'Detenido'}
                 {p.bateria_pct !== null ? <> · Batería: {p.bateria_pct}%</> : null}
-                <br />
-                <button
-                  className="chico"
-                  style={{ marginTop: 6 }}
-                  onClick={() => setSeleccionado(p.vendedor_id)}
-                >
-                  Ver su recorrido
-                </button>
               </Popup>
             </Marker>
           ))}
         </MapContainer>
       </div>
-
-      {seleccionado ? (
-        <div className="aviso" style={{ marginTop: 16 }}>
-          Mostrando el recorrido de{' '}
-          <strong>
-            {activos.find((p) => p.vendedor_id === seleccionado)?.perfiles?.nombre_completo ?? '—'}
-          </strong>
-          .{' '}
-          <button className="chico" onClick={() => setSeleccionado(null)}>
-            Quitar traza
-          </button>
-        </div>
-      ) : null}
 
       <section className="tarjeta" style={{ marginTop: 18 }}>
         <h2>Vendedores en la calle</h2>
@@ -231,7 +181,7 @@ export function PaginaMapaEnVivo() {
               {activos.map((p) => {
                 const minutos = Math.floor((Date.now() - new Date(p.actualizado_en).getTime()) / 60_000)
                 return (
-                  <tr key={p.vendedor_id} onClick={() => setSeleccionado(p.vendedor_id)}>
+                  <tr key={p.vendedor_id}>
                     <td>
                       {p.perfiles?.nombre_completo ?? '—'}
                       {p.perfiles?.codigo_vendedor ? ` (#${p.perfiles.codigo_vendedor})` : ''}
