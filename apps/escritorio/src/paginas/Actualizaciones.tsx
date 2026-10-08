@@ -135,6 +135,56 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
   })
 
   /**
+   * Publicar a TODA la flota de una, esté cada teléfono en la versión que esté.
+   *
+   * El botón de arriba publica al runtime de la versión actual y nada más: el
+   * `runtimeVersion` sigue a esa versión, así que un teléfono que quedó en una
+   * anterior no recibe nada. Acá se saca de los teléfonos activos QUÉ versiones
+   * hay hoy en la calle y se publica a cada una, para que ninguno quede mudo.
+   * Es lo que antes había que hacer a mano, una publicación por versión.
+   */
+  const publicarTodos = useMutation({
+    mutationFn: async (canal: string) => {
+      const puente = window.woodtools
+      if (!puente?.publicarATodosLosRuntimes) {
+        throw new Error(
+          'Esta copia del panel no puede publicar: hace falta tenerla abierta desde la carpeta del proyecto.',
+        )
+      }
+      // Las versiones que tienen HOY los teléfonos activos son los runtimes a
+      // los que hay que publicar. Uno que no se usa hace un mes no cuenta.
+      const hace30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const { data, error } = await supabase
+        .from('dispositivos')
+        .select('version_app')
+        .eq('autorizado', true)
+        .gt('ultimo_visto_en', hace30dias)
+      if (error) throw error
+      const filas = (data ?? []) as Array<{ version_app: string | null }>
+      const runtimes = [
+        ...new Set(
+          filas
+            .map((d) => d.version_app)
+            .filter((v): v is string => typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)),
+        ),
+      ]
+      if (runtimes.length === 0) {
+        throw new Error('No encontré teléfonos activos con una versión válida a la que publicar.')
+      }
+      return { runtimes, resultado: await puente.publicarATodosLosRuntimes(canal, runtimes) }
+    },
+    onSuccess: ({ runtimes, resultado }) => {
+      setSalidaPublicar(resultado.salida)
+      setMensaje(
+        resultado.ok
+          ? `Actualización publicada a ${runtimes.length} ${runtimes.length === 1 ? 'versión' : 'versiones'} en uso (${runtimes.join(', ')}).`
+          : 'La publicación terminó con errores en algún runtime. Mirá el detalle abajo.',
+      )
+    },
+    onError: (e: Error) => setMensaje(e.message),
+  })
+
+  /**
    * Publicar sólo tiene sentido si el proyecto está en esta máquina. Se lo
    * pregunta al proceso principal en vez de suponerlo: el puente existe
    * siempre, la carpeta del código no.
@@ -353,9 +403,13 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
       <section className="tarjeta">
         <h2>Publicar una actualización por aire</h2>
         <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginBottom: 12 }}>
-          Manda el código nuevo a todos los celulares. Lo aplican al abrir la app, sin reinstalar
-          nada. No sirve para cambios que tocan lo nativo —un permiso, una librería—: eso necesita
-          un APK nuevo.
+          Manda el código nuevo a los celulares. Lo aplican al abrir la app, sin reinstalar nada. No
+          sirve para cambios que tocan lo nativo —un permiso, una librería—: eso necesita un APK
+          nuevo.
+          <br />
+          <strong>Publicar a toda la flota</strong> lo manda a cada versión que hay hoy en uso, así
+          ningún teléfono queda sin recibirlo aunque esté en una versión más vieja. La otra opción va
+          sólo a los que están en la versión actual.
         </p>
 
         {/* Antes que nada: si el circuito está apagado, publicar no sirve y
@@ -384,20 +438,44 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
               </select>
             </label>
 
+            {/* La opción que resuelve el caso real: alcanza a TODA la flota,
+                estén en la versión que estén. Va primero y es la primaria. */}
             <button
               className="primario"
+              disabled={soloLectura || publicarTodos.isPending || !otaPrendido}
+              onClick={() => {
+                if (
+                  confirm(
+                    `¿Publicar la actualización a TODA la flota del canal "${canal}", esté cada teléfono en la versión que esté?\n\n` +
+                      'Se publica a cada versión que hay hoy en uso, una por una, así ninguno queda sin recibirla. Puede tardar unos minutos.',
+                  )
+                ) {
+                  publicarTodos.mutate(canal)
+                }
+              }}
+            >
+              {publicarTodos.isPending
+                ? 'Publicando a toda la flota…'
+                : 'Publicar a toda la flota (todas las versiones)'}
+            </button>
+
+            {/* La de siempre: publica sólo al runtime de la versión actual. Se
+                deja para casos puntuales; la de arriba es la que conviene. */}
+            <button
               disabled={soloLectura || publicar.isPending || !otaPrendido}
               onClick={() => {
                 /* El canal va en la pregunta: publicar al que no era es el
                    error caro, y una vez publicado no se deshace. */
-                if (confirm(`¿Publicar la actualización a los celulares del canal "${canal}"?`)) {
+                if (
+                  confirm(
+                    `¿Publicar sólo a los celulares que están en la versión actual, del canal "${canal}"? Los que estén atrasados no lo reciben.`,
+                  )
+                ) {
                   publicar.mutate(canal)
                 }
               }}
             >
-              {publicar.isPending
-                ? 'Publicando… (puede tardar unos minutos)'
-                : 'Publicar actualización'}
+              {publicar.isPending ? 'Publicando…' : 'Sólo a la versión actual'}
             </button>
           </div>
         ) : (

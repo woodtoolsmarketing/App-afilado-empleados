@@ -638,6 +638,62 @@ ipcMain.handle('actualizaciones-configuradas', () => {
   return raiz !== null && actualizacionesConfiguradas(raiz)
 })
 
+/**
+ * Corre un `eas update` para un canal y devuelve su salida.
+ *
+ * El runtime al que apunta lo decide la `version` de `app.config.ts` (policy
+ * `appVersion`); quien llama la deja en el valor que quiera ANTES de invocar
+ * esto. Así el mismo bundle se puede publicar a un runtime o a varios.
+ */
+function correrEasUpdate(
+  eas: string,
+  raiz: string,
+  canal: Canal,
+): Promise<{ ok: boolean; salida: string }> {
+  return new Promise((resolver) => {
+    const proceso = spawn(
+      process.execPath,
+      [
+        eas,
+        'update',
+        '--branch',
+        canal,
+        '--message',
+        `Actualización desde el panel (${canal})`,
+        '--non-interactive',
+      ],
+      {
+        cwd: path.join(raiz, 'apps', 'movil'),
+        env: {
+          ...process.env,
+          // ELECTRON_RUN_AS_NODE hace que este mismo ejecutable se comporte como
+          // Node a secas. Sin eso, `process.execPath` levantaría otra ventana de
+          // Electron en vez de correr el script.
+          ELECTRON_RUN_AS_NODE: '1',
+          // La variante acompaña al canal: `app.config.ts` la escribe en
+          // `extra.variante`, y de ahí sale a qué canal le pregunta el teléfono
+          // por el instalador nuevo. Sin esto caería al default y un teléfono de
+          // producción quedaría preguntando por el canal interno.
+          APP_VARIANTE: canal,
+        },
+      },
+    )
+
+    let salida = ''
+    const juntar = (d: Buffer) => {
+      salida += d.toString()
+      // Que un `eas update` largo no llene la memoria del panel: alcanza con el
+      // final, que es donde está el resultado.
+      if (salida.length > 40_000) salida = salida.slice(-40_000)
+    }
+
+    proceso.stdout.on('data', juntar)
+    proceso.stderr.on('data', juntar)
+    proceso.on('error', (e) => resolver({ ok: false, salida: `${salida}\n${e.message}` }))
+    proceso.on('close', (codigo) => resolver({ ok: codigo === 0, salida }))
+  })
+}
+
 ipcMain.handle('publicar-actualizacion', async (_evento, canalPedido: string) => {
   const raiz = carpetaDelProyecto()
   if (!raiz) {
@@ -665,56 +721,92 @@ ipcMain.handle('publicar-actualizacion', async (_evento, canalPedido: string) =>
     return { ok: false, salida: 'Falta eas-cli. Corré `npm install` en la carpeta del proyecto.' }
   }
 
-  return new Promise((resolver) => {
-    const proceso = spawn(
-      process.execPath,
-      [eas, 'update', '--branch', canal, '--message', `Actualización desde el panel (${canal})`],
-      {
-        cwd: path.join(raiz, 'apps', 'movil'),
-        env: {
-          ...process.env,
-          // ELECTRON_RUN_AS_NODE hace que este mismo ejecutable se comporte
-          // como Node a secas. Sin eso, `process.execPath` levantaría otra
-          // ventana de Electron en vez de correr el script.
-          ELECTRON_RUN_AS_NODE: '1',
-          /**
-           * La variante tiene que acompañar al canal, y son dos cosas.
-           *
-           * `--branch` decide a QUIÉN le llega el bundle. `APP_VARIANTE` decide
-           * QUÉ dice el bundle de sí mismo: `app.config.ts` la escribe en
-           * `extra.variante`, y eso viaja adentro del manifiesto.
-           *
-           * Faltaba, y el panel empaquetado no la trae en su entorno, así que
-           * `app.config.ts` caía a su default `interno` publicara al canal que
-           * publicara. Un teléfono de producción que recibía ese bundle quedaba
-           * con `extra.variante: 'interno'` escrito encima — y
-           * `canalDeEsteTelefono()`, en `apps/movil/src/servicios/actualizacionApk.ts`,
-           * lee justamente eso para preguntar por el instalador nuevo. O sea
-           * que el botón "Buscar actualizaciones" pasaba a contestar sobre el
-           * canal equivocado. Se arregla solo al publicar bien, pero mientras
-           * tanto no hay nada que lo delate.
-           *
-           * El handler de compilar ya la fijaba; éste no. Ahora los dos.
-           */
-          APP_VARIANTE: canal,
-        },
-      },
-    )
+  return correrEasUpdate(eas, raiz, canal)
+})
 
-    let salida = ''
-    const juntar = (d: Buffer) => {
-      salida += d.toString()
-      // Un `eas update` que se va de las manos no puede llenar la memoria del
-      // panel: alcanza con el final, que es donde está el resultado.
-      if (salida.length > 40_000) salida = salida.slice(-40_000)
+/**
+ * Publicar a TODOS los runtimes en uso, de una.
+ *
+ * `runtimeVersion` sigue a la `version` de `app.config.ts`, así que una sola
+ * publicación sólo le llega a los teléfonos que están EXACTAMENTE en esa versión
+ * y deja mudos a los que quedaron atrás. Acá se apunta a cada runtime en uso
+ * —las versiones que el renderer sacó de los teléfonos activos—: para cada uno
+ * se deja esa versión en la config, se publica, y al final se restaura. El
+ * bundle es el mismo en todos; lo único que cambia es a qué runtime se dirige.
+ *
+ * El archivo de configuración se restaura SIEMPRE (en el `finally`), aunque una
+ * publicación falle o se corte: no puede quedar con una versión que no es.
+ */
+ipcMain.handle(
+  'publicar-a-todos-los-runtimes',
+  async (_evento, canalPedido: string, runtimesPedidos: unknown) => {
+    const raiz = carpetaDelProyecto()
+    if (!raiz) {
+      return { ok: false, salida: 'No se encontró la carpeta del proyecto en esta máquina.' }
     }
 
-    proceso.stdout.on('data', juntar)
-    proceso.stderr.on('data', juntar)
-    proceso.on('error', (e) => resolver({ ok: false, salida: `${salida}\n${e.message}` }))
-    proceso.on('close', (codigo) => resolver({ ok: codigo === 0, salida }))
-  })
-})
+    const canal: Canal = (CANALES as readonly string[]).includes(canalPedido)
+      ? (canalPedido as Canal)
+      : 'interno'
+
+    if (!actualizacionesConfiguradas(raiz)) {
+      return {
+        ok: false,
+        salida:
+          'Las actualizaciones por aire están apagadas: falta EAS_UPDATE_URL en el .env del proyecto.',
+      }
+    }
+
+    const eas = path.join(raiz, 'node_modules', 'eas-cli', 'bin', 'run')
+    if (!fs.existsSync(eas)) {
+      return { ok: false, salida: 'Falta eas-cli. Corré `npm install` en la carpeta del proyecto.' }
+    }
+
+    // Los runtimes vienen del renderer (los saca de las versiones de los
+    // teléfonos activos). Se validan acá y NO se pegan nunca a una línea de
+    // comandos: sólo entran al archivo de configuración, y sólo si son X.Y.Z.
+    const runtimes = Array.isArray(runtimesPedidos)
+      ? [
+          ...new Set(
+            runtimesPedidos.filter(
+              (r): r is string => typeof r === 'string' && /^\d+\.\d+\.\d+$/.test(r),
+            ),
+          ),
+        ].slice(0, 20)
+      : []
+    if (runtimes.length === 0) {
+      return { ok: false, salida: 'No llegó ningún runtime válido para publicar (formato X.Y.Z).' }
+    }
+
+    const appConfig = path.join(raiz, 'apps', 'movil', 'app.config.ts')
+    const original = fs.readFileSync(appConfig, 'utf8')
+    const regexVersion = /^(\s*version:\s*')[^']+(',)/m
+    if (!regexVersion.test(original)) {
+      return {
+        ok: false,
+        salida: 'No pude encontrar la versión en app.config.ts para apuntar a cada runtime.',
+      }
+    }
+
+    let salida = ''
+    const resultados: Array<{ runtime: string; ok: boolean }> = []
+    try {
+      for (const runtime of runtimes) {
+        fs.writeFileSync(appConfig, original.replace(regexVersion, `$1${runtime}$2`))
+        salida += `\n──────── Runtime ${runtime} · canal ${canal} ────────\n`
+        const r = await correrEasUpdate(eas, raiz, canal)
+        salida += `${r.salida.trim()}\n`
+        resultados.push({ runtime, ok: r.ok })
+      }
+    } finally {
+      fs.writeFileSync(appConfig, original)
+    }
+
+    const ok = resultados.every((r) => r.ok)
+    const resumen = resultados.map((r) => `${r.ok ? '✓' : '✗'} ${r.runtime}`).join('   ')
+    return { ok, salida: `Runtimes: ${resumen}\n${salida}`, resultados }
+  },
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Compilar el APK desde el panel y dejarlo listo para bajar

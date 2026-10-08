@@ -50,6 +50,16 @@ contextBridge.exposeInMainWorld('woodtools', {
   // El canal decide a QUÉ teléfonos llega: cada APK escucha el suyo.
   publicarActualizacion: (canal: string): Promise<{ ok: boolean; salida: string }> =>
     ipcRenderer.invoke('publicar-actualizacion', canal),
+  // Publica a cada runtime en uso (no sólo al actual), para que ningún teléfono
+  // quede sin recibirlo por estar en una versión más vieja.
+  publicarATodosLosRuntimes: (
+    canal: string,
+    runtimes: string[],
+  ): Promise<{
+    ok: boolean
+    salida: string
+    resultados?: Array<{ runtime: string; ok: boolean }>
+  }> => ipcRenderer.invoke('publicar-a-todos-los-runtimes', canal, runtimes),
 
   /**
    * Los instaladores guardados en esta PC, y en qué dirección los sirve.

@@ -42,6 +42,23 @@ interface Window {
     /** `canal` decide a qué teléfonos llega: cada APK escucha el suyo. */
     publicarActualizacion?: (canal: string) => Promise<{ ok: boolean; salida: string }>
     /**
+     * Publica el OTA a TODOS los `runtimes` que se le pasen, uno por uno.
+     *
+     * `runtimeVersion` sigue a la `version` de `app.config.ts`, así que una sola
+     * publicación sólo llega a los teléfonos que están en esa versión y deja
+     * mudos a los demás. Esto apunta a cada runtime en uso (las versiones de los
+     * teléfonos activos) para que no quede ninguno sin recibirlo. El bundle es
+     * el mismo en todos; lo único que cambia es a qué runtime se dirige.
+     */
+    publicarATodosLosRuntimes?: (
+      canal: string,
+      runtimes: string[],
+    ) => Promise<{
+      ok: boolean
+      salida: string
+      resultados?: Array<{ runtime: string; ok: boolean }>
+    }>
+    /**
      * Los instaladores guardados en esta PC, y en qué dirección los sirve a la
      * red de la oficina. Llamarlo levanta el servidor si estaba apagado.
      */
