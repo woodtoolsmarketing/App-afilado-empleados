@@ -250,6 +250,16 @@ tr:hover td {
   background: var(--panel-claro);
 }
 
+/* Tablas anchas (muchas columnas editables, como "Todos los usuarios"):
+   scrollean en horizontal DENTRO de la tarjeta en vez de desbordarla y quedar
+   cortadas contra el borde. En una pantalla ancha no aparece ninguna barra; en
+   una angosta se arrastra y no se pierde ninguna columna. */
+.tabla-scroll {
+  overflow-x: auto;
+  /* Deja respirar la barra de scroll para que no tape la última fila. */
+  padding-bottom: 2px;
+}
+
 .vacio {
   text-align: center;
   padding: 48px 20px;

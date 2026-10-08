@@ -795,6 +795,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
       <section className="tarjeta">
         <h2>Todos los usuarios ({resto.length})</h2>
 
+        <div className="tabla-scroll">
         <table>
           <thead>
             <tr>
@@ -806,7 +807,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
               <th>Rol</th>
               <th>Estado</th>
               <th>Última conexión</th>
-              <th style={{ width: 210 }} />
+              <th style={{ width: 170 }} />
             </tr>
           </thead>
           <tbody>
@@ -877,6 +878,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                   ) : (
                     <select
                       value={p.rol}
+                      style={{ minWidth: 150 }}
                       disabled={cambiarRol.isPending && cambiarRol.variables?.perfilId === p.id}
                       onChange={(e) =>
                         cambiarRol.mutate({ perfilId: p.id, rol: e.target.value as RolUsuario })
@@ -971,6 +973,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
     </>
   )
