@@ -11,7 +11,13 @@
  * que la pantalla muestre un campo que el validador ignora, ni al revés.
  */
 
-import { aPesos, PRECIO_SIN_CARGO, type Moneda } from './catalogo'
+import {
+  aPesos,
+  PRECIO_SIN_CARGO,
+  resumenCaracteristicas,
+  type CaracteristicasArticulo,
+  type Moneda,
+} from './catalogo'
 import {
   ETIQUETA_TIPO_SERVICIO,
   type EstadoNotaPedido,
@@ -2881,6 +2887,115 @@ export const EN_LA_DESCRIPCION: Record<Herramienta, string> = {
   sierra_sin_fin: 'sierras sin fin',
   mecha: 'mechas',
   cuchilla: 'cuchillas',
+}
+
+/**
+ * El nombre de la herramienta en singular, para cuando se cuenta de a una.
+ *
+ * `EN_LA_DESCRIPCION` está en plural —"afilado de sierras circulares"— y pegarle
+ * un número adelante daba "Venta 1 sierras circulares". En la venta, que lleva
+ * cantidad, se usa el singular cuando es una sola.
+ */
+const EN_SINGULAR: Record<Herramienta, string> = {
+  sierra: 'sierra circular',
+  fresa: 'fresa',
+  cabezal: 'cabezal',
+  incisor: 'incisor',
+  sierra_sin_fin: 'sierra sin fin',
+  mecha: 'mecha',
+  cuchilla: 'cuchilla',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resumen de "lo que se hizo", para la observación de la visita
+//
+// Cuando el vendedor hace la nota DESDE una parada del recorrido, la observación
+// del parte de visita se escribe sola y termina con esto. Un renglón por lo que
+// hizo:
+//   · Servicio (afilado, rectificado, reparación, …): "[servicio] [herramienta/s]",
+//     agrupado por servicio. Nada más: en el taller alcanza con saber qué trabajo
+//     se mandó y sobre qué.
+//   · Venta: uno por renglón, con la cantidad y las medidas del artículo —
+//     "[servicio] [cantidad] [herramienta] [medidas]"—, porque una venta se
+//     factura y conviene que quede dicho qué, cuánto y de qué medida.
+//
+// Es PURO —sin red— para poder probarlo y para que diga lo mismo donde se use.
+// `detalle` es el jsonb del renglón; sólo la venta mira sus medidas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RenglonParaResumen {
+  servicio: TipoServicio | null
+  herramienta: Herramienta | null
+  cantidad: number | null
+  /** El `detalle` jsonb del renglón. Sólo la venta lo usa, para las medidas. */
+  detalle?: Record<string, unknown> | null
+}
+
+/** "AFILADO" → "Afilado", "REPARACIÓN" → "Reparación": en una frase, no a los gritos. */
+function servicioEnFrase(servicio: TipoServicio): string {
+  const e = ETIQUETA_TIPO_SERVICIO[servicio]
+  return e.charAt(0) + e.slice(1).toLowerCase()
+}
+
+/** Las medidas del artículo vendido, como las muestra el buscador del catálogo. */
+function medidasDelDetalle(detalle: Record<string, unknown> | null | undefined): string {
+  if (!detalle) return ''
+  const texto = (v: unknown): string | undefined => {
+    if (v === null || v === undefined) return undefined
+    const s = String(v).trim()
+    return s === '' ? undefined : s
+  }
+  const c: CaracteristicasArticulo = {}
+  const ext = texto(detalle.diametro_exterior)
+  const corte = texto(detalle.ancho_corte)
+  const agujero = texto(detalle.diametro_interior)
+  const dientes = texto(detalle.cantidad_dientes)
+  const largo = texto(detalle.largo)
+  const ancho = texto(detalle.ancho)
+  const espesor = texto(detalle.espesor)
+  if (ext) c.diametro_exterior = ext
+  if (corte) c.ancho_corte = corte
+  if (agujero) c.diametro_interior = agujero
+  if (dientes) c.dientes = dientes
+  if (largo) c.largo = largo
+  if (ancho) c.ancho = ancho
+  if (espesor) c.espesor = espesor
+  return resumenCaracteristicas(c)
+}
+
+export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): string[] {
+  // Servicios: agrupados por servicio → herramientas sin repetir, en el orden en
+  // que aparecen. La venta no se agrupa: cada renglón lleva su cantidad y medida.
+  const porServicio = new Map<string, Set<string>>()
+  const ventas: string[] = []
+
+  for (const r of renglones) {
+    if (!r.servicio) continue
+
+    if (r.servicio === 'venta') {
+      const cantidad = r.cantidad && r.cantidad > 0 ? r.cantidad : 1
+      const nombre = r.herramienta
+        ? (cantidad === 1 ? EN_SINGULAR[r.herramienta] : EN_LA_DESCRIPCION[r.herramienta]) ?? ''
+        : ''
+      const medidas = medidasDelDetalle(r.detalle)
+      const base = ['Venta', String(cantidad), nombre].filter(Boolean).join(' ')
+      ventas.push(medidas ? `${base} ${medidas}` : base)
+      continue
+    }
+
+    const etiqueta = servicioEnFrase(r.servicio)
+    const set = porServicio.get(etiqueta) ?? new Set<string>()
+    const nombre = r.herramienta ? (EN_LA_DESCRIPCION[r.herramienta] ?? '') : ''
+    if (nombre) set.add(nombre)
+    porServicio.set(etiqueta, set)
+  }
+
+  const servicios = [...porServicio].map(([servicio, herramientas]) => {
+    const lista = [...herramientas]
+    return lista.length === 0 ? servicio : `${servicio} ${enumerar(lista)}`
+  })
+
+  return [...servicios, ...ventas]
 }
 
 /**

@@ -16,8 +16,7 @@ import {
   MEDIDA_PARA_CODIGO,
   sinAvisosDeAgujero,
   sinLineaDeServicio,
-  EN_LA_DESCRIPCION,
-  ETIQUETA_TIPO_SERVICIO,
+  resumenDeRenglonesDeVisita,
   ZONAS,
   type BorradorNota,
   type CondicionVenta,
@@ -31,6 +30,7 @@ import {
   type Herramienta,
   type ManoMecha,
   type MaterialMecha,
+  type RenglonParaResumen,
   type TipoMecha,
   type TipoNotaPedido,
   type TipoServicio,
@@ -1259,37 +1259,18 @@ export async function encolarImpresion(
 export async function resumenDeNotasDeLaParada(paradaId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('notas_pedido')
-    .select('items:notas_pedido_items(servicio, herramienta)')
+    .select('items:notas_pedido_items(servicio, herramienta, cantidad, detalle)')
     .eq('parada_id', paradaId)
 
   if (error) throw error
 
-  type Renglon = { servicio: string | null; herramienta: string | null }
-  const filas = (data ?? []) as Array<{ items: Renglon[] | null }>
-
-  // servicio → herramientas, sin repetir.
-  const porServicio = new Map<string, Set<string>>()
-  for (const nota of filas) {
-    for (const i of nota.items ?? []) {
-      if (!i.servicio) continue
-      const etiqueta = ETIQUETA_TIPO_SERVICIO[i.servicio as TipoServicio] ?? i.servicio
-      const herramientas = porServicio.get(etiqueta) ?? new Set<string>()
-      if (i.herramienta) {
-        herramientas.add(EN_LA_DESCRIPCION[i.herramienta as Herramienta] ?? i.herramienta)
-      }
-      porServicio.set(etiqueta, herramientas)
-    }
-  }
-
-  return [...porServicio].map(([servicio, herramientas]) => {
-    const lista = [...herramientas]
-    if (lista.length === 0) return servicio
-    const enumeradas =
-      lista.length === 1
-        ? lista[0]
-        : `${lista.slice(0, -1).join(', ')} y ${lista[lista.length - 1]}`
-    return `${servicio} de ${enumeradas}`
-  })
+  // Todos los renglones de todas las notas hechas DESDE esta parada, en orden.
+  // El formato ("[servicio] [herramienta]" para los servicios, con cantidad y
+  // medidas en la venta) vive en compartido, para probarlo aparte y para que
+  // diga lo mismo en cualquier pantalla que lo use.
+  const filas = (data ?? []) as Array<{ items: RenglonParaResumen[] | null }>
+  const renglones = filas.flatMap((n) => n.items ?? [])
+  return resumenDeRenglonesDeVisita(renglones)
 }
 
 /** Un precio acordado con el cliente, que pisa el de la lista. */
