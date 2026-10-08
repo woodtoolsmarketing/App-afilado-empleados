@@ -13,6 +13,7 @@ import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
 import { PaginaCambiosDireccion } from './paginas/CambiosDireccion'
 import { PaginaClientes } from './paginas/Clientes'
 import { PaginaClientesAConfirmar } from './paginas/ClientesAConfirmar'
+import { PaginaCobranzasVendedores } from './paginas/CobranzasVendedores'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaMapaClientes } from './paginas/MapaClientes'
@@ -115,6 +116,7 @@ export function App() {
             element={gate('panel_cola_impresion', <PaginaColaImpresion soloLectura={!sesion.esAdministracion} />)}
           />
           <Route path="/roles" element={gate('panel_roles_visita', <PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />)} />
+          <Route path="/cobranzas" element={gate('panel_cobranzas', <PaginaCobranzasVendedores />)} />
           <Route path="/rol-maestro" element={gate('panel_rol_maestro', <PaginaRolMaestro soloLectura={!sesion.esAdmin} />)} />
           <Route path="/mapa" element={gate('panel_mapa_en_vivo', <PaginaMapaEnVivo />)} />
           <Route path="/clientes-mapa" element={gate('panel_mapa_clientes', <PaginaMapaClientes />)} />
@@ -285,6 +287,7 @@ function BarraLateral({
     { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente, permiso: 'panel_notas_pedido' },
     { a: '/cola-impresion', icono: '🖨', texto: 'Cola de impresión', globo: aImprimir, permiso: 'panel_cola_impresion' },
     { a: '/roles', icono: '▤', texto: 'Roles de visita', permiso: 'panel_roles_visita' },
+    { a: '/cobranzas', icono: '💵', texto: 'Cobranzas de los vendedores', permiso: 'panel_cobranzas' },
     { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro', permiso: 'panel_rol_maestro' },
     { a: '/clientes', icono: '☰', texto: 'Clientes', permiso: 'panel_clientes' },
     { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar, permiso: 'panel_clientes_a_confirmar' },
