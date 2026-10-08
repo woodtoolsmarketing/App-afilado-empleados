@@ -375,10 +375,33 @@ export async function codigosSinRango(
   return codigosDeLaHerramienta(herramienta, servicio, false)
 }
 
+/**
+ * Los códigos de precio fijo (sin rango) de ESE servicio EXACTO —sin los de
+ * servicio sin clasificar—, para SUMARLOS a los que caen por medida.
+ *
+ * Es lo que hace que el rectificado de una sierra ofrezca, además del que cae
+ * por ancho de corte (8003/8007), las operaciones de precio fijo que no dependen
+ * de la medida: el 8025 (RECTIFICADO DE LATERAL S.C., lo que se llama "hermanar"
+ * las sierras) y el 8012. A diferencia de `codigosSinRango`, no trae los de
+ * servicio nulo (rascador, tensionado, buje…), que no son el trabajo elegido.
+ */
+export async function codigosSinRangoDelServicio(
+  herramienta: Herramienta,
+  servicio: TipoServicio,
+): Promise<CodigoComputo[]> {
+  return codigosDeLaHerramienta(herramienta, servicio, false, true)
+}
+
 async function codigosDeLaHerramienta(
   herramienta: Herramienta,
   servicio: TipoServicio | undefined,
   conRango: boolean,
+  /**
+   * Sólo los de `servicio_sugerido = servicio`, sin los de servicio nulo. Para
+   * sumar operaciones de precio fijo del trabajo elegido sin arrastrar las que
+   * no son de ese trabajo. Ver `codigosSinRangoDelServicio`.
+   */
+  soloServicioExacto = false,
 ): Promise<CodigoComputo[]> {
   let consulta = supabase
     .from('vista_catalogo_vigente')
@@ -440,7 +463,9 @@ async function codigosDeLaHerramienta(
 
   // Sin servicio no se filtra: se muestran todas las medidas de la herramienta.
   if (servicio) {
-    consulta = consulta.or(`servicio_sugerido.is.null,servicio_sugerido.eq.${servicio}`)
+    consulta = soloServicioExacto
+      ? consulta.eq('servicio_sugerido', servicio)
+      : consulta.or(`servicio_sugerido.is.null,servicio_sugerido.eq.${servicio}`)
   }
 
   const { data, error } = await consulta
@@ -652,19 +677,30 @@ export async function resolverCodigoDeItem(
     dimension,
     servicio,
   })
+
+  /**
+   * El rectificado tiene operaciones de PRECIO FIJO que no caen por medida.
+   *
+   * Medido contra el catálogo: para una sierra, el 8025 (RECTIFICADO DE LATERAL
+   * S.C. —lo que se llama "hermanar" las sierras, y se usa seguido—) y el 8012
+   * (ØExt 6mm) no tienen rango. La búsqueda por medida devuelve el 8003/8007 que
+   * cae por ancho de corte y acá cortaba, así que esas no aparecían NUNCA. Se
+   * suman al final —después del que cae por medida, que sigue siendo el
+   * propuesto— para que el vendedor las elija a mano. Sólo las del servicio
+   * rectificado (no rascador/tensionado/buje, que son otro trabajo).
+   */
+  if (servicio === 'rectificado' && porMedida.length > 0) {
+    const sinRango = await codigosSinRangoDelServicio(item.herramienta, servicio)
+    const vistos = new Set(porMedida.map((c) => c.codigo))
+    return [...porMedida, ...sinRango.filter((c) => !vistos.has(c.codigo))]
+  }
+
   if (porMedida.length > 0 || servicio !== 'rectificado') return porMedida
 
   /**
-   * El rectificado no se cotiza por medida.
-   *
-   * Medido contra el catálogo: de 55 códigos de afilado, 27 tienen rango de
-   * ancho de corte; de rectificado hay UNO solo —8025, RECTIFICADO DE LATERAL
-   * S.C.— y no tiene rango ninguno. Buscarlo por medida no devuelve nada y
-   * nunca va a devolver nada.
-   *
-   * Sin este respaldo, contestar "sí, repararlos" dejaba el renglón sin código
-   * y sin precio, con el vendedor mirando "no hay código para esa medida" sobre
-   * una medida que está perfecta.
+   * Sin match por medida (un ancho que no cae en ningún rango): el respaldo de
+   * siempre —todas las de precio fijo de la herramienta— para no dejar el
+   * renglón sin código ni precio sobre una medida que está perfecta.
    *
    * Va sólo para el rectificado y no para todos: en el afilado, que sí se
    * cotiza por rango, una medida que no cae en ninguno es un dato para revisar
