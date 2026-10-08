@@ -260,6 +260,17 @@ tr:hover td {
   padding-bottom: 2px;
 }
 
+/* La tabla de Usuarios es la más ancha (9 columnas, varias editables). Se
+   compacta —menos padding, celdas y controles más bajos— para que entre a lo
+   ancho sin barra de scroll horizontal. A lo alto no molesta, así que los pares
+   de botones (Cambiar/Quitar, Suspender/Baja) se apilan en vez de ir al lado. */
+.tabla-scroll table { font-size: 12.5px; }
+.tabla-scroll th,
+.tabla-scroll td { padding: 7px 6px; }
+.tabla-scroll input,
+.tabla-scroll select { min-height: 34px; padding: 6px 8px; font-size: 13px; }
+.tabla-scroll button.chico { padding: 5px 9px; min-height: 28px; font-size: 12px; }
+
 .vacio {
   text-align: center;
   padding: 48px 20px;

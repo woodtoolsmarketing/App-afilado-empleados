@@ -799,7 +799,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 92 }}>Foto</th>
+              <th style={{ width: 74 }}>Foto</th>
               <th>Nombre</th>
               <th>Código</th>
               <th>Zonas a cargo</th>
@@ -807,7 +807,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
               <th>Rol</th>
               <th>Estado</th>
               <th>Última conexión</th>
-              <th style={{ width: 170 }} />
+              <th style={{ width: 92 }} />
             </tr>
           </thead>
           <tbody>
@@ -878,7 +878,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                   ) : (
                     <select
                       value={p.rol}
-                      style={{ minWidth: 150 }}
+                      style={{ minWidth: 138 }}
                       disabled={cambiarRol.isPending && cambiarRol.variables?.perfilId === p.id}
                       onChange={(e) =>
                         cambiarRol.mutate({ perfilId: p.id, rol: e.target.value as RolUsuario })
@@ -918,7 +918,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                   )}
                 </td>
                 <td>
-                  <div className="acciones">
+                  <div className="acciones" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                     {p.estado === 'aprobado' ? (
                       <button
                         className="chico"
@@ -1019,7 +1019,7 @@ function CodigoDeVendedor({
         placeholder="—"
         inputMode="numeric"
         disabled={soloLectura}
-        style={{ width: 56 }}
+        style={{ width: 48 }}
         aria-label={`Número de vendedor de ${perfil.nombre_completo}`}
       />
       {cambio ? (
@@ -1061,7 +1061,7 @@ function ZonasACargo({
         onChange={(e) => setTexto(e.target.value)}
         placeholder="107, 121"
         disabled={soloLectura}
-        style={{ width: 120 }}
+        style={{ width: 82 }}
         aria-label={`Zonas a cargo de ${perfil.nombre_completo}`}
       />
       {cambio ? (
@@ -1138,7 +1138,7 @@ function FotoDePerfil({
               if (archivo) alCambiar(archivo)
             }}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
             <button className="chico" disabled={subiendo} onClick={() => inputRef.current?.click()}>
               {subiendo ? 'Subiendo…' : urlFirmada ? 'Cambiar' : 'Agregar'}
             </button>
@@ -1207,7 +1207,7 @@ function NombreYUsuario({
   const emailValido = EMAIL_RE.test(emailLimpio)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180 }}>
       <input
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
