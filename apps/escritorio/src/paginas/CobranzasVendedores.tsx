@@ -1,5 +1,6 @@
 import { fechaLocalISO } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
+import ExcelJS from 'exceljs'
 import { useMemo, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
@@ -75,7 +76,7 @@ function nombreVendedor(c: CobranzaFila): string {
   return `${p.nombre_completo}${p.codigo_vendedor ? ` (#${p.codigo_vendedor})` : ''}`
 }
 
-export function PaginaCobranzasVendedores() {
+export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   // Por defecto, los últimos 30 días: lo suficiente para ver la semana y la
   // anterior sin traer todo el histórico.
   const hoy = fechaLocalISO(new Date())
@@ -86,6 +87,7 @@ export function PaginaCobranzasVendedores() {
   }, [])
   const [desde, setDesde] = useState(hace30)
   const [hasta, setHasta] = useState(hoy)
+  const [exportando, setExportando] = useState(false)
 
   const { data: cobranzas, isLoading } = useQuery({
     queryKey: ['cobranzas-vendedores', desde, hasta],
@@ -138,6 +140,92 @@ export function PaginaCobranzasVendedores() {
 
   const totalPeriodo = useMemo(() => sumar(cobranzas ?? []), [cobranzas])
 
+  /**
+   * Descargar el Excel. Es SÓLO para administradores, aunque la sección la vean
+   * otros roles: el botón ni aparece si no es admin (ver el `esAdmin &&` abajo).
+   * Como el archivo se arma en el navegador con lo ya cargado, el gateo es acá;
+   * no hay un endpoint aparte que haga falta cerrar.
+   */
+  async function descargar() {
+    if (!cobranzas || cobranzas.length === 0) return
+    setExportando(true)
+    try {
+      const libro = new ExcelJS.Workbook()
+
+      // Hoja 1: el detalle, un renglón por cobro.
+      const hoja = libro.addWorksheet('Cobranzas')
+      hoja.columns = [
+        { header: 'Fecha', key: 'fecha', width: 12 },
+        { header: 'Vendedor', key: 'vendedor', width: 28 },
+        { header: 'Código', key: 'codigo', width: 10 },
+        { header: 'Cliente', key: 'cliente', width: 34 },
+        { header: 'Comprobante', key: 'comprobante', width: 13 },
+        { header: 'Total', key: 'total', width: 14 },
+        { header: 'Cheque', key: 'cheque', width: 14 },
+        { header: 'Efectivo', key: 'efectivo', width: 14 },
+        { header: 'Comentarios', key: 'comentarios', width: 30 },
+      ]
+      for (const c of cobranzas) {
+        hoja.addRow({
+          fecha: c.fecha,
+          vendedor: nombreVendedor(c),
+          codigo: c.cliente_codigo ?? '',
+          cliente: c.cliente_nombre,
+          comprobante: c.tipo_comprobante === 'factura' ? 'FACTURA' : 'PRESUPUESTO',
+          total: n(c.total),
+          cheque: n(c.cheque),
+          efectivo: n(c.efectivo),
+          comentarios: c.comentarios ?? '',
+        })
+      }
+
+      // Hoja 2: el total del período por vendedor.
+      const resumen = libro.addWorksheet('Resumen')
+      resumen.columns = [
+        { header: 'Vendedor', key: 'vendedor', width: 28 },
+        { header: 'Total', key: 'total', width: 14 },
+        { header: 'Cheque', key: 'cheque', width: 14 },
+        { header: 'Efectivo', key: 'efectivo', width: 14 },
+      ]
+      for (const v of resumenVendedores) {
+        resumen.addRow({
+          vendedor: v.nombre,
+          total: v.tot.total,
+          cheque: v.tot.cheque,
+          efectivo: v.tot.efectivo,
+        })
+      }
+      const totalRow = resumen.addRow({
+        vendedor: 'Total general',
+        total: totalPeriodo.total,
+        cheque: totalPeriodo.cheque,
+        efectivo: totalPeriodo.efectivo,
+      })
+      totalRow.font = { bold: true }
+
+      // Formato de moneda y encabezados en negrita en las dos hojas.
+      for (const h of [hoja, resumen]) {
+        h.getRow(1).font = { bold: true }
+        for (const k of ['total', 'cheque', 'efectivo']) {
+          h.getColumn(k).numFmt = '"$"#,##0.00'
+        }
+      }
+
+      const buffer = await libro.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const enlace = document.createElement('a')
+      enlace.href = url
+      enlace.download = `cobranzas-${desde}-a-${hasta}.xlsx`
+      enlace.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExportando(false)
+    }
+  }
+
   return (
     <>
       <header className="encabezado-pagina">
@@ -145,7 +233,7 @@ export function PaginaCobranzasVendedores() {
           <h1>Cobranzas de los vendedores</h1>
           <p>Lo que cobró cada vendedor, separado por día. Lo carga el vendedor desde la app.</p>
         </div>
-        <div className="acciones" style={{ gap: 10 }}>
+        <div className="acciones" style={{ gap: 10, alignItems: 'flex-end' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
             <span style={{ color: 'var(--tinta-suave)' }}>Desde</span>
             <input type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} />
@@ -154,6 +242,18 @@ export function PaginaCobranzasVendedores() {
             <span style={{ color: 'var(--tinta-suave)' }}>Hasta</span>
             <input type="date" value={hasta} min={desde} onChange={(e) => setHasta(e.target.value)} />
           </label>
+          {/* Descargar el archivo es SÓLO de administradores, aunque la sección
+              la vea otro rol: por eso el botón se gatea con `esAdmin` y no con el
+              permiso de la sección. */}
+          {esAdmin && (
+            <button
+              className="primario"
+              disabled={exportando || (cobranzas?.length ?? 0) === 0}
+              onClick={() => void descargar()}
+            >
+              {exportando ? 'Generando…' : '⬇ Descargar Excel'}
+            </button>
+          )}
         </div>
       </header>
 

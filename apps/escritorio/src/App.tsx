@@ -116,7 +116,7 @@ export function App() {
             element={gate('panel_cola_impresion', <PaginaColaImpresion soloLectura={!sesion.esAdministracion} />)}
           />
           <Route path="/roles" element={gate('panel_roles_visita', <PaginaRolesDeVisita soloLectura={!sesion.esAdmin} />)} />
-          <Route path="/cobranzas" element={gate('panel_cobranzas', <PaginaCobranzasVendedores />)} />
+          <Route path="/cobranzas" element={gate('panel_cobranzas', <PaginaCobranzasVendedores esAdmin={sesion.esAdmin} />)} />
           <Route path="/rol-maestro" element={gate('panel_rol_maestro', <PaginaRolMaestro soloLectura={!sesion.esAdmin} />)} />
           <Route path="/mapa" element={gate('panel_mapa_en_vivo', <PaginaMapaEnVivo />)} />
           <Route path="/clientes-mapa" element={gate('panel_mapa_clientes', <PaginaMapaClientes />)} />
