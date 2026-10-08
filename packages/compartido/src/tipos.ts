@@ -82,6 +82,10 @@ export type ClaveFuncionPanel =
   | 'panel_articulos_confirmar'
   | 'panel_problemas'
   | 'panel_actualizaciones'
+  // No es una sección (no está en el sidebar): es una acción DENTRO de
+  // Actualizaciones. Está en la matriz de Permisos para decidir qué roles pueden
+  // publicar/compilar. Arranca admin-only (roles_habilitados vacío en la semilla).
+  | 'panel_publicar_actualizaciones'
 
 /**
  * El catálogo canónico: la lista de opciones limitables, su etiqueta para el

@@ -62,7 +62,19 @@ interface DispositivoConDuenio {
   perfiles: { nombre_completo: string; codigo_vendedor: string | null } | null
 }
 
-export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean }) {
+export function PaginaActualizaciones({
+  soloLectura,
+  puedePublicar,
+}: {
+  soloLectura: boolean
+  /**
+   * Si este rol puede publicar/compilar. Es un PERMISO (se configura en
+   * Permisos, arranca sólo admin), distinto de `proyectoDisponible` —que es si
+   * esta PC tiene el código para hacerlo—. Sin el permiso, los botones de
+   * publicar/compilar ni se muestran; el resto de la sección se ve igual.
+   */
+  puedePublicar: boolean
+}) {
   const cliente = useQueryClient()
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [minimaEditada, setMinimaEditada] = useState<string | null>(null)
@@ -202,7 +214,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
    * pregunta al proceso principal en vez de suponerlo: el puente existe
    * siempre, la carpeta del código no.
    */
-  const { data: puedePublicar = false } = useQuery({
+  const { data: proyectoDisponible = false } = useQuery({
     queryKey: ['proyecto-disponible'],
     queryFn: async () => (await window.woodtools?.proyectoDisponible?.()) ?? false,
   })
@@ -425,9 +437,14 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
           sólo a los que están en la versión actual.
         </p>
 
-        {/* Antes que nada: si el circuito está apagado, publicar no sirve y
-            decirlo vale más que un botón que miente. */}
-        {puedePublicar && !otaPrendido && (
+        {/* Publicar/compilar son un permiso (Permisos → "Publicar
+            actualizaciones"): sin él estos botones ni se muestran; el resto de
+            la sección (ver versiones, APK publicados) se ve igual. */}
+        {puedePublicar && (
+          <>
+            {/* Si el circuito está apagado, publicar no sirve y decirlo vale más
+                que un botón que miente. */}
+            {proyectoDisponible && !otaPrendido && (
           <div className="aviso atencion" style={{ marginBottom: 12 }}>
             <strong>Las actualizaciones por aire están apagadas.</strong> Falta completar{' '}
             <code>EAS_UPDATE_URL</code> en el <code>.env</code> del proyecto. Mientras esté vacía,
@@ -436,7 +453,7 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
           </div>
         )}
 
-        {puedePublicar ? (
+        {proyectoDisponible ? (
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
               <span style={{ color: 'var(--tinta-suave)' }}>A qué celulares</span>
@@ -573,6 +590,8 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
             </div>
           )}
         </div>
+          </>
+        )}
 
         {/* ── Lo que hay para bajar ──────────────────────────────────────── */}
         {versiones && versiones.length > 0 && (
