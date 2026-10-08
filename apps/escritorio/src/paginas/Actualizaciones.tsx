@@ -135,41 +135,54 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
   })
 
   /**
-   * Publicar a TODA la flota de una, esté cada teléfono en la versión que esté.
+   * Las versiones que tienen HOY los teléfonos activos (últimas 2 semanas): los
+   * runtimes a los que puede ir una actualización por aire.
    *
-   * El botón de arriba publica al runtime de la versión actual y nada más: el
-   * `runtimeVersion` sigue a esa versión, así que un teléfono que quedó en una
-   * anterior no recibe nada. Acá se saca de los teléfonos activos QUÉ versiones
-   * hay hoy en la calle y se publica a cada una, para que ninguno quede mudo.
-   * Es lo que antes había que hacer a mano, una publicación por versión.
+   * La ventana corta no es un detalle: un teléfono que no se usa hace rato suele
+   * ser también uno con un APK viejo, y mandarle el bundle de ahora lo colgaría
+   * si ese APK no trae algún módulo nativo que el bundle importa arriba (hoy,
+   * `expo-av` en `transcripcion.ts`). Dejándolos afuera por inactividad, de paso
+   * no se les manda algo que su versión no corre.
    */
-  const publicarTodos = useMutation({
-    mutationFn: async (canal: string) => {
-      const puente = window.woodtools
-      if (!puente?.publicarATodosLosRuntimes) {
-        throw new Error(
-          'Esta copia del panel no puede publicar: hace falta tenerla abierta desde la carpeta del proyecto.',
-        )
-      }
-      // Las versiones que tienen HOY los teléfonos activos son los runtimes a
-      // los que hay que publicar. Uno que no se usa hace un mes no cuenta.
-      const hace30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const { data: runtimesActivos = [] } = useQuery({
+    queryKey: ['runtimes-activos'],
+    queryFn: async () => {
+      const hace14dias = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
       const { data, error } = await supabase
         .from('dispositivos')
         .select('version_app')
         .eq('autorizado', true)
-        .gt('ultimo_visto_en', hace30dias)
+        .gt('ultimo_visto_en', hace14dias)
       if (error) throw error
       const filas = (data ?? []) as Array<{ version_app: string | null }>
-      const runtimes = [
+      return [
         ...new Set(
           filas
             .map((d) => d.version_app)
             .filter((v): v is string => typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)),
         ),
-      ]
-      if (runtimes.length === 0) {
-        throw new Error('No encontré teléfonos activos con una versión válida a la que publicar.')
+      ].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+    },
+    // Sólo hace falta para el botón de publicar, que es de admin.
+    enabled: !soloLectura,
+  })
+
+  /**
+   * Publicar a TODA la flota de una, a cada versión que hay hoy en uso.
+   *
+   * El botón de abajo publica sólo al runtime de la versión actual: el
+   * `runtimeVersion` sigue a esa versión, así que un teléfono que quedó en una
+   * anterior no recibe nada. Éste va a cada una de `runtimesActivos`, así ninguno
+   * en uso queda mudo. Es lo que antes había que hacer a mano, una publicación
+   * por versión.
+   */
+  const publicarTodos = useMutation({
+    mutationFn: async ({ canal, runtimes }: { canal: string; runtimes: string[] }) => {
+      const puente = window.woodtools
+      if (!puente?.publicarATodosLosRuntimes) {
+        throw new Error(
+          'Esta copia del panel no puede publicar: hace falta tenerla abierta desde la carpeta del proyecto.',
+        )
       }
       return { runtimes, resultado: await puente.publicarATodosLosRuntimes(canal, runtimes) }
     },
@@ -442,21 +455,28 @@ export function PaginaActualizaciones({ soloLectura }: { soloLectura: boolean })
                 estén en la versión que estén. Va primero y es la primaria. */}
             <button
               className="primario"
-              disabled={soloLectura || publicarTodos.isPending || !otaPrendido}
+              disabled={
+                soloLectura || publicarTodos.isPending || !otaPrendido || runtimesActivos.length === 0
+              }
               onClick={() => {
+                if (runtimesActivos.length === 0) return
+                /* Se listan las versiones en la pregunta a propósito: así se ve
+                   a dónde va antes de mandarlo, y si aparece una vieja rara se
+                   corta a tiempo. Las que no se usan hace 2 semanas no entran. */
                 if (
                   confirm(
-                    `¿Publicar la actualización a TODA la flota del canal "${canal}", esté cada teléfono en la versión que esté?\n\n` +
-                      'Se publica a cada versión que hay hoy en uso, una por una, así ninguno queda sin recibirla. Puede tardar unos minutos.',
+                    `¿Publicar la actualización a toda la flota del canal "${canal}"?\n\n` +
+                      `Va a las versiones que hay hoy en uso: ${runtimesActivos.join(', ')}.\n` +
+                      'Los teléfonos que no se usan hace más de 2 semanas quedan afuera. Puede tardar unos minutos.',
                   )
                 ) {
-                  publicarTodos.mutate(canal)
+                  publicarTodos.mutate({ canal, runtimes: runtimesActivos })
                 }
               }}
             >
               {publicarTodos.isPending
                 ? 'Publicando a toda la flota…'
-                : 'Publicar a toda la flota (todas las versiones)'}
+                : `Publicar a toda la flota${runtimesActivos.length ? ` (${runtimesActivos.length} versiones)` : ''}`}
             </button>
 
             {/* La de siempre: publica sólo al runtime de la versión actual. Se
