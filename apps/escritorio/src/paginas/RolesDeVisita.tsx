@@ -1,7 +1,10 @@
 import {
+  combinarObservacionYResumen,
   ETIQUETA_ESTADO_PARADA,
   fechaLocalISO,
   formatearHora,
+  resumenesDePedidoSueltoPorParada,
+  type NotaSuelta,
   type ParadaCompleta,
   type Perfil,
   type RolVisita,
@@ -118,6 +121,49 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
     },
     enabled: !!vendedorId,
   })
+
+  /**
+   * Las notas de ese día que NO salieron del botón de la parada (el ~80 %). Se
+   * enganchan por cliente para mostrar "qué vendió" en el Resultado, aunque la
+   * nota se haya hecho desde la pestaña "Notas de pedido". Las que tienen
+   * `parada_id` ya están en la observación del parte, así que no se traen.
+   */
+  const { data: notasSueltas } = useQuery({
+    queryKey: ['notas-sueltas-rol', vendedorId, fecha],
+    enabled: !!vendedorId,
+    queryFn: async () => {
+      // La ventana es el día local del rol (Argentina no tiene horario de verano).
+      const desde = new Date(`${fecha}T00:00:00`)
+      const hasta = new Date(desde)
+      hasta.setDate(hasta.getDate() + 1)
+      const { data, error: err } = await supabase
+        .from('notas_pedido')
+        .select(
+          'parada_id, cliente_id, direccion_id, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+        )
+        .eq('vendedor_id', vendedorId)
+        .is('parada_id', null)
+        .neq('estado', 'anulada')
+        .gte('creado_en', desde.toISOString())
+        .lt('creado_en', hasta.toISOString())
+      if (err) throw err
+      return (data ?? []) as unknown as NotaSuelta[]
+    },
+  })
+
+  /** El "qué vendió/hizo" de las notas sueltas, por parada. */
+  const resumenSuelto = useMemo(
+    () =>
+      resumenesDePedidoSueltoPorParada(
+        (jornada?.paradas ?? []).map((p) => ({
+          id: p.id,
+          cliente_id: p.cliente_id,
+          direccion_id: p.direccion_id,
+        })),
+        notasSueltas ?? [],
+      ),
+    [jornada, notasSueltas],
+  )
 
   // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
   const [termino, setTermino] = useState('')
@@ -472,10 +518,13 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
                       <td style={{ textAlign: 'center' }}>{p.visita?.entrego ? 'X' : ''}</td>
                       <td>{p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? ''}</td>
                       <td>
-                        {p.visita?.observacion ??
-                          (p.estado === 'pendiente' || p.estado === 'en_camino'
-                            ? ''
-                            : ETIQUETA_ESTADO_PARADA[p.estado])}
+                        {combinarObservacionYResumen(
+                          p.visita?.observacion ??
+                            (p.estado === 'pendiente' || p.estado === 'en_camino'
+                              ? ''
+                              : ETIQUETA_ESTADO_PARADA[p.estado]),
+                          resumenSuelto.get(p.id),
+                        )}
                       </td>
                       <td className="no-imprimir">
                         {(() => {

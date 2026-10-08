@@ -3014,6 +3014,98 @@ function enumerar(partes: string[]): string {
   return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Notas "sueltas": las que no salieron del botón de la parada
+//
+// La observación del parte sólo trae el "qué se vendió" cuando la nota se hizo
+// DESDE la parada (queda con `parada_id`). En la práctica el ~80 % de las notas
+// se cargan desde la pestaña "Notas de pedido", sin parada, así que el rol de
+// visita las muestra en blanco. Esto las engancha por cliente+día para que el
+// panel y el impreso las puedan mostrar igual, sin depender de cómo se cargaron.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Una parada del rol, con lo justo para enganchar sus notas. */
+export interface ParadaParaResumen {
+  id: string
+  cliente_id: string | null
+  direccion_id: string | null
+}
+
+/**
+ * Una nota de pedido suelta: la que NO salió del botón de la parada (`parada_id`
+ * null) y por eso no quedó escrita en la observación del parte.
+ */
+export interface NotaSuelta {
+  parada_id: string | null
+  cliente_id: string | null
+  direccion_id: string | null
+  items: RenglonParaResumen[]
+}
+
+/**
+ * Para cada parada, la frase de "qué se vendió/hizo" armada con las notas de ese
+ * cliente ese día que NO salieron del botón de la parada.
+ *
+ * Por qué sólo las sueltas: las que tienen `parada_id` ya las metió la app en la
+ * observación del parte al guardar la visita; recalcularlas acá las duplicaría.
+ *
+ * El enganche va por cliente. Si el cliente entra por varias sucursales, se
+ * desempata por dirección; la nota sin dirección cae en la primera parada de ese
+ * cliente.
+ */
+export function resumenesDePedidoSueltoPorParada(
+  paradas: ParadaParaResumen[],
+  notas: NotaSuelta[],
+): Map<string, string> {
+  const paradasPorCliente = new Map<string, ParadaParaResumen[]>()
+  for (const p of paradas) {
+    if (!p.cliente_id) continue
+    const arr = paradasPorCliente.get(p.cliente_id) ?? []
+    arr.push(p)
+    paradasPorCliente.set(p.cliente_id, arr)
+  }
+
+  const renglonesPorParada = new Map<string, RenglonParaResumen[]>()
+  for (const n of notas) {
+    if (n.parada_id || !n.cliente_id) continue
+    const candidatas = paradasPorCliente.get(n.cliente_id)
+    if (!candidatas || candidatas.length === 0) continue
+    const destino =
+      candidatas.length === 1
+        ? candidatas[0]
+        : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+          candidatas[0])
+    const arr = renglonesPorParada.get(destino.id) ?? []
+    arr.push(...n.items)
+    renglonesPorParada.set(destino.id, arr)
+  }
+
+  const out = new Map<string, string>()
+  for (const [paradaId, renglones] of renglonesPorParada) {
+    const partes = resumenDeRenglonesDeVisita(renglones)
+      .map((r) => r.trim())
+      .filter(Boolean)
+    if (partes.length > 0) out.set(paradaId, enumerar(partes))
+  }
+  return out
+}
+
+/**
+ * Pega el resumen del pedido al final del texto del resultado, como una frase
+ * más. Respeta el formato que ya arma la app en la observación: una oración
+ * terminada en punto.
+ */
+export function combinarObservacionYResumen(
+  base: string,
+  resumen: string | undefined | null,
+): string {
+  if (!resumen) return base
+  const b = base.trim()
+  if (!b) return `${resumen}.`
+  const sep = /[.!?]$/.test(b) ? ' ' : '. '
+  return `${b}${sep}${resumen}.`
+}
+
 /**
  * Cuánto puede medir la línea antes de comerse dos renglones del recuadro.
  *

@@ -13,6 +13,7 @@
  * mezclar orientaciones en un mismo trabajo termina en hojas rotadas al azar.
  */
 
+import { combinarObservacionYResumen } from './notas-pedido'
 import { ETIQUETA_MOTIVO_NO_VISITA, type ParadaCompleta } from './tipos'
 import { formatearFechaCorta, formatearHora } from './validaciones'
 
@@ -92,12 +93,17 @@ const RENGLON_VACIO = (): RenglonRolDeVisita => ({
  * papel un renglón sin ningún tilde de "tipo de visita" y sin explicación no se
  * distingue de uno que quedó sin hacer.
  */
-function resultadoDeParada(p: ParadaCompleta): string {
+function resultadoDeParada(p: ParadaCompleta, resumenSuelto?: string): string {
   const v = p.visita
-  if (!v) return ''
-  if (v.visitado) return v.observacion
-  const motivo = v.motivo_no_visita ? ETIQUETA_MOTIVO_NO_VISITA[v.motivo_no_visita] : 'Sin visitar'
-  return `NO VISITADO — ${motivo}. ${v.observacion}`
+  const base = !v
+    ? ''
+    : v.visitado
+      ? v.observacion
+      : `NO VISITADO — ${v.motivo_no_visita ? ETIQUETA_MOTIVO_NO_VISITA[v.motivo_no_visita] : 'Sin visitar'}. ${v.observacion}`
+  // El resumen son las notas del cliente que no salieron del botón de la parada.
+  // Las que sí tienen `parada_id` ya están en `v.observacion`, así que no se
+  // suman acá (las arma la app al guardar la visita).
+  return combinarObservacionYResumen(base, resumenSuelto)
 }
 
 /**
@@ -112,6 +118,12 @@ export function rolImprimibleDesdeFilas(
   jornada: { fecha: string },
   paradas: ParadaCompleta[],
   vendedor: { nombre: string; codigo: string | null },
+  /**
+   * Resumen del pedido por parada, para las notas que no salieron del botón de
+   * la parada. Lo pasa el panel (lo arma con `resumenesDePedidoSueltoPorParada`);
+   * el teléfono llama sin esto y el impreso sale como siempre.
+   */
+  resumenesSueltos?: Map<string, string>,
 ): RolDeVisitaParaImprimir {
   const renglones: RenglonRolDeVisita[] = paradas.map((p) => ({
     numero: p.orden,
@@ -123,7 +135,7 @@ export function rolImprimibleDesdeFilas(
     retiro_afilado: p.visita?.retiro_afilado ?? false,
     entrego: p.visita?.entrego ?? false,
     contacto: p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? '',
-    resultado: resultadoDeParada(p),
+    resultado: resultadoDeParada(p, resumenesSueltos?.get(p.id)),
   }))
 
   return {

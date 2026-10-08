@@ -3,7 +3,9 @@ import {
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
   numeroDeNotaImpreso,
+  resumenesDePedidoSueltoPorParada,
   rolImprimibleDesdeFilas,
+  type NotaSuelta,
   type OpcionesImpresion,
   type ParadaCompleta,
   type RolDeVisitaParaImprimir,
@@ -321,10 +323,37 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
     visita: Array.isArray(p.visita) ? (p.visita[0] ?? null) : p.visita,
   })) as ParadaCompleta[]
 
-  return rolImprimibleDesdeFilas(jornada, completas, {
-    nombre: orden.pedida?.nombre_completo ?? '',
-    codigo: orden.pedida?.codigo_vendedor ?? null,
-  })
+  // Las notas de ese día que NO salieron del botón de la parada (el ~80 %): se
+  // enganchan por cliente para que el impreso muestre qué vendió igual. La
+  // ventana es el día local del rol (Argentina no tiene horario de verano).
+  const desde = new Date(`${jornada.fecha}T00:00:00`)
+  const hasta = new Date(desde)
+  hasta.setDate(hasta.getDate() + 1)
+  const { data: notasSueltas } = await supabase
+    .from('notas_pedido')
+    .select(
+      'parada_id, cliente_id, direccion_id, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+    )
+    .eq('vendedor_id', orden.pedida_por)
+    .is('parada_id', null)
+    .neq('estado', 'anulada')
+    .gte('creado_en', desde.toISOString())
+    .lt('creado_en', hasta.toISOString())
+
+  const resumenes = resumenesDePedidoSueltoPorParada(
+    completas.map((p) => ({ id: p.id, cliente_id: p.cliente_id, direccion_id: p.direccion_id })),
+    (notasSueltas ?? []) as unknown as NotaSuelta[],
+  )
+
+  return rolImprimibleDesdeFilas(
+    jornada,
+    completas,
+    {
+      nombre: orden.pedida?.nombre_completo ?? '',
+      codigo: orden.pedida?.codigo_vendedor ?? null,
+    },
+    resumenes,
+  )
 }
 
 /**
