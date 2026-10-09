@@ -1059,6 +1059,29 @@ export async function corregirNotaPedido(datos: DatosCorreccionNota): Promise<vo
   if (error) throw error
 }
 
+/**
+ * Elimina una nota de pedido PENDIENTE propia.
+ *
+ * No la borra de la base: la marca `anulada` —queda registrado que existió y que
+ * la sacó el vendedor— y la saca de las pendientes. Es para cuando una nota se
+ * duplicó o salió mal.
+ *
+ * El servidor sólo lo permite en notas propias que todavía no salieron en papel
+ * (el mismo corte que `sePuedeCorregir`): una vez impresa es un comprobante y lo
+ * maneja la oficina. Esa regla vive en `anular_nota_pedido`; acá sólo se llama.
+ */
+export async function anularNota(notaId: string, motivo?: string): Promise<void> {
+  const { error } = await supabase.rpc('anular_nota_pedido', {
+    p_nota_id: notaId,
+    p_motivo: motivo ?? 'Eliminada por el vendedor desde la app',
+  })
+  if (error) {
+    // P0001: los mensajes que redacta la función (no es tuya, ya salió, no existe).
+    if (error.code === 'P0001') throw new Error(error.message)
+    throw error
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Consulta
 // ─────────────────────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { imprimirNotas } from '../servicios/impresion'
 import {
+  anularNota,
   encolarImpresion,
   marcarImpresas,
   obtenerNota,
@@ -147,6 +148,24 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
       )
     },
     onError: (e: Error) => Alert.alert('No pudimos mandarla', e.message),
+  })
+
+  /**
+   * Eliminar la nota (una duplicada, o que salió mal).
+   *
+   * No la borra: la anula y la saca de pendientes. El servidor sólo lo permite
+   * en notas propias sin imprimir; el botón ya aparece únicamente en ésas. Al
+   * salir bien se vuelve atrás: la nota ya no está en la lista.
+   */
+  const eliminar = useMutation({
+    mutationFn: () => anularNota(notaId),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      void cliente.invalidateQueries({ queryKey: ['nota', notaId] })
+      Alert.alert('Nota eliminada', 'Se sacó de tus notas pendientes.')
+      navigation.goBack()
+    },
+    onError: (e: Error) => Alert.alert('No pudimos eliminarla', e.message),
   })
 
   if (isLoading) {
@@ -328,6 +347,26 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
           <BotonSecundario
             titulo="✎  CORREGIR ESTA NOTA"
             alTocar={() => navigation.push('GenerarNota', { notaId })}
+          />
+        ) : null}
+
+        {/* Eliminar una nota que se duplicó o salió mal. Mismo corte que
+            corregir: sólo mientras no salió en papel. Pide confirmación. */}
+        {sePuedeCorregir(estado, n.impresa_en) ? (
+          <BotonSecundario
+            titulo="🗑  ELIMINAR ESTA NOTA"
+            cargando={eliminar.isPending}
+            alTocar={() => {
+              const nro = numeroDeNotaImpreso(n.numero, n.vendedor_numero)
+              Alert.alert(
+                `Eliminar la nota ${nro ? `Nº ${nro}` : 'pendiente'}`,
+                'Se saca de tus pendientes y no se va a imprimir. Queda anulada (la oficina la ve así). No se puede deshacer desde el teléfono.',
+                [
+                  { text: 'Volver', style: 'cancel' },
+                  { text: 'Eliminar', style: 'destructive', onPress: () => eliminar.mutate() },
+                ],
+              )
+            }}
           />
         ) : null}
 

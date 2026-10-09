@@ -17,6 +17,7 @@ import { Campo, Casilla, comparable } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import {
+  anularNota,
   marcarImpresas,
   notasPendientes,
   sePuedeCorregir,
@@ -88,6 +89,40 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
    * red se cayó al marcarlas— y ahí lo que corresponde es decirlo y dejarlas
    * pendientes, no dar por perdida la impresión.
    */
+  /**
+   * Eliminar una nota pendiente (p. ej. una que se duplicó o salió mal).
+   *
+   * No la borra: la anula —queda el registro— y la saca de pendientes. El
+   * servidor sólo lo permite en notas propias sin imprimir; el botón ya aparece
+   * únicamente en ésas (`sePuedeCorregir`).
+   */
+  const eliminar = useMutation({
+    mutationFn: (id: string) => anularNota(id),
+    onSuccess: (_r, id) => {
+      void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      // Si estaba tildada, sacarla de la selección: ya no existe para imprimir.
+      setElegidas((s) => {
+        const n = new Set(s)
+        n.delete(id)
+        return n
+      })
+      Alert.alert('Nota eliminada', 'Se sacó de tus notas pendientes.')
+    },
+    onError: (e: Error) => Alert.alert('No pudimos eliminarla', e.message),
+  })
+
+  function confirmarEliminar(nota: NotaResumen) {
+    const nro = numeroDeNotaImpreso(nota.numero, nota.vendedor_numero)
+    Alert.alert(
+      `Eliminar la nota ${nro ? `Nº ${nro}` : 'pendiente'}`,
+      `${nota.cliente_nombre}\n\nSe saca de tus pendientes y no se va a imprimir. Queda anulada (la oficina la ve así). No se puede deshacer desde el teléfono.`,
+      [
+        { text: 'Volver', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => eliminar.mutate(nota.id) },
+      ],
+    )
+  }
+
   const confirmar = useMutation({
     mutationFn: (ids: string[]) => marcarImpresas(ids),
     onSuccess: () => {
@@ -239,6 +274,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 // abajo en la pila, `navigate` volvería a ése —cargado con la
                 // nota anterior— en vez de abrir el que se pidió.
                 alCorregir={() => navigation.push('GenerarNota', { notaId: n.id })}
+                alEliminar={() => confirmarEliminar(n)}
               />
             ))}
 
@@ -302,12 +338,14 @@ function FilaNota({
   alAlternar,
   alVer,
   alCorregir,
+  alEliminar,
 }: {
   nota: NotaResumen
   elegida: boolean
   alAlternar: () => void
   alVer: () => void
   alCorregir: () => void
+  alEliminar: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -360,24 +398,37 @@ function FilaNota({
       </Pressable>
 
       {/*
-        El ✎ desaparece cuando la nota ya salió en papel.
+        Corregir (✎) y eliminar (🗑) desaparecen cuando la nota ya salió en papel.
 
         Puede pasar acá, en la lista de PENDIENTES: las notas que esperan el
         código de cliente se imprimen sin cambiar de estado —para no caerse de
         la cola de Administración— así que siguen figurando como pendientes.
-        Ofrecer corregirlas era mandar al vendedor a cargar cambios que el
-        servidor iba a rechazar al guardar.
+        Ofrecerlas era mandar al vendedor a cargar cambios (o a borrar algo) que
+        el servidor iba a rechazar: la nota impresa es un comprobante.
       */}
       {sePuedeCorregir(nota.estado, nota.impresa_en) ? (
-        <Pressable
-          onPress={alCorregir}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
-          style={({ pressed }) => [estilos.corregir, pressed && estilos.corregirTocado]}
-        >
-          <Text style={estilos.corregirTexto}>✎</Text>
-        </Pressable>
+        <View style={estilos.acciones}>
+          <Pressable
+            onPress={alCorregir}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
+            style={({ pressed }) => [estilos.botonFila, pressed && estilos.botonFilaTocado]}
+          >
+            <Text style={estilos.corregirTexto}>✎</Text>
+          </Pressable>
+          {/* Para la nota duplicada o que salió mal. Pide confirmación antes de
+              sacarla, así un toque al pasar no borra nada. */}
+          <Pressable
+            onPress={alEliminar}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Eliminar la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
+            style={({ pressed }) => [estilos.botonFila, pressed && estilos.botonFilaTocado]}
+          >
+            <Text style={estilos.eliminarTexto}>🗑</Text>
+          </Pressable>
+        </View>
       ) : (
         <View style={estilos.corregirVacio}>
           <Text style={estilos.corregirVacioTexto}>ya{'\n'}salió</Text>
@@ -456,8 +507,10 @@ const usarEstilos = hojaDeTema((t) => ({
     marginLeft: 'auto',
   },
 
-  /** El lápiz que abre la nota para corregirla. Sólo existe en las pendientes. */
-  corregir: {
+  /** Los botones ✎ (corregir) y 🗑 (eliminar), uno al lado del otro. */
+  acciones: { flexDirection: 'row', gap: espaciado.xs, alignItems: 'center' },
+  /** La caja de cada botón de la fila (✎ y 🗑). Sólo existen en las pendientes. */
+  botonFila: {
     width: 46,
     minHeight: 46,
     borderWidth: 2,
@@ -467,7 +520,8 @@ const usarEstilos = hojaDeTema((t) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  corregirTocado: { backgroundColor: t.colores.campo },
+  botonFilaTocado: { backgroundColor: t.colores.campo },
+  eliminarTexto: { fontSize: t.tipografia.tamano.base },
   /** El hueco del ✎ cuando la nota ya se imprimió: dice por qué no está. */
   corregirVacio: { width: 46, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
   corregirVacioTexto: {
