@@ -8,11 +8,12 @@ import {
   type Paleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
+import { Desplegable } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
@@ -27,6 +28,7 @@ import {
   quitarDeLaAgenda,
   type ItemDeAgenda,
 } from '../servicios/agenda'
+import { direccionesDeCliente } from '../servicios/clientes'
 import { reordenarParadas } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -129,6 +131,20 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   // El destino cuya hoja de "moverlo en el recorrido" está abierta, o null.
   const [moviendo, setMoviendo] = useState<ItemDeAgenda | null>(null)
 
+  // Sucursal elegida por cliente, para los sugeridos con varios lugares de
+  // entrega. Se guarda por cliente (no en la hoja) a propósito: "agendar con
+  // hora" cierra la hoja y abre el reloj, y recién ahí agenda, así que la
+  // elección tiene que sobrevivir a que `enAccion` vuelva a null.
+  const [sucursalPorCliente, setSucursalPorCliente] = useState<Record<string, string>>({})
+  const { data: sucursalesAgenda = [] } = useQuery({
+    queryKey: ['sucursales', enAccion?.cliente_id],
+    queryFn: () => direccionesDeCliente(enAccion!.cliente_id!),
+    enabled: !!enAccion?.cliente_id && enAccion?.tipo === 'sugerida',
+    staleTime: 60_000,
+  })
+  const principalAgenda =
+    sucursalesAgenda.find((s) => s.principal)?.id ?? sucursalesAgenda[0]?.id ?? null
+
   /**
    * Las paradas ABIERTAS del día, separadas en las que tienen hora y las que no.
    *
@@ -215,8 +231,18 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
   }
 
   const agendar = useMutation({
-    mutationFn: (params: { item: ItemDeAgenda; fecha: string; hora?: string | null }) =>
-      agendarVisita({ clienteId: params.item.cliente_id!, fecha: params.fecha, hora: params.hora }),
+    mutationFn: (params: {
+      item: ItemDeAgenda
+      fecha: string
+      hora?: string | null
+      direccionId?: string | null
+    }) =>
+      agendarVisita({
+        clienteId: params.item.cliente_id!,
+        fecha: params.fecha,
+        hora: params.hora,
+        direccionId: params.direccionId,
+      }),
     onSuccess: refrescar,
     onError: (e: Error) => Alert.alert('No pudimos agendarlo', e.message),
   })
@@ -462,6 +488,22 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
       <HojaDeAcciones
         item={enAccion}
         alCerrar={() => setEnAccion(null)}
+        encabezado={
+          enAccion?.tipo === 'sugerida' && enAccion.cliente_id && sucursalesAgenda.length >= 2 ? (
+            <Desplegable<string>
+              etiqueta="¿A QUÉ SUCURSAL?"
+              valor={sucursalPorCliente[enAccion.cliente_id] ?? principalAgenda}
+              items={sucursalesAgenda.map((s) => ({
+                valor: s.id,
+                etiqueta: s.principal ? 'Principal' : s.etiqueta,
+                descripcion: s.direccion_formateada,
+              }))}
+              alCambiar={(id) =>
+                setSucursalPorCliente((prev) => ({ ...prev, [enAccion.cliente_id!]: id }))
+              }
+            />
+          ) : undefined
+        }
         acciones={
           enAccion
             ? enAccion.tipo === 'sugerida'
@@ -491,7 +533,12 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
                       enAccion.lat === null
                         ? 'Entra al final del día y lo ubicás cuando llegues'
                         : undefined,
-                    hacer: (i) => agendar.mutate({ item: i, fecha: elegido }),
+                    hacer: (i) =>
+                      agendar.mutate({
+                        item: i,
+                        fecha: elegido,
+                        direccionId: i.cliente_id ? sucursalPorCliente[i.cliente_id] : undefined,
+                      }),
                   },
                   {
                     etiqueta: 'AGENDAR CON HORA',
@@ -598,7 +645,13 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
             setPidiendoHora(null)
             if (evento.type !== 'set' || !cuando || !item) return
             const hhmm = `${String(cuando.getHours()).padStart(2, '0')}:${String(cuando.getMinutes()).padStart(2, '0')}`
-            if (item.tipo === 'sugerida') agendar.mutate({ item, fecha: elegido, hora: hhmm })
+            if (item.tipo === 'sugerida')
+              agendar.mutate({
+                item,
+                fecha: elegido,
+                hora: hhmm,
+                direccionId: item.cliente_id ? sucursalPorCliente[item.cliente_id] : undefined,
+              })
             else mover.mutate({ item, hora: hhmm })
           }}
         />
@@ -722,10 +775,13 @@ interface Accion {
 function HojaDeAcciones({
   item,
   acciones,
+  encabezado,
   alCerrar,
 }: {
   item: ItemDeAgenda | null
   acciones: Accion[]
+  /** Lo que va entre el título y las acciones; hoy, el selector de sucursal. */
+  encabezado?: ReactNode
   alCerrar: () => void
 }) {
   const estilos = usarEstilos()
@@ -737,6 +793,8 @@ function HojaDeAcciones({
           <Text style={estilos.hojaTitulo} numberOfLines={2}>
             {item?.razon_social}
           </Text>
+
+          {encabezado}
 
           {acciones.map((a) => (
             <Pressable

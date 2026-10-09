@@ -126,6 +126,37 @@ export async function direccionesDeCliente(clienteId: string): Promise<SucursalC
 }
 
 /**
+ * Las direcciones de VARIOS clientes de una, para armar el rol.
+ *
+ * "Clientes de hoy" tilda muchos a la vez: pedir `direccionesDeCliente` por cada
+ * fila serían decenas de viajes. Esto trae las de todos en una sola consulta y
+ * las agrupa por cliente, con la principal primero. Sólo sirve para saber quién
+ * tiene varios lugares de entrega y mostrarle el selector a ésos.
+ */
+export async function sucursalesDeVariosClientes(
+  clienteIds: string[],
+): Promise<Record<string, SucursalCliente[]>> {
+  if (clienteIds.length === 0) return {}
+
+  const { data, error } = await supabase
+    .from('direcciones')
+    .select(
+      'id, etiqueta, direccion_formateada, codigo_postal, lat, lng, localidad, provincia, principal, cliente_id',
+    )
+    .in('cliente_id', clienteIds)
+    .order('principal', { ascending: false })
+    .order('creado_en', { ascending: true })
+
+  if (error) throw conMensajeDeSenal(error)
+
+  const porCliente: Record<string, SucursalCliente[]> = {}
+  for (const fila of (data ?? []) as Array<SucursalCliente & { cliente_id: string }>) {
+    ;(porCliente[fila.cliente_id] ??= []).push(fila)
+  }
+  return porCliente
+}
+
+/**
  * Geolocaliza un cliente del padrón que sólo tiene el domicilio en texto.
  *
  * Los clientes importados del Gestión traen calle, localidad y CP, pero

@@ -19,7 +19,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps
 import Supercluster from 'supercluster'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
-import { Campo, MensajeError } from '../componentes/Formulario'
+import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { Pantalla } from '../componentes/Pantalla'
 import { supabase } from '../nucleo/supabase'
@@ -32,6 +32,7 @@ import {
 import { usarSesion } from '../nucleo/sesion'
 import {
   buscarClientes,
+  direccionesDeCliente,
   ESPERA_TECLEO,
   fichaClienteParaEditar,
   LIMITE_CLIENTES,
@@ -146,6 +147,27 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   const [editando, setEditando] = useState<PinTocado | null>(null)
   const [form, setForm] = useState({ razon_social: '', nombre_fantasia: '', direccion: '' })
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
+
+  // Sucursal elegida para el cliente tocado, cuando tiene varios lugares de
+  // entrega. El pin cae en la principal; si elige otra, tanto el alta como la
+  // navegación van a ésa.
+  const [sucursalId, setSucursalId] = useState<string | null>(null)
+  const { data: sucursales = [] } = useQuery({
+    queryKey: ['sucursales', tocado?.id],
+    queryFn: () => direccionesDeCliente(tocado!.id),
+    enabled: !!tocado?.id,
+    staleTime: 60_000,
+  })
+  // Al cambiar de cliente se reinicia la elección; cuando llegan sus direcciones
+  // arranca en la principal.
+  useEffect(() => {
+    setSucursalId(null)
+  }, [tocado?.id])
+  useEffect(() => {
+    if (tocado && sucursales.length > 0 && sucursalId === null) {
+      setSucursalId(sucursales.find((s) => s.principal)?.id ?? sucursales[0].id)
+    }
+  }, [tocado, sucursales, sucursalId])
 
   // ── Buscador de clientes (nombre / razón social / número) ───────────────────
   // Un solo campo que busca por lo que sea (reusa la búsqueda difusa de
@@ -309,13 +331,29 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
    * no habilitada.
    */
   const agregar = useMutation({
-    mutationFn: async (v: { cliente: PinTocado; prioridad: 'alta' | 'baja'; confirmado?: boolean }) => {
-      // ¿Ya está en el recorrido de hoy? Preguntar si es otra sucursal antes de
-      // agregarlo de nuevo (hay clientes con un código y varios locales).
-      if (!v.confirmado && perfil && (await clienteYaEnRecorrido(perfil.id, v.cliente.id))) {
+    mutationFn: async (v: {
+      cliente: PinTocado
+      prioridad: 'alta' | 'baja'
+      // La sucursal elegida (o null = principal) y el punto adonde navegar, que
+      // es el de esa sucursal, no siempre el del pin.
+      direccionId: string | null
+      destino: { lat: number; lng: number }
+      confirmado?: boolean
+    }) => {
+      // ¿Ya está ESTA sucursal en el recorrido de hoy? Preguntar si es otra antes
+      // de agregarla de nuevo (hay clientes con un código y varios locales).
+      if (
+        !v.confirmado &&
+        perfil &&
+        (await clienteYaEnRecorrido(perfil.id, v.cliente.id, undefined, v.direccionId))
+      ) {
         throw new SucursalDuplicadaError(v.cliente.razon_social)
       }
-      return agregarClienteAlRecorrido({ clienteId: v.cliente.id, prioridad: v.prioridad })
+      return agregarClienteAlRecorrido({
+        clienteId: v.cliente.id,
+        prioridad: v.prioridad,
+        direccionId: v.direccionId,
+      })
     },
     onSuccess: async (_parada, v) => {
       setTocado(null)
@@ -324,9 +362,9 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
       await cliente.invalidateQueries()
       if (v.prioridad === 'alta') {
         // Próximo destino: lo dejó como próxima parada y ahora abre Google Maps
-        // para ir directo hasta la dirección del cliente.
+        // para ir directo hasta la sucursal elegida.
         try {
-          await navegarHacia({ lat: v.cliente.lat, lng: v.cliente.lng })
+          await navegarHacia({ lat: v.destino.lat, lng: v.destino.lng })
         } catch (e) {
           Alert.alert(
             'Quedó como próximo destino',
@@ -381,7 +419,13 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   function iniciarAgregar(prioridad: 'alta' | 'baja') {
     if (enviandoMapa.current || agregar.isPending || !tocado) return
     enviandoMapa.current = true
-    agregar.mutate({ cliente: tocado, prioridad })
+    // La sucursal elegida manda el punto de navegación; si no hay elección (o el
+    // cliente tiene una sola dirección) se usa el del pin, que es la principal.
+    const elegida = sucursales.find((s) => s.id === sucursalId)
+    const destino = elegida
+      ? { lat: elegida.lat, lng: elegida.lng }
+      : { lat: tocado.lat, lng: tocado.lng }
+    agregar.mutate({ cliente: tocado, prioridad, direccionId: sucursalId, destino })
   }
 
   const abrirEdicion = useMutation({
@@ -575,6 +619,22 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
               {tocado?.razon_social}
             </Text>
             <Text style={estilos.hojaSub}>Código: {tocado?.codigo}</Text>
+
+            {/* El cliente tiene varios lugares de entrega: elegir a cuál se va.
+                Con uno solo no aparece. */}
+            {sucursales.length >= 2 ? (
+              <Desplegable<string>
+                etiqueta="¿A QUÉ SUCURSAL?"
+                valor={sucursalId}
+                items={sucursales.map((s) => ({
+                  valor: s.id,
+                  etiqueta: s.principal ? 'Principal' : s.etiqueta,
+                  descripcion: s.direccion_formateada,
+                }))}
+                alCambiar={setSucursalId}
+                deshabilitado={ocupado}
+              />
+            ) : null}
 
             <View style={estilos.acciones}>
               <BotonMenu

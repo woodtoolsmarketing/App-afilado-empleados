@@ -366,10 +366,13 @@ export async function ubicarParada(params: {
 export async function agregarClienteAlRecorrido(params: {
   clienteId: string
   prioridad: PrioridadParada
+  /** Sucursal elegida. Sin ella (o si no es del cliente) el servidor usa la principal. */
+  direccionId?: string | null
 }): Promise<ParadaCompleta> {
   const { data, error } = await supabase.rpc('agregar_cliente_al_recorrido', {
     p_cliente_id: params.clienteId,
     p_prioridad: params.prioridad,
+    p_direccion_id: params.direccionId ?? null,
   })
 
   if (error) {
@@ -625,6 +628,9 @@ export async function candidatosDelDia(): Promise<CandidatoDelDia[]> {
 export async function armarRecorridoCon(
   vendedorId: string,
   candidatos: CandidatoDelDia[],
+  // Sucursal elegida por cliente (direccion_id), para los que tienen varios
+  // lugares de entrega. Si un cliente no está acá, va a su dirección principal.
+  elecciones?: Record<string, string>,
 ): Promise<{ agregados: number; fallaron: Array<{ razon_social: string; motivo: string }> }> {
   const jornada = await asegurarJornadaDeHoy(vendedorId)
   const fallaron: Array<{ razon_social: string; motivo: string }> = []
@@ -632,11 +638,13 @@ export async function armarRecorridoCon(
 
   for (const c of candidatos) {
     try {
+      // La sucursal que eligió el vendedor; si no eligió, la principal. `null`
+      // cuando el cliente no tiene dirección cargada: la parada entra sin ubicar
+      // en vez de no entrar.
+      const direccionId = elecciones?.[c.cliente_id] ?? (await direccionPrincipalDe(c.cliente_id))
       const { data, error } = await supabase.rpc('agregar_parada', {
         p_rol_visita_id: jornada.id,
-        // `null` cuando el cliente no tiene dirección cargada: la parada entra
-        // sin ubicar en vez de no entrar.
-        p_direccion_id: await direccionPrincipalDe(c.cliente_id),
+        p_direccion_id: direccionId,
         // El plan del día no se desvía por nadie: la ruta la ordena la
         // optimización. La prioridad alta es para lo que aparece en el camino.
         p_prioridad: 'baja',

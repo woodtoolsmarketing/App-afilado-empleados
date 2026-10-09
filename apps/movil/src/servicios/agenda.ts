@@ -84,16 +84,24 @@ export function horaLegible(marca: string | null): string | null {
   return `${String(cuando.getHours()).padStart(2, '0')}:${String(cuando.getMinutes()).padStart(2, '0')}`
 }
 
-/** Agenda para una fecha a un cliente que hoy es sólo una sugerencia del plan. */
+/**
+ * Agenda para una fecha a un cliente que hoy es sólo una sugerencia del plan.
+ *
+ * `direccionId` es la sucursal elegida cuando el cliente tiene varios lugares de
+ * entrega. Si no se manda (o no es de ese cliente), el servidor usa la principal,
+ * igual que antes.
+ */
 export async function agendarVisita(params: {
   clienteId: string
   fecha: string
   hora?: string | null
+  direccionId?: string | null
 }): Promise<void> {
   const { error } = await supabase.rpc('agendar_visita', {
     p_cliente_id: params.clienteId,
     p_fecha: params.fecha,
     p_hora: params.hora ? horaDelDia(params.fecha, params.hora) : null,
+    p_direccion_id: params.direccionId ?? null,
   })
 
   if (error) {

@@ -1,14 +1,21 @@
-import { espaciado, estaUbicada, radios, TOQUE_MINIMO } from '@woodtools/compartido'
+import {
+  espaciado,
+  estaUbicada,
+  radios,
+  TOQUE_MINIMO,
+  type SucursalCliente,
+} from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
-import { Campo, comparable } from '../componentes/Formulario'
+import { Campo, comparable, Desplegable } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
+import { sucursalesDeVariosClientes } from '../servicios/clientes'
 import {
   armarRecorridoCon,
   candidatosDelDia,
@@ -48,6 +55,9 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   // Para buscar dentro de la lista del día por nombre o código, en vez de
   // tener que recorrerla a mano.
   const [filtro, setFiltro] = useState('')
+  // Sucursal elegida por cliente (direccion_id), para los que tienen varios
+  // lugares de entrega. Vacío = cada uno va a su principal.
+  const [elecciones, setElecciones] = useState<Record<string, string>>({})
 
   const { data: candidatos, isLoading, error, refetch } = useQuery({
     queryKey: ['candidatos-del-dia'],
@@ -55,6 +65,16 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   })
 
   const lista = candidatos ?? []
+
+  // Las direcciones de los clientes del día, para ofrecer el selector de
+  // sucursal en los que tienen más de una. Una sola consulta para toda la lista,
+  // no una por fila.
+  const { data: sucursalesPorCliente = {} } = useQuery({
+    queryKey: ['sucursales-del-dia', lista.map((c) => c.cliente_id).sort().join(',')],
+    queryFn: () => sucursalesDeVariosClientes(lista.map((c) => c.cliente_id)),
+    enabled: lista.length > 0,
+    staleTime: 60_000,
+  })
   const seleccionados = lista.filter((c) => elegidos.has(c.cliente_id))
   // Cuántos no están en el mapa. Ya no decide quién puede entrar al recorrido
   // —entran todos—, sólo si hace falta explicarle al vendedor qué va a pasar
@@ -105,7 +125,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
   const armar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
-      const resultado = await armarRecorridoCon(perfil.id, seleccionados)
+      const resultado = await armarRecorridoCon(perfil.id, seleccionados, elecciones)
       if (resultado.agregados === 0) return resultado
 
       // Con el recorrido cargado se lo ordena antes de mostrarlo: sin esto la
@@ -126,6 +146,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
     onSuccess: async (r) => {
       await cliente.invalidateQueries()
       setElegidos(new Set())
+      setElecciones({})
 
       const perdidos = r.fallaron.length
       Alert.alert(
@@ -284,6 +305,11 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
                   key={c.cliente_id}
                   candidato={c}
                   elegido={elegidos.has(c.cliente_id)}
+                  sucursales={sucursalesPorCliente[c.cliente_id]}
+                  sucursalElegida={elecciones[c.cliente_id]}
+                  alElegirSucursal={(id) =>
+                    setElecciones((prev) => ({ ...prev, [c.cliente_id]: id }))
+                  }
                   alTocar={() => alternar(c.cliente_id)}
                   alUbicar={() =>
                     // El camino para ubicarlo sigue estando, pero dejó de ser lo
@@ -335,31 +361,34 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
 function Fila({
   candidato,
   elegido,
+  sucursales,
+  sucursalElegida,
+  alElegirSucursal,
   alTocar,
   alUbicar,
 }: {
   candidato: CandidatoDelDia
   elegido: boolean
+  /** Las direcciones del cliente; sólo hay selector si tiene dos o más. */
+  sucursales: SucursalCliente[] | undefined
+  sucursalElegida: string | undefined
+  alElegirSucursal: (direccionId: string) => void
   alTocar: () => void
   alUbicar: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const sinUbicar = candidato.lat === null
+  const variasSucursales = !!sucursales && sucursales.length >= 2
+  const principalId = sucursales?.find((s) => s.principal)?.id ?? sucursales?.[0]?.id ?? null
 
   return (
+    // La tarjeta es ahora una columna: arriba la fila que se tilda, y abajo —sólo
+    // para los clientes con varios lugares de entrega— el selector de sucursal.
     <Pressable
-      // Tocar la fila TILDA, esté el cliente en el mapa o no.
-      //
-      // Antes, si no tenía dirección, el toque se iba derecho a la pantalla de
-      // ubicarlo. No era una ayuda, era el peaje: ubicarlo era la única forma de
-      // que ese cliente entrara al recorrido. Eso es exactamente lo que el
-      // vendedor pidió que se termine —"no me permite dejarlo en la lista sin
-      // tener la dirección"—, y de paso era la única fila de la lista que hacía
-      // algo distinto a las demás con el mismo gesto.
-      //
-      // Ahora todas las filas son el mismo casillero, y ubicarlo pasó a ser el
-      // botón UBICAR de al lado, para el que quiera dejarlo hecho antes de salir.
+      // Tocar la fila TILDA, esté el cliente en el mapa o no. El selector y el
+      // botón UBICAR son Pressables de adentro: se quedan con el dedo, así que
+      // tocarlos no tilda al cliente de yapa.
       onPress={alTocar}
       // No se atenúa aunque esté sin ubicar: entra al recorrido igual que
       // cualquier otro, y el gris leería como "no se puede tocar". La pastilla
@@ -368,60 +397,74 @@ function Fila({
       accessibilityRole="checkbox"
       accessibilityState={{ checked: elegido }}
     >
-      <View style={[estilos.tilde, elegido && estilos.tildeMarcado]}>
-        {elegido ? <Text style={estilos.tildeTexto}>✓</Text> : null}
-      </View>
-
-      <View style={estilos.datos}>
-        <Text style={estilos.nombre}>
-          {candidato.codigo ? `${candidato.codigo} · ` : ''}
-          {candidato.razon_social}
-        </Text>
-        {candidato.direccion ? (
-          <Text style={estilos.direccion} numberOfLines={1}>
-            {candidato.direccion}
-          </Text>
-        ) : null}
-        <View style={estilos.pastillas}>
-          <Pastilla texto={`CADA ${candidato.cada_cuantos_dias} DÍAS`} color={colores.tintaSuave} />
-          {/* Cuánto se pasó, no cuándo fue: "hace 22 días" dice si urge; una
-              fecha obliga a sacar la cuenta. */}
-          {candidato.dias_desde !== null ? (
-            <Pastilla
-              texto={`HACE ${candidato.dias_desde} DÍAS`}
-              color={
-                candidato.dias_desde > candidato.cada_cuantos_dias * 2
-                  ? colores.rojoAccion
-                  : colores.ambarOscuro
-              }
-            />
-          ) : (
-            <Pastilla texto="NUNCA VISITADO" color={colores.azul} />
-          )}
-          {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
+      <View style={estilos.filaPrincipal}>
+        <View style={[estilos.tilde, elegido && estilos.tildeMarcado]}>
+          {elegido ? <Text style={estilos.tildeTexto}>✓</Text> : null}
         </View>
+
+        <View style={estilos.datos}>
+          <Text style={estilos.nombre}>
+            {candidato.codigo ? `${candidato.codigo} · ` : ''}
+            {candidato.razon_social}
+          </Text>
+          {candidato.direccion ? (
+            <Text style={estilos.direccion} numberOfLines={1}>
+              {candidato.direccion}
+            </Text>
+          ) : null}
+          <View style={estilos.pastillas}>
+            <Pastilla texto={`CADA ${candidato.cada_cuantos_dias} DÍAS`} color={colores.tintaSuave} />
+            {/* Cuánto se pasó, no cuándo fue: "hace 22 días" dice si urge; una
+                fecha obliga a sacar la cuenta. */}
+            {candidato.dias_desde !== null ? (
+              <Pastilla
+                texto={`HACE ${candidato.dias_desde} DÍAS`}
+                color={
+                  candidato.dias_desde > candidato.cada_cuantos_dias * 2
+                    ? colores.rojoAccion
+                    : colores.ambarOscuro
+                }
+              />
+            ) : (
+              <Pastilla texto="NUNCA VISITADO" color={colores.azul} />
+            )}
+            {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
+          </View>
+        </View>
+
+        {/*
+          El camino a ubicarlo, al costado y no encima del toque de la fila. Va
+          visible y no en un toque largo a propósito: el que maneja la camioneta
+          no va a descubrir solo un gesto que nadie le contó.
+        */}
+        {sinUbicar ? (
+          <Pressable
+            onPress={alUbicar}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Ubicar a ${candidato.razon_social} en el mapa`}
+            style={({ pressed }) => [estilos.ubicar, pressed && estilos.ubicarTocado]}
+          >
+            <Text style={estilos.ubicarTexto}>UBICAR</Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      {/*
-        El camino a ubicarlo, ahora al costado y no encima del toque de la fila.
-        Es un Pressable adentro de otro: el de adentro se queda con el dedo, así
-        que tocar UBICAR no tilda al cliente de yapa.
-
-        Va visible y no en un toque largo a propósito. Un toque largo no se ve, y
-        el que maneja la camioneta no va a descubrirlo solo; si el único camino
-        para ubicar a un cliente es un gesto que nadie le contó, es lo mismo que
-        haberlo sacado.
-      */}
-      {sinUbicar ? (
-        <Pressable
-          onPress={alUbicar}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`Ubicar a ${candidato.razon_social} en el mapa`}
-          style={({ pressed }) => [estilos.ubicar, pressed && estilos.ubicarTocado]}
-        >
-          <Text style={estilos.ubicarTexto}>UBICAR</Text>
-        </Pressable>
+      {/* Varios lugares de entrega: a cuál se arma la parada. Arranca en la
+          principal; con una sola dirección no aparece. */}
+      {variasSucursales ? (
+        <View style={estilos.selectorSucursal}>
+          <Desplegable<string>
+            etiqueta="SUCURSAL"
+            valor={sucursalElegida ?? principalId}
+            items={sucursales!.map((s) => ({
+              valor: s.id,
+              etiqueta: s.principal ? 'Principal' : s.etiqueta,
+              descripcion: s.direccion_formateada,
+            }))}
+            alCambiar={alElegirSucursal}
+          />
+        </View>
       ) : null}
     </Pressable>
   )
@@ -450,14 +493,24 @@ const usarEstilos = hojaDeTema((t) => ({
     textDecorationLine: 'underline',
   },
   fila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: espaciado.sm,
     backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
     padding: espaciado.sm,
     borderWidth: 2,
     borderColor: 'transparent',
+    gap: espaciado.xs,
+  },
+  // La fila que se tilda (tilde + datos + UBICAR). Antes era el contenedor
+  // entero; ahora, cuando hay selector de sucursal, es sólo la parte de arriba.
+  filaPrincipal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+  },
+  // El selector queda alineado debajo de los datos (no del tilde), para que se
+  // lea como un dato más de ese cliente.
+  selectorSucursal: {
+    paddingLeft: 26 + espaciado.sm,
   },
   /*
    * `campoBlanco` y no `blanco`: el blanco puro es el mismo en los dos temas,
