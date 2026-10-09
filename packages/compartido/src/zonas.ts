@@ -165,6 +165,8 @@ export const ZONAS: ZonaVenta[] = [
     provincias: [BA],
     listadoEstimado: true,
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'San Martín', 'Villa Juan Martín de Pueyrredón', 'Ciudad Jardin El Libertador', 'Pablo Podesta', 'Troncos del Talar', '3 de Febrero', 'Matheu', 'José Ingenieros', 'Villa Bernardo Monteagudo', 'Ingeniero Adolfo Sourdeaux', 'Area de Promocion El Triangulo', 'Loma Verde', 'Ciudad Jardin Lomas de Palomar', 'Barrio Parque Presidente Figueroa Alcorta',
       'Vicente López', 'Olivos', 'Florida', 'Munro', 'Villa Martelli', 'Carapachay',
       'La Lucila', 'Florida Oeste',
       'San Isidro', 'Martínez', 'Acassuso', 'Beccar', 'Boulogne', 'Villa Adelina',
@@ -187,6 +189,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Zona Sur — Avellaneda / Quilmes',
     provincias: [BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Villa Vatteone',
       'Avellaneda', 'Quilmes', 'Berazategui', 'Florencio Varela', 'Florecio Varela',
       // Contiguas, que es lo que dice la planilla.
       'Sarandí', 'Wilde', 'Dock Sud', 'Villa Domínico', 'Piñeyro', 'Crucecita',
@@ -202,6 +206,8 @@ export const ZONAS: ZonaVenta[] = [
     provincias: [BA],
     listadoEstimado: true,
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Villa Elvira', 'Altos de San Lorenzo',
       'La Plata', 'Tolosa', 'Ringuelet', 'Gonnet', 'Manuel B. Gonnet', 'City Bell',
       'Villa Elisa', 'Villa Castells', 'Joaquín Gorina', 'Los Hornos', 'San Carlos',
       'Melchor Romero', 'Abasto', 'Arturo Seguí', 'Etcheverry', 'Olmos', 'Lisandro Olmos',
@@ -214,6 +220,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Zona Sur — Lanús / Lomas',
     provincias: [BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'José Marmol', 'Carlos Spegazzini', 'La Unión', 'Villa Fiorito', 'Don Orione',
       'Lanús', 'Gerli', 'Lomas de Zamora', 'Banfield', 'Monte Grande', 'Adrogué',
       'Canning',
       // "y toda esa parte de la zona sur".
@@ -231,6 +239,8 @@ export const ZONAS: ZonaVenta[] = [
     provincias: [BA],
     listadoEstimado: true,
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'La Reja', 'William C. Morris', 'Villa Celina', 'Villa Udaondo', 'Parque San Martin',
       'Morón', 'Castelar', 'Haedo', 'El Palomar', 'Villa Sarmiento',
       'Ituzaingó', 'Hurlingham', 'William Morris', 'Villa Tesei',
       'Ramos Mejía', 'San Justo', 'Villa Luzuriaga', 'Isidro Casanova',
@@ -297,6 +307,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Mar del Plata / Costa Atlántica',
     provincias: [BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Carilé', 'Batán',
       'Mar del Plata', 'Miramar', 'Chapadmalal', 'Santa Teresita', 'Mar del Tuyú',
       'San Bernardo', 'Mar de Ajó', 'Pinamar', 'San Clemente', 'San Clemente del Tuyú',
       'Santa Clara', 'Santa Clara del Mar', 'Villa Gesell', 'Ostende', 'Las Toninas',
@@ -329,6 +341,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Ruta 5',
     provincias: [BA, 'La Pampa', 'Santa Fe'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Villa Fortabat', 'Bordenave',
       'Arenales', 'General Arenales', 'Santa Rosa', 'Sta. Rosa', 'Darregueira',
       'Trenque Lauquen', 'Rufino', 'Olavarría', 'Junín', 'Bragado',
       'Carlos Casares', 'C. Casares', 'Roque Pérez',
@@ -340,6 +354,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Bahía Blanca',
     provincias: [BA, 'La Pampa'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Punta Alta', 'Adolfo Alsina', 'Cabildo', 'América', 'Ingeniero White',
       'Bahía Blanca', 'Pringles', 'Coronel Pringles', 'Cnel. Pringles',
       'Castex', 'Eduardo Castex', 'Rivadavia', 'Pigüé', 'Carhué', 'Gral. Lacha',
       'Santa Rosa', 'Sta. Rosa', 'Lobería', 'Huanguelén', 'Coronel Suárez',
@@ -352,6 +368,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Entre Ríos',
     provincias: ['Entre Ríos', 'Corrientes'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Los Charruas', 'Villa Valle María', 'Aldea Brasilera', 'Enrique Carbo',
       'Colón', 'Villa Elisa', 'Ubajay', 'San Salvador', 'Concordia', 'Mocoretá',
       'Juan Pujol', 'Monte Caseros', 'San José', 'Concepción del Uruguay',
       'Gualeguaychú', 'Chajarí', 'Calabacillas', 'Pucheta', 'Colonia Libertad',
@@ -383,6 +401,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Pergamino',
     provincias: [BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Lima',
       'San Antonio de Areco', 'S.A. de Areco', 'Capitán Sarmiento', 'Cap. Sarmiento',
       'Salto', 'San Andrés de Giles', 'S.A. de Giles', 'Carmen de Areco', 'C. de Areco',
       'Arrecifes', 'Pergamino', 'Norberto de la Riestra', 'N. de la Riestra',
@@ -395,6 +415,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Luján / Pilar / Mercedes',
     provincias: [BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Fatima', 'Los Cardales',
       'Pilar', 'Capilla del Señor', 'Exaltación de la Cruz', 'Exalt. de la Cruz',
       'Luján', 'Mercedes', 'Parada Robles', 'Villa Flandria', 'Jáuregui', 'Open Door',
       'Cortines',
@@ -406,6 +428,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Rosario',
     provincias: ['Santa Fe', BA],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'San Pedro',
       'Acebal', 'Albarellos', 'Álvarez', 'Arequito', 'Arroyo Seco', 'Baradero',
       'Casilda', 'Empalme Villa Constitución', 'Emp. Villa Constitución', 'Fuentes',
       'Funes', 'Pujato', 'Ramallo', 'Roldán', 'Rosario', 'San Nicolás de los Arroyos',
@@ -419,6 +443,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Urdinarrain / Nogoyá',
     provincias: ['Entre Ríos', 'Corrientes'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Gobernador Mansilla', 'Macia',
       'Urdinarrain', 'Victoria', 'Crespo', 'Ramírez', 'General Ramírez', 'Nogoyá',
       'Rosario del Tala', 'Basavilbaso', 'Corrientes',
     ],
@@ -429,6 +455,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Chillar / Alberti',
     provincias: [BA, 'Santa Fe'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Villa Ortiz',
       'Chillar', "General O'Brien", "Gral. O'Brien", "O'Brien", 'Alberti', 'Moquehuá',
       'General Alvear', 'Gral. Alvear', 'Gorostiaga', 'Suipacha', 'Villa Lía',
       'Pedernales', "O'Higgins", 'Coronel Mom', 'Ascensión', 'Totoras',
@@ -466,6 +494,8 @@ export const ZONAS: ZonaVenta[] = [
     nombre: 'Sur Corta',
     provincias: ['Río Negro', 'Neuquén'],
     localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Choele-choel', 'Coronel Juan José Gómez', 'General Enrique Godoy', 'Chichinales', 'Cervantes',
       'Río Colorado', 'Choele Choel', 'Villa Regina', 'V. Regina', 'Lamarque',
       'General Roca', 'Gral. Roca', 'Allen', 'Cipolletti', 'Cinco Saltos', '5 Saltos',
       'General Conesa', 'Gral. Conesa', 'Neuquén', 'General Godoy', 'Gral. Godoy',
@@ -519,7 +549,9 @@ export const ZONAS: ZonaVenta[] = [
     codigo: '154',
     nombre: 'Bariloche',
     provincias: ['Río Negro'],
-    localidades: ['Bariloche', 'San Carlos de Bariloche', 'Dina Huapi'],
+    localidades: [
+      // Revisión de lugares de entrega (oct 2026): la zona se toma de dónde se entrega.
+      'Villa Los Coihues','Bariloche', 'San Carlos de Bariloche', 'Dina Huapi'],
   },
 ]
 
