@@ -17,12 +17,13 @@ contextBridge.exposeInMainWorld('woodtools', {
   imprimirDocumento: (
     html: string,
     impresora?: { ip: string; puerto?: number; ruta?: string } | null,
+    tamano?: 'A4' | 'A5',
   ): Promise<{
     impreso: boolean
     motivo?: string
     via?: 'ipp' | 'sistema'
     direccion?: string
-  }> => ipcRenderer.invoke('imprimir-documento', html, impresora ?? null),
+  }> => ipcRenderer.invoke('imprimir-documento', html, impresora ?? null, tamano ?? 'A4'),
   abrirExterno: (url: string): Promise<boolean> => ipcRenderer.invoke('abrir-externo', url),
   version: (): Promise<string> => ipcRenderer.invoke('version'),
 

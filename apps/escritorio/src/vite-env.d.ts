@@ -20,6 +20,7 @@ interface Window {
     imprimirDocumento?: (
       html: string,
       impresora?: { ip: string; puerto?: number; ruta?: string } | null,
+      tamano?: 'A4' | 'A5',
     ) => Promise<{
       impreso: boolean
       motivo?: string

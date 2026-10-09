@@ -14,7 +14,7 @@ import * as Print from 'expo-print'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
-import { cobranzasDelDia, hoyLocal, planillaDesdeCobranzas } from './cobranzas'
+import { hoyLocal } from './cobranzas'
 import {
   buscarEnLaRed,
   contestaIpp,
@@ -498,61 +498,6 @@ async function entregarDocumento(
 }
 
 export { ESTILOS_NOTA_PEDIDO }
-
-/**
- * Imprime la planilla de cobranzas del día.
- *
- * Sale sola, sin notas: es la rendición que la oficina separa apenas la recibe.
- * Usa el mismo camino que todo lo demás —impresora de la oficina, y si no
- * responde, el diálogo del sistema— para no tener un cuarto modo de imprimir
- * que se rompa por su cuenta.
- */
-export async function imprimirPlanillaCobranzas(params?: {
-  fecha?: string
-  alAvisar?: (mensaje: string) => void
-}): Promise<ResultadoImpresion> {
-  const { data: sesionActual } = await supabase.auth.getSession()
-  const vendedorId = sesionActual.session?.user.id
-  if (!vendedorId) throw new Error('No hay sesión')
-
-  const fecha = params?.fecha ?? hoyLocal()
-  const cobros = await cobranzasDelDia(fecha)
-  if (cobros.length === 0) {
-    throw new Error('Todavía no cargaste ningún cobro hoy. La planilla saldría vacía.')
-  }
-
-  const { data: perfil } = await supabase
-    .from('perfiles')
-    .select('nombre_completo, codigo_vendedor, zonas')
-    .eq('id', vendedorId)
-    .maybeSingle()
-
-  const zonas = (perfil as { zonas?: string[] } | null)?.zonas ?? []
-
-  const planilla = planillaDesdeCobranzas(
-    cobros,
-    {
-      nombre: perfil?.nombre_completo ?? '',
-      codigo: perfil?.codigo_vendedor ?? null,
-      // "GIRA ZONA" en la planilla de papel. Si el vendedor cubre varias, van
-      // todas: la hoja es de la gira, no de una zona.
-      zona: zonas.length > 0 ? zonas.join(', ') : null,
-    },
-    fecha,
-  )
-
-  const html = generarDocumentoImpresion([], {
-    planillaCobranzas: planilla,
-    escalaDeLetra: escalaDeLetraDelSistema(),
-  })
-
-  return entregarDocumento(html, {
-    queSalio: 'la planilla de cobranzas',
-    plural: false,
-    nombreDelArchivo: `planilla-cobranzas-${fecha}`,
-    alAvisar: params?.alAvisar,
-  })
-}
 
 /**
  * Imprime la planilla del rol de visita del día.

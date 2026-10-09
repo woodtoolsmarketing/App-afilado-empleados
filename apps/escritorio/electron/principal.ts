@@ -266,10 +266,13 @@ interface ResultadoImpresionDocumento {
  *     diálogo—: el trabajo ya viajó, y reimprimir por las dudas sacaría dos
  *     copias de la misma nota.
  */
-ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: unknown) => {
+ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: unknown, tamano: unknown) => {
   if (typeof html !== 'string' || html.length === 0) {
     return { impreso: false, motivo: 'No llegó el documento a imprimir' } as ResultadoImpresionDocumento
   }
+
+  // Las notas y el rol van en A4; la planilla de cobranzas, en A5 (media hoja).
+  const pageSize = tamano === 'A5' ? 'A5' : 'A4'
 
   const hoja = new BrowserWindow({
     show: false,
@@ -290,9 +293,11 @@ ipcMain.handle('imprimir-documento', async (_evento, html: unknown, impresora: u
       // La impresora está. A partir de acá el diálogo deja de ser una opción:
       // si algo falla después de mandar el trabajo, no se reimprime solo.
       try {
-        // A4 y sin márgenes: la nota ya trae los suyos, como el PDF del teléfono.
+        // Sin márgenes de impresora: el documento ya trae los suyos (la nota en
+        // su caja, la planilla en el padding de `.cobranzas`), como el PDF del
+        // teléfono.
         const pdf = await hoja.webContents.printToPDF({
-          pageSize: 'A4',
+          pageSize,
           printBackground: true,
           margins: { top: 0, bottom: 0, left: 0, right: 0 },
         })

@@ -15,8 +15,6 @@
 export interface RenglonCobranza {
   cliente_codigo: string
   cliente_nombre: string
-  /** "FACTURA" o "PRESUPUESTO". Va pegado al nombre, no en columna propia. */
-  comprobante: string
   total: string
   cheque: string
   efectivo: string
@@ -25,9 +23,8 @@ export interface RenglonCobranza {
 
 export interface PlanillaCobranzasParaImprimir {
   vendedor_numero: string
-  vendedor: string
-  /** La zona que recorrió. En la planilla de papel dice "GIRA ZONA". */
-  gira_zona: string
+  /** "FACTURA" o "PRESUPUESTO": cada planilla es de un solo comprobante. */
+  titulo: string
   fecha: string
   cobros: RenglonCobranza[]
   /** La suma, ya escrita. */
@@ -40,7 +37,7 @@ export interface PlanillaCobranzasParaImprimir {
  * La planilla de papel los tiene, y el vendedor los usa para anotar a mano el
  * cobro que aparece después de haber impreso la hoja.
  */
-const FILAS_PLANILLA = 22
+const FILAS_PLANILLA = 14
 
 function escapar(v: unknown): string {
   return String(v ?? '')
@@ -53,7 +50,6 @@ function escapar(v: unknown): string {
 const VACIO = (): RenglonCobranza => ({
   cliente_codigo: '',
   cliente_nombre: '',
-  comprobante: '',
   total: '',
   cheque: '',
   efectivo: '',
@@ -68,9 +64,7 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
     .map(
       (c) => `<tr>
       <td class="c">${escapar(c.cliente_codigo)}</td>
-      <td>${escapar(c.cliente_nombre)}${
-        c.comprobante ? `<br><span class="comprobante">${escapar(c.comprobante)}</span>` : ''
-      }</td>
+      <td>${escapar(c.cliente_nombre)}</td>
       <td class="num">${escapar(c.total)}</td>
       <td class="num">${escapar(c.cheque)}</td>
       <td class="num">${escapar(c.efectivo)}</td>
@@ -82,20 +76,18 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
   return `<div class="cobranzas">
   <div class="cob-cabecera">
     <div class="cob-vendedor">VENDEDOR Nº <u>${escapar(planilla.vendedor_numero || '—')}</u></div>
-    <div class="cob-titulo">PLANILLA DE COBRANZAS</div>
+    <div class="cob-titulo">${escapar(planilla.titulo)}</div>
     <div class="cob-datos">
-      <span>GIRA ZONA: <u>${escapar(planilla.gira_zona || '—')}</u></span>
       <span>FECHA: <u>${escapar(planilla.fecha)}</u></span>
     </div>
   </div>
-  <div class="cob-nombre">${escapar(planilla.vendedor)}</div>
 
   <table class="cob-tabla">
     <thead>
       <tr>
         <th class="w-cod">CODIGO</th>
         <th class="w-cli">CLIENTE</th>
-        <th class="w-tot">TOTAL COBRADO</th>
+        <th class="w-tot">TOTAL</th>
         <th class="w-che">CHEQUE</th>
         <th class="w-efe">EFECTIVO</th>
         <th class="w-com">COMENTARIOS</th>
@@ -122,15 +114,48 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
 }
 
 /**
+ * El documento A5 completo, con una o dos planillas (factura y presupuesto).
+ *
+ * Va en A5 —media hoja A4—, una planilla por página (el salto lo da el
+ * `page-break-after` de `.cobranzas`). El tamaño físico de página lo fija también
+ * quien imprime: en el panel, electron `printToPDF({ pageSize: 'A5' })`. Los dos
+ * tienen que declarar lo mismo —este `@page` y el `pageSize`— o la impresora
+ * reescala, como pasaba con Letter vs A4.
+ *
+ * Lo imprime SÓLO el panel (la oficina). El teléfono ya no imprime la planilla:
+ * el vendedor sólo carga los cobros y los mira en el historial.
+ */
+export function generarDocumentoPlanillasCobranzas(
+  planillas: PlanillaCobranzasParaImprimir[],
+): string {
+  const cuerpo = planillas.map(generarHtmlPlanillaCobranzas).join('\n')
+  // El margen va en `.cobranzas` (padding) y no en `@page`: el panel imprime con
+  // `printToPDF({ margins: 0 })`, que pisa el margen de `@page`. Así el recuadro
+  // queda despegado del borde en cada página igual.
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<style>
+@page { size: A5 portrait; margin: 0; }
+html, body { margin: 0; padding: 0; }
+${ESTILOS_PLANILLA_COBRANZAS}
+</style>
+</head>
+<body>${cuerpo}</body>
+</html>`
+}
+
+/**
  * Hoja de estilos de la planilla.
  *
  * Los anchos suman 100 y la tabla es table-layout:fixed, igual que las otras
  * dos: si no suman, el navegador reparte la sobra a su criterio y la maqueta se
- * desarma — y esto se imprime desde el teléfono, donde nadie lo mira antes de
- * que salga la hoja.
+ * desarma.
  */
 export const ESTILOS_PLANILLA_COBRANZAS = `
-.cobranzas { font-family: Arial, Helvetica, sans-serif; color: #000; }
+.cobranzas { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 6mm; page-break-after: always; }
+.cobranzas:last-child { page-break-after: auto; }
 
 .cob-cabecera {
   display: flex;

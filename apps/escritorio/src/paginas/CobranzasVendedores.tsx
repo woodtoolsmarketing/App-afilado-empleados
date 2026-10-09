@@ -1,5 +1,12 @@
-import { fechaLocalISO } from '@woodtools/compartido'
-import { useQuery } from '@tanstack/react-query'
+import {
+  fechaLocalISO,
+  formatearFechaCorta,
+  formatearPesos,
+  generarDocumentoPlanillasCobranzas,
+  type PlanillaCobranzasParaImprimir,
+  type RenglonCobranza,
+} from '@woodtools/compartido'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import ExcelJS from 'exceljs'
 import { useMemo, useState } from 'react'
 
@@ -76,6 +83,50 @@ function nombreVendedor(c: CobranzaFila): string {
   return `${p.nombre_completo}${p.codigo_vendedor ? ` (#${p.codigo_vendedor})` : ''}`
 }
 
+/** Una planilla imprimible (un comprobante) con los cobros de un vendedor en un día. */
+function armarPlanilla(
+  cobros: CobranzaFila[],
+  titulo: string,
+  fecha: string,
+): PlanillaCobranzasParaImprimir {
+  const renglones: RenglonCobranza[] = cobros.map((c) => ({
+    cliente_codigo: c.cliente_codigo ?? '',
+    cliente_nombre: c.cliente_nombre,
+    total: formatearPesos(n(c.total)),
+    // Un cero se deja en blanco: una columna de ceros se lee como si hubiera pasado algo.
+    cheque: n(c.cheque) > 0 ? formatearPesos(n(c.cheque)) : '',
+    efectivo: n(c.efectivo) > 0 ? formatearPesos(n(c.efectivo)) : '',
+    comentarios: c.comentarios ?? '',
+  }))
+  return {
+    vendedor_numero: cobros[0]?.perfiles?.codigo_vendedor ?? '',
+    titulo,
+    fecha: formatearFechaCorta(`${fecha}T12:00:00`),
+    cobros: renglones,
+    total_general: formatearPesos(sumar(cobros).total),
+  }
+}
+
+/**
+ * La impresora de la oficina, para mandarle la planilla directo por IPP. Misma
+ * fila que leen la cola de impresión y el teléfono (`configuracion.impresora_oficina`);
+ * sin IP cargada, `imprimirDocumento` cae al diálogo del sistema.
+ */
+async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
+  try {
+    const { data } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'impresora_oficina')
+      .maybeSingle()
+    const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
+    if (!cfg?.ip) return null
+    return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
+  } catch {
+    return null
+  }
+}
+
 export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   // Por defecto, los últimos 30 días: lo suficiente para ver la semana y la
   // anterior sin traer todo el histórico.
@@ -88,6 +139,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   const [desde, setDesde] = useState(hace30)
   const [hasta, setHasta] = useState(hoy)
   const [exportando, setExportando] = useState(false)
+  const [mensaje, setMensaje] = useState<string | null>(null)
 
   const { data: cobranzas, isLoading } = useQuery({
     queryKey: ['cobranzas-vendedores', desde, hasta],
@@ -139,6 +191,36 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   }, [cobranzas])
 
   const totalPeriodo = useMemo(() => sumar(cobranzas ?? []), [cobranzas])
+
+  /**
+   * Imprimir las planillas de un vendedor en un día: una por FACTURA y otra por
+   * PRESUPUESTO (sólo las que tienen cobros), en A5. Es SÓLO de administradores
+   * —el botón se gatea con `esAdmin`, aunque otro rol tenga la vista—.
+   */
+  const imprimir = useMutation({
+    mutationFn: async ({ cobros, fecha }: { cobros: CobranzaFila[]; fecha: string }) => {
+      const imprimirDoc = window.woodtools?.imprimirDocumento
+      if (!imprimirDoc) {
+        throw new Error('La impresión es sólo desde el panel instalado en la oficina.')
+      }
+      const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
+      const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
+      const planillas: PlanillaCobranzasParaImprimir[] = []
+      if (facturas.length > 0) planillas.push(armarPlanilla(facturas, 'FACTURA', fecha))
+      if (presupuestos.length > 0) planillas.push(armarPlanilla(presupuestos, 'PRESUPUESTO', fecha))
+      if (planillas.length === 0) throw new Error('No hay cobros para imprimir.')
+      const html = generarDocumentoPlanillasCobranzas(planillas)
+      const impresora = await obtenerImpresora()
+      const r = await imprimirDoc(html, impresora, 'A5')
+      if (!r.impreso) throw new Error(r.motivo ?? 'La impresora no confirmó el trabajo.')
+      return planillas.length
+    },
+    onSuccess: (cantidad) =>
+      setMensaje(
+        cantidad === 1 ? 'Planilla enviada a la impresora.' : 'Planillas enviadas a la impresora.',
+      ),
+    onError: (e: Error) => setMensaje(e.message),
+  })
 
   /**
    * Descargar el Excel. Es SÓLO para administradores, aunque la sección la vean
@@ -257,6 +339,12 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         </div>
       </header>
 
+      {mensaje && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          {mensaje}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="tarjeta">
           <p>Cargando…</p>
@@ -339,15 +427,41 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                   const tot = sumar(cobros)
                   return (
                     <div key={cobros[0].vendedor_id} style={{ marginTop: 14 }}>
-                      <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>
-                        {nombreVendedor(cobros[0])}
-                        <span
-                          style={{ color: 'var(--tinta-suave)', fontWeight: 400, marginLeft: 8, fontSize: 13 }}
-                        >
-                          {cobros.length} {cobros.length === 1 ? 'cobro' : 'cobros'} ·{' '}
-                          {pesos.format(tot.total)}
-                        </span>
-                      </h3>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'baseline',
+                          gap: 10,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>
+                          {nombreVendedor(cobros[0])}
+                          <span
+                            style={{
+                              color: 'var(--tinta-suave)',
+                              fontWeight: 400,
+                              marginLeft: 8,
+                              fontSize: 13,
+                            }}
+                          >
+                            {cobros.length} {cobros.length === 1 ? 'cobro' : 'cobros'} ·{' '}
+                            {pesos.format(tot.total)}
+                          </span>
+                        </h3>
+                        {/* Imprimir las planillas (factura/presupuesto, A5) es SÓLO de
+                            administradores, aunque la vista la tenga otro rol. */}
+                        {esAdmin ? (
+                          <button
+                            className="chico"
+                            disabled={imprimir.isPending}
+                            onClick={() => imprimir.mutate({ cobros, fecha })}
+                          >
+                            {imprimir.isPending ? 'Imprimiendo…' : '🖨 Imprimir planillas'}
+                          </button>
+                        ) : null}
+                      </div>
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>

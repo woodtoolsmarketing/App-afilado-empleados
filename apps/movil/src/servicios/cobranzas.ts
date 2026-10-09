@@ -1,10 +1,4 @@
-import {
-  fechaLocalISO,
-  formatearFechaCorta,
-  formatearPesos,
-  type PlanillaCobranzasParaImprimir,
-  type RenglonCobranza,
-} from '@woodtools/compartido'
+import { fechaLocalISO } from '@woodtools/compartido'
 
 import { conMensajeDeSenal } from '../nucleo/loUltimoQueSupimos'
 import { supabase } from '../nucleo/supabase'
@@ -104,43 +98,6 @@ export async function cobranzasDelDia(fecha?: string): Promise<Cobranza[]> {
 
   if (error) throw error
   return (data ?? []) as Cobranza[]
-}
-
-/**
- * De los cobros del día a la planilla imprimible.
- *
- * Los importes se formatean acá y no en el template por lo mismo que en el rol
- * de visita: el papel no decide formatos, y así el que arma la planilla desde
- * el panel y el que la arma desde el teléfono no pueden escribir los números
- * distinto.
- */
-export function planillaDesdeCobranzas(
-  cobros: Cobranza[],
-  vendedor: { nombre: string; codigo: string | null; zona: string | null },
-  fecha: string,
-): PlanillaCobranzasParaImprimir {
-  const renglones: RenglonCobranza[] = cobros.map((c) => ({
-    cliente_codigo: c.cliente_codigo ?? '',
-    cliente_nombre: c.cliente_nombre,
-    comprobante: c.tipo_comprobante === 'factura' ? 'FACTURA' : 'PRESUPUESTO',
-    total: formatearPesos(c.total),
-    // Un cero no se escribe: la planilla de papel se deja en blanco cuando no
-    // hubo, y una columna de ceros se lee como si hubiera habido algo.
-    cheque: c.cheque > 0 ? formatearPesos(c.cheque) : '',
-    efectivo: c.efectivo > 0 ? formatearPesos(c.efectivo) : '',
-    comentarios: c.comentarios ?? '',
-  }))
-
-  const total = cobros.reduce((suma, c) => suma + Number(c.total), 0)
-
-  return {
-    vendedor_numero: vendedor.codigo ?? '',
-    vendedor: vendedor.nombre,
-    gira_zona: vendedor.zona ?? '',
-    fecha: formatearFechaCorta(`${fecha}T12:00:00`),
-    cobros: renglones,
-    total_general: formatearPesos(total),
-  }
 }
 
 /** La fecha de hoy en Argentina, que es la que usa la base por defecto. */
