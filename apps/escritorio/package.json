@@ -1,6 +1,6 @@
 {
   "name": "@woodtools/escritorio",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "private": true,
   "description": "Panel de administración de escritorio de WoodTools",
   "author": "WoodTools S.R.L.",
