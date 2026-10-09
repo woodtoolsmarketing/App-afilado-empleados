@@ -345,7 +345,8 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
       id: p.id,
       cliente_id: p.cliente_id,
       direccion_id: p.direccion_id,
-      visitaGuardadaEn: p.visita?.registrado_en ?? null,
+      visitaGuardadaEn: p.visita?.actualizado_en ?? null,
+      visitaVisitada: p.visita?.visitado ?? false,
     })),
     (notasSueltas ?? []) as unknown as NotaSuelta[],
   )

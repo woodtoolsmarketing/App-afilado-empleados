@@ -147,9 +147,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   })
   // Arranca con lo que se tildó en el parte de visita (vendió → venta, retiró
   // afilado → afilado); el vendedor suma o saca lo que quiera.
-  const [servicios, setServicios] = useState<TipoServicio[]>(
-    corrigiendo ? [] : (route.params?.serviciosIniciales ?? []),
-  )
+  const serviciosIniciales = corrigiendo ? [] : (route.params?.serviciosIniciales ?? [])
+  const [servicios, setServicios] = useState<TipoServicio[]>(serviciosIniciales)
   const [tipoNota, setTipoNota] = useState<TipoNotaPedido | null>(null)
   /** Cómo se cobra. Va a la columna "Condicion de Venta" del talonario. */
   const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)
@@ -198,7 +197,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     corrigiendo ? null : fechaEntregaPorDefecto(),
   )
   const [calendario, setCalendario] = useState(false)
-  const [items, setItems] = useState<FormularioItemNota[]>([ITEM_VACIO])
+  // Con UNA sola operación preseleccionada desde el parte NO hay desplegable
+  // "ESTE RENGLÓN ES DE" para corregir el renglón (sólo aparece con 2+), así que
+  // el renglón en blanco tiene que arrancar YA en esa operación y elegido. Si
+  // quedara en el 'afilado' de ITEM_VACIO, una venta se dibujaría con el form de
+  // afilado y saldría clasificada —y facturada— como afilado. Con 0 o varias
+  // operaciones se deja el ITEM_VACIO y es el vendedor (o `cambiarServicios`)
+  // quien resuelve cada renglón.
+  const [items, setItems] = useState<FormularioItemNota[]>(
+    serviciosIniciales.length === 1
+      ? [{ ...ITEM_VACIO, servicio: serviciosIniciales[0], servicio_elegido: true }]
+      : [ITEM_VACIO],
+  )
   /** Cuál de los renglones se está editando. */
   const [activo, setActivo] = useState(0)
   const [errores, setErrores] = useState<Record<string, string | undefined>>({})

@@ -3030,12 +3030,19 @@ export interface ParadaParaResumen {
   cliente_id: string | null
   direccion_id: string | null
   /**
-   * Cuándo se guardó el parte de esa parada (`visitas.registrado_en`), o null si
-   * todavía no hay parte. Las notas enganchadas creadas ANTES de eso ya quedaron
-   * escritas en la observación al guardar la visita, así que no se vuelven a
-   * mostrar; las de después, sí.
+   * Cuándo se escribió el parte por última vez (`visitas.actualizado_en`), o null
+   * si todavía no hay parte. Se usa `actualizado_en` y NO `registrado_en` porque
+   * "visitar más tarde" reescribe la observación en un segundo guardado y sólo
+   * `actualizado_en` se mueve con él; con `registrado_en` (congelado en el primer
+   * guardado) la venta cargada entremedio se mostraba duplicada.
    */
   visitaGuardadaEn?: string | null
+  /**
+   * Si el parte quedó como "visitado". El resumen del "qué vendió" sólo se hornea
+   * en la observación cuando SÍ se visitó; si no (parada diferida / no visitada),
+   * la nota no quedó escrita ahí y hay que mostrarla igual aunque sea anterior.
+   */
+  visitaVisitada?: boolean
 }
 
 /** Una nota del día de ese vendedor, con lo justo para armar el "qué vendió". */
@@ -3080,8 +3087,16 @@ export function resumenesDePedidoSueltoPorParada(
     if (n.parada_id) {
       destino = paradaPorId.get(n.parada_id)
       if (!destino) continue
-      // Creada antes de guardar el parte → ya está en la observación, no se duplica.
-      if (destino.visitaGuardadaEn && !esPosterior(n.creado_en, destino.visitaGuardadaEn)) continue
+      // La nota ya está escrita en la observación (y la duplicaríamos) SÓLO si el
+      // parte quedó "visitado" —ahí se hornea el resumen— Y la nota es anterior a
+      // esa escritura. Si no se visitó, o la nota es posterior, no está en la
+      // observación: hay que mostrarla.
+      if (
+        destino.visitaVisitada &&
+        destino.visitaGuardadaEn &&
+        !esPosterior(n.creado_en, destino.visitaGuardadaEn)
+      )
+        continue
     } else {
       if (!n.cliente_id) continue
       const candidatas = paradasPorCliente.get(n.cliente_id)

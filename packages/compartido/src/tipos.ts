@@ -488,6 +488,12 @@ export interface Visita {
   precision_m: number | null
   desvio_m: number | null
   registrado_en: string
+  /**
+   * Cuándo se escribió el parte por última vez. A diferencia de `registrado_en`
+   * (que queda fijo en el primer guardado), el UPDATE de "visitar más tarde" sí
+   * lo mueve, así que es el momento real en que se (re)generó la observación.
+   */
+  actualizado_en: string
 }
 
 export interface PosicionActual {

@@ -1,7 +1,8 @@
 import { aNumero, espaciado, formatearPesos, radios, soloNumeros } from '@woodtools/compartido'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { Alert, Modal, Text, View } from 'react-native'
+import * as Crypto from 'expo-crypto'
+import { useEffect, useRef, useState } from 'react'
+import { Alert, Modal, ScrollView, Text, View } from 'react-native'
 
 import { registrarCobranza } from '../servicios/cobranzas'
 import { hojaDeTema } from '../nucleo/tema'
@@ -18,9 +19,16 @@ import { Pantalla, Panel, TituloPanel } from './Pantalla'
  * Se abre al tildar "COBRÓ" en el parte. El cliente ya es el de la parada, así
  * que no se busca: entra arriba, de sólo lectura, y el vendedor sólo completa
  * contra qué cobra, cheque/efectivo y un comentario. Con esos pocos campos el
- * formulario entra entero en una pantalla —por eso el `Panel` va `desplazable=
- * {false}`, sin ScrollView— y el vendedor no tiene que arrastrar nada en la
- * calle, con una mano.
+ * formulario entra entero en una pantalla y el vendedor no tiene que arrastrar
+ * nada en la calle, con una mano.
+ *
+ * El título y los botones quedan FIJOS; los campos van en un ScrollView propio
+ * (por eso el `Panel` va `desplazable={false}`, para no anidar dos scrolls). En
+ * una pantalla normal no hay nada que arrastrar; pero cuando aparece el recuadro
+ * "Total" o se abre el teclado, el cuerpo se achica y deja scrollear SÓLO los
+ * campos, de modo que GUARDAR EL COBRO nunca queda tapado ni recortado (el panel
+ * tiene `overflow: hidden`, así que un botón que se pase de alto no se podría
+ * tocar).
  *
  * El total NO se pide: es la suma de cheque + efectivo (lo mismo que hacía la
  * pantalla "Cobranzas del día"), para que no quede abierta la puerta a que no
@@ -58,10 +66,19 @@ export function ModalCobranza({
   const [efectivo, setEfectivo] = useState('')
   const [comentarios, setComentarios] = useState('')
 
+  // El id del cobro se genera en el teléfono, no en la base. Así, si se guarda
+  // con mala señal y el INSERT entra pero se pierde la respuesta, tocar GUARDAR de
+  // nuevo reintenta con el MISMO id: la base lo rechaza por clave repetida y el
+  // servicio lo toma como "ya estaba" en vez de grabar una segunda fila que
+  // inflaría el TOTAL de la planilla. Se renueva en cada apertura, para que un
+  // segundo cobro (otro "＋ CARGAR OTRO COBRO") sea una fila distinta.
+  const idCobro = useRef(Crypto.randomUUID())
+
   // Cada vez que se abre arranca en blanco (y con el comprobante que proponga la
   // nota): un segundo cobro, o uno abierto desde otra nota, no hereda lo anterior.
   useEffect(() => {
     if (!visible) return
+    idCobro.current = Crypto.randomUUID()
     setTipo(tipoSugerido ?? 'factura')
     setCheque('')
     setEfectivo('')
@@ -73,6 +90,7 @@ export function ModalCobranza({
   const guardar = useMutation({
     mutationFn: () =>
       registrarCobranza({
+        id: idCobro.current,
         notaId,
         clienteId: cliente.id,
         clienteCodigo: cliente.codigo,
@@ -92,62 +110,69 @@ export function ModalCobranza({
         <Panel desplazable={false} contentStyle={estilos.contenido}>
           <TituloPanel>REGISTRAR UN COBRO</TituloPanel>
 
-          {/* El cliente viene de la parada, de sólo lectura. */}
-          <View style={estilos.cliente}>
-            <Text style={estilos.clienteCodigo}>
-              {cliente.codigo ? `#${cliente.codigo}` : 'Sin código'}
-            </Text>
-            <Text style={estilos.clienteNombre} numberOfLines={2}>
-              {cliente.nombre || 'Cliente'}
-            </Text>
-          </View>
-
-          <Desplegable<'factura' | 'presupuesto'>
-            etiqueta="¿CONTRA QUÉ SE COBRA?"
-            obligatorio
-            valor={tipo}
-            items={[
-              { valor: 'factura', etiqueta: 'FACTURA' },
-              { valor: 'presupuesto', etiqueta: 'PRESUPUESTO' },
-            ]}
-            alCambiar={setTipo}
-          />
-
-          <View style={estilos.par}>
-            <View style={estilos.mitad}>
-              <Campo
-                etiqueta="CHEQUE"
-                value={cheque}
-                onChangeText={(t) => setCheque(soloNumeros(t))}
-                keyboardType="decimal-pad"
-                placeholder="0"
-              />
+          <ScrollView
+            style={estilos.cuerpo}
+            contentContainerStyle={estilos.cuerpoContenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* El cliente viene de la parada, de sólo lectura. */}
+            <View style={estilos.cliente}>
+              <Text style={estilos.clienteCodigo}>
+                {cliente.codigo ? `#${cliente.codigo}` : 'Sin código'}
+              </Text>
+              <Text style={estilos.clienteNombre} numberOfLines={2}>
+                {cliente.nombre || 'Cliente'}
+              </Text>
             </View>
-            <View style={estilos.mitad}>
-              <Campo
-                etiqueta="EFECTIVO"
-                value={efectivo}
-                onChangeText={(t) => setEfectivo(soloNumeros(t))}
-                keyboardType="decimal-pad"
-                placeholder="0"
-              />
+
+            <Desplegable<'factura' | 'presupuesto'>
+              etiqueta="¿CONTRA QUÉ SE COBRA?"
+              obligatorio
+              valor={tipo}
+              items={[
+                { valor: 'factura', etiqueta: 'FACTURA' },
+                { valor: 'presupuesto', etiqueta: 'PRESUPUESTO' },
+              ]}
+              alCambiar={setTipo}
+            />
+
+            <View style={estilos.par}>
+              <View style={estilos.mitad}>
+                <Campo
+                  etiqueta="CHEQUE"
+                  value={cheque}
+                  onChangeText={(t) => setCheque(soloNumeros(t))}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                />
+              </View>
+              <View style={estilos.mitad}>
+                <Campo
+                  etiqueta="EFECTIVO"
+                  value={efectivo}
+                  onChangeText={(t) => setEfectivo(soloNumeros(t))}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                />
+              </View>
             </View>
-          </View>
 
-          {total > 0 ? (
-            <Aviso tono="exito" titulo="Total">
-              {formatearPesos(total)}
-            </Aviso>
-          ) : null}
+            {total > 0 ? (
+              <Aviso tono="exito" titulo="Total">
+                {formatearPesos(total)}
+              </Aviso>
+            ) : null}
 
-          <Campo
-            etiqueta="COMENTARIOS"
-            value={comentarios}
-            onChangeText={setComentarios}
-            placeholder="Cheque a 30 días, entrega parcial…"
-            multiline
-            numberOfLines={2}
-          />
+            <Campo
+              etiqueta="COMENTARIOS"
+              value={comentarios}
+              onChangeText={setComentarios}
+              placeholder="Cheque a 30 días, entrega parcial…"
+              multiline
+              numberOfLines={2}
+            />
+          </ScrollView>
 
           <View style={estilos.botones}>
             <BotonPrincipal
@@ -173,9 +198,14 @@ export function ModalCobranza({
 
 const usarEstilos = hojaDeTema((t) => ({
   contenido: {
+    flex: 1,
     padding: espaciado.base,
     gap: espaciado.base,
   },
+  // El cuerpo se queda con el alto que sobra entre el título y los botones; si
+  // los campos no entran (Total + teclado), scrollea sólo acá.
+  cuerpo: { flex: 1 },
+  cuerpoContenido: { gap: espaciado.base, paddingBottom: espaciado.xs },
   cliente: {
     backgroundColor: t.colores.panelClaro,
     borderRadius: radios.sm,
@@ -194,5 +224,5 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   par: { flexDirection: 'row', gap: espaciado.sm },
   mitad: { flex: 1 },
-  botones: { gap: espaciado.sm, marginTop: espaciado.xs },
+  botones: { gap: espaciado.sm },
 }))
