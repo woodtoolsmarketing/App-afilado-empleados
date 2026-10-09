@@ -9,7 +9,7 @@ import {
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Alert, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -108,7 +108,14 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       })
       Alert.alert('Nota eliminada', 'Se sacó de tus notas pendientes.')
     },
-    onError: (e: Error) => Alert.alert('No pudimos eliminarla', e.message),
+    onError: (e: Error) => {
+      // Si el rechazo vino de una carrera (la oficina la imprimió o la anuló
+      // entremedio), refrescar sincroniza la lista con el estado real: la fila
+      // vieja —con su 🗑— desaparece en vez de invitar a reintentar en falso.
+      // Ante un error de red el refetch falla y la caché queda igual, sin daño.
+      void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      Alert.alert('No pudimos eliminarla', e.message)
+    },
   })
 
   function confirmarEliminar(nota: NotaResumen) {
@@ -275,6 +282,9 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 // nota anterior— en vez de abrir el que se pidió.
                 alCorregir={() => navigation.push('GenerarNota', { notaId: n.id })}
                 alEliminar={() => confirmarEliminar(n)}
+                // La mutación es compartida por todas las filas: el spinner va
+                // sólo en la que se está eliminando.
+                eliminando={eliminar.isPending && eliminar.variables === n.id}
               />
             ))}
 
@@ -339,6 +349,7 @@ function FilaNota({
   alVer,
   alCorregir,
   alEliminar,
+  eliminando,
 }: {
   nota: NotaResumen
   elegida: boolean
@@ -346,6 +357,7 @@ function FilaNota({
   alVer: () => void
   alCorregir: () => void
   alEliminar: () => void
+  eliminando: boolean
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -410,23 +422,38 @@ function FilaNota({
         <View style={estilos.acciones}>
           <Pressable
             onPress={alCorregir}
-            hitSlop={8}
+            disabled={eliminando}
             accessibilityRole="button"
             accessibilityLabel={`Corregir la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
-            style={({ pressed }) => [estilos.botonFila, pressed && estilos.botonFilaTocado]}
+            style={({ pressed }) => [
+              estilos.botonFila,
+              pressed && estilos.botonFilaTocado,
+              eliminando && estilos.botonFilaApagado,
+            ]}
           >
             <Text style={estilos.corregirTexto}>✎</Text>
           </Pressable>
           {/* Para la nota duplicada o que salió mal. Pide confirmación antes de
-              sacarla, así un toque al pasar no borra nada. */}
+              sacarla, así un toque al pasar no borra nada. Mientras anula se
+              bloquea y muestra el spinner, para que un segundo toque no dispare
+              un "ya salió" falso. Sin hitSlop: la caja ya mide TOQUE_MINIMO. */}
           <Pressable
             onPress={alEliminar}
-            hitSlop={8}
+            disabled={eliminando}
             accessibilityRole="button"
+            accessibilityState={{ disabled: eliminando }}
             accessibilityLabel={`Eliminar la nota ${nota.numero ?? 'pendiente'} de ${nota.cliente_nombre}`}
-            style={({ pressed }) => [estilos.botonFila, pressed && estilos.botonFilaTocado]}
+            style={({ pressed }) => [
+              estilos.botonFila,
+              pressed && estilos.botonFilaTocado,
+              eliminando && estilos.botonFilaApagado,
+            ]}
           >
-            <Text style={estilos.eliminarTexto}>🗑</Text>
+            {eliminando ? (
+              <ActivityIndicator size="small" />
+            ) : (
+              <Text style={estilos.eliminarTexto}>🗑</Text>
+            )}
           </Pressable>
         </View>
       ) : (
@@ -507,12 +534,20 @@ const usarEstilos = hojaDeTema((t) => ({
     marginLeft: 'auto',
   },
 
-  /** Los botones ✎ (corregir) y 🗑 (eliminar), uno al lado del otro. */
-  acciones: { flexDirection: 'row', gap: espaciado.xs, alignItems: 'center' },
-  /** La caja de cada botón de la fila (✎ y 🗑). Sólo existen en las pendientes. */
+  /**
+   * Los botones ✎ (corregir) y 🗑 (eliminar), uno al lado del otro. Separados
+   * con `sm` (no `xs`) para que un destructivo y uno que no lo es no queden
+   * pegados: con `xs` + hitSlop las zonas de toque se solapaban.
+   */
+  acciones: { flexDirection: 'row', gap: espaciado.sm, alignItems: 'center' },
+  /**
+   * La caja de cada botón de la fila (✎ y 🗑). Al TOQUE_MINIMO (56) —no 46— que
+   * el proyecto fija para la calle: el 🗑 es destructivo, no puede quedar chico.
+   * Sin hitSlop, que con dos botones pegados generaba toques ambiguos.
+   */
   botonFila: {
-    width: 46,
-    minHeight: 46,
+    width: TOQUE_MINIMO,
+    minHeight: TOQUE_MINIMO,
     borderWidth: 2,
     borderColor: t.colores.borde,
     borderRadius: radios.sm,
@@ -521,6 +556,7 @@ const usarEstilos = hojaDeTema((t) => ({
     justifyContent: 'center',
   },
   botonFilaTocado: { backgroundColor: t.colores.campo },
+  botonFilaApagado: { opacity: 0.5 },
   eliminarTexto: { fontSize: t.tipografia.tamano.base },
   /** El hueco del ✎ cuando la nota ya se imprimió: dice por qué no está. */
   corregirVacio: { width: 46, minHeight: 46, alignItems: 'center', justifyContent: 'center' },

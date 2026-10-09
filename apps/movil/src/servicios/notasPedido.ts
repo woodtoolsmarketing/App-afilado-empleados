@@ -1320,6 +1320,10 @@ export async function resumenDeNotasDeLaParada(paradaId: string): Promise<string
     .from('notas_pedido')
     .select('items:notas_pedido_items(servicio, herramienta, cantidad, detalle)')
     .eq('parada_id', paradaId)
+    // Una nota anulada (p. ej. la que el vendedor eliminó por duplicada) no
+    // cuenta en el resumen del parte. El panel filtra igual (RolesDeVisita,
+    // ColaImpresion): sin esto, la observación se horneaba con una venta anulada.
+    .neq('estado', 'anulada')
 
   if (error) throw error
 

@@ -165,7 +165,12 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
       Alert.alert('Nota eliminada', 'Se sacó de tus notas pendientes.')
       navigation.goBack()
     },
-    onError: (e: Error) => Alert.alert('No pudimos eliminarla', e.message),
+    onError: (e: Error) => {
+      // Si la rechazó una carrera (la oficina la imprimió/anuló entremedio),
+      // releer la nota muestra su estado real (el Aviso "anulada"/"ya impresa").
+      void cliente.invalidateQueries({ queryKey: ['nota', notaId] })
+      Alert.alert('No pudimos eliminarla', e.message)
+    },
   })
 
   if (isLoading) {
