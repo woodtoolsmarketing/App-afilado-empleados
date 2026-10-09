@@ -3029,36 +3029,45 @@ export interface ParadaParaResumen {
   id: string
   cliente_id: string | null
   direccion_id: string | null
+  /**
+   * Cuándo se guardó el parte de esa parada (`visitas.registrado_en`), o null si
+   * todavía no hay parte. Las notas enganchadas creadas ANTES de eso ya quedaron
+   * escritas en la observación al guardar la visita, así que no se vuelven a
+   * mostrar; las de después, sí.
+   */
+  visitaGuardadaEn?: string | null
 }
 
-/**
- * Una nota de pedido suelta: la que NO salió del botón de la parada (`parada_id`
- * null) y por eso no quedó escrita en la observación del parte.
- */
+/** Una nota del día de ese vendedor, con lo justo para armar el "qué vendió". */
 export interface NotaSuelta {
   parada_id: string | null
   cliente_id: string | null
   direccion_id: string | null
+  /** Cuándo se creó, para no duplicar las que ya están en la observación. */
+  creado_en: string
   items: RenglonParaResumen[]
 }
 
 /**
- * Para cada parada, la frase de "qué se vendió/hizo" armada con las notas de ese
- * cliente ese día que NO salieron del botón de la parada.
+ * Para cada parada, la frase de "qué se vendió/hizo" con las notas que todavía NO
+ * están en la observación del parte.
  *
- * Por qué sólo las sueltas: las que tienen `parada_id` ya las metió la app en la
- * observación del parte al guardar la visita; recalcularlas acá las duplicaría.
- *
- * El enganche va por cliente. Si el cliente entra por varias sucursales, se
- * desempata por dirección; la nota sin dirección cae en la primera parada de ese
- * cliente.
+ * Dos casos:
+ *  · Nota ENGANCHADA (`parada_id`, incluidas las que el trigger ata a la visita
+ *    del día): va a SU parada, pero sólo si se creó DESPUÉS de guardar el parte.
+ *    Las de antes ya se escribieron en la observación al guardar la visita.
+ *  · Nota SUELTA vieja (sin `parada_id`): se engancha por cliente (y por
+ *    dirección si hay varias sucursales). Nunca estuvo en la observación, así que
+ *    va siempre.
  */
 export function resumenesDePedidoSueltoPorParada(
   paradas: ParadaParaResumen[],
   notas: NotaSuelta[],
 ): Map<string, string> {
+  const paradaPorId = new Map<string, ParadaParaResumen>()
   const paradasPorCliente = new Map<string, ParadaParaResumen[]>()
   for (const p of paradas) {
+    paradaPorId.set(p.id, p)
     if (!p.cliente_id) continue
     const arr = paradasPorCliente.get(p.cliente_id) ?? []
     arr.push(p)
@@ -3067,14 +3076,22 @@ export function resumenesDePedidoSueltoPorParada(
 
   const renglonesPorParada = new Map<string, RenglonParaResumen[]>()
   for (const n of notas) {
-    if (n.parada_id || !n.cliente_id) continue
-    const candidatas = paradasPorCliente.get(n.cliente_id)
-    if (!candidatas || candidatas.length === 0) continue
-    const destino =
-      candidatas.length === 1
-        ? candidatas[0]
-        : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
-          candidatas[0])
+    let destino: ParadaParaResumen | undefined
+    if (n.parada_id) {
+      destino = paradaPorId.get(n.parada_id)
+      if (!destino) continue
+      // Creada antes de guardar el parte → ya está en la observación, no se duplica.
+      if (destino.visitaGuardadaEn && !esPosterior(n.creado_en, destino.visitaGuardadaEn)) continue
+    } else {
+      if (!n.cliente_id) continue
+      const candidatas = paradasPorCliente.get(n.cliente_id)
+      if (!candidatas || candidatas.length === 0) continue
+      destino =
+        candidatas.length === 1
+          ? candidatas[0]
+          : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+            candidatas[0])
+    }
     const arr = renglonesPorParada.get(destino.id) ?? []
     arr.push(...n.items)
     renglonesPorParada.set(destino.id, arr)
@@ -3088,6 +3105,14 @@ export function resumenesDePedidoSueltoPorParada(
     if (partes.length > 0) out.set(paradaId, enumerar(partes))
   }
   return out
+}
+
+/** `a` es posterior a `b` (dos timestamps ISO). Ante la duda (fecha ilegible), muestra. */
+function esPosterior(a: string, b: string): boolean {
+  const ta = Date.parse(a)
+  const tb = Date.parse(b)
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return true
+  return ta > tb
 }
 
 /**

@@ -323,8 +323,9 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
     visita: Array.isArray(p.visita) ? (p.visita[0] ?? null) : p.visita,
   })) as ParadaCompleta[]
 
-  // Las notas de ese día que NO salieron del botón de la parada (el ~80 %): se
-  // enganchan por cliente para que el impreso muestre qué vendió igual. La
+  // Todas las notas de ese día del vendedor: el cómputo (en `compartido`) decide
+  // cuáles muestra en el impreso — las enganchadas a la visita por el trigger y
+  // las cargadas después del parte; las de antes ya están en la observación. La
   // ventana es el día local del rol (Argentina no tiene horario de verano).
   const desde = new Date(`${jornada.fecha}T00:00:00`)
   const hasta = new Date(desde)
@@ -332,16 +333,20 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
   const { data: notasSueltas } = await supabase
     .from('notas_pedido')
     .select(
-      'parada_id, cliente_id, direccion_id, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+      'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
     )
     .eq('vendedor_id', orden.pedida_por)
-    .is('parada_id', null)
     .neq('estado', 'anulada')
     .gte('creado_en', desde.toISOString())
     .lt('creado_en', hasta.toISOString())
 
   const resumenes = resumenesDePedidoSueltoPorParada(
-    completas.map((p) => ({ id: p.id, cliente_id: p.cliente_id, direccion_id: p.direccion_id })),
+    completas.map((p) => ({
+      id: p.id,
+      cliente_id: p.cliente_id,
+      direccion_id: p.direccion_id,
+      visitaGuardadaEn: p.visita?.registrado_en ?? null,
+    })),
     (notasSueltas ?? []) as unknown as NotaSuelta[],
   )
 

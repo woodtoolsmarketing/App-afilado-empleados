@@ -123,10 +123,11 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
   })
 
   /**
-   * Las notas de ese día que NO salieron del botón de la parada (el ~80 %). Se
-   * enganchan por cliente para mostrar "qué vendió" en el Resultado, aunque la
-   * nota se haya hecho desde la pestaña "Notas de pedido". Las que tienen
-   * `parada_id` ya están en la observación del parte, así que no se traen.
+   * Todas las notas de ese día del vendedor, para mostrar "qué vendió" en el
+   * Resultado de cada parada. El cómputo (en `compartido`) decide cuáles mostrar:
+   * las hechas desde la pestaña "Notas de pedido" (ahora enganchadas a la visita
+   * por el trigger), y las que se cargaron DESPUÉS de guardar el parte. Las de
+   * antes ya están escritas en la observación, así que no se vuelven a sumar.
    */
   const { data: notasSueltas } = useQuery({
     queryKey: ['notas-sueltas-rol', vendedorId, fecha],
@@ -139,10 +140,9 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'parada_id, cliente_id, direccion_id, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
         )
         .eq('vendedor_id', vendedorId)
-        .is('parada_id', null)
         .neq('estado', 'anulada')
         .gte('creado_en', desde.toISOString())
         .lt('creado_en', hasta.toISOString())
@@ -159,6 +159,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
           id: p.id,
           cliente_id: p.cliente_id,
           direccion_id: p.direccion_id,
+          visitaGuardadaEn: p.visita?.registrado_en ?? null,
         })),
         notasSueltas ?? [],
       ),
