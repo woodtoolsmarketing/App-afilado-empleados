@@ -10,6 +10,7 @@ import {
   type FormularioVisita,
   type MotivoNoVisita,
   type ParadaCompleta,
+  type TipoServicio,
   todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -30,6 +31,7 @@ import { BotonMenu, BotonesSiNo, BotonSecundario } from '../componentes/Botones'
 import { Campo, Casilla, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
@@ -116,6 +118,9 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const [form, setForm] = useState<FormularioVisita>(recuperado?.form ?? FORMULARIO_VISITA_VACIO)
   const [errores, setErrores] = useState<Partial<Record<CampoVisita, string>>>({})
   const [intentado, setIntentado] = useState(false)
+  // El cobro se carga en un modal a pantalla completa que se abre al tildar
+  // "COBRÓ". El tilde del parte queda puesto recién cuando se guarda un cobro.
+  const [modalCobranza, setModalCobranza] = useState(false)
 
   /**
    * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
@@ -795,8 +800,21 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
               <Casilla
                 etiqueta="COBRÓ"
                 valor={form.cobro}
-                alCambiar={(v) => actualizar({ cobro: v })}
+                alCambiar={(v) => {
+                  // Tildar "COBRÓ" abre la carga del cobro; el tilde se pone
+                  // recién al guardar uno (en `alGuardar`). Destildar sólo baja
+                  // la marca del parte: los cobros ya guardados son plata y
+                  // quedan en la base.
+                  if (v) setModalCobranza(true)
+                  else actualizar({ cobro: false })
+                }}
               />
+              {form.cobro ? (
+                <BotonSecundario
+                  titulo="＋ CARGAR OTRO COBRO"
+                  alTocar={() => setModalCobranza(true)}
+                />
+              ) : null}
               <Casilla
                 etiqueta="RETIRÓ AFILADO"
                 valor={form.retiro_afilado}
@@ -847,6 +865,22 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 placeholder="Nombre del contacto"
                 error={errores.contacto_nombre}
                 autoCapitalize="words"
+              />
+
+              {/* El cobro va a su propia tabla (`cobranzas`); NADA de esto entra
+                  en la observación de la visita. El cliente es el de la parada. */}
+              <ModalCobranza
+                visible={modalCobranza}
+                cliente={{
+                  id: parada?.cliente?.id ?? null,
+                  codigo: parada?.cliente?.codigo ?? null,
+                  nombre: parada?.cliente?.razon_social ?? '',
+                }}
+                alCerrar={() => setModalCobranza(false)}
+                alGuardar={() => {
+                  setModalCobranza(false)
+                  actualizar({ cobro: true })
+                }}
               />
             </View>
           ) : null}
@@ -900,9 +934,17 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
               deshabilitado={ocupado}
               alTocar={() => {
                 guardarBorradorDeVisita(paradaId, form, escritaAMano.current)
+                // Lo que se tildó en el parte pre-selecciona el servicio en la
+                // nota: vendió → venta, retiró afilado → afilado. Entregó y otras
+                // quedan como estaban (no mapean a un servicio).
+                const serviciosIniciales: TipoServicio[] = []
+                if (form.vendio) serviciosIniciales.push('venta')
+                if (form.retiro_afilado) serviciosIniciales.push('afilado')
                 navigation.navigate('GenerarNota', {
                   paradaId,
+                  clienteId: parada?.cliente?.id ?? undefined,
                   clienteCodigo: parada?.cliente?.codigo ?? undefined,
+                  serviciosIniciales: serviciosIniciales.length > 0 ? serviciosIniciales : undefined,
                 })
               }}
             />

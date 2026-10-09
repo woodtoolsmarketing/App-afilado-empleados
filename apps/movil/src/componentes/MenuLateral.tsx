@@ -160,7 +160,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   GenerarNota: 'Generar nota de pedido',
   NuevoCliente: 'Nuevo cliente',
   NotasPendientes: 'Notas pendientes',
-  Cobranzas: 'Cobranzas del día',
+  Cobranzas: 'Historial de cobranzas',
   CalendarioEnvios: 'Próximas visitas',
   CalendarioVisitas: 'Calendario de visitas',
   RolDeVisita: 'Rol de visita',

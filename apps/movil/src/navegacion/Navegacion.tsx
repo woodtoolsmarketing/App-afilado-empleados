@@ -13,7 +13,7 @@ import { PantallaClientesDelDia } from '../pantallas/ClientesDelDia'
 import { PantallaCuentas } from '../pantallas/Cuentas'
 import { PantallaListaSemanal } from '../pantallas/ListaSemanal'
 import { PantallaMapaClientes } from '../pantallas/MapaClientes'
-import { PantallaCobranzas } from '../pantallas/Cobranzas'
+import { PantallaHistorialCobranzas } from '../pantallas/Cobranzas'
 import { PantallaComunicacionInterna } from '../pantallas/ComunicacionInterna'
 import { PantallaConfiguracion } from '../pantallas/Configuracion'
 import { PantallaCorregirDireccion } from '../pantallas/CorregirDireccion'
@@ -207,7 +207,9 @@ export function Navegacion() {
                 (arrancan admin-only): la ruta se registra sólo si el rol la tiene
                 habilitada, así un navigate directo desde otro lado tampoco la
                 abre. El menú y el botón "Cobré esta nota" también se esconden. */}
-            {puedeVer('cobranzas') ? <Pila.Screen name="Cobranzas" component={PantallaCobranzas} /> : null}
+            {puedeVer('cobranzas') ? (
+              <Pila.Screen name="Cobranzas" component={PantallaHistorialCobranzas} />
+            ) : null}
             <Pila.Screen name="CalendarioEnvios" component={PantallaCalendarioEnvios} />
             <Pila.Screen name="CalendarioVisitas" component={PantallaCalendarioVisitas} />
             <Pila.Screen name="ComunicacionInterna" component={PantallaComunicacionInterna} />

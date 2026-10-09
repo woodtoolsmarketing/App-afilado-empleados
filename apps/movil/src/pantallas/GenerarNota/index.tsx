@@ -145,7 +145,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // Del perfil, pero editable: hay altas sin código cargado.
     vendedor_numero: perfil?.codigo_vendedor ?? '',
   })
-  const [servicios, setServicios] = useState<TipoServicio[]>([])
+  // Arranca con lo que se tildó en el parte de visita (vendió → venta, retiró
+  // afilado → afilado); el vendedor suma o saca lo que quiera.
+  const [servicios, setServicios] = useState<TipoServicio[]>(
+    corrigiendo ? [] : (route.params?.serviciosIniciales ?? []),
+  )
   const [tipoNota, setTipoNota] = useState<TipoNotaPedido | null>(null)
   /** Cómo se cobra. Va a la columna "Condicion de Venta" del talonario. */
   const [condicionVenta, setCondicionVenta] = useState<CondicionVenta | null>(null)

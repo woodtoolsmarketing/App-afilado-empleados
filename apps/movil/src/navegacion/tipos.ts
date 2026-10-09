@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import type { ModoDestino } from '@woodtools/compartido'
+import type { ModoDestino, TipoServicio } from '@woodtools/compartido'
 
 /**
  * Las partes de CONFIGURACIÓN que se abren adentro de la pantalla.
@@ -141,6 +141,18 @@ export type ParametrosApp = {
          * cambiable con "✕ CAMBIAR" por si la nota es para otro.
          */
         clienteCodigo?: string
+        /**
+         * El `cliente_id` de la parada, para elegir el cliente DIRECTO por id
+         * —sin depender de la búsqueda por código, que no encuentra a los
+         * provisorios (clientes nuevos sin confirmar)—.
+         */
+        clienteId?: string
+        /**
+         * Servicios con los que arranca la nota, según lo que se tildó en el
+         * parte (vendió → venta, retiró afilado → afilado). El vendedor puede
+         * sumar o sacar los que quiera.
+         */
+        serviciosIniciales?: TipoServicio[]
         clienteCreadoId?: string
         clienteCreadoNombre?: string
         clienteCreadoCuit?: string

@@ -20,11 +20,13 @@ import {
   type TipoServicio,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Alert, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { imprimirNotas } from '../servicios/impresion'
 import {
@@ -105,6 +107,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   // "Cobré esta nota" sigue la misma matriz de permisos que el resto de
   // Cobranzas (arranca admin-only): si el rol no la tiene, no se ofrece el atajo.
   const { puedeVer } = usarPermisos()
+  const [modalCobranza, setModalCobranza] = useState(false)
 
   const { data: nota, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['nota', notaId],
@@ -339,18 +342,7 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             El comprobante y el cliente viajan puestos: es lo que el vendedor
             tiene delante cuando cobra. */}
         {anulada || !puedeVer('cobranzas') ? null : (
-          <BotonSecundario
-            titulo="💵  COBRÉ ESTA NOTA"
-            alTocar={() =>
-              navigation.navigate('Cobranzas', {
-                notaId,
-                clienteId: n.cliente_id ?? null,
-                clienteCodigo: n.cliente_codigo ?? null,
-                clienteNombre: n.cliente_nombre ?? '',
-                tipoComprobante: n.tipo_nota === 'factura' ? 'factura' : 'presupuesto',
-              })
-            }
-          />
+          <BotonSecundario titulo="💵  COBRÉ ESTA NOTA" alTocar={() => setModalCobranza(true)} />
         )}
 
         <BotonMenu
@@ -371,6 +363,25 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
             cargando={encolar.isPending}
           />
         )}
+
+        {/* Cobrar esta nota (una factura vieja, por ejemplo) sin estar en una
+            visita: mismo modal que el rol de visita, con el cliente y el
+            comprobante de la nota ya puestos. */}
+        <ModalCobranza
+          visible={modalCobranza}
+          cliente={{
+            id: n.cliente_id ?? null,
+            codigo: n.cliente_codigo ?? null,
+            nombre: n.cliente_nombre ?? '',
+          }}
+          notaId={notaId}
+          tipoSugerido={n.tipo_nota === 'factura' ? 'factura' : 'presupuesto'}
+          alCerrar={() => setModalCobranza(false)}
+          alGuardar={() => {
+            setModalCobranza(false)
+            Alert.alert('Cobro guardado', 'Quedó registrado en las cobranzas del día.')
+          }}
+        />
       </Panel>
     </Pantalla>
   )
