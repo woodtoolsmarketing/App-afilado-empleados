@@ -1798,6 +1798,20 @@ function estilosDeEscala(escala: number | undefined): string {
   transform: scale(${redondear(1 / escala)});
   transform-origin: top left;
 }
+
+/* El rol de visita y la planilla de cobranzas NO tienen alto fijo —crecen con
+   los destinos/cobros del día y pueden pasar legítimamente a otra hoja—, así
+   que no se los puede meter en un \`transform\`: el transform no corta en el
+   salto de página y la segunda hoja se perdería. Se compensan con \`zoom\`, que
+   SÍ participa de la maqueta (deja que el contenido fluya a la hoja siguiente) y
+   no toca el piso de 8px, porque el \`font-size\` del CSS no se achica —lo que se
+   agranda son las cajas (ya escaladas ${escala}× por conMedidasEscaladas) y el
+   zoom las devuelve, junto con la letra que el sistema agrandó, al tamaño del
+   papel—. Así, con la letra en grande, un rol que entraba en una hoja sigue
+   entrando en una. */
+.rol, .cobranzas {
+  zoom: ${redondear(1 / escala)};
+}
 `
 }
 
@@ -1830,11 +1844,13 @@ export function generarDocumentoImpresion(
   const paginas = notas.map(
     ({ nota, opciones }) => `<div class="hoja">${generarHtmlNotaPedido(nota, opciones)}</div>`,
   )
-  // El rol de visita queda afuera del escalado: no tiene alto fijo —crece con
-  // los destinos del día y puede ocupar más de una hoja— así que encerrarlo en
-  // una caja de tamaño fijo lo recortaría, que es justo el problema que se
-  // acaba de sacar de la nota. Con la letra del sistema en grande el rol sale
-  // más grande y puede pasar a una hoja más, pero no pierde nada.
+  // El rol de visita y la planilla de cobranzas también se compensan por la
+  // escala de letra del sistema, pero con `zoom` en vez del `transform` de la
+  // nota (ver estilosDeEscala): no tienen alto fijo —pueden pasar a otra hoja si
+  // el día trae muchos destinos/cobros— y el transform no corta en el salto de
+  // página. Con zoom, un rol que entra en una hoja sigue entrando aunque la
+  // letra del teléfono esté en grande, y uno largo de verdad fluye a la
+  // siguiente sin recortarse.
   // Uno o varios roles: cada día su planilla, en el orden recibido. El `unshift`
   // con spread los deja adelante de las notas sin invertirlos.
   const roles =
@@ -1859,8 +1875,11 @@ export function generarDocumentoImpresion(
   const estilos = [
     ESTILOS_PAGINA,
     conMedidasEscaladas(ESTILOS_NOTA_PEDIDO, extras?.escalaDeLetra),
-    ESTILOS_ROL_DE_VISITA,
-    ESTILOS_PLANILLA_COBRANZAS,
+    // Las cajas del rol y la planilla también se agrandan por la escala; el
+    // `zoom` de estilosDeEscala las devuelve al tamaño del papel. (Sin escala
+    // —la PC— conMedidasEscaladas es un no-op y queda el estilo tal cual.)
+    conMedidasEscaladas(ESTILOS_ROL_DE_VISITA, extras?.escalaDeLetra),
+    conMedidasEscaladas(ESTILOS_PLANILLA_COBRANZAS, extras?.escalaDeLetra),
     estilosDeEscala(extras?.escalaDeLetra),
   ].join('\n')
 
