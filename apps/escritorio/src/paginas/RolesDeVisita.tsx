@@ -3,7 +3,9 @@ import {
   ETIQUETA_ESTADO_PARADA,
   fechaLocalISO,
   formatearHora,
+  generarDocumentoImpresion,
   resumenesDePedidoSueltoPorParada,
+  rolImprimibleDesdeFilas,
   type NotaSuelta,
   type ParadaCompleta,
   type Perfil,
@@ -58,6 +60,29 @@ function reordenarEnCache(j: JornadaPanel, nuevoOrden: string[]): JornadaPanel {
     })
     .sort((a, b) => a.orden - b.orden)
   return { ...j, paradas }
+}
+
+/**
+ * La impresora de la oficina (misma fila que lee el teléfono y la cola de
+ * impresión: `configuracion.impresora_oficina`). Null si no hay ninguna cargada;
+ * ahí `imprimirDocumento` cae al diálogo del sistema. No leer la IP no frena la
+ * impresión.
+ */
+async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'impresora_oficina')
+      .maybeSingle()
+    if (error) console.warn('[roles-visita] no pudimos leer la impresora de la oficina', error)
+    const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
+    if (!cfg?.ip) return null
+    return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
+  } catch (e) {
+    console.warn('[roles-visita] falló leer la impresora de la oficina', e)
+    return null
+  }
 }
 
 /**
@@ -381,10 +406,54 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
 
   const vendedor = vendedores?.find((v) => v.id === vendedorId)
 
+  /**
+   * Imprimir la planilla del rol.
+   *
+   * Arma el MISMO documento que las notas de pedido y lo manda por
+   * `imprimirDocumento`: el panel lo renderiza en una ventana propia, a tamaño
+   * fijo, sin el zoom ni el tamaño de letra del sistema en el medio. Antes se
+   * imprimía la ventana visible (`window.woodtools.imprimir()`), que heredaba el
+   * zoom del panel: con la letra agrandada la planilla se iba a una segunda hoja.
+   * Es el mismo camino robusto de la cola de impresión y la planilla de cobranzas.
+   */
+  const imprimir = useMutation({
+    mutationFn: async () => {
+      if (!window.woodtools?.imprimirDocumento) {
+        throw new Error('Esta pantalla imprime sólo desde el programa de escritorio')
+      }
+      if (!jornada) throw new Error('No hay rol para imprimir')
+
+      const rolDeVisita = rolImprimibleDesdeFilas(jornada.rol, jornada.paradas, {
+        nombre: vendedor?.nombre_completo ?? '',
+        codigo: vendedor?.codigo_vendedor ?? null,
+      })
+      const html = generarDocumentoImpresion([], { rolDeVisita })
+
+      const impresora = await obtenerImpresora()
+      return window.woodtools.imprimirDocumento(html, impresora, 'A4')
+    },
+    onSuccess: (salida) => {
+      setError(null)
+      if (salida.impreso) {
+        setMensaje('Rol de visita impreso.')
+      } else if (salida.via === 'ipp') {
+        // El trabajo viajó pero la impresora no confirmó (sin papel, en pausa).
+        setMensaje(
+          `La mandé a la impresora${salida.direccion ? ` (${salida.direccion})` : ''} pero no me confirmó` +
+            `${salida.motivo ? `: ${salida.motivo}` : ''}. Fijate si salió el papel antes de reintentar.`,
+        )
+      } else {
+        // Sin impresora cargada cae al diálogo del sistema; si lo cancelan, no salió.
+        setMensaje(salida.motivo ?? 'Se abrió el diálogo de impresión del sistema.')
+      }
+    },
+    onError: (e: Error) => setError(`No se pudo imprimir: ${e.message}`),
+  })
+
   // Abierto en el navegador no existe el puente con el sistema, así que el
   // botón no imprimía nada y tampoco lo decía: se tocaba tres veces esperando
   // que saliera algo. Mismo criterio que la cola de impresión.
-  const puedeImprimir = typeof window.woodtools?.imprimir === 'function'
+  const puedeImprimir = typeof window.woodtools?.imprimirDocumento === 'function'
 
   return (
     <>
@@ -402,15 +471,15 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
           </button>
           <button
             className="rojo"
-            onClick={() => void window.woodtools?.imprimir()}
-            disabled={!jornada || !puedeImprimir}
+            onClick={() => imprimir.mutate()}
+            disabled={!jornada || !puedeImprimir || imprimir.isPending}
             title={
               puedeImprimir
                 ? undefined
                 : 'Abrí el panel instalado en la PC de la oficina: desde el navegador no se puede imprimir.'
             }
           >
-            Imprimir
+            {imprimir.isPending ? 'Imprimiendo…' : 'Imprimir'}
           </button>
         </div>
       </header>
