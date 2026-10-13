@@ -198,6 +198,8 @@ export type ParametrosApp = {
   VistaPrevia: {
     notaIds: string[]
     incluirRolDeVisita?: boolean
+    /** Suma adelante la rendición de cobranzas de esos días (una por comprobante). */
+    incluirCobros?: boolean
     /**
      * Si la nota se generó desde una visita, la parada de la que salió. Con
      * esto, al terminar de imprimir/guardar, la Vista Previa vuelve al

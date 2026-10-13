@@ -3,10 +3,14 @@ import {
   A4_ANCHO_PT,
   ESTILOS_NOTA_PEDIDO,
   fechaLocalISO,
+  formatearFechaCorta,
+  formatearPesos,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
   rolImprimibleDesdeFilas,
   type OpcionesImpresion,
+  type PlanillaCobranzasParaImprimir,
+  type RenglonCobranza,
   type RolDeVisitaParaImprimir,
 } from '@woodtools/compartido'
 import * as FileSystem from 'expo-file-system'
@@ -14,7 +18,7 @@ import * as Print from 'expo-print'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
-import { hoyLocal } from './cobranzas'
+import { cobranzasDelDia, hoyLocal, type Cobranza } from './cobranzas'
 import {
   buscarEnLaRed,
   contestaIpp,
@@ -235,6 +239,74 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
   return rolDeVisitaDe(vendedorId, fechaLocalISO(new Date()))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Las cobranzas del día
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Una planilla de cobranzas imprimible, de un comprobante en un día.
+ *
+ * Mismo armado que el panel (`CobranzasVendedores`): un renglón por cobro, con
+ * el cheque y el efectivo en blanco cuando son cero —una columna de ceros se lee
+ * como si hubiera pasado algo— y el TOTAL GENERAL abajo. El formato se comparte
+ * para que la hoja salida del teléfono sea idéntica a la que arma la oficina.
+ */
+function armarPlanillaCobros(
+  cobros: Cobranza[],
+  titulo: string,
+  fecha: string,
+  vendedorNumero: string,
+): PlanillaCobranzasParaImprimir {
+  const renglones: RenglonCobranza[] = cobros.map((c) => ({
+    cliente_codigo: c.cliente_codigo ?? '',
+    cliente_nombre: c.cliente_nombre,
+    total: formatearPesos(c.total),
+    cheque: c.cheque > 0 ? formatearPesos(c.cheque) : '',
+    efectivo: c.efectivo > 0 ? formatearPesos(c.efectivo) : '',
+    comentarios: c.comentarios ?? '',
+  }))
+  return {
+    vendedor_numero: vendedorNumero,
+    titulo,
+    fecha: formatearFechaCorta(`${fecha}T12:00:00`),
+    cobros: renglones,
+    total_general: formatearPesos(cobros.reduce((suma, c) => suma + c.total, 0)),
+  }
+}
+
+/**
+ * Las planillas de cobranzas de esos días: una por FACTURA y otra por
+ * PRESUPUESTO (sólo las que tienen cobros), por cada día y en orden, igual que
+ * la oficina las separa en el panel.
+ *
+ * Devuelve [] cuando no hubo cobros en ninguno de esos días: no hay nada que
+ * rendir y no se imprime una hoja vacía, igual que el rol cuando no hay recorrido.
+ */
+async function planillasDeCobranzasDe(
+  dias: string[],
+  vendedorNumero: string,
+): Promise<PlanillaCobranzasParaImprimir[]> {
+  const planillas: PlanillaCobranzasParaImprimir[] = []
+  for (const dia of dias) {
+    const cobros = await cobranzasDelDia(dia)
+    const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
+    const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
+    if (facturas.length > 0) {
+      planillas.push(armarPlanillaCobros(facturas, 'FACTURA', dia, vendedorNumero))
+    }
+    if (presupuestos.length > 0) {
+      planillas.push(armarPlanillaCobros(presupuestos, 'PRESUPUESTO', dia, vendedorNumero))
+    }
+  }
+  return planillas
+}
+
+/** Une partes en castellano: ["a"]→"a"; ["a","b"]→"a y b"; ["a","b","c"]→"a, b y c". */
+function frase(partes: string[]): string {
+  if (partes.length <= 1) return partes.join('')
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+}
+
 /**
  * Cuánto agranda la letra el sistema, con un cerco.
  *
@@ -308,13 +380,20 @@ export interface ResultadoImpresion {
  * factura, sin logo si es presupuesto— y el DUPLICADO sin precios para el
  * taller.
  *
- * Con `incluirRolDeVisita` se suma adelante la planilla del día. Es un solo
- * trabajo de impresión: el vendedor toca una vez y se lleva la jornada entera,
- * en vez de imprimir la planilla en la oficina y las notas por separado.
+ * Con `incluirRolDeVisita` se suma adelante la planilla del día, y con
+ * `incluirCobros` la rendición de lo cobrado. Es un solo trabajo de impresión:
+ * el vendedor toca una vez y se lleva la jornada entera —las notas, el rol y lo
+ * que cobró— en vez de imprimir cada cosa por separado.
  */
 export async function imprimirNotas(params: {
   notaIds: string[]
   incluirRolDeVisita?: boolean
+  /**
+   * Suma adelante la rendición de cobranzas de esos días, una planilla por
+   * comprobante (FACTURA / PRESUPUESTO). Es la misma hoja que la oficina imprime
+   * del panel, pero sale del teléfono junto con las notas.
+   */
+  incluirCobros?: boolean
   /** Para contar qué está pasando cuando hay que buscar la impresora. */
   alAvisar?: (mensaje: string) => void
 }): Promise<ResultadoImpresion> {
@@ -337,38 +416,66 @@ export async function imprimirNotas(params: {
     return opciones.map((o) => ({ nota: imprimible, opciones: o }))
   })
 
-  // Que el rol no salga no puede frenar la impresión de las notas: se avisa y
-  // el trabajo sigue. El vendedor está parado frente a la impresora.
-  //
-  // Se suma el rol de visita de CADA DÍA en que se hicieron las notas que se
-  // están imprimiendo, no sólo el de hoy: el vendedor que imprime a la noche lo
-  // que cargó en varios días se lleva la planilla de cada uno. Los días salen de
-  // `creado_en` de cada nota, en hora local, y van del más viejo al más nuevo.
-  let rolesDeVisita: RolDeVisitaParaImprimir[] = []
-  let advertencia: string | undefined
+  // Los días en que se hicieron las notas que se imprimen, del más viejo al más
+  // nuevo. El rol y la rendición de cobranzas se suman por CADA uno de esos días,
+  // no sólo el de hoy: el vendedor que imprime a la noche lo que cargó en varios
+  // días se lleva la planilla de cada uno. Los días salen de `creado_en` de cada
+  // nota, en hora local.
+  const dias = Array.from(
+    new Set(
+      notas.map((n) => fechaLocalISO(new Date((n as Record<string, any>).creado_en as string))),
+    ),
+  ).sort()
 
+  // Que un extra —el rol o la rendición— no salga no puede frenar la impresión
+  // de las notas: se avisa y el trabajo sigue. El vendedor está parado frente a
+  // la impresora. Las advertencias se juntan y se muestran todas juntas.
+  const advertencias: string[] = []
+
+  let rolesDeVisita: RolDeVisitaParaImprimir[] = []
   if (params.incluirRolDeVisita) {
     if (!vendedorId) {
-      advertencia = 'No pudimos sumar el rol de visita: no hay sesión.'
+      advertencias.push('No pudimos sumar el rol de visita: no hay sesión.')
     } else {
       try {
-        const dias = Array.from(
-          new Set(
-            notas.map((n) =>
-              fechaLocalISO(new Date((n as Record<string, any>).creado_en as string)),
-            ),
-          ),
-        ).sort()
         const roles = await Promise.all(dias.map((d) => rolDeVisitaDe(vendedorId, d)))
         rolesDeVisita = roles.filter((r): r is RolDeVisitaParaImprimir => r !== null)
         if (rolesDeVisita.length === 0) {
-          advertencia =
+          advertencias.push(
             dias.length <= 1
-              ? 'Ese día no tenías recorrido armado, así que salieron sólo las notas.'
-              : 'No encontramos recorrido en esos días, así que salieron sólo las notas.'
+              ? 'Ese día no tenías recorrido armado, así que salió sin el rol de visita.'
+              : 'No encontramos recorrido en esos días, así que salió sin el rol de visita.',
+          )
         }
       } catch {
-        advertencia = 'No pudimos traer el rol de visita. Salieron sólo las notas.'
+        advertencias.push('No pudimos traer el rol de visita. Salieron las notas sin él.')
+      }
+    }
+  }
+
+  // La rendición de cobranzas de esos días, una planilla por comprobante. Misma
+  // hoja que arma la oficina en el panel, pero sale del teléfono con las notas.
+  let planillasCobranzas: PlanillaCobranzasParaImprimir[] = []
+  if (params.incluirCobros) {
+    if (!vendedorId) {
+      advertencias.push('No pudimos sumar los cobros: no hay sesión.')
+    } else {
+      try {
+        const { data: perfil } = await supabase
+          .from('perfiles')
+          .select('codigo_vendedor')
+          .eq('id', vendedorId)
+          .maybeSingle()
+        planillasCobranzas = await planillasDeCobranzasDe(dias, perfil?.codigo_vendedor ?? '')
+        if (planillasCobranzas.length === 0) {
+          advertencias.push(
+            dias.length <= 1
+              ? 'Ese día no cargaste cobros, así que salió sin la planilla de cobranzas.'
+              : 'No cargaste cobros en esos días, así que salió sin la planilla de cobranzas.',
+          )
+        }
+      } catch {
+        advertencias.push('No pudimos traer los cobros del día. Salieron las notas sin ellos.')
       }
     }
   }
@@ -393,22 +500,25 @@ export async function imprimirNotas(params: {
 
   const html = generarDocumentoImpresion(paginas, {
     rolesDeVisita,
+    planillasCobranzas,
     escalaDeLetra,
   })
+
+  // "2 notas, el rol de visita y los cobros del día": las notas siempre, y cada
+  // extra sólo si de verdad se sumó alguna hoja.
   const cuantas = `${notas.length} nota${notas.length === 1 ? '' : 's'}`
-  const conRol =
-    rolesDeVisita.length === 0
-      ? ''
-      : rolesDeVisita.length === 1
-        ? ' y el rol de visita'
-        : ' y los roles de visita'
+  const extras: string[] = []
+  if (rolesDeVisita.length > 0) {
+    extras.push(rolesDeVisita.length === 1 ? 'el rol de visita' : 'los roles de visita')
+  }
+  if (planillasCobranzas.length > 0) extras.push('los cobros del día')
 
   return entregarDocumento(html, {
-    queSalio: `${cuantas}${conRol}`,
+    queSalio: frase([cuantas, ...extras]),
     plural: notas.length !== 1,
     nombreDelArchivo: 'notas-de-pedido',
     alAvisar: params.alAvisar,
-    advertencia,
+    advertencia: advertencias.length > 0 ? advertencias.join(' ') : undefined,
   })
 }
 

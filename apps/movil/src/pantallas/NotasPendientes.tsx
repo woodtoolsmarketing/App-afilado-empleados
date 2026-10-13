@@ -42,6 +42,10 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   // notas, salga el rol de visita de los días en que las hizo. Se puede
   // destildar si esta vez sólo quiere las notas.
   const [conRolDeVisita, setConRolDeVisita] = useState(true)
+  // Arranca DESTILDADA: la rendición de cobranzas es una hoja aparte que no
+  // siempre se quiere con cada impresión (muchas veces se imprime una nota
+  // suelta al toque). El que cierra el día la tilda y se la lleva con todo.
+  const [conCobros, setConCobros] = useState(false)
   const [busqueda, setBusqueda] = useState('')
 
   const { data: notas, isLoading, error, refetch, isRefetching } = useQuery({
@@ -158,6 +162,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       const resultado = await imprimirNotas({
         notaIds: ids,
         incluirRolDeVisita: conRolDeVisita,
+        incluirCobros: conCobros,
       })
       // El sellado es un UPDATE por internet que puede fallar aunque el papel
       // (IPP, red local) ya haya salido. Si falla NO se trata como error de
@@ -307,6 +312,18 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               alCambiar={setConRolDeVisita}
             />
 
+            {/*
+              La rendición de cobranzas de esos días: la misma planilla que la
+              oficina imprime del panel, pero sale del teléfono junto con las
+              notas, una hoja por factura y otra por presupuesto. Arranca
+              destildada (ver el estado): no se quiere con cada impresión suelta.
+            */}
+            <Casilla
+              etiqueta="SUMAR LOS COBROS DEL DÍA"
+              valor={conCobros}
+              alCambiar={setConCobros}
+            />
+
             {/* Antes de imprimir se puede mirar. Va arriba del botón de
                 imprimir porque es el orden en que conviene hacerlo. */}
             <BotonSecundario
@@ -316,19 +333,24 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 navigation.navigate('VistaPrevia', {
                   notaIds: objetivo.map((n) => n.id),
                   incluirRolDeVisita: conRolDeVisita,
+                  incluirCobros: conCobros,
                 })
               }}
             />
 
             <BotonMenu
               titulo={'IMPRIMIR NOTAS\nDE PEDIDO'}
-              subtitulo={
-                !hayParaImprimir
-                  ? 'Ya salieron todas: tocá una para volver a imprimirla'
-                  : conRolDeVisita
-                    ? `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} y el rol de visita de esos días, a la impresora de la oficina`
-                    : `${objetivo.length} nota${objetivo.length === 1 ? '' : 's'} a la impresora de la oficina`
-              }
+              subtitulo={(() => {
+                if (!hayParaImprimir) return 'Ya salieron todas: tocá una para volver a imprimirla'
+                const partes = [`${objetivo.length} nota${objetivo.length === 1 ? '' : 's'}`]
+                if (conRolDeVisita) partes.push('el rol de visita')
+                if (conCobros) partes.push('los cobros del día')
+                const texto =
+                  partes.length === 1
+                    ? partes[0]
+                    : `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+                return `${texto}, a la impresora de la oficina`
+              })()}
               alTocar={() => {
                 if (!hayParaImprimir) return
                 imprimir.mutate()

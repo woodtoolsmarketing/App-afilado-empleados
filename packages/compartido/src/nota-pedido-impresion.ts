@@ -1826,8 +1826,13 @@ export function generarDocumentoImpresion(
      * pasan los dos, se usan éstos y se ignora el singular.
      */
     rolesDeVisita?: RolDeVisitaParaImprimir[]
-    /** La rendición de cobranzas del día. Va en su propia hoja, adelante. */
-    planillaCobranzas?: PlanillaCobranzasParaImprimir
+    /**
+     * La rendición de cobranzas, una planilla por comprobante (FACTURA /
+     * PRESUPUESTO) y por día. Van PRIMERAS de todo, cada una en su hoja: en la
+     * oficina se separan de las notas apenas salen del cajón. Igual que el rol,
+     * cuando se imprimen notas de varios días va la rendición de cada uno.
+     */
+    planillasCobranzas?: PlanillaCobranzasParaImprimir[]
     /**
      * Cuánto agranda la letra el sistema donde se va a generar el PDF.
      *
@@ -1860,13 +1865,13 @@ export function generarDocumentoImpresion(
         ? [extras.rolDeVisita]
         : []
   if (roles.length > 0) paginas.unshift(...roles.map(generarHtmlRolDeVisita))
-  // La planilla de cobranzas va PRIMERA de todo: es la rendición del día, y en
-  // la oficina se separa de las notas apenas sale del cajón.
-  if (extras?.planillaCobranzas) {
-    paginas.unshift(generarHtmlPlanillaCobranzas(extras.planillaCobranzas))
-  }
+  // Las planillas de cobranzas van PRIMERAS de todo: son la rendición del día, y
+  // en la oficina se separan de las notas apenas salen del cajón. El `unshift`
+  // con spread las deja adelante —de los roles y de las notas— sin invertirlas.
+  const cobranzas = extras?.planillasCobranzas ?? []
+  if (cobranzas.length > 0) paginas.unshift(...cobranzas.map(generarHtmlPlanillaCobranzas))
 
-  const titulo = extras?.planillaCobranzas
+  const titulo = cobranzas.length > 0
     ? 'Planilla de cobranzas · WoodTools'
     : roles.length > 0
       ? 'Rol de visita y notas de pedido · WoodTools'

@@ -35,7 +35,7 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  */
 export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'VistaPrevia'>) {
   const estilos = usarEstilos()
-  const { notaIds, incluirRolDeVisita = false, paradaId } = route.params
+  const { notaIds, incluirRolDeVisita = false, incluirCobros = false, paradaId } = route.params
   const cliente = useQueryClient()
 
   /**
@@ -70,7 +70,7 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
   const imprimir = useMutation<ResultadoImpresion, Error, void>({
     mutationFn: async () => {
       setAvance(null)
-      const r = await imprimirNotas({ notaIds, incluirRolDeVisita, alAvisar: setAvance })
+      const r = await imprimirNotas({ notaIds, incluirRolDeVisita, incluirCobros, alAvisar: setAvance })
       // La impresora de la oficina confirma el trabajo por IPP, así que se
       // puede marcar sin preguntar: ya no hay diálogo del sistema (que volvía
       // sin saber si salió el papel).
@@ -125,6 +125,14 @@ export function PantallaVistaPreviaNota({ navigation, route }: PropsPantalla<'Vi
               <Aviso tono="info">
                 Adelante de las notas se imprime el rol de visita de los días en que se hicieron. No
                 se muestra acá porque es la planilla del día, no parte de la nota.
+              </Aviso>
+            ) : null}
+
+            {incluirCobros ? (
+              <Aviso tono="info">
+                Adelante de las notas se imprime la planilla de cobranzas de esos días (una por
+                factura y otra por presupuesto). No se muestra acá porque es la rendición del día, no
+                parte de la nota.
               </Aviso>
             ) : null}
 
