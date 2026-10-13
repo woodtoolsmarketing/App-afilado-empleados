@@ -92,6 +92,10 @@ export function PaginaNotasPedido({
   const [busqueda, setBusqueda] = useState('')
   const [asignando, setAsignando] = useState<NotaFila | null>(null)
   const [modificando, setModificando] = useState<NotaParaEditar | null>(null)
+  // La nota que se está por anular (abre el diálogo con el motivo). Antes el
+  // motivo se pedía con window.prompt(), que en Electron no existe y tiraba
+  // "prompt() is not supported" —la anulación no salía—; va por un diálogo propio.
+  const [anulando, setAnulando] = useState<NotaFila | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -153,26 +157,21 @@ export function PaginaNotasPedido({
 
   /**
    * Anular una nota (sólo admin, por ahora). No se borra: queda 'anulada' con
-   * quién/cuándo, y si estaba esperando el papel se saca de la cola. Se confirma
-   * con un `window.confirm` porque es destructiva y poco frecuente.
+   * quién/cuándo, y si estaba esperando el papel se saca de la cola. El motivo
+   * (opcional) se pide con un diálogo propio (`DialogoAnularNota`), no con
+   * window.prompt(): Electron no lo soporta.
    */
   const anular = useMutation({
-    mutationFn: async (nota: NotaFila) => {
-      const motivo = window.prompt(
-        `Anular la nota ${nota.numero ?? 'sin número'} de ${nota.cliente_nombre}.\n\nMotivo (opcional):`,
-      )
-      // `prompt` devuelve null si cancelan: ahí no se anula nada.
-      if (motivo === null) return { cancelado: true as const }
+    mutationFn: async ({ nota, motivo }: { nota: NotaFila; motivo: string }) => {
       const { error: err } = await supabase.rpc('anular_nota_pedido', {
         p_nota_id: nota.id,
-        p_motivo: motivo,
+        p_motivo: motivo.trim() || null,
       })
       if (err) throw err
-      return { cancelado: false as const }
     },
-    onSuccess: (r) => {
-      if (r.cancelado) return
+    onSuccess: () => {
       setError(null)
+      setAnulando(null)
       setMensaje('Nota anulada. Queda registrada como anulada, no se borró.')
       void cliente.invalidateQueries({ queryKey: ['notas-pedido-panel'] })
       void cliente.invalidateQueries({ queryKey: ['cola-impresion-total'] })
@@ -376,8 +375,11 @@ export function PaginaNotasPedido({
                         <button
                           className="chico"
                           style={{ color: 'var(--rojo-accion)' }}
-                          disabled={anular.isPending && anular.variables?.id === n.id}
-                          onClick={() => anular.mutate(n)}
+                          onClick={() => {
+                            setAnulando(n)
+                            setError(null)
+                            setMensaje(null)
+                          }}
                         >
                           Anular
                         </button>
@@ -409,6 +411,15 @@ export function PaginaNotasPedido({
             setMensaje('Nota modificada. Si ya estaba impresa, reimprimila desde la cola.')
             void cliente.invalidateQueries({ queryKey: ['notas-pedido-panel'] })
           }}
+        />
+      )}
+
+      {anulando && (
+        <DialogoAnularNota
+          nota={anulando}
+          anulando={anular.isPending}
+          alCerrar={() => setAnulando(null)}
+          alConfirmar={(motivo) => anular.mutate({ nota: anulando, motivo })}
         />
       )}
     </>
@@ -546,6 +557,83 @@ function DialogoAsignarCliente({
 
         <div className="acciones" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
           <button onClick={alCerrar}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Confirmar la anulación de una nota, con un motivo opcional.
+ *
+ * Reemplaza al `window.prompt()` de antes: en Electron no existe —tiraba
+ * "prompt() is not supported" y la nota no se anulaba—. Mismo molde que
+ * `DialogoAsignarCliente`.
+ */
+function DialogoAnularNota({
+  nota,
+  anulando,
+  alCerrar,
+  alConfirmar,
+}: {
+  nota: NotaFila
+  anulando: boolean
+  alCerrar: () => void
+  alConfirmar: (motivo: string) => void
+}) {
+  const [motivo, setMotivo] = useState('')
+  const nro = nota.numero !== null ? numeroDeNotaImpreso(nota.numero, nota.vendedor_numero) : null
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 50,
+        padding: 20,
+      }}
+      onClick={anulando ? undefined : alCerrar}
+    >
+      <div
+        className="tarjeta"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(520px, 95vw)', maxHeight: '90vh', overflowY: 'auto', margin: 0 }}
+      >
+        <h2>Anular la nota {nro ? `Nº ${nro}` : 'sin número'}</h2>
+
+        <div className="aviso atencion">
+          Vas a anular la nota de <strong>{nota.cliente_nombre}</strong>. No se borra: queda marcada
+          como <strong>anulada</strong> (con quién y cuándo), y si estaba esperando el papel se saca
+          de la cola.
+        </div>
+
+        <div className="campo">
+          <label htmlFor="motivo-anular">Motivo (opcional)</label>
+          <textarea
+            id="motivo-anular"
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            rows={3}
+            placeholder="Duplicada, error de precio…"
+            autoFocus
+          />
+        </div>
+
+        <div className="acciones" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button onClick={alCerrar} disabled={anulando}>
+            Cancelar
+          </button>
+          <button
+            className="primario"
+            style={{ background: 'var(--rojo-accion)' }}
+            onClick={() => alConfirmar(motivo)}
+            disabled={anulando}
+          >
+            {anulando ? 'Anulando…' : 'Anular la nota'}
+          </button>
         </div>
       </div>
     </div>
