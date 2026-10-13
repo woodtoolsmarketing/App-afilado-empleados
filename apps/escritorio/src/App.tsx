@@ -16,6 +16,7 @@ import { PaginaClientesAConfirmar } from './paginas/ClientesAConfirmar'
 import { PaginaCobranzasVendedores } from './paginas/CobranzasVendedores'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
 import { PaginaIngreso } from './paginas/Ingreso'
+import { PaginaLugaresEntregaACargar } from './paginas/LugaresEntregaACargar'
 import { PaginaMapaClientes } from './paginas/MapaClientes'
 import { PaginaMapaEnVivo } from './paginas/MapaEnVivo'
 import { PaginaModificacionesClientes } from './paginas/ModificacionesClientes'
@@ -99,6 +100,13 @@ export function App() {
           <Route
             path="/cambios-direccion"
             element={gate('panel_cambios_direccion', <PaginaCambiosDireccion soloLectura={!sesion.esAdministracion} />)}
+          />
+          <Route
+            path="/lugares-entrega"
+            element={gate(
+              'panel_lugares_entrega_cargar',
+              <PaginaLugaresEntregaACargar soloLectura={!sesion.esAdministracion} />,
+            )}
           />
           <Route
             path="/a-confirmar"
@@ -270,6 +278,20 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  // Lugares de entrega del Gestión que quedaron sin ubicar y la oficina todavía
+  // no cargó a mano. Va como globo para que la cola no se quede sin mirar.
+  const { data: lugaresCrudo } = useQuery({
+    queryKey: ['lugares-entrega-crudo-total'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('lugares_entrega_import')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'crudo')
+      return count ?? 0
+    },
+    refetchInterval: 60_000,
+  })
+
   // Cada enlace sabe a qué permiso de panel pertenece. El Tablero no tiene
   // permiso (lo ve cualquiera que entre); Permisos es `soloAdmin`. El resto se
   // esconde si el rol no lo tiene habilitado (admin ve todo).
@@ -293,6 +315,7 @@ function BarraLateral({
     { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar, permiso: 'panel_clientes_a_confirmar' },
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones', permiso: 'panel_modificaciones' },
     { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir, permiso: 'panel_cambios_direccion' },
+    { a: '/lugares-entrega', icono: '📦', texto: 'Lugares de entrega a cargar', globo: lugaresCrudo, permiso: 'panel_lugares_entrega_cargar' },
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes, permiso: 'panel_usuarios' },
     { a: '/permisos', icono: '🔒', texto: 'Permisos', soloAdmin: true },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar, permiso: 'panel_articulos_confirmar' },
