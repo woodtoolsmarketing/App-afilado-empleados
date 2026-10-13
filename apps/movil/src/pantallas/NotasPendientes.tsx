@@ -42,10 +42,10 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   // notas, salga el rol de visita de los días en que las hizo. Se puede
   // destildar si esta vez sólo quiere las notas.
   const [conRolDeVisita, setConRolDeVisita] = useState(true)
-  // Arranca DESTILDADA: la rendición de cobranzas es una hoja aparte que no
-  // siempre se quiere con cada impresión (muchas veces se imprime una nota
-  // suelta al toque). El que cierra el día la tilda y se la lleva con todo.
-  const [conCobros, setConCobros] = useState(false)
+  // Arranca TILDADA, a pedido: lo habitual es cerrar el día imprimiendo las
+  // notas con el rol Y la rendición de cobranzas, todo junto. Se puede destildar
+  // si esta vez sólo se imprime una nota suelta y no se quiere la planilla.
+  const [conCobros, setConCobros] = useState(true)
   const [busqueda, setBusqueda] = useState('')
 
   const { data: notas, isLoading, error, refetch, isRefetching } = useQuery({
