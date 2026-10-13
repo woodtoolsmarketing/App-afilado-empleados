@@ -165,7 +165,7 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
         )
         .eq('vendedor_id', vendedorId)
         .neq('estado', 'anulada')

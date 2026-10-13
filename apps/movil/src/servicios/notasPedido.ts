@@ -1318,7 +1318,7 @@ export async function encolarImpresion(
 export async function resumenDeNotasDeLaParada(paradaId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('notas_pedido')
-    .select('items:notas_pedido_items(servicio, herramienta, cantidad, detalle)')
+    .select('items:notas_pedido_items(servicio, herramienta, cantidad, cantidad_dientes, detalle)')
     .eq('parada_id', paradaId)
     // Una nota anulada (p. ej. la que el vendedor eliminó por duplicada) no
     // cuenta en el resumen del parte. El panel filtra igual (RolesDeVisita,

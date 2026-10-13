@@ -333,7 +333,7 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
   const { data: notasSueltas } = await supabase
     .from('notas_pedido')
     .select(
-      'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, detalle )',
+      'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
     )
     .eq('vendedor_id', orden.pedida_por)
     .neq('estado', 'anulada')

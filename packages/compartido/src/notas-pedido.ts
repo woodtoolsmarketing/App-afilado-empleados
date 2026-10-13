@@ -2927,7 +2927,17 @@ export interface RenglonParaResumen {
   servicio: TipoServicio | null
   herramienta: Herramienta | null
   cantidad: number | null
-  /** El `detalle` jsonb del renglón. Sólo la venta lo usa, para las medidas. */
+  /**
+   * Los dientes del renglón. Es COLUMNA propia de `notas_pedido_items` (no viaja
+   * en `detalle`), así que la consulta que alimenta el resumen tiene que pedirla
+   * aparte. Es el "96" de "300x96" en el listado de afilado.
+   */
+  cantidad_dientes?: number | null
+  /**
+   * El `detalle` jsonb del renglón. La venta lo usa para las medidas; los
+   * servicios (afilado, rectificado, …) leen de acá el Ø/ancho/etc. y la
+   * `sierra_clase` (para distinguir sierra de incisor) al listar las medidas.
+   */
   detalle?: Record<string, unknown> | null
 }
 
@@ -2963,10 +2973,92 @@ function medidasDelDetalle(detalle: Record<string, unknown> | null | undefined):
   return resumenCaracteristicas(c)
 }
 
+/**
+ * La gramática de una medida compacta: "300x96", "80x3,2", "250x40x3", "300".
+ * Números (con coma decimal) unidos por 'x'. Se comparte entre el formateador
+ * `medidaCompacta` y el reconocedor `LINEA_DE_SERVICIO`: así toda medida que se
+ * imprime se puede volver a reconocer, y la línea de servicio nunca queda sin
+ * matchear (que es lo que duplicaría la línea al reabrir la nota).
+ */
+const MEDIDA_TOKEN = String.raw`\d+(?:,\d+)?(?:x\d+(?:,\d+)?)*`
+const ES_MEDIDA = new RegExp(`^${MEDIDA_TOKEN}$`)
+
+/** Las medidas de un renglón, de donde salga (jsonb `detalle` o formulario). */
+interface MedidasCompactas {
+  diametro_exterior?: unknown
+  diametro?: unknown
+  largo_util?: unknown
+  largo?: unknown
+  ancho?: unknown
+  espesor?: unknown
+  paso?: unknown
+  /** Los dientes (columna `cantidad_dientes`, no va en `detalle`). */
+  dientes?: unknown
+}
+
+const textoDeMedida = (v: unknown): string =>
+  v === null || v === undefined ? '' : String(v).trim()
+
+/**
+ * La medida de una pieza en forma compacta, para listarla en el resumen:
+ *   · sierra / incisor / fresa / cabezal → Ø exterior × dientes  ("300x96")
+ *   · sierra sin fin                     → ancho × paso          ("80x3,2")
+ *   · mecha                              → Ø × largo útil         ("12x300")
+ *   · cuchilla                           → largo × ancho × espesor ("250x40x3")
+ *
+ * Devuelve '' si no hay con qué (ahí el resumen cae al nombre del tipo, como
+ * antes). Valida el resultado contra `ES_MEDIDA`: si un valor cargado no fuera
+ * numérico, se descarta en vez de emitir una medida que el reconocedor no
+ * podría volver a matchear.
+ */
+function medidaCompacta(
+  herramienta: Herramienta | null,
+  m: MedidasCompactas,
+  cabezalDeCuchillas = false,
+): string {
+  const ext = textoDeMedida(m.diametro_exterior)
+  const diam = textoDeMedida(m.diametro)
+  const largoUtil = textoDeMedida(m.largo_util)
+  const largo = textoDeMedida(m.largo)
+  const ancho = textoDeMedida(m.ancho)
+  const espesor = textoDeMedida(m.espesor)
+  const paso = textoDeMedida(m.paso)
+  const dientes = textoDeMedida(m.dientes)
+
+  // Un cabezal portacuchillas se afila —y se mide— como una cuchilla
+  // (largo×ancho×espesor), no por Ø×dientes: toma la forma de cuchilla.
+  const forma: Herramienta | null =
+    herramienta === 'cabezal' && cabezalDeCuchillas ? 'cuchilla' : herramienta
+
+  let token = ''
+  switch (forma) {
+    case 'sierra':
+    case 'incisor':
+    case 'fresa':
+    case 'cabezal':
+      token = ext && dientes ? `${ext}x${dientes}` : ext
+      break
+    case 'sierra_sin_fin':
+      token = ancho && paso ? `${ancho}x${paso}` : ancho
+      break
+    case 'mecha':
+      token = diam && largoUtil ? `${diam}x${largoUtil}` : diam
+      break
+    case 'cuchilla':
+      token = [largo, ancho, espesor].filter(Boolean).join('x')
+      break
+    default:
+      token = ''
+  }
+  return ES_MEDIDA.test(token) ? token : ''
+}
+
 export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): string[] {
-  // Servicios: agrupados por servicio → herramientas sin repetir, en el orden en
-  // que aparecen. La venta no se agrupa: cada renglón lleva su cantidad y medida.
-  const porServicio = new Map<string, Set<string>>()
+  // Servicios (afilado, rectificado, …): agrupados por servicio y, dentro, por
+  // tipo de herramienta, listando la medida de cada pieza —"Afilado de sierras
+  // circulares: 300x96, 250x80, 300x36"—. La venta no se agrupa: cada renglón
+  // lleva su cantidad y su medida.
+  const porServicio = new Map<TipoServicio, Map<Herramienta, string[]>>()
   const ventas: string[] = []
 
   for (const r of renglones) {
@@ -2983,16 +3075,50 @@ export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): str
       continue
     }
 
-    const etiqueta = servicioEnFrase(r.servicio)
-    const set = porServicio.get(etiqueta) ?? new Set<string>()
-    const nombre = r.herramienta ? (EN_LA_DESCRIPCION[r.herramienta] ?? '') : ''
-    if (nombre) set.add(nombre)
-    porServicio.set(etiqueta, set)
+    // El servicio queda registrado aunque todavía no tenga herramienta elegida.
+    const porHerramienta = porServicio.get(r.servicio) ?? new Map<Herramienta, string[]>()
+    porServicio.set(r.servicio, porHerramienta)
+
+    // "sierra" con clase incisor se nombra —y agrupa— como incisor.
+    const clase = (r.detalle?.sierra_clase as SierraClase | undefined) ?? null
+    const herramienta = herramientaEnLaDescripcion(r.herramienta, clase)
+    if (!herramienta) continue
+
+    // El reclamo no lleva medida: es un reclamo POR la pieza, no un trabajo sobre
+    // ella; alcanza con nombrar el tipo.
+    const medida =
+      r.servicio === 'reclamo'
+        ? ''
+        : medidaCompacta(
+            herramienta,
+            {
+              diametro_exterior: r.detalle?.diametro_exterior,
+              diametro: r.detalle?.diametro,
+              largo_util: r.detalle?.largo_util,
+              largo: r.detalle?.largo,
+              ancho: r.detalle?.ancho,
+              espesor: r.detalle?.espesor,
+              paso: r.detalle?.paso,
+              dientes: r.cantidad_dientes,
+            },
+            r.detalle?.cabezal_de_cuchillas === true,
+          )
+    const lista = porHerramienta.get(herramienta) ?? []
+    lista.push(medida)
+    porHerramienta.set(herramienta, lista)
   }
 
-  const servicios = [...porServicio].map(([servicio, herramientas]) => {
-    const lista = [...herramientas]
-    return lista.length === 0 ? servicio : `${servicio} ${enumerar(lista)}`
+  const servicios = [...porServicio].map(([servicio, porHerramienta]) => {
+    const etiqueta = servicioEnFrase(servicio)
+    const prep = PREPOSICION[servicio] ?? 'de'
+    if (porHerramienta.size === 0) return etiqueta
+    const grupos = [...porHerramienta].map(([herramienta, medidas]) => {
+      const nombre = EN_LA_DESCRIPCION[herramienta] ?? ''
+      // Sin repetir una medida idéntica (dos sierras 300x96 → "300x96" una vez).
+      const unicas = [...new Set(medidas.filter(Boolean))]
+      return unicas.length > 0 ? `${nombre}: ${unicas.join(', ')}` : nombre
+    })
+    return `${etiqueta} ${prep} ${grupos.join('; ')}`
   })
 
   return [...servicios, ...ventas]
@@ -3213,13 +3339,17 @@ export function lineaDeServicio(items: FormularioItemNota[]): string {
    */
   const porTrabajo = new Map<
     string,
-    { servicio: TipoServicio; destinos: Map<string, Herramienta[]> }
+    { servicio: TipoServicio; destinos: Map<string, Herramienta[]>; medidas: string[] }
   >()
 
   for (const item of items) {
     if (!item.herramienta) continue
     const etiqueta = etiquetaDelTrabajo(item)
-    const grupo = porTrabajo.get(etiqueta) ?? { servicio: item.servicio, destinos: new Map() }
+    const grupo = porTrabajo.get(etiqueta) ?? {
+      servicio: item.servicio,
+      destinos: new Map<string, Herramienta[]>(),
+      medidas: [] as string[],
+    }
     // En minúscula, como las herramientas: la línea es una frase, no un rótulo.
     const maquina = (item.maquina || '').trim().toLowerCase()
     const suyas = grupo.destinos.get(maquina) ?? []
@@ -3228,49 +3358,84 @@ export function lineaDeServicio(items: FormularioItemNota[]): string {
     const nombra = herramientaEnLaDescripcion(item.herramienta, item.sierra_clase)
     if (nombra && !suyas.includes(nombra)) suyas.push(nombra)
     grupo.destinos.set(maquina, suyas)
+    // La medida de la pieza, para listarla después del tipo. La venta y el
+    // reclamo no la llevan: la venta sale del catálogo y el reclamo es POR la
+    // pieza, no un trabajo sobre ella.
+    if (!esRenglonDeArticulo(item.servicio)) {
+      const medida = medidaCompacta(
+        nombra,
+        {
+          diametro_exterior: item.diametro_exterior,
+          diametro: item.diametro,
+          largo_util: item.largo_util,
+          largo: item.largo,
+          ancho: item.ancho,
+          espesor: item.espesor,
+          paso: item.paso,
+          dientes: item.cantidad_dientes,
+        },
+        item.cabezal_de_cuchillas === true,
+      )
+      if (medida) grupo.medidas.push(medida)
+    }
     porTrabajo.set(etiqueta, grupo)
   }
 
   if (porTrabajo.size === 0) return ''
 
-  const completa = [...porTrabajo]
-    .map(([etiqueta, { servicio, destinos }]) => {
-      /**
-       * Cada herramienta con su destino, no todas las máquinas al final.
-       *
-       * "sierras circulares para escuadradora y máquina múltiple" se lee como
-       * una sierra que sirve para las dos, y son dos sierras distintas que van
-       * a máquinas distintas. Emparejadas queda dicho cuál va a dónde, que es
-       * lo que en fábrica hay que saber para repartirlas.
-       *
-       * Cuando el destino cambia pero la herramienta es la misma no se repite
-       * —"para escuadradora y para máquina múltiple"—: nombrarla dos veces no
-       * agrega nada y come el renglón, que es corto.
-       */
-      const partes: string[] = []
-      let anterior = ''
-      for (const [maquina, herramientas] of destinos) {
-        const nombres = enumerar(herramientas.map((h) => EN_LA_DESCRIPCION[h]))
-        const mismas = nombres === anterior
-        anterior = nombres
-        // La máquina es un agregado: mientras no la elijan, la línea dice lo
-        // esencial igual y no queda un "para" colgado.
-        partes.push(
-          maquina ? `${mismas ? '' : nombres + ' '}para ${maquina}` : nombres,
-        )
-      }
-      // Con `enumerar` y no con " y " suelto: tres destinos daban "y ... y ..."
-      // y se lee como una lista mal escrita.
-      return `${etiqueta} ${PREPOSICION[servicio] ?? 'de'} ${enumerar(partes)}`
-    })
-    .join(' · ')
+  const grupos = [...porTrabajo].map(([etiqueta, { servicio, destinos, medidas }]) => {
+    /**
+     * Cada herramienta con su destino, no todas las máquinas al final.
+     *
+     * "sierras circulares para escuadradora y máquina múltiple" se lee como
+     * una sierra que sirve para las dos, y son dos sierras distintas que van
+     * a máquinas distintas. Emparejadas queda dicho cuál va a dónde, que es
+     * lo que en fábrica hay que saber para repartirlas.
+     *
+     * Cuando el destino cambia pero la herramienta es la misma no se repite
+     * —"para escuadradora y para máquina múltiple"—: nombrarla dos veces no
+     * agrega nada y come el renglón, que es corto.
+     */
+    const partes: string[] = []
+    let anterior = ''
+    for (const [maquina, herramientas] of destinos) {
+      const nombres = enumerar(herramientas.map((h) => EN_LA_DESCRIPCION[h]))
+      const mismas = nombres === anterior
+      anterior = nombres
+      // La máquina es un agregado: mientras no la elijan, la línea dice lo
+      // esencial igual y no queda un "para" colgado.
+      partes.push(maquina ? `${mismas ? '' : nombres + ' '}para ${maquina}` : nombres)
+    }
+    // Con `enumerar` y no con " y " suelto: tres destinos daban "y ... y ..."
+    // y se lee como una lista mal escrita.
+    const prep = PREPOSICION[servicio] ?? 'de'
+    const base = `${etiqueta} ${prep} ${enumerar(partes)}`
+    // El listado de medidas va al final del grupo, después del "para máquina":
+    // "AFILADO de sierras circulares para escuadradora: 300x96, 250x80". Sin
+    // repetir una medida idéntica.
+    const unicas = [...new Set(medidas)]
+    // Sólo los tipos, sin máquina ni medidas —"AFILADO de sierras circulares"—:
+    // el recurso informativo cuando lo demás no entra en el renglón.
+    const tiposDelGrupo = [...new Set([...destinos.values()].flat())]
+    const tipos = `${etiqueta} ${prep} ${enumerar(tiposDelGrupo.map((h) => EN_LA_DESCRIPCION[h]))}`
+    return { tipos, base, conMedida: unicas.length > 0 ? `${base}: ${unicas.join(', ')}` : base }
+  })
 
-  if (completa.length <= LARGO_MAXIMO_LINEA) return completa
+  // Se elige la forma más completa que entre en el renglón (el recuadro tiene
+  // alto fijo y recorta sin avisar): con medidas; si no, con máquinas; si no,
+  // sólo los tipos; y como último recurso los servicios pelados. Las cuatro
+  // formas las reconoce `LINEA_DE_SERVICIO`, así que ninguna se duplica al
+  // reabrir la nota. Qué medida tiene cada pieza ya está renglón por renglón en
+  // la tabla de abajo.
+  const conMedidas = grupos.map((g) => g.conMedida).join(' · ')
+  if (conMedidas.length <= LARGO_MAXIMO_LINEA) return conMedidas
 
-  // Tres servicios con dos herramientas cada uno no entran en un renglón, y el
-  // recuadro no avisa: recorta. Se dejan los trabajos solos, que es el dato
-  // que hay que leer de lejos; qué herramienta es cada uno ya está renglón por
-  // renglón en la tabla de abajo.
+  const sinMedidas = grupos.map((g) => g.base).join(' · ')
+  if (sinMedidas.length <= LARGO_MAXIMO_LINEA) return sinMedidas
+
+  const tiposSolos = grupos.map((g) => g.tipos).join(' · ')
+  if (tiposSolos.length <= LARGO_MAXIMO_LINEA) return tiposSolos
+
   return [...porTrabajo.keys()].join(' · ')
 }
 
@@ -3315,13 +3480,20 @@ const LINEA_DE_SERVICIO = (() => {
    * El `(?:${lista} )?` de la repetición es el que hace las dos: con la
    * herramienta cuando cambia, sin ella cuando se repite.
    */
+  // El listado de medidas que `lineaDeServicio` agrega al final del grupo
+  // ("…: 300x96, 250x80"). Mismo token que emite `medidaCompacta`, así que toda
+  // línea generada se reconoce. Opcional: las líneas viejas no lo traen.
+  const listaMedidas = `${MEDIDA_TOKEN}(?:, ${MEDIDA_TOKEN})*`
   const parte =
     `(?:${servicios}) (?:de|por) ${lista}(?: para ${listaMaquinas})?` +
-    `(?:(?:, | y )(?:${lista} )?para ${listaMaquinas})*`
+    `(?:(?:, | y )(?:${lista} )?para ${listaMaquinas})*` +
+    `(?:: ${listaMedidas})?`
   // La segunda forma es la corta, la que sale cuando la completa no entra en un
-  // renglón: los servicios solos.
+  // renglón: los servicios solos. El `*` (no `+`) es a propósito: el último
+  // recurso de `lineaDeServicio`, con UN solo servicio, es una palabra sola
+  // ("AFILADO"); con `+` no se reconocía y se duplicaba al reabrir la nota.
   const corta = `(?:${servicios})`
-  return new RegExp(`^(?:${parte}(?: · ${parte})*|${corta}(?: · ${corta})+)$`)
+  return new RegExp(`^(?:${parte}(?: · ${parte})*|${corta}(?: · ${corta})*)$`)
 })()
 
 /**
