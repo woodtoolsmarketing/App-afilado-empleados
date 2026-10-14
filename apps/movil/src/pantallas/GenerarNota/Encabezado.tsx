@@ -28,6 +28,7 @@ import {
 } from '../../componentes/Formulario'
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { MapaUbicacionCliente } from '../../componentes/MapaUbicacionCliente'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import {
   buscarClientes,
@@ -669,6 +670,20 @@ export function PasoCliente({
             <Text style={estilos.cambiarClienteTexto}>✕ CAMBIAR</Text>
           </Pressable>
         </View>
+      ) : null}
+
+      {/* El mapa con el punto del cliente elegido: para ver dónde queda apenas se
+          lo engancha, igual que al agregarlo al recorrido. Sólo si está ubicado
+          (el nuevo/provisorio o el que no tiene coordenadas no lo muestra). */}
+      {!CLIENTE_A_MANO &&
+      form.cliente_id &&
+      clienteRef.current?.lat != null &&
+      clienteRef.current?.lng != null ? (
+        <MapaUbicacionCliente
+          lat={clienteRef.current.lat}
+          lng={clienteRef.current.lng}
+          titulo={form.cliente_nombre}
+        />
       ) : null}
 
       {/* El código del cliente y el número de vendedor, en una fila.

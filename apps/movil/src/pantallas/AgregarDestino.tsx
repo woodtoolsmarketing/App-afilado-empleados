@@ -33,6 +33,7 @@ import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
+import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
@@ -789,6 +790,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
               ) : null}
               {elegido.contacto_nombre ? (
                 <Text style={estilos.fichaDato}>Contacto: {elegido.contacto_nombre}</Text>
+              ) : null}
+              {/* El mapa con el punto del cliente: aparece apenas lo elegís, para
+                  ver dónde cae antes de agregarlo. Sólo si está ubicado. */}
+              {!sinUbicar && elegido.lat != null && elegido.lng != null ? (
+                <MapaUbicacionCliente lat={elegido.lat} lng={elegido.lng} titulo={elegido.razon_social} />
               ) : null}
             </View>
           ) : null}

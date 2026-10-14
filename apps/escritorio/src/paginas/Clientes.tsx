@@ -1,6 +1,8 @@
 import type { Cliente, Direccion, Perfil, RolUsuario } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import L from 'leaflet'
 import { useEffect, useState } from 'react'
+import { MapContainer, Marker, TileLayer, Tooltip } from 'react-leaflet'
 
 import { EditorDireccion, type DireccionEditable } from '../componentes/EditorDireccion'
 import { filtrarPorPalabras } from '../nucleo/buscarClientes'
@@ -672,6 +674,34 @@ interface PermisoEdicion {
   motivo_rechazo: string | null
 }
 
+/**
+ * Pin dibujado a mano: el icono por defecto de Leaflet apunta a imágenes que el
+ * empaquetador no resuelve y salen rotas (mismo truco que en CambiosDireccion).
+ */
+const ICONO_UBICACION = L.divIcon({
+  className: '',
+  html: '<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:#B30F0F;border:2px solid #fff;transform:rotate(-45deg);box-shadow:0 1px 4px rgba(0,0,0,.45)"></div>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 18],
+})
+
+/** Un mapa chico, de sólo lectura, con el pin de la ubicación del cliente. */
+function MapaUbicacion({ lat, lng, etiqueta }: { lat: number; lng: number; etiqueta: string }) {
+  return (
+    <div style={{ height: 220, borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>
+      <MapContainer center={[lat, lng]} zoom={16} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <Marker position={[lat, lng]} icon={ICONO_UBICACION}>
+          <Tooltip>{etiqueta}</Tooltip>
+        </Marker>
+      </MapContainer>
+    </div>
+  )
+}
+
 function fechaHora(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
 }
@@ -896,6 +926,13 @@ function FichaClienteAdministracion({
         <div className="campo">
           <label>Dirección principal</label>
           <input value={direccionTexto} disabled />
+          {principal && principal.lat != null && principal.lng != null ? (
+            <MapaUbicacion lat={principal.lat} lng={principal.lng} etiqueta={cliente.razon_social} />
+          ) : (
+            <div className="aviso atencion" style={{ marginTop: 6, fontSize: 13 }}>
+              Este cliente todavía no tiene ubicación en el mapa.
+            </div>
+          )}
           <small style={{ color: 'var(--tinta-suave)' }}>
             La dirección se corrige por “Cambios de dirección”, no desde acá.
           </small>
