@@ -86,7 +86,7 @@ function nombreVendedor(c: CobranzaFila): string {
 /** Una planilla imprimible (un comprobante) con los cobros de un vendedor en un día. */
 function armarPlanilla(
   cobros: CobranzaFila[],
-  titulo: string,
+  esPresupuesto: boolean,
   fecha: string,
 ): PlanillaCobranzasParaImprimir {
   const renglones: RenglonCobranza[] = cobros.map((c) => ({
@@ -100,7 +100,7 @@ function armarPlanilla(
   }))
   return {
     vendedor_numero: cobros[0]?.perfiles?.codigo_vendedor ?? '',
-    titulo,
+    esPresupuesto,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
     total_general: formatearPesos(sumar(cobros).total),
@@ -193,9 +193,10 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   const totalPeriodo = useMemo(() => sumar(cobranzas ?? []), [cobranzas])
 
   /**
-   * Imprimir las planillas de un vendedor en un día: una por FACTURA y otra por
-   * PRESUPUESTO (sólo las que tienen cobros), en A5. Es SÓLO de administradores
-   * —el botón se gatea con `esAdmin`, aunque otro rol tenga la vista—.
+   * Imprimir las planillas de un vendedor en un día: la de FACTURA y la de
+   * PRESUPUESTO (sólo las que tienen cobros) en UNA sola hoja A4, divididas por
+   * una línea. Es SÓLO de administradores —el botón se gatea con `esAdmin`,
+   * aunque otro rol tenga la vista—.
    */
   const imprimir = useMutation({
     mutationFn: async ({ cobros, fecha }: { cobros: CobranzaFila[]; fecha: string }) => {
@@ -206,12 +207,12 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
       const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
       const planillas: PlanillaCobranzasParaImprimir[] = []
-      if (facturas.length > 0) planillas.push(armarPlanilla(facturas, 'FACTURA', fecha))
-      if (presupuestos.length > 0) planillas.push(armarPlanilla(presupuestos, 'PRESUPUESTO', fecha))
+      if (facturas.length > 0) planillas.push(armarPlanilla(facturas, false, fecha))
+      if (presupuestos.length > 0) planillas.push(armarPlanilla(presupuestos, true, fecha))
       if (planillas.length === 0) throw new Error('No hay cobros para imprimir.')
       const html = generarDocumentoPlanillasCobranzas(planillas)
       const impresora = await obtenerImpresora()
-      const r = await imprimirDoc(html, impresora, 'A5')
+      const r = await imprimirDoc(html, impresora, 'A4')
       if (!r.impreso) throw new Error(r.motivo ?? 'La impresora no confirmó el trabajo.')
       return planillas.length
     },

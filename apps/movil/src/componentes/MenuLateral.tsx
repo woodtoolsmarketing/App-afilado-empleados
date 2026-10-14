@@ -83,9 +83,12 @@ const OPCIONES: Destino[] = [
   },
   {
     // La planilla del recorrido de hoy: la misma que arma la oficina, para
-    // imprimirla en la impresora de la oficina.
+    // imprimirla en la impresora de la oficina. Toca una vez y sale: la pantalla
+    // se abre ya mandándola a imprimir (ver `imprimirAlEntrar`), sin pedir otro
+    // toque. El sello es distinto en cada toque para que volver a elegirla
+    // vuelva a imprimir. Sin recorrido armado, se ve el estado vacío.
     etiqueta: 'IMPRIMIR ROL DE VISITA',
-    ir: (n) => n.navigate('RolDeVisita'),
+    ir: (n) => n.navigate('RolDeVisita', { imprimirAlEntrar: Date.now() }),
   },
   {
     etiqueta: 'HISTORIAL DE VISITAS',

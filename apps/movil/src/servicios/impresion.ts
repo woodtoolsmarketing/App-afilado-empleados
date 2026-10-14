@@ -253,7 +253,7 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
  */
 function armarPlanillaCobros(
   cobros: Cobranza[],
-  titulo: string,
+  esPresupuesto: boolean,
   fecha: string,
   vendedorNumero: string,
 ): PlanillaCobranzasParaImprimir {
@@ -267,7 +267,7 @@ function armarPlanillaCobros(
   }))
   return {
     vendedor_numero: vendedorNumero,
-    titulo,
+    esPresupuesto,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
     total_general: formatearPesos(cobros.reduce((suma, c) => suma + c.total, 0)),
@@ -292,10 +292,10 @@ async function planillasDeCobranzasDe(
     const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
     const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
     if (facturas.length > 0) {
-      planillas.push(armarPlanillaCobros(facturas, 'FACTURA', dia, vendedorNumero))
+      planillas.push(armarPlanillaCobros(facturas, false, dia, vendedorNumero))
     }
     if (presupuestos.length > 0) {
-      planillas.push(armarPlanillaCobros(presupuestos, 'PRESUPUESTO', dia, vendedorNumero))
+      planillas.push(armarPlanillaCobros(presupuestos, true, dia, vendedorNumero))
     }
   }
   return planillas

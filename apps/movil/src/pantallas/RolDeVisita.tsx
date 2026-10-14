@@ -7,7 +7,7 @@ import {
   type Paleta,
 } from '@woodtools/compartido'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
@@ -29,7 +29,7 @@ import { hojaDeTema, usarTema } from '../nucleo/tema'
  * hoja— y el botón para imprimirla. (Antes también se podía compartir como PDF
  * por WhatsApp; esa salida se cerró por seguridad.)
  */
-export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>) {
+export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeVisita'>) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
@@ -72,6 +72,33 @@ export function PantallaRolDeVisita({ navigation }: PropsPantalla<'RolDeVisita'>
       ])
     },
   })
+
+  /**
+   * Imprimir al entrar, cuando se llega desde "IMPRIMIR ROL DE VISITA" del menú.
+   *
+   * El vendedor ahí ya tocó *imprimir*: hacerlo mirar la lista y tocar un
+   * segundo botón es un paso de más. Así que apenas la planilla está armada se
+   * manda sola a la impresora, con el mismo aviso de avance y el mismo cartel de
+   * resultado que el botón —no es otra impresión, es el botón apretado solo—.
+   *
+   * Se dispara una vez por `imprimirAlEntrar`: es un sello distinto en cada
+   * toque del menú (ver `ParametrosApp`), así que volver a elegir la opción
+   * vuelve a imprimir, pero un re-render cualquiera (el cartel de "enviado", un
+   * refetch) no reimprime porque el sello no cambió. Sólo con recorrido armado:
+   * sin paradas no hay planilla y se ve el estado vacío, no un cartel de error.
+   */
+  const selloImpresion = route.params?.imprimirAlEntrar
+  const ultimoSelloImpreso = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!selloImpresion || ultimoSelloImpreso.current === selloImpresion) return
+    if (isLoading || error || paradas.length === 0) return
+    ultimoSelloImpreso.current = selloImpresion
+    imprimir.mutate()
+    // `imprimir` es estable (react-query) y se omite a propósito: listarlo haría
+    // re-correr el efecto en cada cambio de la mutación (p. ej. isPending) y
+    // podría reimprimir. El sello y el guard por ref ya acotan cuándo dispara.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selloImpresion, isLoading, error, paradas.length])
 
   return (
     <Pantalla>

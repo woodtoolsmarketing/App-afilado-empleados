@@ -1,4 +1,4 @@
-import type { Cliente, Direccion, Perfil } from '@woodtools/compartido'
+import type { Cliente, Direccion, Perfil, RolUsuario } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
@@ -12,8 +12,14 @@ type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
 const VENTANA = 200
 
 /** Alta, baja y modificación de la cartera de clientes. */
-export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
+export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boolean }) {
   const cliente = useQueryClient()
+  // El admin hace el ABM completo (alta, baja y editar cualquier campo).
+  // Administración ve la ficha y puede PEDIR editar un cliente (ver
+  // FichaClienteAdministracion); el supervisor sólo mira la lista. Alta, baja y
+  // "+ Nuevo" quedan como estaban: sólo admin (soloLectura = todos menos admin).
+  const soloLectura = !esAdmin
+  const esAdministracion = rol === 'administracion'
   const [busqueda, setBusqueda] = useState('')
   const [editando, setEditando] = useState<ClienteConDirecciones | 'nuevo' | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
@@ -153,7 +159,7 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
       {/* Los clientes que los vendedores cargan desde la calle nacen sin código
           real ni datos fiscales. Si no se muestran acá, quedan enterrados en el
           padrón y nadie los completa nunca. */}
-      {provisorios && provisorios.length > 0 && (
+      {esAdmin && provisorios && provisorios.length > 0 && (
         <div className="aviso atencion">
           <strong>
             {provisorios.length} cliente{provisorios.length === 1 ? '' : 's'} cargado
@@ -273,8 +279,12 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
                   </td>
                   <td>
                     <div className="acciones">
-                      <button className="chico" disabled={soloLectura} onClick={() => setEditando(c)}>
-                        Editar
+                      <button
+                        className="chico"
+                        disabled={!esAdmin && !esAdministracion}
+                        onClick={() => setEditando(c)}
+                      >
+                        {esAdmin ? 'Editar' : 'Ver ficha'}
                       </button>
                       <button
                         className="chico"
@@ -292,18 +302,30 @@ export function PaginaClientes({ soloLectura }: { soloLectura: boolean }) {
         )}
       </section>
 
-      {editando && (
-        <FormularioCliente
-          cliente={editando === 'nuevo' ? null : editando}
-          vendedores={vendedores ?? []}
-          alCerrar={() => setEditando(null)}
-          alGuardar={() => {
-            setEditando(null)
-            setMensaje('Cliente guardado.')
-            refrescarClientes()
-          }}
-        />
-      )}
+      {editando &&
+        (esAdmin ? (
+          <FormularioCliente
+            cliente={editando === 'nuevo' ? null : editando}
+            vendedores={vendedores ?? []}
+            alCerrar={() => setEditando(null)}
+            alGuardar={() => {
+              setEditando(null)
+              setMensaje('Cliente guardado.')
+              refrescarClientes()
+            }}
+          />
+        ) : editando !== 'nuevo' ? (
+          <FichaClienteAdministracion
+            cliente={editando}
+            vendedores={vendedores ?? []}
+            alCerrar={() => setEditando(null)}
+            alGuardar={() => {
+              setEditando(null)
+              setMensaje('Cliente editado.')
+              refrescarClientes()
+            }}
+          />
+        ) : null)}
     </>
   )
 }
@@ -636,6 +658,263 @@ function FormularioCliente({
           <button type="submit" className="primario" disabled={guardando}>
             {guardando ? 'Guardando…' : 'Guardar'}
           </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+interface PermisoEdicion {
+  id: string
+  estado: 'pendiente' | 'aprobado' | 'rechazado' | 'usado' | 'vencido'
+  motivo: string | null
+  vence_en: string | null
+  motivo_rechazo: string | null
+}
+
+function fechaHora(iso: string): string {
+  return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/**
+ * La ficha del cliente para ADMINISTRACIÓN: ve los datos y, si necesita
+ * corregir algo, pide permiso ("Permitir editar"). El pedido le llega al admin
+ * (pantalla "Ediciones de clientes"); cuando lo aprueba, los campos se abren y
+ * administración edita este cliente UNA vez (el guardado va por la RPC
+ * `editar_cliente_con_permiso`, que consume el permiso). El código, el vendedor
+ * y la dirección no se editan por acá: son del admin / del flujo de cambios de
+ * dirección, así que van de referencia, en gris.
+ */
+function FichaClienteAdministracion({
+  cliente,
+  vendedores,
+  alCerrar,
+  alGuardar,
+}: {
+  cliente: ClienteConDirecciones
+  vendedores: Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
+  alCerrar: () => void
+  alGuardar: () => void
+}) {
+  const qc = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [form, setForm] = useState({
+    razon_social: cliente.razon_social ?? '',
+    nombre_fantasia: cliente.nombre_fantasia ?? '',
+    cuit: cliente.cuit ?? '',
+    telefono: cliente.telefono ?? '',
+    email: cliente.email ?? '',
+    contacto_nombre: cliente.contacto_nombre ?? '',
+    notas: cliente.notas ?? '',
+  })
+
+  const { data: permiso } = useQuery({
+    queryKey: ['permiso-edicion', cliente.id],
+    queryFn: async () => {
+      // La RLS ya devuelve sólo los pedidos propios: el último de este cliente
+      // dice en qué estado está (pendiente / aprobado / usado / rechazado).
+      const { data, error: err } = await supabase
+        .from('permisos_edicion_cliente')
+        .select('id, estado, motivo, vence_en, motivo_rechazo')
+        .eq('cliente_id', cliente.id)
+        .order('creado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (err) throw err
+      return (data as PermisoEdicion | null) ?? null
+    },
+  })
+
+  const editable =
+    permiso?.estado === 'aprobado' &&
+    (!permiso.vence_en || new Date(permiso.vence_en).getTime() > Date.now())
+  const pendiente = permiso?.estado === 'pendiente'
+
+  function actualizar(campo: keyof typeof form, valor: string) {
+    setForm((f) => ({ ...f, [campo]: valor }))
+  }
+
+  const pedir = useMutation({
+    mutationFn: async () => {
+      const { error: err } = await supabase.rpc('solicitar_edicion_cliente', {
+        p_cliente_id: cliente.id,
+        p_motivo: motivo.trim() || null,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      setError(null)
+      void qc.invalidateQueries({ queryKey: ['permiso-edicion', cliente.id] })
+      void qc.invalidateQueries({ queryKey: ['permisos-edicion-pendientes'] })
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  const guardar = useMutation({
+    mutationFn: async () => {
+      if (!form.razon_social.trim()) throw new Error('La razón social no puede quedar vacía.')
+      const { error: err } = await supabase.rpc('editar_cliente_con_permiso', {
+        p_cliente_id: cliente.id,
+        p_razon_social: form.razon_social.trim(),
+        p_nombre_fantasia: form.nombre_fantasia.trim() || null,
+        p_cuit: form.cuit.trim() || null,
+        p_telefono: form.telefono.trim() || null,
+        p_email: form.email.trim() || null,
+        p_contacto_nombre: form.contacto_nombre.trim() || null,
+        p_notas: form.notas.trim() || null,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['permisos-edicion-pendientes'] })
+      alGuardar()
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  const vendedor = vendedores.find((v) => v.id === cliente.vendedor_id)
+  const principal = cliente.direcciones?.find((d) => d.principal) ?? cliente.direcciones?.[0]
+  const direccionTexto =
+    principal?.direccion_formateada ||
+    [cliente.direccion, cliente.localidad].filter(Boolean).join(', ') ||
+    '—'
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 50,
+        padding: 20,
+      }}
+      onClick={alCerrar}
+    >
+      <form
+        className="tarjeta"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (editable) guardar.mutate()
+        }}
+        style={{ width: 'min(760px, 95vw)', maxHeight: '90vh', overflowY: 'auto', margin: 0 }}
+      >
+        <h2>Ficha del cliente</h2>
+
+        {error && <div className="aviso error">{error}</div>}
+
+        {editable ? (
+          <div className="aviso exito">
+            Un administrador te habilitó a editar este cliente
+            {permiso?.vence_en ? ` (vence ${fechaHora(permiso.vence_en)})` : ''}. Hacé los cambios y
+            guardá: es de un solo uso.
+          </div>
+        ) : pendiente ? (
+          <div className="aviso atencion">
+            Pediste permiso para editar este cliente. Esperá a que un administrador lo apruebe; cuando
+            esté, vas a poder editarlo desde acá.
+          </div>
+        ) : (
+          <div className="aviso">
+            {permiso?.estado === 'rechazado'
+              ? `Tu último pedido fue rechazado${permiso.motivo_rechazo ? `: ${permiso.motivo_rechazo}` : ''}. Podés volver a pedir.`
+              : permiso?.estado === 'usado'
+                ? 'Ya editaste este cliente con el último permiso. Si necesitás otro cambio, pedí de nuevo.'
+                : 'Para corregir un dato, pedí permiso: un administrador lo aprueba y te habilita a editar este cliente.'}
+            <div style={{ marginTop: 10 }}>
+              <label htmlFor="motivo-edicion" style={{ fontSize: 13 }}>
+                Qué querés corregir (opcional)
+              </label>
+              <textarea
+                id="motivo-edicion"
+                rows={2}
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Ej.: el teléfono está mal, es 0351-…"
+                style={{ width: '100%', marginTop: 4 }}
+              />
+              <button
+                type="button"
+                className="primario"
+                disabled={pedir.isPending}
+                onClick={() => pedir.mutate()}
+                style={{ marginTop: 8 }}
+              >
+                {pedir.isPending ? 'Enviando…' : 'Permitir editar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="fila">
+          <div className="campo">
+            <label>Cliente Nº</label>
+            <input value={cliente.codigo} disabled />
+          </div>
+          <div className="campo" style={{ flex: 3 }}>
+            <label htmlFor="f-razon">Razón social</label>
+            <input id="f-razon" value={form.razon_social} disabled={!editable} onChange={(e) => actualizar('razon_social', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="f-fantasia">Nombre de fantasía</label>
+            <input id="f-fantasia" value={form.nombre_fantasia} disabled={!editable} onChange={(e) => actualizar('nombre_fantasia', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="f-cuit">CUIT</label>
+            <input id="f-cuit" value={form.cuit} disabled={!editable} onChange={(e) => actualizar('cuit', e.target.value)} placeholder="30-12345678-9" />
+          </div>
+        </div>
+
+        <div className="fila">
+          <div className="campo">
+            <label htmlFor="f-contacto">Contacto habitual</label>
+            <input id="f-contacto" value={form.contacto_nombre} disabled={!editable} onChange={(e) => actualizar('contacto_nombre', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="f-tel">Teléfono</label>
+            <input id="f-tel" value={form.telefono} disabled={!editable} onChange={(e) => actualizar('telefono', e.target.value)} />
+          </div>
+          <div className="campo">
+            <label htmlFor="f-email">Correo</label>
+            <input id="f-email" type="email" value={form.email} disabled={!editable} onChange={(e) => actualizar('email', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="campo">
+          <label>Vendedor a cargo</label>
+          <input
+            value={vendedor ? `${vendedor.nombre_completo}${vendedor.codigo_vendedor ? ` (#${vendedor.codigo_vendedor})` : ''}` : 'Sin asignar'}
+            disabled
+          />
+        </div>
+        <div className="campo">
+          <label>Dirección principal</label>
+          <input value={direccionTexto} disabled />
+          <small style={{ color: 'var(--tinta-suave)' }}>
+            La dirección se corrige por “Cambios de dirección”, no desde acá.
+          </small>
+        </div>
+
+        <div className="campo">
+          <label htmlFor="f-notas">Notas</label>
+          <textarea id="f-notas" rows={3} value={form.notas} disabled={!editable} onChange={(e) => actualizar('notas', e.target.value)} />
+        </div>
+
+        <div className="acciones" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+          <button type="button" onClick={alCerrar}>
+            Cerrar
+          </button>
+          {editable ? (
+            <button type="submit" className="primario" disabled={guardar.isPending}>
+              {guardar.isPending ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          ) : null}
         </div>
       </form>
     </div>

@@ -23,21 +23,20 @@ export interface RenglonCobranza {
 
 export interface PlanillaCobranzasParaImprimir {
   vendedor_numero: string
-  /** "FACTURA" o "PRESUPUESTO": cada planilla es de un solo comprobante. */
-  titulo: string
+  /**
+   * `true` si la planilla es de PRESUPUESTO, `false` si es de FACTURA. Cada
+   * planilla es de un solo comprobante.
+   *
+   * El nombre del comprobante ya NO se imprime: la de presupuesto lleva un `*`
+   * en la esquina superior derecha y la de factura no lleva nada. Con eso la
+   * oficina las distingue de un vistazo, sin la palabra "FACTURA"/"PRESUPUESTO".
+   */
+  esPresupuesto: boolean
   fecha: string
   cobros: RenglonCobranza[]
   /** La suma, ya escrita. */
   total_general: string
 }
-
-/**
- * Renglones en blanco que se imprimen igual.
- *
- * La planilla de papel los tiene, y el vendedor los usa para anotar a mano el
- * cobro que aparece después de haber impreso la hoja.
- */
-const FILAS_PLANILLA = 14
 
 function escapar(v: unknown): string {
   return String(v ?? '')
@@ -47,20 +46,12 @@ function escapar(v: unknown): string {
     .replace(/"/g, '&quot;')
 }
 
-const VACIO = (): RenglonCobranza => ({
-  cliente_codigo: '',
-  cliente_nombre: '',
-  total: '',
-  cheque: '',
-  efectivo: '',
-  comentarios: '',
-})
-
 export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImprimir): string {
-  const filas = planilla.cobros.slice()
-  while (filas.length < FILAS_PLANILLA) filas.push(VACIO())
-
-  const cuerpo = filas
+  // Solo los cobros que cargo el vendedor: NO se rellenan renglones en blanco.
+  // Antes se completaba hasta 14 filas para imitar la planilla de papel (que
+  // trae renglones para anotar a mano); se saco a pedido. La hoja sale con lo
+  // que hay y nada mas, sin recuadros de mas.
+  const cuerpo = planilla.cobros
     .map(
       (c) => `<tr>
       <td class="c">${escapar(c.cliente_codigo)}</td>
@@ -74,9 +65,9 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
     .join('')
 
   return `<div class="cobranzas">
+  ${planilla.esPresupuesto ? '<div class="cob-marca" aria-hidden="true">*</div>' : ''}
   <div class="cob-cabecera">
     <div class="cob-vendedor">VENDEDOR Nº <u>${escapar(planilla.vendedor_numero || '—')}</u></div>
-    <div class="cob-titulo">${escapar(planilla.titulo)}</div>
     <div class="cob-datos">
       <span>FECHA: <u>${escapar(planilla.fecha)}</u></span>
     </div>
@@ -114,32 +105,43 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
 }
 
 /**
- * El documento A5 completo, con una o dos planillas (factura y presupuesto).
+ * El documento de las planillas de un día: factura y presupuesto en UNA sola
+ * hoja A4, divididas por una línea.
  *
- * Va en A5 —media hoja A4—, una planilla por página (el salto lo da el
- * `page-break-after` de `.cobranzas`). El tamaño físico de página lo fija también
- * quien imprime: en el panel, electron `printToPDF({ pageSize: 'A5' })`. Los dos
- * tienen que declarar lo mismo —este `@page` y el `pageSize`— o la impresora
- * reescala, como pasaba con Letter vs A4.
+ * Antes iba en A5, una planilla por página. Ahora las dos (factura y presupuesto
+ * del día) conviven en la misma A4, separadas por una línea de corte:
+ * `.cobranzas` ya no rompe página entre una y otra (se pisa a `auto` abajo), y
+ * como la tabla trae sólo los cobros cargados —sin renglones en blanco— las dos
+ * entran sobradas. El tamaño físico lo fija también quien imprime: en el panel,
+ * electron `printToPDF({ pageSize: 'A4' })`. Los dos tienen que declarar lo
+ * mismo —este `@page` y el `pageSize`— o la impresora reescala, como pasaba con
+ * Letter vs A4.
  *
- * Lo imprime SÓLO el panel (la oficina). El teléfono ya no imprime la planilla:
- * el vendedor sólo carga los cobros y los mira en el historial.
+ * Lo imprime SÓLO el panel (la oficina). El teléfono ya no imprime la planilla
+ * aparte: el vendedor sólo carga los cobros y los mira en el historial.
  */
 export function generarDocumentoPlanillasCobranzas(
   planillas: PlanillaCobranzasParaImprimir[],
 ): string {
-  const cuerpo = planillas.map(generarHtmlPlanillaCobranzas).join('\n')
+  // Entre una planilla y la otra va la línea divisoria; con una sola planilla no
+  // se agrega nada.
+  const cuerpo = planillas
+    .map(generarHtmlPlanillaCobranzas)
+    .join('\n<div class="cob-divisor" aria-hidden="true"></div>\n')
   // El margen va en `.cobranzas` (padding) y no en `@page`: el panel imprime con
-  // `printToPDF({ margins: 0 })`, que pisa el margen de `@page`. Así el recuadro
-  // queda despegado del borde en cada página igual.
+  // `printToPDF({ margins: 0 })`, que pisa el margen de `@page`.
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8" />
 <style>
-@page { size: A5 portrait; margin: 0; }
+@page { size: A4 portrait; margin: 0; }
 html, body { margin: 0; padding: 0; }
 ${ESTILOS_PLANILLA_COBRANZAS}
+/* En esta hoja las dos planillas conviven: no se rompe pagina entre una y otra,
+   van juntas divididas por la linea de corte. */
+.cobranzas { page-break-after: auto; }
+.cob-divisor { border-top: 1.5px dashed #000; margin: 5mm 6mm; }
 </style>
 </head>
 <body>${cuerpo}</body>
@@ -154,7 +156,7 @@ ${ESTILOS_PLANILLA_COBRANZAS}
  * desarma.
  */
 export const ESTILOS_PLANILLA_COBRANZAS = `
-.cobranzas { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 6mm; page-break-after: always; }
+.cobranzas { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 6mm; page-break-after: always; position: relative; }
 .cobranzas:last-child { page-break-after: auto; }
 
 .cob-cabecera {
@@ -165,7 +167,11 @@ export const ESTILOS_PLANILLA_COBRANZAS = `
   margin-bottom: 1mm;
 }
 .cob-vendedor { font-size: 9pt; }
-.cob-titulo { font-size: 13pt; font-weight: bold; letter-spacing: 0.5px; }
+/* La marca que distingue la planilla de PRESUPUESTO de la de FACTURA: un
+   asterisco en la esquina superior derecha, solo en la de presupuesto (la de
+   factura no lleva nada). Va posicionado en la esquina, afuera del renglon del
+   encabezado, para no pisar la FECHA que vive a la derecha de esa fila. */
+.cob-marca { position: absolute; top: 2mm; right: 4mm; font-size: 18pt; font-weight: bold; line-height: 1; }
 .cob-datos { display: flex; gap: 6mm; font-size: 9pt; }
 .cob-datos u, .cob-vendedor u { min-width: 22mm; display: inline-block; }
 .cob-nombre { font-size: 9pt; margin-bottom: 2mm; }

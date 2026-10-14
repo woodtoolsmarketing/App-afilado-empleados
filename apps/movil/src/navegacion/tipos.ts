@@ -81,8 +81,18 @@ export type ParametrosApp = {
   ListaSemanal: { diaSemana?: number } | undefined
   /** Todos los clientes ubicados sobre el mapa, agrupados, centrado en el GPS. */
   MapaClientes: undefined
-  /** La planilla del recorrido de hoy, para imprimir o compartir como PDF. */
-  RolDeVisita: undefined
+  /**
+   * La planilla del recorrido de hoy, para imprimir o compartir como PDF.
+   *
+   * `imprimirAlEntrar` manda la planilla a la impresora apenas se abre, sin
+   * pedir otro toque: lo usa "IMPRIMIR ROL DE VISITA" del menú, donde el
+   * vendedor ya tocó *imprimir*, no "ver el rol". Es un número y no un booleano
+   * a propósito —un sello distinto en cada toque— para que volver a elegir la
+   * opción vuelva a imprimir, en vez de que el primer toque deje el flag pegado
+   * y los siguientes no hagan nada. Sin recorrido armado no imprime: se ve el
+   * estado vacío, igual que cuando se entra a mirar.
+   */
+  RolDeVisita: { imprimirAlEntrar?: number } | undefined
   // ── Administración (sólo rol admin; el menú las esconde para el resto) ──────
   /** Altas de usuarios, habilitación de teléfonos y resets de contraseña. */
   AdminUsuarios: undefined

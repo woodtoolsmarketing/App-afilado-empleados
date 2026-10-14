@@ -27,6 +27,7 @@ import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
 import { PaginaTablero } from './paginas/Tablero'
 import { PaginaUsuarios } from './paginas/Usuarios'
 import { PaginaPermisos } from './paginas/Permisos'
+import { PaginaPermisosEdicion } from './paginas/PermisosEdicion'
 
 export function App() {
   const sesion = usarSesion()
@@ -87,8 +88,13 @@ export function App() {
             path="/permisos"
             element={sesion.esAdmin ? <PaginaPermisos soloLectura={false} /> : <Navigate to="/" replace />}
           />
+          {/* La cola de pedidos de edición de clientes: sólo el admin aprueba. */}
+          <Route
+            path="/permisos-edicion"
+            element={sesion.esAdmin ? <PaginaPermisosEdicion /> : <Navigate to="/" replace />}
+          />
           <Route path="/usuarios" element={gate('panel_usuarios', <PaginaUsuarios soloLectura={!sesion.esAdmin} />)} />
-          <Route path="/clientes" element={gate('panel_clientes', <PaginaClientes soloLectura={!sesion.esAdmin} />)} />
+          <Route path="/clientes" element={gate('panel_clientes', <PaginaClientes rol={sesion.perfil.rol} esAdmin={sesion.esAdmin} />)} />
           <Route
             path="/clientes-a-confirmar"
             element={gate('panel_clientes_a_confirmar', <PaginaClientesAConfirmar soloLectura={!sesion.esAdministracion} />)}
@@ -278,6 +284,22 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  // Pedidos de administración para editar un cliente, esperando que el admin los
+  // apruebe. Sólo lo mira el admin (es el único que aprueba), así que la consulta
+  // no corre para el resto.
+  const { data: edicionesPend } = useQuery({
+    queryKey: ['permisos-edicion-pendientes'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('permisos_edicion_cliente')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente')
+      return count ?? 0
+    },
+    enabled: esAdmin,
+    refetchInterval: 30_000,
+  })
+
   // Lugares de entrega del Gestión que quedaron sin ubicar y la oficina todavía
   // no cargó a mano. Va como globo para que la cola no se quede sin mirar.
   const { data: lugaresCrudo } = useQuery({
@@ -312,6 +334,7 @@ function BarraLateral({
     { a: '/cobranzas', icono: '💵', texto: 'Cobranzas de los vendedores', permiso: 'panel_cobranzas' },
     { a: '/rol-maestro', icono: '🗓', texto: 'Rol maestro', permiso: 'panel_rol_maestro' },
     { a: '/clientes', icono: '☰', texto: 'Clientes', permiso: 'panel_clientes' },
+    { a: '/permisos-edicion', icono: '🔑', texto: 'Ediciones de clientes', globo: edicionesPend, soloAdmin: true },
     { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar, permiso: 'panel_clientes_a_confirmar' },
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones', permiso: 'panel_modificaciones' },
     { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir, permiso: 'panel_cambios_direccion' },
