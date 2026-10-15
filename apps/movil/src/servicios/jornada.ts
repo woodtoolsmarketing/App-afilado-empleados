@@ -414,6 +414,24 @@ export async function reordenarParadas(
   }
 }
 
+/**
+ * Quita un destino del recorrido del día y renumera lo que queda.
+ *
+ * El servidor lo marca 'omitida' y, en la misma operación, corre las paradas que
+ * siguen abiertas para que arranquen pegadas (1, 2, …) sin el hueco de la que se
+ * sacó. Es distinto de `quitarDeLaAgenda` —que sólo marca omitida—: acá además
+ * renumera. Rechaza si el destino ya se resolvió.
+ */
+export async function quitarParadaDelRecorrido(paradaId: string): Promise<void> {
+  const { error } = await supabase.rpc('quitar_parada_del_recorrido', {
+    p_parada_id: paradaId,
+  })
+  if (error) {
+    if (error.code === '23514') throw new Error(error.message)
+    throw error
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Historial
 // ─────────────────────────────────────────────────────────────────────────────

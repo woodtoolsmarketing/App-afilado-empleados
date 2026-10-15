@@ -28,10 +28,10 @@ import {
   finalizarRecorrido,
   iniciarRecorrido,
   obtenerJornadaDeHoy,
+  quitarParadaDelRecorrido,
   reordenarParadas,
   type JornadaCompleta,
 } from '../servicios/jornada'
-import { quitarDeLaAgenda } from '../servicios/agenda'
 import { misCambiosPendientes, type CambioPendiente } from '../servicios/cambiosDireccion'
 import {
   buscarEnMapsPorTexto,
@@ -593,18 +593,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const quitar = useMutation({
     mutationFn: (paradaId: string) => {
       if (!jornada) throw new Error('Todavía no cargó la jornada')
-      return quitarDeLaAgenda(paradaId)
+      return quitarParadaDelRecorrido(paradaId)
     },
     onMutate: async (paradaId) => {
       await cliente.cancelQueries({ queryKey: ['jornada-hoy', perfil?.id] })
       const previo = cliente.getQueryData<JornadaCompleta>(['jornada-hoy', perfil?.id])
       if (previo) {
-        cliente.setQueryData(['jornada-hoy', perfil?.id], {
-          ...previo,
-          paradas: previo.paradas.map((p) =>
-            p.id === paradaId ? { ...p, estado: 'omitida' as EstadoParada } : p,
-          ),
-        })
+        // Se marca omitida y se renumera en el acto, igual que el servidor, para
+        // que las que quedan arranquen en 1 sin esperar a la relectura.
+        cliente.setQueryData(['jornada-hoy', perfil?.id], quitarEnCache(previo, paradaId))
       }
       setMoviendo(null)
       return { previo }
@@ -1219,6 +1216,43 @@ function reordenarEnCache(jc: JornadaCompleta, nuevoOrden: string[]): JornadaCom
     .reduce((max, p) => Math.max(max, p.orden), 0)
   const ordenPorId = new Map(nuevoOrden.map((id, i) => [id, piso + i + 1]))
   const paradas = jc.paradas
+    .map((p) => {
+      const nuevo = ordenPorId.get(p.id)
+      return nuevo === undefined ? p : { ...p, orden: nuevo }
+    })
+    .sort((a, b) => a.orden - b.orden)
+  return { ...jc, paradas }
+}
+
+/**
+ * Marca una parada omitida en la jornada cacheada y renumera las que quedan,
+ * replicando `quitar_parada_del_recorrido` del servidor para que el update
+ * optimista coincida con lo que va a devolver la base.
+ *
+ * El piso son las RESUELTAS (las omitidas no cuentan); las abiertas toman
+ * piso+1.. en su orden, y las omitidas se aparcan por encima. Distinto de
+ * `reordenarEnCache`, cuyo piso incluye a las omitidas —justo lo que acá hay que
+ * evitar para que la lista no arranque en 2—.
+ */
+function quitarEnCache(jc: JornadaCompleta, paradaId: string): JornadaCompleta {
+  const conOmitida = jc.paradas.map((p) =>
+    p.id === paradaId ? { ...p, estado: 'omitida' as EstadoParada } : p,
+  )
+  const piso = conOmitida
+    .filter((p) => p.estado === 'visitada' || p.estado === 'no_visitada')
+    .reduce((max, p) => Math.max(max, p.orden), 0)
+
+  const esAbierta = (e: EstadoParada) => e === 'pendiente' || e === 'en_camino'
+  const aRenumerar = conOmitida
+    .filter((p) => esAbierta(p.estado) || p.estado === 'omitida')
+    .sort((a, b) => {
+      // Abiertas primero (toman los números bajos), después las omitidas.
+      if (esAbierta(a.estado) !== esAbierta(b.estado)) return esAbierta(a.estado) ? -1 : 1
+      return a.orden - b.orden
+    })
+  const ordenPorId = new Map(aRenumerar.map((p, i) => [p.id, piso + i + 1]))
+
+  const paradas = conOmitida
     .map((p) => {
       const nuevo = ordenPorId.get(p.id)
       return nuevo === undefined ? p : { ...p, orden: nuevo }

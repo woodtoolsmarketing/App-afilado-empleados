@@ -157,8 +157,8 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
             también se gatea, ver Navegacion. */}
         {puedeVer('cobranzas') ? (
           <BotonMenu
-            titulo="HISTORIAL DE COBRANZAS"
-            subtitulo="Lo que cobraste hoy, y la planilla para rendir"
+            titulo="COBRANZAS"
+            subtitulo="Lo que cobraste; corregí un cobro antes de imprimir"
             alTocar={() => navigation.navigate('Cobranzas')}
           />
         ) : null}
