@@ -92,7 +92,16 @@ async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?:
  * clientes a visitar, se ordena la ruta y se imprime. Una vez que el vendedor
  * arranca, esta misma pantalla muestra cómo se va completando.
  */
-export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
+export function PaginaRolesDeVisita({
+  soloLectura,
+  esAdmin,
+}: {
+  soloLectura: boolean
+  /** El admin ve a TODOS (incluso recorridos de otros admins); el supervisor ve
+   *  a todos menos a los admins, así que a él ni se los listamos en el selector
+   *  (la RLS igual se lo impediría). */
+  esAdmin: boolean
+}) {
   const cliente = useQueryClient()
   const [vendedorId, setVendedorId] = useState('')
   // En el calendario de acá y no en UTC: después de las 21:00 `toISOString()`
@@ -103,15 +112,21 @@ export function PaginaRolesDeVisita({ soloLectura }: { soloLectura: boolean }) {
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Todos los que hacen recorrido = los que tienen código de vendedor (vendedor,
+  // tester, y un admin que también vende). Antes se listaba sólo `rol='vendedor'`;
+  // se amplió para que el admin pueda ver TODOS los roles de visita. Al supervisor
+  // se le ocultan los admins (y la RLS igual se los bloquea).
   const { data: vendedores } = useQuery({
-    queryKey: ['vendedores'],
+    queryKey: ['vendedores-roles', esAdmin],
     queryFn: async () => {
-      const { data, error: err } = await supabase
+      let q = supabase
         .from('perfiles')
         .select('id, nombre_completo, codigo_vendedor')
-        .eq('rol', 'vendedor')
         .eq('estado', 'aprobado')
+        .not('codigo_vendedor', 'is', null)
         .order('codigo_vendedor')
+      if (!esAdmin) q = q.neq('rol', 'admin')
+      const { data, error: err } = await q
       if (err) throw err
       return data as Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
     },

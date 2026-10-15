@@ -96,11 +96,6 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
       </tr>
     </tfoot>
   </table>
-
-  <div class="cob-firma">
-    <div class="linea"></div>
-    Firma del vendedor
-  </div>
 </div>`
 }
 
@@ -201,7 +196,4 @@ export const ESTILOS_PLANILLA_COBRANZAS = `
 .w-cod { width: 10%; } .w-cli { width: 30%; }
 .w-tot { width: 14%; } .w-che { width: 12%; } .w-efe { width: 12%; }
 .w-com { width: 22%; }
-
-.cob-firma { margin-top: 8mm; text-align: center; font-size: 8pt; }
-.cob-firma .linea { border-top: 1px dotted #000; width: 60mm; margin: 0 auto 2px; }
 `
