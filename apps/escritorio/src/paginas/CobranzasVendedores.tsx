@@ -214,6 +214,19 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       const impresora = await obtenerImpresora()
       const r = await imprimirDoc(html, impresora, 'A4')
       if (!r.impreso) throw new Error(r.motivo ?? 'La impresora no confirmó el trabajo.')
+
+      // La planilla salió en papel: se sellan esos cobros como impresos para que
+      // el vendedor no pueda retocarlos después desde la app (ahí van a figurar
+      // con la pastilla IMPRESO). Best-effort: una impresión que sí salió no se
+      // desdice porque falle el sello; reimprimir lo vuelve a intentar.
+      try {
+        await supabase.rpc('marcar_cobranzas_impresas', {
+          p_fechas: [fecha],
+          p_vendedor_id: cobros[0]?.vendedor_id ?? null,
+        })
+      } catch {
+        /* el papel ya salió; el sello se reintenta en la próxima impresión */
+      }
       return planillas.length
     },
     onSuccess: (cantidad) =>

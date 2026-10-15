@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
     // `administracion` estaba afuera de esta lista mientras el panel lo iba a
     // ofrecer: el alta terminaba creando un vendedor, sin error y sin aviso.
     // Los cuatro son los de `RolUsuario` en el paquete compartido.
-    const rol = ['vendedor', 'supervisor', 'administracion', 'admin'].includes(cuerpo.rol)
+    const rol = ['vendedor', 'tester', 'supervisor', 'administracion', 'admin'].includes(cuerpo.rol)
       ? cuerpo.rol
       : 'vendedor'
     const codigo = String(cuerpo.codigo_vendedor ?? '').trim() || null

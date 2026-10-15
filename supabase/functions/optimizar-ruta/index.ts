@@ -101,7 +101,10 @@ Deno.serve(async (req) => {
       throw new RespuestaError('No pudimos leer la jornada', 500)
     }
     if (!jornada) throw new RespuestaError('No existe esa jornada', 404)
-    if (jornada.vendedor_id !== llamador.id && llamador.rol === 'vendedor') {
+    if (
+      jornada.vendedor_id !== llamador.id &&
+      (llamador.rol === 'vendedor' || llamador.rol === 'tester')
+    ) {
       throw new RespuestaError('Esa jornada no es tuya', 403)
     }
 

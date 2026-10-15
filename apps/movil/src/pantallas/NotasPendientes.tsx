@@ -411,7 +411,7 @@ function FilaNota({
           {sinNumero ? '— — —' : `Nº ${numeroDeNotaImpreso(nota.numero, nota.vendedor_numero)}`}
         </Text>
 
-        <Text style={estilos.cliente} numberOfLines={1}>
+        <Text style={estilos.cliente} numberOfLines={2}>
           {nota.cliente_codigo ? `${nota.cliente_codigo} · ` : ''}
           {nota.cliente_nombre}
         </Text>
@@ -458,7 +458,7 @@ function FilaNota({
           {/* Para la nota duplicada o que salió mal. Pide confirmación antes de
               sacarla, así un toque al pasar no borra nada. Mientras anula se
               bloquea y muestra el spinner, para que un segundo toque no dispare
-              un "ya salió" falso. Sin hitSlop: la caja ya mide TOQUE_MINIMO. */}
+              un "ya salió" falso. */}
           <Pressable
             onPress={alEliminar}
             disabled={eliminando}
@@ -533,9 +533,9 @@ const usarEstilos = hojaDeTema((t) => ({
   // Sin código de cliente todavía no es un comprobante: se muestra apagado.
   numeroPendiente: { color: t.colores.tintaTenue },
   cliente: {
-    fontFamily: t.tipografia.familia.cuerpo,
-    fontSize: t.tipografia.tamano.xs,
-    color: t.colores.tintaSuave,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
   },
   pastillas: {
     flexDirection: 'row',
@@ -557,19 +557,16 @@ const usarEstilos = hojaDeTema((t) => ({
   },
 
   /**
-   * Los botones ✎ (corregir) y 🗑 (eliminar), uno al lado del otro. Separados
-   * con `sm` (no `xs`) para que un destructivo y uno que no lo es no queden
-   * pegados: con `xs` + hitSlop las zonas de toque se solapaban.
+   * Los botones ✎ (corregir) y 🗑 (eliminar), uno ARRIBA del otro y más chicos
+   * (a pedido): así la fila deja más ancho para el nombre y el número del
+   * cliente y de la nota, que es lo que se busca al mirar la lista. Achicarlos no
+   * hace peligroso el 🗑: ya pide confirmación antes de borrar y el ✎ sólo abre
+   * el formulario.
    */
-  acciones: { flexDirection: 'row', gap: espaciado.sm, alignItems: 'center' },
-  /**
-   * La caja de cada botón de la fila (✎ y 🗑). Al TOQUE_MINIMO (56) —no 46— que
-   * el proyecto fija para la calle: el 🗑 es destructivo, no puede quedar chico.
-   * Sin hitSlop, que con dos botones pegados generaba toques ambiguos.
-   */
+  acciones: { flexDirection: 'column', gap: espaciado.xs, alignItems: 'center' },
   botonFila: {
-    width: TOQUE_MINIMO,
-    minHeight: TOQUE_MINIMO,
+    width: 44,
+    minHeight: 32,
     borderWidth: 2,
     borderColor: t.colores.borde,
     borderRadius: radios.sm,

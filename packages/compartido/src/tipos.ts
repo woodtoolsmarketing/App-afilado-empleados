@@ -12,15 +12,28 @@
  * · administracion → ve todas las notas de pedido, asigna códigos de cliente y
  *                    completa los precios que faltan. No maneja recorridos.
  * · admin          → control total
+ * · tester         → igual que un vendedor, pero PUEDE sacar capturas de pantalla
+ *                    (no se le pone el bloqueo) y figura como "Vendedor (tester)".
+ *                    Es para probar la app del vendedor viéndola por dentro.
  */
-export type RolUsuario = 'vendedor' | 'supervisor' | 'administracion' | 'admin'
+export type RolUsuario = 'vendedor' | 'supervisor' | 'administracion' | 'admin' | 'tester'
 
 export const ETIQUETA_ROL: Record<RolUsuario, string> = {
   vendedor: 'Vendedor',
   supervisor: 'Supervisor',
   administracion: 'Administración',
   admin: 'Administrador',
+  tester: 'Vendedor (tester)',
 }
+
+/**
+ * Los roles que ven y hacen lo mismo que un VENDEDOR. El tester es un vendedor a
+ * todos los efectos (menú, permisos, no entra al panel) salvo que puede sacar
+ * capturas. Se usa este predicado en los pocos chequeos `=== 'vendedor'` a mano,
+ * para no olvidarse del tester; la visibilidad del menú sale sola de `rolPuedeVer`.
+ */
+export const esComoVendedor = (rol: RolUsuario | null | undefined): boolean =>
+  rol === 'vendedor' || rol === 'tester'
 
 /** Los roles que se pueden tildar en la matriz de permisos. admin NO va: ve todo siempre. */
 export const ROLES_CONFIGURABLES: RolUsuario[] = ['vendedor', 'supervisor', 'administracion']
@@ -123,6 +136,9 @@ export function rolPuedeVer(
   rol: RolUsuario,
   catalogo: Map<ClaveFuncion, RolUsuario[]> | null,
 ): boolean {
+  // El tester ve exactamente lo mismo que un vendedor: se lo trata como tal acá,
+  // así hereda todo el menú/permisos sin tocar la matriz ni la base.
+  if (rol === 'tester') rol = 'vendedor'
   if (rol === 'admin') return true
   if (!catalogo) return !FUNCIONES_SOLO_ADMIN_POR_DEFECTO.includes(clave)
   const roles = catalogo.get(clave)

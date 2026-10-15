@@ -35,6 +35,11 @@ export function MapaUbicacionCliente({
         provider={PROVIDER_GOOGLE}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
+        // `liteMode` (Android): dibuja una IMAGEN estática del mapa en vez del mapa
+        // interactivo con tiles en vivo. Como acá es sólo una foto del lugar, baja
+        // muchísimo el consumo de datos y batería (importa: aparece en cada
+        // cliente que el vendedor elige, y varios usan datos móviles).
+        liteMode
         initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
       >
         <Marker coordinate={{ latitude: lat, longitude: lng }} title={titulo} />

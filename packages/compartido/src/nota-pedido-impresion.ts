@@ -126,6 +126,14 @@ export interface NotaParaImprimir {
   cliente_nombre: string | null
   zona: string
 
+  /**
+   * El nombre del lugar de entrega / sucursal elegido, SÓLO cuando el pedido no
+   * va a la dirección principal. Sale impreso al lado de Vendedor Nº / Cliente Nº
+   * / Zona, en el mismo formato. Si va a la principal (o no se eligió sucursal),
+   * queda sin definir y no se imprime.
+   */
+  sucursal?: string
+
   datos_cliente: string
   descripcion_herramientas: string
 
@@ -865,6 +873,7 @@ export function generarHtmlNotaPedido(
     <span>Vendedor Nº <u>${escapar(nota.vendedor_numero)}</u></span>
     <span>Cliente Nº <u>${nota.cliente_numero ? escapar(nota.cliente_numero) : '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</u></span>
     <span>Zona <u>${escapar(nota.zona)}</u></span>
+    ${nota.sucursal ? `<span class="sucursal">Sucursal <u>${escapar(nota.sucursal)}</u></span>` : ''}
   </div>
 
   <div class="bloque-cliente">
@@ -1038,14 +1047,27 @@ html {
    fajo, y hasta ahora iban en el mismo cuerpo que todo lo demás. */
 .identificacion {
   display: flex;
-  gap: 10mm;
+  gap: 7mm;
   border: 1px solid #000;
   border-top: 0;
   padding: 2px 4px;
   font-size: 13pt;
   font-weight: bold;
 }
-.identificacion u { min-width: 22mm; display: inline-block; }
+.identificacion span { white-space: nowrap; }
+.identificacion u { min-width: 18mm; display: inline-block; }
+/* La sucursal sólo aparece cuando el pedido va a un lugar de entrega; puede ser
+   un nombre largo ("CHAPAS Y MADERAS"). Es la única que se achica y se recorta
+   con puntos suspensivos, así la fila nunca pasa a dos renglones ni empuja la
+   hoja. */
+.identificacion .sucursal { min-width: 0; flex-shrink: 1; overflow: hidden; }
+.identificacion .sucursal u {
+  min-width: 0;
+  max-width: 55mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 
 .bloque-cliente { border: 1px solid #000; border-top: 0; }
 /* La única cosa de la hoja que se achicó: es la etiqueta del recuadro, y
@@ -1535,6 +1557,12 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     cliente_numero: nota.cliente_codigo,
     cliente_nombre: nota.cliente_nombre ?? null,
     zona: nota.zona ?? '',
+    // El nombre de la sucursal elegida, sólo cuando el pedido va a un lugar de
+    // entrega que NO es el principal. La query de impresión trae
+    // `direccion:{etiqueta, principal}`; si no se eligió sucursal (o va a la
+    // principal) queda sin definir y no se imprime.
+    sucursal:
+      nota.direccion && nota.direccion.principal === false ? nota.direccion.etiqueta : undefined,
     datos_cliente: nota.datos_cliente ?? '',
     descripcion_herramientas: nota.descripcion_herramienta ?? '',
     tecnicos: items.map((i) => {

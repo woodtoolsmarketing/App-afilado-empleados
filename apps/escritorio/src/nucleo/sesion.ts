@@ -1,4 +1,4 @@
-import type { Perfil } from '@woodtools/compartido'
+import { esComoVendedor, type Perfil } from '@woodtools/compartido'
 import { useEffect, useState } from 'react'
 
 import { supabase } from './supabase'
@@ -49,9 +49,10 @@ export function usarSesion() {
       return
     }
 
-    if (perfil.rol === 'vendedor') {
+    if (esComoVendedor(perfil.rol)) {
       // scope 'local': cerrar SÓLO la sesión del panel; el default (global)
       // revocaba todos los tokens y cerraba también la sesión del celular.
+      // El tester también queda afuera: es un vendedor que puede sacar capturas.
       await supabase.auth.signOut({ scope: 'local' })
       setEstado({
         cargando: false,

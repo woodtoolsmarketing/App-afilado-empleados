@@ -3,6 +3,7 @@ import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system'
 
 import { supabase } from '../nucleo/supabase'
+import { estadoDeRed } from './ipp'
 
 /**
  * Buscar una versión nueva de la APP EN SÍ, no del código que viaja por aire.
@@ -82,6 +83,18 @@ export async function descargarEInstalarApk(
   apk: ApkDisponible,
   alAvanzar?: (fraccion: number) => void,
 ): Promise<void> {
+  // El instalador pesa ~50 MB: SÓLO se baja por wifi, para no comerse los datos
+  // móviles del vendedor. En la oficina sale gratis de la PC; en cualquier otro
+  // wifi, de internet. Con datos móviles se avisa y no se baja: era por acá que
+  // la app drenaba el plan (al no alcanzar la red local caía a bajar todo de
+  // internet, sin ningún freno).
+  const red = await estadoDeRed()
+  if (!red.enWifi) {
+    throw new Error(
+      'Conectate al wifi para bajar la actualización: son unos 50 MB y por datos móviles se consume mucho.',
+    )
+  }
+
   // Un archivo viejo a medio bajar corrompe la instalación: se borra primero.
   await FileSystem.deleteAsync(ARCHIVO_APK, { idempotent: true }).catch(() => undefined)
 
@@ -162,7 +175,7 @@ export async function buscarApkNuevo(): Promise<BusquedaDeApk> {
   try {
     const { data: fila, error } = await supabase
       .from('versiones_app')
-      .select('version, notas, url_externa')
+      .select('version, notas, url_externa, archivo')
       .eq('canal', canalDeEsteTelefono())
       .order('publicado_en', { ascending: false })
       .limit(1)
@@ -192,9 +205,19 @@ export async function buscarApkNuevo(): Promise<BusquedaDeApk> {
      * Por eso, si el panel no contesta, se usa el enlace de afuera que quedó
      * anotado en la fila. Ese sí funciona con datos móviles.
      */
-    const panel = await direccionDelPanel()
-    if (panel && (await contesta(panel))) {
-      return { estado: 'hay', apk: { actual, nueva, notas, direccion: panel, desde: 'panel' } }
+    const panelOrigin = await direccionDelPanel()
+    const archivo = (fila.archivo as string | null) ?? null
+    // La URL del APK en el panel es /apk/<archivo>: la raíz (http://IP:puerto/)
+    // devuelve la PÁGINA de descarga en HTML, no el instalador. Pedir la raíz era
+    // el bug por el que la actualización por wifi fallaba —se bajaba el HTML y
+    // Android no lo podía instalar ("problema al analizar el paquete")—. HEADear
+    // el /apk/<archivo> real también evita el falso positivo del wifi de la casa:
+    // otro aparato en 192.168.1.x no sirve ESE archivo, así que da 404 y se cae al
+    // enlace de internet.
+    const panelApk =
+      panelOrigin && archivo ? `${panelOrigin}/apk/${encodeURIComponent(archivo)}` : null
+    if (panelApk && (await contesta(panelApk))) {
+      return { estado: 'hay', apk: { actual, nueva, notas, direccion: panelApk, desde: 'panel' } }
     }
 
     const externa = fila.url_externa as string | null

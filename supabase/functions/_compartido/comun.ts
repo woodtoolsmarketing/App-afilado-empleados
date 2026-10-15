@@ -62,7 +62,7 @@ export interface Llamador {
    * compartido. `administracion` faltaba: el valor sale de la base y podía
    * llegar igual, así que el tipo decía una cosa y la fila decía otra.
    */
-  rol: 'vendedor' | 'supervisor' | 'administracion' | 'admin'
+  rol: 'vendedor' | 'tester' | 'supervisor' | 'administracion' | 'admin'
   estado: string
   token: string
 }

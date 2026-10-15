@@ -1243,7 +1243,11 @@ export async function historialNotas(desde?: string, hasta?: string): Promise<Di
 export async function obtenerNota(id: string) {
   const { data, error } = await supabase
     .from('notas_pedido')
-    .select('*, items:notas_pedido_items(*), vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor)')
+    .select(
+      '*, items:notas_pedido_items(*),' +
+        ' vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor),' +
+        ' direccion:direcciones!notas_pedido_direccion_id_fkey(etiqueta, principal)',
+    )
     .eq('id', id)
     .single()
 

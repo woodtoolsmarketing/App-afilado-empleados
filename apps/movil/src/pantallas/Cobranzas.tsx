@@ -5,35 +5,44 @@ import {
   formatearPesos,
   radios,
 } from '@woodtools/compartido'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
+import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { cobranzasDelDia } from '../servicios/cobranzas'
+import { cobranzasDelDia, type Cobranza } from '../servicios/cobranzas'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
- * "HISTORIAL DE COBRANZAS"
+ * "COBRANZAS"
  *
- * Sólo para MIRAR: el vendedor repasa, día por día, los cobros que cargó. La
- * carga se hace ahora desde el rol de visita (al tildar "COBRÓ") y la impresión
- * de la planilla es sólo de la oficina, así que acá no hay formulario ni botón
- * de imprimir —antes sí, cuando esta pantalla era "Cobranzas del día"—.
+ * El vendedor repasa, día por día, los cobros que cargó, y CORRIGE el que tenga
+ * un error: se toca el cobro y se abre el mismo formulario con el que se cargó,
+ * ya completo. La carga original se hace desde el rol de visita (al tildar
+ * "COBRÓ").
+ *
+ * El cobro se puede corregir MIENTRAS no haya salido en papel. Una vez que la
+ * rendición se imprimió —desde el teléfono con las notas, o desde el panel de la
+ * oficina— queda cerrado: lleva la pastilla IMPRESO y ya no se toca, porque el
+ * papel con esa cifra ya está en la calle.
  *
  * Se navega por día con las flechas; no se puede ir al futuro.
  */
 export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobranzas'>) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
+  const consultas = useQueryClient()
 
   const hoy = fechaLocalISO(new Date())
   const [fecha, setFecha] = useState(hoy)
   const esHoy = fecha === hoy
+  // El cobro que se está corrigiendo, o null. Sólo los no impresos abren esto.
+  const [editando, setEditando] = useState<Cobranza | null>(null)
 
   const { data: cobros, isLoading, isError, refetch } = useQuery({
     queryKey: ['cobranzas-del-dia', fecha],
@@ -56,7 +65,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
 
       <Panel>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>HISTORIAL DE COBRANZAS</TituloPanel>
+        <TituloPanel>COBRANZAS</TituloPanel>
 
         {/* Navegar por día. "Hoy" no deja avanzar: no hay cobros del futuro. */}
         <View style={estilos.navDia}>
@@ -104,33 +113,50 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
           />
         ) : (
           <View style={estilos.lista}>
-            {(cobros ?? []).map((c) => (
-              <View key={c.id} style={estilos.fila}>
-                <View style={estilos.filaIzquierda}>
-                  <Text style={estilos.cliente}>
-                    {c.cliente_codigo ? `${c.cliente_codigo} · ` : ''}
-                    {c.cliente_nombre}
-                  </Text>
-                  <View style={estilos.pastillas}>
-                    <Pastilla
-                      texto={c.tipo_comprobante === 'factura' ? 'FACTURA' : 'PRESUPUESTO'}
-                      color={colores.tintaSuave}
-                    />
-                    {c.cheque > 0 ? (
-                      <Pastilla texto={`CHEQUE ${formatearPesos(c.cheque)}`} color={colores.azul} />
-                    ) : null}
-                    {c.efectivo > 0 ? (
+            <Text style={estilos.ayuda}>
+              Tocá un cobro para corregirlo. Una vez impreso queda cerrado.
+            </Text>
+
+            {(cobros ?? []).map((c) => {
+              const impreso = c.impreso_en !== null
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() => (impreso ? undefined : setEditando(c))}
+                  disabled={impreso}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${c.cliente_nombre}, ${formatearPesos(c.total)}${impreso ? ', impreso' : ', tocá para corregir'}`}
+                  style={({ pressed }) => [estilos.fila, pressed && !impreso && estilos.filaTocada]}
+                >
+                  <View style={estilos.filaIzquierda}>
+                    <Text style={estilos.cliente}>
+                      {c.cliente_codigo ? `${c.cliente_codigo} · ` : ''}
+                      {c.cliente_nombre}
+                    </Text>
+                    <View style={estilos.pastillas}>
                       <Pastilla
-                        texto={`EFECTIVO ${formatearPesos(c.efectivo)}`}
-                        color={colores.verdeOscuro}
+                        texto={c.tipo_comprobante === 'factura' ? 'FACTURA' : 'PRESUPUESTO'}
+                        color={colores.tintaSuave}
                       />
-                    ) : null}
+                      {c.cheque > 0 ? (
+                        <Pastilla texto={`CHEQUE ${formatearPesos(c.cheque)}`} color={colores.azul} />
+                      ) : null}
+                      {c.efectivo > 0 ? (
+                        <Pastilla
+                          texto={`EFECTIVO ${formatearPesos(c.efectivo)}`}
+                          color={colores.verdeOscuro}
+                        />
+                      ) : null}
+                      {/* Cerrado: ya salió en papel, no se corrige. Va último,
+                          como la pastilla de estado en el resto de la app. */}
+                      {impreso ? <Pastilla texto="🔒 IMPRESO" color={colores.rojoAccion} /> : null}
+                    </View>
+                    {c.comentarios ? <Text style={estilos.comentario}>{c.comentarios}</Text> : null}
                   </View>
-                  {c.comentarios ? <Text style={estilos.comentario}>{c.comentarios}</Text> : null}
-                </View>
-                <Text style={estilos.monto}>{formatearPesos(c.total)}</Text>
-              </View>
-            ))}
+                  <Text style={estilos.monto}>{formatearPesos(c.total)}</Text>
+                </Pressable>
+              )
+            })}
 
             <View style={estilos.totalFila}>
               <Text style={estilos.totalRotulo}>TOTAL</Text>
@@ -139,6 +165,34 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
           </View>
         )}
       </Panel>
+
+      {/* El mismo formulario con el que se carga el cobro, precargado. El
+          cliente no se toca: es contra quién se cobró. Al guardar, se refresca
+          la lista del día. */}
+      <ModalCobranza
+        visible={editando !== null}
+        cliente={{
+          id: null,
+          codigo: editando?.cliente_codigo ?? null,
+          nombre: editando?.cliente_nombre ?? '',
+        }}
+        editando={
+          editando
+            ? {
+                id: editando.id,
+                tipo: editando.tipo_comprobante,
+                cheque: editando.cheque,
+                efectivo: editando.efectivo,
+                comentarios: editando.comentarios,
+              }
+            : null
+        }
+        alCerrar={() => setEditando(null)}
+        alGuardar={() => {
+          setEditando(null)
+          void consultas.invalidateQueries({ queryKey: ['cobranzas-del-dia', fecha] })
+        }}
+      />
     </Pantalla>
   )
 }
@@ -169,6 +223,11 @@ const usarEstilos = hojaDeTema((t) => ({
     letterSpacing: 0.5,
   },
   lista: { gap: espaciado.sm },
+  ayuda: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
   fila: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -178,6 +237,7 @@ const usarEstilos = hojaDeTema((t) => ({
     borderRadius: radios.sm,
     padding: espaciado.sm,
   },
+  filaTocada: { opacity: 0.6 },
   filaIzquierda: { flex: 1, gap: espaciado.xs },
   cliente: {
     fontFamily: t.tipografia.familia.fuerte,

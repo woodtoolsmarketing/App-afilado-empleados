@@ -18,7 +18,7 @@ import * as Print from 'expo-print'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
-import { cobranzasDelDia, hoyLocal, type Cobranza } from './cobranzas'
+import { cobranzasDelDia, hoyLocal, marcarCobranzasImpresas, type Cobranza } from './cobranzas'
 import {
   buscarEnLaRed,
   contestaIpp,
@@ -513,13 +513,28 @@ export async function imprimirNotas(params: {
   }
   if (planillasCobranzas.length > 0) extras.push('los cobros del día')
 
-  return entregarDocumento(html, {
+  const resultado = await entregarDocumento(html, {
     queSalio: frase([cuantas, ...extras]),
     plural: notas.length !== 1,
     nombreDelArchivo: 'notas-de-pedido',
     alAvisar: params.alAvisar,
     advertencia: advertencias.length > 0 ? advertencias.join(' ') : undefined,
   })
+
+  // La rendición salió por la impresora de la oficina (confirmado por IPP): a
+  // partir de acá esos cobros quedan cerrados y el vendedor ya no los corrige.
+  // Sólo se sella lo CONFIRMADO: el diálogo de Android y el PDF no dicen si el
+  // papel salió, y cerrar un cobro que quizá no se imprimió es peor que dejarlo
+  // editable. Es lo mejor posible: si falla, el próximo sello lo toma.
+  if (resultado.confirmado && planillasCobranzas.length > 0) {
+    try {
+      await marcarCobranzasImpresas(dias)
+    } catch {
+      /* no es motivo para desdecir una impresión que sí salió */
+    }
+  }
+
+  return resultado
 }
 
 /**

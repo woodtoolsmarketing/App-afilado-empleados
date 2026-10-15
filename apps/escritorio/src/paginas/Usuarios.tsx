@@ -1,5 +1,6 @@
 import {
   BUCKET_FOTOS,
+  esComoVendedor,
   ETIQUETA_ESTADO_USUARIO,
   ETIQUETA_ROL,
   urlesDeFotos,
@@ -845,7 +846,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                   />
                 </td>
                 <td>
-                  {p.rol === 'vendedor' ? (
+                  {esComoVendedor(p.rol) ? (
                     <label
                       style={{
                         display: 'flex',
@@ -884,7 +885,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                         cambiarRol.mutate({ perfilId: p.id, rol: e.target.value as RolUsuario })
                       }
                     >
-                      {(['vendedor', 'supervisor', 'administracion', 'admin'] as RolUsuario[]).map(
+                      {(['vendedor', 'tester', 'supervisor', 'administracion', 'admin'] as RolUsuario[]).map(
                         (r) => (
                           <option key={r} value={r}>
                             {ETIQUETA_ROL[r]}
@@ -1295,8 +1296,9 @@ function FilaPendiente({
   const [motivo, setMotivo] = useState('')
 
   // Sin código de vendedor la planilla del rol de visita queda sin la columna
-  // "Codigo", así que se exige antes de aprobar.
-  const faltaCodigo = rol === 'vendedor' && !codigo.trim()
+  // "Codigo", así que se exige antes de aprobar. El tester también lo necesita:
+  // hace notas como un vendedor y ésas llevan el número.
+  const faltaCodigo = esComoVendedor(rol) && !codigo.trim()
 
   return (
     <tr>
@@ -1307,6 +1309,7 @@ function FilaPendiente({
         <div style={{ display: 'flex', gap: 8 }}>
           <select value={rol} onChange={(e) => setRol(e.target.value as RolUsuario)}>
             <option value="vendedor">Vendedor</option>
+            <option value="tester">Vendedor (tester)</option>
             <option value="supervisor">Supervisor</option>
             <option value="administracion">Administración</option>
             <option value="admin">Administrador</option>

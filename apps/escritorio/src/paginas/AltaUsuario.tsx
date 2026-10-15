@@ -247,6 +247,7 @@ export function AltaUsuario({
               puede cambiar después desde la lista de usuarios. */}
           <select id="rol" value={rol} onChange={(e) => setRol(e.target.value as RolUsuario)}>
             <option value="vendedor">Vendedor</option>
+            <option value="tester">Vendedor (tester)</option>
             <option value="supervisor">Supervisor</option>
             <option value="administracion">Administración</option>
             <option value="admin">Administrador</option>
@@ -258,7 +259,9 @@ export function AltaUsuario({
                 ? 'Ve a todos los vendedores en vivo. No resuelve altas ni bajas.'
                 : rol === 'admin'
                   ? 'Control total, incluidas las altas de usuarios.'
-                  : 'Usa la app del celular y ve sólo lo suyo.'}
+                  : rol === 'tester'
+                    ? 'Igual que un vendedor, pero puede sacar capturas de pantalla (para probar la app).'
+                    : 'Usa la app del celular y ve sólo lo suyo.'}
           </small>
         </div>
 

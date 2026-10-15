@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto'
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Modal, ScrollView, Text, View } from 'react-native'
 
-import { registrarCobranza } from '../servicios/cobranzas'
+import { editarCobranza, registrarCobranza } from '../servicios/cobranzas'
 import { hojaDeTema } from '../nucleo/tema'
 import { BotonPrincipal, BotonSecundario } from './Botones'
 import { Aviso } from './Estado'
@@ -41,11 +41,26 @@ function aPesos(texto: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
+/** Un monto de la base al texto del campo: 0 queda vacío (usa el placeholder). */
+function aEntrada(n: number): string {
+  return n > 0 ? String(n) : ''
+}
+
+/** Un cobro ya cargado que se está corrigiendo (no uno nuevo). */
+export interface CobranzaEnEdicion {
+  id: string
+  tipo: 'factura' | 'presupuesto'
+  cheque: number
+  efectivo: number
+  comentarios: string | null
+}
+
 export function ModalCobranza({
   visible,
   cliente,
   notaId = null,
   tipoSugerido,
+  editando,
   alCerrar,
   alGuardar,
 }: {
@@ -56,6 +71,12 @@ export function ModalCobranza({
   notaId?: string | null
   /** El comprobante que propone la nota. Por defecto, factura. */
   tipoSugerido?: 'factura' | 'presupuesto'
+  /**
+   * Cuando viene, el modal CORRIGE ese cobro en vez de crear uno nuevo: se
+   * precargan sus montos y GUARDAR llama a `editarCobranza`. El servidor rechaza
+   * si ya se imprimió.
+   */
+  editando?: CobranzaEnEdicion | null
   alCerrar: () => void
   /** Se llama después de guardar un cobro (el parte marca "cobró" y suma uno). */
   alGuardar: () => void
@@ -74,41 +95,58 @@ export function ModalCobranza({
   // segundo cobro (otro "＋ CARGAR OTRO COBRO") sea una fila distinta.
   const idCobro = useRef(Crypto.randomUUID())
 
-  // Cada vez que se abre arranca en blanco (y con el comprobante que proponga la
-  // nota): un segundo cobro, o uno abierto desde otra nota, no hereda lo anterior.
+  // Cada vez que se abre: corrigiendo, se precarga el cobro; nuevo, arranca en
+  // blanco (con el comprobante que proponga la nota). Un segundo cobro, o uno
+  // abierto desde otra nota, no hereda lo anterior.
   useEffect(() => {
     if (!visible) return
+    if (editando) {
+      setTipo(editando.tipo)
+      setCheque(aEntrada(editando.cheque))
+      setEfectivo(aEntrada(editando.efectivo))
+      setComentarios(editando.comentarios ?? '')
+      return
+    }
     idCobro.current = Crypto.randomUUID()
     setTipo(tipoSugerido ?? 'factura')
     setCheque('')
     setEfectivo('')
     setComentarios('')
-  }, [visible, tipoSugerido])
+  }, [visible, tipoSugerido, editando])
 
   const total = aPesos(cheque) + aPesos(efectivo)
 
   const guardar = useMutation({
     mutationFn: () =>
-      registrarCobranza({
-        id: idCobro.current,
-        notaId,
-        clienteId: cliente.id,
-        clienteCodigo: cliente.codigo,
-        clienteNombre: cliente.nombre,
-        tipoComprobante: tipo,
-        cheque: aPesos(cheque),
-        efectivo: aPesos(efectivo),
-        comentarios,
-      }),
+      editando
+        ? editarCobranza({
+            id: editando.id,
+            tipoComprobante: tipo,
+            cheque: aPesos(cheque),
+            efectivo: aPesos(efectivo),
+            comentarios,
+          })
+        : registrarCobranza({
+            id: idCobro.current,
+            notaId,
+            clienteId: cliente.id,
+            clienteCodigo: cliente.codigo,
+            clienteNombre: cliente.nombre,
+            tipoComprobante: tipo,
+            cheque: aPesos(cheque),
+            efectivo: aPesos(efectivo),
+            comentarios,
+          }),
     onSuccess: () => alGuardar(),
-    onError: (e: Error) => Alert.alert('No pudimos guardar el cobro', e.message),
+    onError: (e: Error) =>
+      Alert.alert(editando ? 'No pudimos guardar los cambios' : 'No pudimos guardar el cobro', e.message),
   })
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={alCerrar}>
       <Pantalla>
         <Panel desplazable={false} contentStyle={estilos.contenido}>
-          <TituloPanel>REGISTRAR UN COBRO</TituloPanel>
+          <TituloPanel>{editando ? 'CORREGIR EL COBRO' : 'REGISTRAR UN COBRO'}</TituloPanel>
 
           <ScrollView
             style={estilos.cuerpo}
@@ -176,7 +214,7 @@ export function ModalCobranza({
 
           <View style={estilos.botones}>
             <BotonPrincipal
-              titulo="GUARDAR EL COBRO"
+              titulo={editando ? 'GUARDAR LOS CAMBIOS' : 'GUARDAR EL COBRO'}
               alTocar={() => guardar.mutate()}
               cargando={guardar.isPending}
               deshabilitado={guardar.isPending || total <= 0}

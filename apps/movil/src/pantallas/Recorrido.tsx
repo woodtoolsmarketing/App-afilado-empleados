@@ -31,6 +31,7 @@ import {
   reordenarParadas,
   type JornadaCompleta,
 } from '../servicios/jornada'
+import { quitarDeLaAgenda } from '../servicios/agenda'
 import { misCambiosPendientes, type CambioPendiente } from '../servicios/cambiosDireccion'
 import {
   buscarEnMapsPorTexto,
@@ -90,7 +91,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     queryFn: misCambiosPendientes,
     staleTime: 60_000,
   })
-  const paradas = useMemo(() => data?.paradas ?? [], [data])
+  // Las omitidas no se muestran: quitar un destino lo marca 'omitida' y, al
+  // filtrarlo acá, desaparece de la lista y del mapa en el acto. Sigue existiendo
+  // en la base (para el historial), pero del recorrido de hoy se fue.
+  const paradas = useMemo(
+    () => (data?.paradas ?? []).filter((p) => p.estado !== 'omitida'),
+    [data],
+  )
 
   /**
    * Las que SÍ tienen punto en el mapa.
@@ -525,15 +532,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   })
 
   /**
-   * Reordenar a mano.
+   * La hoja de opciones de un destino: mover a mano y quitar del recorrido.
    *
-   * El vendedor manda un destino al principio, al final o lo corre de a uno, "a
-   * gusto". Opera sólo sobre las abiertas —las resueltas no se mueven— y se ofrece
+   * Mover opera sólo sobre las abiertas —las resueltas no se mueven— y se ofrece
    * tanto antes de arrancar como en curso: a diferencia de "Ordenar por cercanía"
    * (automático, por eso se esconde en curso), esto es una decisión explícita del
    * vendedor, así que mover la próxima parada es justamente lo que quiso hacer.
+   * Con un solo destino abierto las acciones de mover quedan deshabilitadas, pero
+   * quitar sigue disponible.
    */
-  const puedeReordenar = !!jornada && !finalizada && abiertas.length >= 2
   const idxMoviendo = moviendo ? abiertas.findIndex((p) => p.id === moviendo) : -1
   const paradaMoviendo = idxMoviendo >= 0 ? abiertas[idxMoviendo] : null
 
@@ -573,6 +580,55 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
       mover.mutate(conMovimiento(abiertas.map((p) => p.id), idxMoviendo, destino))
     },
     [abiertas, idxMoviendo, mover],
+  )
+
+  /**
+   * Quitar un destino del recorrido del día.
+   *
+   * Lo marca 'omitida' (`quitar_de_la_agenda`), que es lo que ya hace el
+   * calendario: no se borra la fila —el historial la conserva— pero sale de la
+   * lista y del mapa de hoy. Update optimista para que desaparezca en el acto; si
+   * la base rechaza, vuelve. Sólo las abiertas se pueden quitar.
+   */
+  const quitar = useMutation({
+    mutationFn: (paradaId: string) => {
+      if (!jornada) throw new Error('Todavía no cargó la jornada')
+      return quitarDeLaAgenda(paradaId)
+    },
+    onMutate: async (paradaId) => {
+      await cliente.cancelQueries({ queryKey: ['jornada-hoy', perfil?.id] })
+      const previo = cliente.getQueryData<JornadaCompleta>(['jornada-hoy', perfil?.id])
+      if (previo) {
+        cliente.setQueryData(['jornada-hoy', perfil?.id], {
+          ...previo,
+          paradas: previo.paradas.map((p) =>
+            p.id === paradaId ? { ...p, estado: 'omitida' as EstadoParada } : p,
+          ),
+        })
+      }
+      setMoviendo(null)
+      return { previo }
+    },
+    onError: (e: Error, _id, ctx) => {
+      if (ctx?.previo) cliente.setQueryData(['jornada-hoy', perfil?.id], ctx.previo)
+      Alert.alert('No pudimos quitar el destino', e.message)
+    },
+    onSettled: () => cliente.invalidateQueries({ queryKey: ['jornada-hoy', perfil?.id] }),
+  })
+
+  const pedirQuitar = useCallback(
+    (p: ParadaCompleta) => {
+      const nombre = p.cliente?.razon_social ?? p.razon_social_snapshot ?? 'este destino'
+      Alert.alert(
+        'Quitar del recorrido',
+        `¿Sacar a ${nombre} del recorrido de hoy? No lo vas a visitar y desaparece de la lista.`,
+        [
+          { text: 'Volver', style: 'cancel' },
+          { text: 'Quitar', style: 'destructive', onPress: () => quitar.mutate(p.id) },
+        ],
+      )
+    },
+    [quitar],
   )
 
   // Llegó desde "INICIAR RECORRIDO": se pregunta cómo arrancar.
@@ -847,9 +903,9 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             {paradas.length > 0 ? (
               <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
             ) : null}
-            {puedeReordenar ? (
+            {!finalizada && abiertas.length >= 1 ? (
               <Text style={estilos.hintReordenar}>
-                Tocá ↕ en un destino para cambiar el orden a mano.
+                Tocá ⋯ en un destino para moverlo o quitarlo del recorrido.
               </Text>
             ) : null}
 
@@ -862,8 +918,10 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   yaPreguntado.current = p.id
                   navigation.navigate('DestinoVisitado', { paradaId: p.id })
                 }}
-                alMover={
-                  puedeReordenar && (p.estado === 'pendiente' || p.estado === 'en_camino')
+                alOpciones={
+                  // Abierta y jornada no cerrada: se puede mover (si hay con qué)
+                  // y quitar. La hoja decide qué acciones habilitar.
+                  !finalizada && (p.estado === 'pendiente' || p.estado === 'en_camino')
                     ? () => setMoviendo(p.id)
                     : undefined
                 }
@@ -936,8 +994,15 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
         parada={paradaMoviendo}
         posicion={idxMoviendo}
         total={abiertas.length}
-        ocupado={mover.isPending}
+        ocupado={mover.isPending || quitar.isPending}
         alMover={moverA}
+        // Se cierra la hoja y recién ahí se pregunta: un Alert encima de un Modal
+        // en Android puede quedar tapado.
+        alQuitar={() => {
+          const p = paradaMoviendo
+          setMoviendo(null)
+          if (p) pedirQuitar(p)
+        }}
         alCerrar={() => setMoviendo(null)}
       />
     </Pantalla>
@@ -1006,12 +1071,13 @@ function ModalInicioRecorrido({
 }
 
 /**
- * "MOVER ESTE DESTINO"
+ * "ESTE DESTINO"
  *
- * La hoja que sale al tocar ↕ en un destino. Cuatro acciones —primero, subir uno,
- * bajar uno, último— cubren el "a gusto": para el medio se sube o baja de a uno
- * mirando cómo cambia el "Nº X de Y", que se recalcula solo con cada toque porque
- * la lista se reacomoda en el acto. Se queda abierta para encadenar movimientos;
+ * La hoja que sale al tocar ⋯ en un destino. Las cuatro acciones de mover
+ * —primero, subir uno, bajar uno, último— cubren el "a gusto": para el medio se
+ * sube o baja de a uno mirando cómo cambia el "Nº X de Y", que se recalcula solo
+ * con cada toque porque la lista se reacomoda en el acto. Abajo, separada, la
+ * acción de quitar del recorrido. Se queda abierta para encadenar movimientos;
  * se cierra con LISTO.
  */
 function ModalMoverDestino({
@@ -1020,6 +1086,7 @@ function ModalMoverDestino({
   total,
   ocupado,
   alMover,
+  alQuitar,
   alCerrar,
 }: {
   parada: ParadaCompleta | null
@@ -1027,6 +1094,7 @@ function ModalMoverDestino({
   total: number
   ocupado: boolean
   alMover: (hasta: number) => void
+  alQuitar: () => void
   alCerrar: () => void
 }) {
   const estilos = usarEstilos()
@@ -1039,7 +1107,7 @@ function ModalMoverDestino({
     <Modal visible={!!parada} transparent animationType="fade" onRequestClose={alCerrar}>
       <Pressable style={estilos.velo} onPress={alCerrar} accessibilityLabel="Cerrar">
         <Pressable style={estilos.hoja} onPress={() => undefined}>
-          <Text style={estilos.hojaTitulo}>MOVER ESTE DESTINO</Text>
+          <Text style={estilos.hojaTitulo}>ESTE DESTINO</Text>
           <Text style={estilos.hojaNota} numberOfLines={2}>
             {nombre} — Nº {posicion + 1} de {total}
           </Text>
@@ -1069,6 +1137,16 @@ function ModalMoverDestino({
             alTocar={() => alMover(total - 1)}
           />
 
+          {/* Quitar del recorrido. Destructiva y separada de las de mover, para
+              que no se toque de paso. Sale de la lista de hoy (queda 'omitida'). */}
+          <AccionMover
+            etiqueta="🗑  Quitar del recorrido"
+            detalle="Lo saca del día; no lo vas a visitar"
+            deshabilitado={ocupado}
+            destructiva
+            alTocar={alQuitar}
+          />
+
           <Pressable
             onPress={alCerrar}
             accessibilityRole="button"
@@ -1086,11 +1164,14 @@ function AccionMover({
   etiqueta,
   detalle,
   deshabilitado,
+  destructiva,
   alTocar,
 }: {
   etiqueta: string
   detalle: string
   deshabilitado?: boolean
+  /** La pinta de rojo: para quitar del recorrido, que no se deshace solo. */
+  destructiva?: boolean
   alTocar: () => void
 }) {
   const estilos = usarEstilos()
@@ -1102,11 +1183,14 @@ function AccionMover({
       accessibilityLabel={etiqueta}
       style={({ pressed }) => [
         estilos.accion,
+        destructiva && estilos.accionDestructiva,
         pressed && !deshabilitado && estilos.accionTocada,
         deshabilitado && estilos.accionApagada,
       ]}
     >
-      <Text style={estilos.accionTexto}>{etiqueta}</Text>
+      <Text style={[estilos.accionTexto, destructiva && estilos.accionTextoDestructivo]}>
+        {etiqueta}
+      </Text>
       <Text style={estilos.accionDetalle}>{detalle}</Text>
     </Pressable>
   )
@@ -1146,11 +1230,12 @@ function reordenarEnCache(jc: JornadaCompleta, nuevoOrden: string[]): JornadaCom
 function FilaParada({
   parada,
   alTocar,
-  alMover,
+  alOpciones,
 }: {
   parada: ParadaCompleta
   alTocar?: () => void
-  alMover?: () => void
+  /** Abre la hoja de opciones (mover / quitar). Sólo en destinos abiertos. */
+  alOpciones?: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -1207,18 +1292,19 @@ function FilaParada({
 
       {resuelta ? (
         <Text style={estilos.tildeFila}>✓</Text>
-      ) : alMover ? (
-        // Asa para reordenar. Es su propio Pressable: tocarla abre la hoja de
-        // mover y no dispara el toque de la fila (que lleva a cargar la visita).
+      ) : alOpciones ? (
+        // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
+        // mover/quitar y no dispara el toque de la fila (que lleva a cargar la
+        // visita).
         <Pressable
-          onPress={alMover}
+          onPress={alOpciones}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={`Mover el destino ${parada.orden}`}
+          accessibilityLabel={`Opciones del destino ${parada.orden}`}
           style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
         >
-          <Text style={estilos.asaIcono}>↕</Text>
-          <Text style={estilos.asaTexto}>Mover</Text>
+          <Text style={estilos.asaIcono}>⋯</Text>
+          <Text style={estilos.asaTexto}>Opciones</Text>
         </Pressable>
       ) : null}
     </Pressable>
@@ -1472,12 +1558,17 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   accionTocada: { opacity: 0.7 },
   accionApagada: { opacity: 0.4 },
+  accionDestructiva: {
+    borderColor: t.colores.rojoAccion,
+    backgroundColor: t.colores.panelClaro,
+  },
   accionTexto: {
     fontFamily: t.tipografia.familia.fuerte,
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.tinta,
     letterSpacing: 0.5,
   },
+  accionTextoDestructivo: { color: t.colores.rojoAccion },
   accionDetalle: {
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.micro,

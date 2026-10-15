@@ -24,6 +24,8 @@ export interface Cobranza {
   cheque: number
   efectivo: number
   comentarios: string | null
+  /** Cuándo salió en papel. Null = todavía se puede corregir. */
+  impreso_en: string | null
 }
 
 export interface DatosCobranza {
@@ -112,6 +114,54 @@ function normalizarCobranza(fila: Record<string, unknown>): Cobranza {
     cheque: Number(fila.cheque) || 0,
     efectivo: Number(fila.efectivo) || 0,
   }
+}
+
+/**
+ * Corrige un cobro ya cargado: tipo de comprobante, montos y comentario.
+ *
+ * El total no se manda: lo recalcula el servidor como cheque + efectivo, igual
+ * que al cargarlo. La RPC rechaza si el cobro ya se imprimió (una vez en papel
+ * la cifra no se toca) o si no es del vendedor que llama.
+ */
+export async function editarCobranza(datos: {
+  id: string
+  tipoComprobante: 'factura' | 'presupuesto'
+  cheque: number
+  efectivo: number
+  comentarios?: string | null
+}): Promise<Cobranza> {
+  const { data, error } = await supabase.rpc('editar_cobranza', {
+    p_id: datos.id,
+    p_tipo: datos.tipoComprobante,
+    p_cheque: redondear(datos.cheque),
+    p_efectivo: redondear(datos.efectivo),
+    p_comentarios: (datos.comentarios ?? '').trim() || null,
+  })
+
+  if (error) {
+    // Las RPC arman el mensaje en castellano; 23514 (impreso, montos) y 42501
+    // (no es tuyo) ya vienen listos para mostrar.
+    if (['23514', '42501', 'P0002'].includes(error.code ?? '')) throw new Error(error.message)
+    throw conMensajeDeSenal(error)
+  }
+  return normalizarCobranza(data as Record<string, unknown>)
+}
+
+/**
+ * Sella como impresos los cobros del vendedor en esos días.
+ *
+ * La llama la impresión cuando la rendición de cobranzas salió junto con las
+ * notas: a partir de ahí esos cobros quedan cerrados. Falla suave —devuelve 0—
+ * no tiene sentido: si no se pudo sellar, se avisa arriba.
+ */
+export async function marcarCobranzasImpresas(fechas: string[]): Promise<number> {
+  if (fechas.length === 0) return 0
+  const { data, error } = await supabase.rpc('marcar_cobranzas_impresas', {
+    p_fechas: fechas,
+    p_vendedor_id: null,
+  })
+  if (error) throw conMensajeDeSenal(error)
+  return Number(data ?? 0)
 }
 
 /** Los cobros de hoy, en el orden en que se hicieron. */

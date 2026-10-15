@@ -3,6 +3,7 @@ import { Alert, AppState, Linking } from 'react-native'
 
 import { usarDescargaApk } from '../nucleo/descargaApk'
 import { buscarApkNuevo, debeAutoInstalar, type ApkDisponible } from './actualizacionApk'
+import { estadoDeRed } from './ipp'
 
 /**
  * Avisar del instalador nuevo sin que haya que ir a buscarlo.
@@ -60,7 +61,7 @@ export function ofrecerApk(apk: ApkDisponible) {
       `aire, así que hay que instalarla.\n\n` +
       (apk.desde === 'panel'
         ? 'La vas a bajar de la PC de la oficina, así que va a ser rápido.'
-        : 'La vas a bajar de internet: con datos móviles puede tardar unos minutos.') +
+        : 'La vas a bajar de internet por wifi.') +
       (apk.notas ? `\n\nQué trae:\n${apk.notas}` : ''),
     [
       { text: 'Ahora no', style: 'cancel' },
@@ -111,7 +112,11 @@ export function usarAvisoDeApkAlEntrar(habilitado: boolean) {
       try {
         ultimoChequeo = Date.now()
         const busqueda = await buscarApkNuevo()
-        if (vivo && busqueda.estado === 'hay') ofrecerApk(busqueda.apk)
+        // Sólo se ofrece bajar cuando hay WIFI: el APK pesa ~50 MB y por datos
+        // móviles se come el plan del vendedor. En la calle el aviso no aparece;
+        // cuando vuelve a la oficina (wifi) sale solo y lo baja gratis de la PC.
+        const red = await estadoDeRed()
+        if (vivo && busqueda.estado === 'hay' && red.enWifi) ofrecerApk(busqueda.apk)
       } finally {
         consultando = false
       }

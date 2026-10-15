@@ -1,4 +1,4 @@
-import { espaciado, radios, sombras, TOQUE_MINIMO, type ClaveFuncion } from '@woodtools/compartido'
+import { espaciado, esComoVendedor, radios, sombras, TOQUE_MINIMO, type ClaveFuncion } from '@woodtools/compartido'
 import { useNavigation, useNavigationState } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useEffect, useRef, useState } from 'react'
@@ -191,7 +191,7 @@ export function MenuLateral({ abierto, alCerrar }: { abierto: boolean; alCerrar:
   // "IMPRIMIR ROL DE VISITA" se oculta a los vendedores que la oficina no
   // habilitó. Sólo a los vendedores: admin y supervisor imprimen siempre.
   const ocultarImprimirRol = usarSesion(
-    (s) => s.perfil?.rol === 'vendedor' && s.perfil?.imprime_roles === false,
+    (s) => esComoVendedor(s.perfil?.rol) && s.perfil?.imprime_roles === false,
   )
   // Mismas funciones que el menú principal: cada entrada con `permiso` se
   // esconde si el rol no lo tiene habilitado (admin ve todo).

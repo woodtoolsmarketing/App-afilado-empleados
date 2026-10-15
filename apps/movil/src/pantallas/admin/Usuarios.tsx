@@ -1,4 +1,5 @@
 import {
+  esComoVendedor,
   espaciado,
   ETIQUETA_ESTADO_USUARIO,
   ETIQUETA_ROL,
@@ -67,6 +68,11 @@ import { conMensajeDeSenal } from '../../nucleo/loUltimoQueSupimos'
 
 const ITEMS_ROL: ItemDesplegable<RolUsuario>[] = [
   { valor: 'vendedor', etiqueta: 'Vendedor', descripcion: 'Usa la app del celular y ve sólo lo suyo' },
+  {
+    valor: 'tester',
+    etiqueta: 'Vendedor (tester)',
+    descripcion: 'Igual que un vendedor, pero puede sacar capturas de pantalla',
+  },
   { valor: 'supervisor', etiqueta: 'Supervisor', descripcion: 'Ve a todos los vendedores en vivo' },
   {
     valor: 'administracion',
@@ -560,8 +566,9 @@ function FilaPendiente({
   const [codigo, setCodigo] = useState(perfil.codigo_vendedor ?? '')
 
   // Sin código de vendedor la planilla del rol de visita queda sin la columna
-  // "Codigo", así que se exige antes de aprobar.
-  const faltaCodigo = rol === 'vendedor' && !codigo.trim()
+  // "Codigo", así que se exige antes de aprobar. El tester también lo lleva: hace
+  // notas como un vendedor.
+  const faltaCodigo = esComoVendedor(rol) && !codigo.trim()
 
   return (
     <View style={estilos.fila}>
@@ -584,7 +591,7 @@ function FilaPendiente({
         onChangeText={(t) => setCodigo(t.replace(/\D/g, '').slice(0, 4))}
         keyboardType="number-pad"
         placeholder="7"
-        obligatorio={rol === 'vendedor'}
+        obligatorio={esComoVendedor(rol)}
         error={faltaCodigo ? 'Asigná el código de vendedor' : null}
       />
 
