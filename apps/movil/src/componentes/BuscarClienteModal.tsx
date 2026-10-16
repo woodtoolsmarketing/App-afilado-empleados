@@ -24,7 +24,8 @@ export function BuscarClienteModal({
   alCerrar,
 }: {
   visible: boolean
-  alElegir: (cliente: { id: string; codigo: string | null; nombre: string }) => void
+  /** `id` null = cargado a mano (un cliente que no está en el padrón). */
+  alElegir: (cliente: { id: string | null; codigo: string | null; nombre: string }) => void
   alCerrar: () => void
 }) {
   const estilos = usarEstilos()
@@ -86,6 +87,12 @@ export function BuscarClienteModal({
   const sinResultados =
     consulta.trim().length >= 2 && !buscando && !fallo && resultados.length === 0 && consultaBuscada
 
+  // El nombre a mano, para un cobro de alguien que no está en el padrón (una
+  // factura vieja, algo sin ficha). Se habilita con un nombre de verdad —al menos
+  // tres caracteres y alguna letra— para no cargar un pedazo de código como nombre.
+  const textoManual = consulta.trim()
+  const puedeCargarAMano = textoManual.length >= 3 && /[a-zA-ZÀ-ÿ]/.test(textoManual)
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={alCerrar}>
       <Pantalla>
@@ -115,32 +122,52 @@ export function BuscarClienteModal({
               <Aviso tono="error" titulo="No pudimos buscar">
                 Puede ser la señal. Probá de nuevo.
               </Aviso>
-            ) : sinResultados ? (
-              <Aviso tono="info">
-                Ningún cliente coincide con “{consulta.trim()}”. Probá con otro nombre o código.
-              </Aviso>
             ) : (
-              resultados.map((c) => (
-                <Pressable
-                  key={c.cliente_id}
-                  onPress={() =>
-                    alElegir({ id: c.cliente_id, codigo: c.codigo, nombre: c.razon_social })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Cobrarle a ${c.razon_social}`}
-                  style={({ pressed }) => [estilos.fila, pressed && estilos.filaTocada]}
-                >
-                  <Text style={estilos.filaNombre}>
-                    {c.codigo ? `${c.codigo} · ` : ''}
-                    {c.razon_social}
-                  </Text>
-                  {c.direccion ? (
-                    <Text style={estilos.filaDireccion} numberOfLines={1}>
-                      {c.direccion}
+              <>
+                {resultados.map((c) => (
+                  <Pressable
+                    key={c.cliente_id}
+                    onPress={() =>
+                      alElegir({ id: c.cliente_id, codigo: c.codigo, nombre: c.razon_social })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Cobrarle a ${c.razon_social}`}
+                    style={({ pressed }) => [estilos.fila, pressed && estilos.filaTocada]}
+                  >
+                    <Text style={estilos.filaNombre}>
+                      {c.codigo ? `${c.codigo} · ` : ''}
+                      {c.razon_social}
                     </Text>
-                  ) : null}
-                </Pressable>
-              ))
+                    {c.direccion ? (
+                      <Text style={estilos.filaDireccion} numberOfLines={1}>
+                        {c.direccion}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+
+                {sinResultados ? (
+                  <Aviso tono="info">
+                    Ningún cliente coincide con “{textoManual}”. Podés cargarlo a mano abajo.
+                  </Aviso>
+                ) : null}
+
+                {/* El escape: el cliente no está en el padrón (una factura vieja,
+                    algo sin ficha). Se cobra con el nombre tal cual, sin código. */}
+                {puedeCargarAMano ? (
+                  <Pressable
+                    onPress={() => alElegir({ id: null, codigo: null, nombre: textoManual })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Cobrarle a ${textoManual}, con el nombre a mano`}
+                    style={({ pressed }) => [estilos.manual, pressed && estilos.filaTocada]}
+                  >
+                    <Text style={estilos.manualNombre}>＋ Cobrarle a “{textoManual}”</Text>
+                    <Text style={estilos.manualAyuda}>
+                      No está en la lista: se carga con el nombre a mano, sin código.
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </>
             )}
           </ScrollView>
 
@@ -169,6 +196,27 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tinta,
   },
   filaDireccion: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  // El "cargar a mano": se distingue de los resultados con el borde punteado del
+  // verde de la marca, para que se lea como una acción y no como un cliente más.
+  manual: {
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.verdeOscuro,
+    borderStyle: 'dashed',
+    padding: espaciado.sm,
+    gap: 2,
+    marginTop: espaciado.xs,
+  },
+  manualNombre: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
+  },
+  manualAyuda: {
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
