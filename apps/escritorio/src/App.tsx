@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { ClaveFuncionPanel, RolUsuario } from '@woodtools/compartido'
 
 import { supabase } from './nucleo/supabase'
+import { SelectorImpresora } from './componentes/SelectorImpresora'
 import { usarAvisoDeEscritorio } from './nucleo/avisoEscritorio'
 import { usarPermisosPanel } from './nucleo/permisos'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
@@ -371,6 +372,11 @@ function BarraLateral({
         WOODTOOLS
         <small>Panel de administración</small>
       </div>
+
+      {/* Arriba de todo: a qué impresora sale lo que se imprime (panel y
+          teléfono). Lo pueden cambiar admin y administración; el resto lo ve
+          informativo. */}
+      <SelectorImpresora puedeElegir={esAdmin || rol === 'administracion'} />
 
       {/*
         Los enlaces scrollean solos (flex:1 + min-height:0). Antes iban sueltos

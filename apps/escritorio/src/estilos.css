@@ -118,6 +118,129 @@ body {
   letter-spacing: 0;
 }
 
+/* ── Apartado "Impresora a utilizar" (arriba de la barra) ─────────────────── */
+
+.selector-impresora {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0 10px 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.selector-impresora-titulo {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.selector-impresora-boton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radio);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--blanco);
+  font-family: var(--fuente);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.selector-impresora-boton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.selector-impresora-boton:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.selector-impresora-nombre {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector-impresora-flecha {
+  font-size: 9px;
+  opacity: 0.8;
+}
+
+/* Un velo transparente que ocupa toda la ventana: el clic afuera cierra el menú
+   sin que el resto del panel reciba ese clic. */
+.selector-impresora-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.selector-impresora-menu {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  z-index: 41;
+  margin-top: 4px;
+  background: var(--blanco);
+  border: var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  overflow: hidden;
+}
+
+.selector-impresora-opcion {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--tinta);
+  font-family: var(--fuente);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.selector-impresora-opcion:hover:not(:disabled) {
+  background: var(--panel-claro);
+}
+
+.selector-impresora-opcion.activa {
+  background: var(--panel);
+  font-weight: 700;
+}
+
+.selector-impresora-opcion small {
+  display: block;
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.selector-impresora-tilde {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--verde-oscuro);
+  font-weight: 800;
+}
+
+.selector-impresora-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ffd4d4;
+}
+
 .enlace-lateral {
   display: flex;
   align-items: center;
