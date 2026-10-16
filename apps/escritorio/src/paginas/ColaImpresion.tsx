@@ -3,7 +3,7 @@ import {
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
   numeroDeNotaImpreso,
-  resumenesDePedidoSueltoPorParada,
+  resumenesDePedidoPorParada,
   rolImprimibleDesdeFilas,
   type NotaSuelta,
   type OpcionesImpresion,
@@ -324,10 +324,11 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
     visita: Array.isArray(p.visita) ? (p.visita[0] ?? null) : p.visita,
   })) as ParadaCompleta[]
 
-  // Todas las notas de ese día del vendedor: el cómputo (en `compartido`) decide
-  // cuáles muestra en el impreso — las enganchadas a la visita por el trigger y
-  // las cargadas después del parte; las de antes ya están en la observación. La
-  // ventana es el día local del rol (Argentina no tiene horario de verano).
+  // Todas las notas de ese día del vendedor: `resumenesDePedidoPorParada` arma
+  // con ellas el resumen del pedido con la cantidad al día, para rearmar la
+  // observación del rol ("3× 300x96") aunque la visita se haya registrado con una
+  // app vieja. La ventana es el día local del rol (Argentina no tiene horario de
+  // verano).
   const desde = new Date(`${jornada.fecha}T00:00:00`)
   const hasta = new Date(desde)
   hasta.setDate(hasta.getDate() + 1)
@@ -341,13 +342,11 @@ async function rolDeVisitaDeLaOrden(orden: OrdenFila): Promise<RolDeVisitaParaIm
     .gte('creado_en', desde.toISOString())
     .lt('creado_en', hasta.toISOString())
 
-  const resumenes = resumenesDePedidoSueltoPorParada(
+  const resumenes = resumenesDePedidoPorParada(
     completas.map((p) => ({
       id: p.id,
       cliente_id: p.cliente_id,
       direccion_id: p.direccion_id,
-      visitaGuardadaEn: p.visita?.actualizado_en ?? null,
-      visitaVisitada: p.visita?.visitado ?? false,
     })),
     (notasSueltas ?? []) as unknown as NotaSuelta[],
   )

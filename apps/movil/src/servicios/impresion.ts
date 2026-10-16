@@ -7,7 +7,9 @@ import {
   formatearPesos,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
+  resumenesDePedidoPorParada,
   rolImprimibleDesdeFilas,
+  type NotaSuelta,
   type OpcionesImpresion,
   type PlanillaCobranzasParaImprimir,
   type RenglonCobranza,
@@ -228,10 +230,52 @@ async function rolDeVisitaDe(
     .eq('id', vendedorId)
     .maybeSingle()
 
-  return rolImprimibleDesdeFilas(jornada.jornada, jornada.paradas, {
-    nombre: perfil?.nombre_completo ?? '',
-    codigo: perfil?.codigo_vendedor ?? null,
-  })
+  // El resumen del pedido con la cantidad al día, rearmado desde las notas: así
+  // el conteo ("3× 300x96") sale aunque la visita se haya registrado con una app
+  // vieja que lo guardaba sin contar. Si no se pueden traer las notas (sin señal),
+  // se degrada solo: el rol sale con el texto congelado de cada visita.
+  const notas = await notasDelDiaParaResumen(vendedorId, fecha).catch(() => [])
+  const resumenCompleto = resumenesDePedidoPorParada(
+    jornada.paradas.map((p) => ({
+      id: p.id,
+      cliente_id: p.cliente_id,
+      direccion_id: p.direccion_id,
+    })),
+    notas,
+  )
+
+  return rolImprimibleDesdeFilas(
+    jornada.jornada,
+    jornada.paradas,
+    {
+      nombre: perfil?.nombre_completo ?? '',
+      codigo: perfil?.codigo_vendedor ?? null,
+    },
+    resumenCompleto,
+  )
+}
+
+/**
+ * Las notas de ese día del vendedor, con sus renglones, para recalcular el
+ * resumen del pedido en el rol. Mismo armado que el panel
+ * (`notas-sueltas-rol`): la ventana es el día local (Argentina no tiene horario
+ * de verano) y se descartan las anuladas.
+ */
+async function notasDelDiaParaResumen(vendedorId: string, fecha: string): Promise<NotaSuelta[]> {
+  const desde = new Date(`${fecha}T00:00:00`)
+  const hasta = new Date(desde)
+  hasta.setDate(hasta.getDate() + 1)
+  const { data, error } = await supabase
+    .from('notas_pedido')
+    .select(
+      'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
+    )
+    .eq('vendedor_id', vendedorId)
+    .neq('estado', 'anulada')
+    .gte('creado_en', desde.toISOString())
+    .lt('creado_en', hasta.toISOString())
+  if (error) throw error
+  return (data ?? []) as unknown as NotaSuelta[]
 }
 
 /** El de hoy: lo usa la impresión del rol solo, desde ROL DE VISITA. */

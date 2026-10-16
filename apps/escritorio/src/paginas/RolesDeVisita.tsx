@@ -4,6 +4,8 @@ import {
   fechaLocalISO,
   formatearHora,
   generarDocumentoImpresion,
+  observacionConCantidades,
+  resumenesDePedidoPorParada,
   resumenesDePedidoSueltoPorParada,
   rolImprimibleDesdeFilas,
   type NotaSuelta,
@@ -201,6 +203,24 @@ export function PaginaRolesDeVisita({
           direccion_id: p.direccion_id,
           visitaGuardadaEn: p.visita?.actualizado_en ?? null,
           visitaVisitada: p.visita?.visitado ?? false,
+        })),
+        notasSueltas ?? [],
+      ),
+    [jornada, notasSueltas],
+  )
+
+  /**
+   * El resumen COMPLETO por parada (todas las notas del día, con la cantidad
+   * adelante). Rearma la observación de las visitas para que el conteo salga al
+   * día aunque la visita se haya registrado con una app vieja.
+   */
+  const resumenCompleto = useMemo(
+    () =>
+      resumenesDePedidoPorParada(
+        (jornada?.paradas ?? []).map((p) => ({
+          id: p.id,
+          cliente_id: p.cliente_id,
+          direccion_id: p.direccion_id,
         })),
         notasSueltas ?? [],
       ),
@@ -438,10 +458,16 @@ export function PaginaRolesDeVisita({
       }
       if (!jornada) throw new Error('No hay rol para imprimir')
 
-      const rolDeVisita = rolImprimibleDesdeFilas(jornada.rol, jornada.paradas, {
-        nombre: vendedor?.nombre_completo ?? '',
-        codigo: vendedor?.codigo_vendedor ?? null,
-      })
+      const rolDeVisita = rolImprimibleDesdeFilas(
+        jornada.rol,
+        jornada.paradas,
+        {
+          nombre: vendedor?.nombre_completo ?? '',
+          codigo: vendedor?.codigo_vendedor ?? null,
+        },
+        // Las cantidades al día: rearma la observación del rol desde las notas.
+        resumenCompleto,
+      )
       const html = generarDocumentoImpresion([], { rolDeVisita })
 
       const impresora = await obtenerImpresora()
@@ -604,13 +630,15 @@ export function PaginaRolesDeVisita({
                       <td style={{ textAlign: 'center' }}>{p.visita?.entrego ? 'X' : ''}</td>
                       <td>{p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? ''}</td>
                       <td>
-                        {combinarObservacionYResumen(
-                          p.visita?.observacion ??
-                            (p.estado === 'pendiente' || p.estado === 'en_camino'
-                              ? ''
-                              : ETIQUETA_ESTADO_PARADA[p.estado]),
-                          resumenSuelto.get(p.id),
-                        )}
+                        {p.visita?.visitado
+                          ? observacionConCantidades(p.visita, resumenCompleto.get(p.id))
+                          : combinarObservacionYResumen(
+                              p.visita?.observacion ??
+                                (p.estado === 'pendiente' || p.estado === 'en_camino'
+                                  ? ''
+                                  : ETIQUETA_ESTADO_PARADA[p.estado]),
+                              resumenSuelto.get(p.id),
+                            )}
                       </td>
                       <td className="no-imprimir">
                         {(() => {

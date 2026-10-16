@@ -3252,6 +3252,69 @@ export function resumenesDePedidoSueltoPorParada(
   return out
 }
 
+/**
+ * Para cada parada, el resumen COMPLETO de "qué se hizo/vendió" con TODAS las
+ * notas de ese día de ese cliente —las que ya están en la observación y las
+ * sueltas—, en el formato actual: con la cantidad adelante ("3× 300x96").
+ *
+ * A diferencia de `resumenesDePedidoSueltoPorParada`, NO excluye las notas que
+ * ya se hornearon en la observación. Justamente sirve para VOLVER a armar la
+ * observación del rol impreso con las cantidades al día, aunque la visita se
+ * haya registrado con una versión vieja de la app —que guardaba el resumen sin
+ * contar, juntando las medidas repetidas—. El que regenera la observación
+ * (`observacionConCantidades`) decide si pisa o no el texto guardado.
+ *
+ * Devuelve el resumen como arreglo de frases (lo que come `observacionSugerida`),
+ * no enumerado, para que la observación se rearme con el mismo formato que la app.
+ */
+export function resumenesDePedidoPorParada(
+  paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
+  notas: NotaSuelta[],
+): Map<string, string[]> {
+  type P = Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>
+  const paradaPorId = new Map<string, P>()
+  const paradasPorCliente = new Map<string, P[]>()
+  for (const p of paradas) {
+    paradaPorId.set(p.id, p)
+    if (!p.cliente_id) continue
+    const arr = paradasPorCliente.get(p.cliente_id) ?? []
+    arr.push(p)
+    paradasPorCliente.set(p.cliente_id, arr)
+  }
+
+  const renglonesPorParada = new Map<string, RenglonParaResumen[]>()
+  for (const n of notas) {
+    let destino: P | undefined
+    if (n.parada_id) {
+      destino = paradaPorId.get(n.parada_id)
+      if (!destino) continue
+    } else {
+      // Misma regla de enganche que las sueltas: por cliente, y por dirección
+      // cuando hay varias sucursales.
+      if (!n.cliente_id) continue
+      const candidatas = paradasPorCliente.get(n.cliente_id)
+      if (!candidatas || candidatas.length === 0) continue
+      destino =
+        candidatas.length === 1
+          ? candidatas[0]
+          : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+            candidatas[0])
+    }
+    const arr = renglonesPorParada.get(destino.id) ?? []
+    arr.push(...n.items)
+    renglonesPorParada.set(destino.id, arr)
+  }
+
+  const out = new Map<string, string[]>()
+  for (const [paradaId, renglones] of renglonesPorParada) {
+    const partes = resumenDeRenglonesDeVisita(renglones)
+      .map((r) => r.trim())
+      .filter(Boolean)
+    if (partes.length > 0) out.set(paradaId, partes)
+  }
+  return out
+}
+
 /** `a` es posterior a `b` (dos timestamps ISO). Ante la duda (fecha ilegible), muestra. */
 function esPosterior(a: string, b: string): boolean {
   const ta = Date.parse(a)
