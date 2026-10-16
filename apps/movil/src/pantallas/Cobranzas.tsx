@@ -9,7 +9,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
-import { BotonSecundario } from '../componentes/Botones'
+import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
+import { BuscarClienteModal } from '../componentes/BuscarClienteModal'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { ModalCobranza } from '../componentes/ModalCobranza'
@@ -43,6 +44,14 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
   const esHoy = fecha === hoy
   // El cobro que se está corrigiendo, o null. Sólo los no impresos abren esto.
   const [editando, setEditando] = useState<Cobranza | null>(null)
+  // El alta suelta: primero se busca el cliente, después se abre el formulario
+  // con ese cliente para cargar un cobro que se olvidó (sin pasar por una visita).
+  const [buscandoCliente, setBuscandoCliente] = useState(false)
+  const [clienteNuevoCobro, setClienteNuevoCobro] = useState<{
+    id: string | null
+    codigo: string | null
+    nombre: string
+  } | null>(null)
 
   const { data: cobros, isLoading, isError, refetch } = useQuery({
     queryKey: ['cobranzas-del-dia', fecha],
@@ -109,7 +118,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
         ) : (cobros ?? []).length === 0 ? (
           <Vacio
             titulo={esHoy ? 'Todavía no cargaste ningún cobro hoy' : 'No hay cobros ese día'}
-            detalle="Los cobros se cargan desde el rol de visita, al tildar “COBRÓ”."
+            detalle="Se cargan desde el rol de visita al tildar “COBRÓ”, o acá abajo con ＋ AGREGAR COBRANZA."
           />
         ) : (
           <View style={estilos.lista}>
@@ -166,16 +175,39 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
         )}
       </Panel>
 
-      {/* El mismo formulario con el que se carga el cobro, precargado. El
-          cliente no se toca: es contra quién se cobró. Al guardar, se refresca
-          la lista del día. */}
-      <ModalCobranza
-        visible={editando !== null}
-        cliente={{
-          id: null,
-          codigo: editando?.cliente_codigo ?? null,
-          nombre: editando?.cliente_nombre ?? '',
+      {/* Agregar un cobro que se olvidó, sin tener que inventar una visita. Entra
+          en el día que se está mirando. Siempre visible —también con la lista
+          vacía—, que es justo cuando hace falta. */}
+      <Panel>
+        <BotonPrincipal
+          titulo={esHoy ? '＋ AGREGAR COBRANZA' : '＋ AGREGAR COBRANZA A ESTE DÍA'}
+          alTocar={() => setBuscandoCliente(true)}
+        />
+      </Panel>
+
+      {/* Paso 1 del alta suelta: elegir a quién se le cobró. */}
+      <BuscarClienteModal
+        visible={buscandoCliente}
+        alElegir={(c) => {
+          setBuscandoCliente(false)
+          setClienteNuevoCobro(c)
         }}
+        alCerrar={() => setBuscandoCliente(false)}
+      />
+
+      {/* El mismo formulario para corregir un cobro o cargar uno nuevo. Al
+          corregir, el cliente viene del cobro y no se toca; al agregar, viene del
+          buscador y el cobro entra en el día que se está mirando. Al guardar, se
+          refresca la lista del día. */}
+      <ModalCobranza
+        visible={editando !== null || clienteNuevoCobro !== null}
+        cliente={
+          editando
+            ? { id: null, codigo: editando.cliente_codigo, nombre: editando.cliente_nombre }
+            : (clienteNuevoCobro ?? { id: null, codigo: null, nombre: '' })
+        }
+        // Sólo el alta suelta elige el día; al corregir, el día no se toca.
+        fecha={editando ? undefined : fecha}
         editando={
           editando
             ? {
@@ -187,9 +219,13 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
               }
             : null
         }
-        alCerrar={() => setEditando(null)}
+        alCerrar={() => {
+          setEditando(null)
+          setClienteNuevoCobro(null)
+        }}
         alGuardar={() => {
           setEditando(null)
+          setClienteNuevoCobro(null)
           void consultas.invalidateQueries({ queryKey: ['cobranzas-del-dia', fecha] })
         }}
       />

@@ -60,6 +60,7 @@ export function ModalCobranza({
   cliente,
   notaId = null,
   tipoSugerido,
+  fecha,
   editando,
   alCerrar,
   alGuardar,
@@ -71,6 +72,12 @@ export function ModalCobranza({
   notaId?: string | null
   /** El comprobante que propone la nota. Por defecto, factura. */
   tipoSugerido?: 'factura' | 'presupuesto'
+  /**
+   * El día del cobro, sólo para el alta suelta desde COBRANZAS (agregar uno que
+   * se olvidó en el día que se está mirando). Desde la visita/nota no se pasa:
+   * el cobro es de hoy.
+   */
+  fecha?: string
   /**
    * Cuando viene, el modal CORRIGE ese cobro en vez de crear uno nuevo: se
    * precargan sus montos y GUARDAR llama a `editarCobranza`. El servidor rechaza
@@ -136,6 +143,7 @@ export function ModalCobranza({
             cheque: aPesos(cheque),
             efectivo: aPesos(efectivo),
             comentarios,
+            fecha,
           }),
     onSuccess: () => alGuardar(),
     onError: (e: Error) =>

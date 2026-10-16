@@ -39,6 +39,12 @@ export interface DatosCobranza {
   cheque: number
   efectivo: number
   comentarios?: string | null
+  /**
+   * El día del cobro. Sin esto la base pone hoy —lo normal, porque se cobra en la
+   * visita del día—. Lo manda sólo el alta suelta ("AGREGAR COBRANZA"), para
+   * poder cargar un cobro que se olvidó en el día que se está mirando.
+   */
+  fecha?: string
 }
 
 export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza> {
@@ -57,6 +63,9 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
     .insert({
       id: datos.id,
       vendedor_id: vendedorId,
+      // Sin fecha, la base pone hoy (el caso normal: se cobra en la visita del
+      // día). El alta suelta la manda para dejar el cobro en el día elegido.
+      ...(datos.fecha ? { fecha: datos.fecha } : {}),
       nota_id: datos.notaId ?? null,
       cliente_id: datos.clienteId ?? null,
       cliente_codigo: datos.clienteCodigo ?? null,
