@@ -29,6 +29,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   View,
 } from 'react-native'
@@ -592,7 +593,10 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         style={estilos.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Panel contentStyle={estilos.contenido}>
+        {/* Header + buscadores fijos arriba, resultados/ficha/ubicador en el
+            scroll del medio, y AGREGAR fijo al pie: el botón queda siempre a la
+            vista sin scrollear. */}
+        <Panel desplazable={false} contentStyle={estilos.marco}>
           <BarraPanel
             alVolver={() => navigation.setParams({ modo: undefined })}
             // Sin esto la barra marcaba siempre hoy, aunque se estuviera
@@ -629,6 +633,14 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             error={errores.cliente}
           />
 
+          {/* Lo único que se desplaza: resultados, avisos, ficha del cliente y
+              el ubicador. Los dos buscadores quedan fijos arriba. */}
+          <ScrollView
+            style={estilos.zona}
+            contentContainerStyle={estilos.zonaContenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           {resultados.length > 0 ? (
             <View style={estilos.sugerencias}>
               {resultados.map((c) => (
@@ -826,23 +838,6 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
           ) : null}
 
           {/*
-            El botón de agregar va ARRIBA del ubicador, y ese es el cambio.
-
-            Antes, al cliente sin coordenadas el ubicador se le abría solo acá en
-            el medio y había que resolverlo para llegar al botón: un peaje. Lo
-            que pidió el vendedor es poder dejarlo en la lista en dos toques y
-            arreglar el mapa cuando llega. Así que primero lo que vino a hacer, y
-            abajo —chico, cerrado— el camino de ubicarlo ahora para el que quiera
-            hacerlo igual.
-          */}
-          <BotonMenu
-            titulo={'AGREGAR AL\nRECORRIDO'}
-            alTocar={alAgregar}
-            cargando={guardar.isPending}
-            deshabilitado={guardar.isSuccess}
-          />
-
-          {/*
             Dos situaciones, un mismo componente. O el cliente nunca se ubicó
             —el padrón del Gestión trae el domicilio en texto y sin
             coordenadas— o la ficha dice una cosa y el local está en otra. El
@@ -851,6 +846,10 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             La `key` es por cliente porque el bloque se queda montado cuando el
             vendedor busca otro: sin ella se arrastraban al cliente siguiente la
             dirección tipeada y el "ubicar o corregir" del anterior.
+
+            Va en el scroll, debajo de la ficha: el AGREGAR quedó fijo al pie, así
+            que el ubicador dejó de ser un peaje —el botón está siempre abajo, se
+            resuelva el mapa o no—.
           */}
           {elegido ? (
             <UbicarCliente
@@ -872,6 +871,15 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
               }
             />
           ) : null}
+          </ScrollView>
+
+          {/* AGREGAR fijo al pie, siempre a la vista. */}
+          <BotonMenu
+            titulo={'AGREGAR AL\nRECORRIDO'}
+            alTocar={alAgregar}
+            cargando={guardar.isPending}
+            deshabilitado={guardar.isSuccess}
+          />
         </Panel>
       </KeyboardAvoidingView>
 
@@ -1320,7 +1328,9 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
         style={estilos.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Panel contentStyle={estilos.contenido}>
+        {/* Header fijo arriba, campos en el medio desplazable, y AGREGAR fijo al
+            pie: el botón queda siempre a la vista sin scrollear. */}
+        <Panel desplazable={false} contentStyle={estilos.marco}>
           <BarraPanel
             alVolver={() => navigation.setParams({ modo: undefined })}
             // Sin esto la barra marcaba siempre hoy, aunque se estuviera
@@ -1330,18 +1340,25 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
 
           <TituloPanel>{'CLIENTE\nNUEVO'}</TituloPanel>
 
-          <CamposClienteNuevo form={form} actualizar={actualizar} errores={errores} />
+          <ScrollView
+            style={estilos.zona}
+            contentContainerStyle={estilos.zonaContenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <CamposClienteNuevo form={form} actualizar={actualizar} errores={errores} />
 
-          <MensajeError>
-            {intentado && Object.keys(errores).length > 0
-              ? 'Revisá los campos marcados en rojo.'
-              : undefined}
-          </MensajeError>
+            <MensajeError>
+              {intentado && Object.keys(errores).length > 0
+                ? 'Revisá los campos marcados en rojo.'
+                : undefined}
+            </MensajeError>
 
-          <Aviso tono="info">
-            El cliente queda para que la oficina lo confirme. Hasta entonces el recorrido lo lleva,
-            pero no aparece en el buscador.
-          </Aviso>
+            <Aviso tono="info">
+              El cliente queda para que la oficina lo confirme. Hasta entonces el recorrido lo lleva,
+              pero no aparece en el buscador.
+            </Aviso>
+          </ScrollView>
 
           <BotonMenu
             titulo={'AGREGAR AL\nRECORRIDO'}
@@ -1481,7 +1498,15 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
     <Pantalla>
       <Encabezado />
 
-      <Panel contentStyle={estilos.contenido}>
+      {/*
+        El panel NO se desplaza entero: se arma en tres partes como la LISTA
+        SEMANAL. El día queda fijo arriba, IMPORTAR fijo abajo, y sólo la lista
+        de clientes —que puede ser larga— se desplaza en el medio. Antes la lista
+        iba en un Panel y el botón en OTRO Panel: los dos `flex: 1`, así que al
+        aparecer el botón se repartían la pantalla a la mitad y la lista quedaba
+        apretada arriba, scrolleando en media pantalla.
+      */}
+      <Panel desplazable={false} contentStyle={estilos.marco}>
         <BarraPanel alVolver={() => navigation.goBack()} />
         <TituloPanel>{'IMPORTAR VISITAS\nDE OTRO DÍA'}</TituloPanel>
 
@@ -1511,54 +1536,61 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
           />
         ) : null}
 
-        {isLoading ? (
-          <Cargando texto="Buscando ese día…" />
-        ) : error ? (
-          <>
-            <Aviso tono="error" titulo="No pudimos traer ese día">
-              Revisá la conexión y volvé a intentar.
-            </Aviso>
-            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
-          </>
-        ) : importables.length === 0 ? (
-          <Vacio
-            titulo="Ese día no tiene visitas"
-            detalle="No armaste recorrido ese día, o ninguno de sus destinos tiene un cliente que puedas volver a visitar. Probá con otra fecha."
-            icono="📅"
-          />
-        ) : (
-          <>
-            <Pressable
-              onPress={alternarTodos}
-              accessibilityRole="button"
-              style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
-            >
-              <Text style={estilos.atajoTexto}>{todosElegidos ? 'Ninguno' : 'Tildar todos'}</Text>
-            </Pressable>
+        {/* Lo único que se desplaza: la lista del día. */}
+        <ScrollView
+          style={estilos.zona}
+          contentContainerStyle={estilos.zonaContenido}
+          showsVerticalScrollIndicator={false}
+        >
+          {isLoading ? (
+            <Cargando texto="Buscando ese día…" />
+          ) : error ? (
+            <>
+              <Aviso tono="error" titulo="No pudimos traer ese día">
+                Revisá la conexión y volvé a intentar.
+              </Aviso>
+              <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+            </>
+          ) : importables.length === 0 ? (
+            <Vacio
+              titulo="Ese día no tiene visitas"
+              detalle="No armaste recorrido ese día, o ninguno de sus destinos tiene un cliente que puedas volver a visitar. Probá con otra fecha."
+              icono="📅"
+            />
+          ) : (
+            <>
+              <Pressable
+                onPress={alternarTodos}
+                accessibilityRole="button"
+                style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
+              >
+                <Text style={estilos.atajoTexto}>{todosElegidos ? 'Ninguno' : 'Tildar todos'}</Text>
+              </Pressable>
 
-            <View style={estilos.listaImp}>
-              {importables.map((p) => (
-                <FilaImportar
-                  key={p.id}
-                  parada={p}
-                  elegido={elegidos.has(p.id)}
-                  alTocar={() => alternar(p.id)}
-                />
-              ))}
-            </View>
-          </>
-        )}
-      </Panel>
+              <View style={estilos.listaImp}>
+                {importables.map((p) => (
+                  <FilaImportar
+                    key={p.id}
+                    parada={p}
+                    elegido={elegidos.has(p.id)}
+                    alTocar={() => alternar(p.id)}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+        </ScrollView>
 
-      {seleccionadas.length > 0 ? (
-        <Panel>
+        {/* IMPORTAR fijo al pie, siempre a la vista: no hay que scrollear para
+            llegar. Sale sólo cuando hay algo tildado. */}
+        {seleccionadas.length > 0 ? (
           <BotonMenu
             titulo={`IMPORTAR ${seleccionadas.length}`}
             alTocar={() => importar.mutate()}
             cargando={importar.isPending}
           />
-        </Panel>
-      ) : null}
+        ) : null}
+      </Panel>
     </Pantalla>
   )
 }
@@ -1622,6 +1654,19 @@ const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   campoCorto: { maxWidth: 220 },
+
+  // Arma el panel en columna cuando NO se desplaza entero (ver LISTA SEMANAL):
+  // header fijo arriba, la `zona` desplazable en el medio (flex: 1), y el botón
+  // de acción fijo abajo. Así nunca hay que scrollear para llegar al botón.
+  marco: {
+    flex: 1,
+    paddingHorizontal: espaciado.base,
+    paddingTop: espaciado.md,
+    paddingBottom: espaciado.md,
+    gap: espaciado.md,
+  },
+  zona: { flex: 1 },
+  zonaContenido: { gap: espaciado.md, paddingBottom: espaciado.sm },
 
   ayudaImp: {
     fontFamily: t.tipografia.familia.liviana,
