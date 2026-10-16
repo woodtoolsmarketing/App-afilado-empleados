@@ -45,6 +45,18 @@ const ESPERA_IMPRESION_MS = 6_000
 /** Para el barrido, donde se prueban decenas de direcciones a la vez. */
 const ESPERA_SONDEO_MS = 900
 
+/**
+ * Cuánto se espera a una impresora CONOCIDA (la cargada en la oficina o la que
+ * este teléfono usó la última vez) al sondearla antes de imprimir.
+ *
+ * Es de a una, no decenas como el barrido, así que puede esperar lo que una
+ * impresora real tarda en contestar. Con los 900 ms del barrido no alcanzaba:
+ * la HP de la oficina tarda ~1,2 s en responder IPP, el sondeo la daba por
+ * muerta y el teléfono mandaba el papel a OTRA impresora (la recordada). Tres
+ * segundos cubren a la impresora lenta sin colgar la pantalla si está apagada.
+ */
+const ESPERA_SONDEO_DIRECTO_MS = 3_000
+
 /** De a cuántas direcciones por vez. Más que esto, Android empieza a cortar. */
 const SONDEOS_EN_PARALELO = 24
 
@@ -338,4 +350,4 @@ export async function ultimaImpresora(): Promise<string | null> {
   }
 }
 
-export { ESPERA_IMPRESION_MS }
+export { ESPERA_IMPRESION_MS, ESPERA_SONDEO_DIRECTO_MS }

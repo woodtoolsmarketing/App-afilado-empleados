@@ -25,6 +25,7 @@ import {
   buscarEnLaRed,
   contestaIpp,
   ESPERA_IMPRESION_MS,
+  ESPERA_SONDEO_DIRECTO_MS,
   estadoDeRed,
   fetchConLimite,
   peticionImprimir,
@@ -117,13 +118,18 @@ async function ubicarImpresora(
     (ip, i, todas): ip is string => !!ip && todas.indexOf(ip) === i,
   )
 
-  // Hasta acá no se decía nada, y probar dos candidatas cuesta casi dos
+  // Hasta acá no se decía nada, y sondear las candidatas puede tardar unos
   // segundos con la impresora apagada: el vendedor tocaba IMPRIMIR y la
   // pantalla se quedaba quieta sin explicación.
   if (candidatas.length > 0) alAvisar?.('Probando la impresora de siempre…')
 
+  // A la impresora conocida se la espera con el límite LARGO
+  // (`ESPERA_SONDEO_DIRECTO_MS`), no con los 900 ms del barrido: la cargada en
+  // la oficina puede tardar más de un segundo en contestar (la HP tarda ~1,2 s),
+  // y con el límite corto se la daba por muerta y se mandaba el papel a otra
+  // impresora. Son pocas candidatas, así que esperar vale la pena.
   for (const ip of candidatas) {
-    if (await contestaIpp(ip, puerto, ruta)) {
+    if (await contestaIpp(ip, puerto, ruta, ESPERA_SONDEO_DIRECTO_MS)) {
       return { impresora: { ip, puerto, ruta }, descubierta: false }
     }
   }
