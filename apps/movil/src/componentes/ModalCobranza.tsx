@@ -210,13 +210,17 @@ export function ModalCobranza({
               </Aviso>
             ) : null}
 
+            {/* Multilínea FINA: arranca de una línea y crece con el texto. El
+                comentario casi siempre va vacío o corto, y la caja alta de
+                siempre (150px) empujaba el form a scrollear y dejaba GUARDAR
+                tapado. Así entra todo sin scroll y el botón queda abajo. */}
             <Campo
               etiqueta="COMENTARIOS"
               value={comentarios}
               onChangeText={setComentarios}
               placeholder="Cheque a 30 días, entrega parcial…"
               multiline
-              numberOfLines={2}
+              multilineaFina
             />
           </ScrollView>
 

@@ -185,9 +185,11 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
         />
       </Panel>
 
-      {/* Paso 1 del alta suelta: elegir a quién se le cobró. */}
+      {/* Paso 1 del alta suelta: elegir a quién se le cobró. Arranca con los
+          clientes visitados ESE día (el que se está mirando). */}
       <BuscarClienteModal
         visible={buscandoCliente}
+        fecha={fecha}
         alElegir={(c) => {
           setBuscandoCliente(false)
           setClienteNuevoCobro(c)
