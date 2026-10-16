@@ -16,7 +16,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 /** Un cliente que se puede meter en el recorrido: ya tiene dirección con coordenadas. */
 interface Candidato {
@@ -359,16 +359,21 @@ export function PaginaRolesDeVisita({
       void cliente.invalidateQueries({ queryKey: ['rol-visita'] })
       // Aviso al teléfono del vendedor (best-effort): que vea el destino nuevo
       // aunque no tenga la app abierta. Si no tiene token o falla, no frena nada.
-      void supabase.functions
-        .invoke('enviar-push', {
-          body: {
-            vendedorId,
-            titulo: 'Nuevo destino en tu recorrido',
-            cuerpo: `La oficina te sumó a ${cand.razon_social} a tu recorrido.`,
-            datos: { tipo: 'destino_agregado', fecha },
-          },
-        })
-        .catch(() => {})
+      void (async () => {
+        try {
+          await supabase.functions.invoke('enviar-push', {
+            headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
+            body: {
+              vendedorId,
+              titulo: 'Nuevo destino en tu recorrido',
+              cuerpo: `La oficina te sumó a ${cand.razon_social} a tu recorrido.`,
+              datos: { tipo: 'destino_agregado', fecha },
+            },
+          })
+        } catch {
+          // best-effort: si no tiene token o falla el envío, no frena nada
+        }
+      })()
     },
     onError: (e: Error) => setError(e.message),
   })
