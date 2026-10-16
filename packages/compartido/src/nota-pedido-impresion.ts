@@ -35,8 +35,9 @@ import {
 } from './notas-pedido'
 import { operacionMecanizado } from './mecanizado'
 import {
+  bloqueDePlanillasDelDia,
   ESTILOS_PLANILLA_COBRANZAS,
-  generarHtmlPlanillaCobranzas,
+  ESTILOS_PLANILLAS_JUNTAS,
   type PlanillaCobranzasParaImprimir,
 } from './planilla-cobranzas-impresion'
 import {
@@ -871,7 +872,14 @@ export function generarHtmlNotaPedido(
 
   <div class="identificacion">
     <span>Vendedor Nº <u>${escapar(nota.vendedor_numero)}</u></span>
-    <span>Cliente Nº <u>${nota.cliente_numero ? escapar(nota.cliente_numero) : '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</u></span>
+    ${
+      nota.cliente_numero
+        ? `<span>Cliente Nº <u>${escapar(nota.cliente_numero)}</u></span>`
+        : // Cliente sin código todavía (nuevo / provisorio): va "CLIENTE NUEVO" y
+          // una línea en blanco para escribir el número a mano cuando la oficina
+          // se lo asigne.
+          `<span>CLIENTE NUEVO <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></span>`
+    }
     <span>Zona <u>${escapar(nota.zona)}</u></span>
     ${nota.sucursal ? `<span class="sucursal">Sucursal <u>${escapar(nota.sucursal)}</u></span>` : ''}
   </div>
@@ -1897,7 +1905,19 @@ export function generarDocumentoImpresion(
   // en la oficina se separan de las notas apenas salen del cajón. El `unshift`
   // con spread las deja adelante —de los roles y de las notas— sin invertirlas.
   const cobranzas = extras?.planillasCobranzas ?? []
-  if (cobranzas.length > 0) paginas.unshift(...cobranzas.map(generarHtmlPlanillaCobranzas))
+  if (cobranzas.length > 0) {
+    // Agrupadas por día: la factura y el presupuesto del MISMO día van juntos en
+    // una hoja (divididos por la línea de corte), salvo que sumen 15+ cobros, que
+    // ahí no entran y se parten. Lo decide `bloqueDePlanillasDelDia`. El Map
+    // conserva el orden de los días; el unshift con spread los deja adelante.
+    const porDia = new Map<string, PlanillaCobranzasParaImprimir[]>()
+    for (const p of cobranzas) {
+      const delDia = porDia.get(p.fecha) ?? []
+      delDia.push(p)
+      porDia.set(p.fecha, delDia)
+    }
+    paginas.unshift(...[...porDia.values()].map(bloqueDePlanillasDelDia))
+  }
 
   const titulo = cobranzas.length > 0
     ? 'Planilla de cobranzas · WoodTools'
@@ -1913,6 +1933,9 @@ export function generarDocumentoImpresion(
     // —la PC— conMedidasEscaladas es un no-op y queda el estilo tal cual.)
     conMedidasEscaladas(ESTILOS_ROL_DE_VISITA, extras?.escalaDeLetra),
     conMedidasEscaladas(ESTILOS_PLANILLA_COBRANZAS, extras?.escalaDeLetra),
+    // Para que factura y presupuesto del mismo día convivan en una hoja (ver
+    // generarDocumentoPlanillasCobranzas del panel, que ya lo hacía).
+    conMedidasEscaladas(ESTILOS_PLANILLAS_JUNTAS, extras?.escalaDeLetra),
     estilosDeEscala(extras?.escalaDeLetra),
   ].join('\n')
 

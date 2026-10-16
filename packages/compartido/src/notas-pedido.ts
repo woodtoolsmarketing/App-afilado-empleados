@@ -3055,10 +3055,11 @@ function medidaCompacta(
 
 export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): string[] {
   // Servicios (afilado, rectificado, …): agrupados por servicio y, dentro, por
-  // tipo de herramienta, listando la medida de cada pieza —"Afilado de sierras
-  // circulares: 300x96, 250x80, 300x36"—. La venta no se agrupa: cada renglón
-  // lleva su cantidad y su medida.
-  const porServicio = new Map<TipoServicio, Map<Herramienta, string[]>>()
+  // tipo de herramienta, con la CANTIDAD adelante de cada medida —"Afilado de
+  // sierras circulares: 3× 300x96, 1× 250x80"—. Las piezas con la misma medida
+  // se SUMAN (tres sierras 300x96 → "3× 300x96"), no se deduplican. La venta
+  // tampoco se agrupa: cada renglón lleva su cantidad y su medida.
+  const porServicio = new Map<TipoServicio, Map<Herramienta, Map<string, number>>>()
   const ventas: string[] = []
 
   for (const r of renglones) {
@@ -3076,7 +3077,8 @@ export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): str
     }
 
     // El servicio queda registrado aunque todavía no tenga herramienta elegida.
-    const porHerramienta = porServicio.get(r.servicio) ?? new Map<Herramienta, string[]>()
+    const porHerramienta =
+      porServicio.get(r.servicio) ?? new Map<Herramienta, Map<string, number>>()
     porServicio.set(r.servicio, porHerramienta)
 
     // "sierra" con clase incisor se nombra —y agrupa— como incisor.
@@ -3085,7 +3087,7 @@ export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): str
     if (!herramienta) continue
 
     // El reclamo no lleva medida: es un reclamo POR la pieza, no un trabajo sobre
-    // ella; alcanza con nombrar el tipo.
+    // ella; alcanza con nombrar el tipo y la cantidad.
     const medida =
       r.servicio === 'reclamo'
         ? ''
@@ -3103,20 +3105,22 @@ export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): str
             },
             r.detalle?.cabezal_de_cuchillas === true,
           )
-    const lista = porHerramienta.get(herramienta) ?? []
-    lista.push(medida)
-    porHerramienta.set(herramienta, lista)
+    const cantidad = r.cantidad && r.cantidad > 0 ? r.cantidad : 1
+    const porMedida = porHerramienta.get(herramienta) ?? new Map<string, number>()
+    porMedida.set(medida, (porMedida.get(medida) ?? 0) + cantidad)
+    porHerramienta.set(herramienta, porMedida)
   }
 
   const servicios = [...porServicio].map(([servicio, porHerramienta]) => {
     const etiqueta = servicioEnFrase(servicio)
     const prep = PREPOSICION[servicio] ?? 'de'
     if (porHerramienta.size === 0) return etiqueta
-    const grupos = [...porHerramienta].map(([herramienta, medidas]) => {
+    const grupos = [...porHerramienta].map(([herramienta, porMedida]) => {
       const nombre = EN_LA_DESCRIPCION[herramienta] ?? ''
-      // Sin repetir una medida idéntica (dos sierras 300x96 → "300x96" una vez).
-      const unicas = [...new Set(medidas.filter(Boolean))]
-      return unicas.length > 0 ? `${nombre}: ${unicas.join(', ')}` : nombre
+      // La cantidad va adelante de cada medida, sumando las repetidas: "3× 300x96".
+      // Sin medida (reclamo) va sólo la cantidad: "sierras circulares: 2".
+      const piezas = [...porMedida].map(([m, cant]) => (m ? `${cant}× ${m}` : `${cant}`))
+      return piezas.length > 0 ? `${nombre}: ${piezas.join(', ')}` : nombre
     })
     return `${etiqueta} ${prep} ${grupos.join('; ')}`
   })

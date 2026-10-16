@@ -81,6 +81,7 @@ import { Encabezado } from '../../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../../componentes/Pantalla'
 import { usarSesion, etiquetaVendedor } from '../../nucleo/sesion'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
+import { agendarVisita } from '../../servicios/agenda'
 import {
   corregirNotaPedido,
   crearNotaPedido,
@@ -197,6 +198,10 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     corrigiendo ? null : fechaEntregaPorDefecto(),
   )
   const [calendario, setCalendario] = useState(false)
+  // Checkbox junto a la fecha de entrega: agendar al cliente en el rol de visita
+  // de ESE día. Arranca destildado (es una acción extra, no el comportamiento
+  // normal). Sólo se ofrece si hay un cliente de verdad (con id) al cual agendar.
+  const [agendarEntrega, setAgendarEntrega] = useState(false)
   // Con UNA sola operación preseleccionada desde el parte NO hay desplegable
   // "ESTE RENGLÓN ES DE" para corregir el renglón (sólo aparece con 2+), así que
   // el renglón en blanco tiene que arrancar YA en esa operación y elegido. Si
@@ -1136,6 +1141,24 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // seguridad y pasó a ser una trampa. Si quedara, la próxima vez le
       // ofrecería al vendedor "seguir" una nota que ya está creada.
       await olvidarBorrador()
+
+      // Si pidió agendar la entrega, se crea la visita en el rol de visita de
+      // ESE día. Best-effort: la nota ya está creada; si falla el agendado no se
+      // pierde nada (se puede rehacer desde el calendario).
+      let agendadoOk = false
+      if (agendarEntrega && encabezado.cliente_id && fechaEntrega) {
+        try {
+          await agendarVisita({
+            clienteId: encabezado.cliente_id,
+            fecha: fechaLocalISO(fechaEntrega),
+            direccionId: encabezado.direccion_id ?? null,
+          })
+          agendadoOk = true
+        } catch {
+          /* la nota ya se creó; el agendado se reintenta desde el calendario */
+        }
+      }
+
       await cliente.invalidateQueries()
 
       // Puede haber salido más de una: afilado y venta no van en el mismo
@@ -1155,6 +1178,13 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         ? '\n\nEl cliente todavía no tiene código, así que quedan esperando que Administración se lo asigne. El trabajo ya está registrado.'
         : ''
 
+      const avisoAgenda =
+        agendarEntrega && fechaEntrega
+          ? agendadoOk
+            ? `\n\nAgendaste la visita para el ${formatearFechaCorta(fechaEntrega)}.`
+            : '\n\nLa nota se creó, pero no pudimos agendar la visita de la entrega. Probala desde el Calendario de visitas.'
+          : ''
+
       // Si la nota se hizo desde una visita, al terminar se vuelve al
       // formulario de esa visita —lo cargado quedó en stand by— en vez de al
       // listado de notas. La Vista Previa lleva la parada para hacer lo mismo
@@ -1163,7 +1193,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
       Alert.alert(
         notas.length === 1 ? 'Nota de pedido creada' : `Se crearon ${notas.length} notas de pedido`,
-        `${detalle}${aviso}`,
+        `${detalle}${aviso}${avisoAgenda}`,
         [
           {
             text: 'Ver antes de imprimir',
@@ -1507,6 +1537,18 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 alTocar={() => setCalendario(true)}
               />
               <MensajeError>{errores.fecha_entrega}</MensajeError>
+
+              {/* Agendar al cliente en el rol de visita del día de la entrega:
+                  queda como visita del recorrido de ese día. Sólo si hay un
+                  cliente de verdad al cual agendar. */}
+              {encabezado.cliente_id ? (
+                <Casilla
+                  etiqueta="AGENDAR LA VISITA PARA ESE DÍA"
+                  valor={agendarEntrega}
+                  alCambiar={setAgendarEntrega}
+                  compacta
+                />
+              ) : null}
 
               {calendario ? (
                 <DateTimePicker

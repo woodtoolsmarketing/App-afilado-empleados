@@ -16,6 +16,7 @@ import { Aviso } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { crearClienteProvisorio } from '../servicios/clientes'
+import { agregarClienteAlRecorrido } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema } from '../nucleo/tema'
 
@@ -56,7 +57,19 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
   }
 
   const guardar = useMutation({
-    mutationFn: () => crearClienteProvisorio(form),
+    mutationFn: async () => {
+      const nuevo = await crearClienteProvisorio(form)
+      // Se lo agenda en el rol de visita de hoy, por su ubicación (su dirección
+      // principal, que el alta exige geolocalizada). Best-effort y en un paso
+      // aparte: el cliente ya quedó creado; si no se puede sumar al recorrido no
+      // se pierde nada (se puede agregar a mano desde Agregar destino / el mapa).
+      try {
+        await agregarClienteAlRecorrido({ clienteId: nuevo.id, prioridad: 'media' })
+      } catch {
+        /* el cliente ya existe; el recorrido es un agregado, no un requisito */
+      }
+      return nuevo
+    },
     onSuccess: async (nuevo) => {
       await cliente.invalidateQueries()
       Alert.alert(

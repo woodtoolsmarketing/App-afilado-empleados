@@ -1,4 +1,5 @@
 import {
+  esComoVendedor,
   espaciado,
   ETIQUETA_TIPO_NOTA,
   formatearHora,
@@ -25,6 +26,7 @@ import {
 } from '../servicios/notasPedido'
 import { imprimirNotas, type ResultadoImpresion } from '../servicios/impresion'
 import type { PropsPantalla } from '../navegacion/tipos'
+import { usarSesion } from '../nucleo/sesion'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
@@ -38,10 +40,16 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
   const estilos = usarEstilos()
   const cliente = useQueryClient()
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
-  // Arranca TILDADA: lo normal es que el vendedor quiera que, junto con las
-  // notas, salga el rol de visita de los días en que las hizo. Se puede
+  // Imprimir el rol de visita junto con las notas es sólo para quien lo tiene
+  // habilitado: un vendedor con `imprime_roles=false` no lo ve (mismo criterio
+  // que oculta "IMPRIMIR ROL DE VISITA" en el menú lateral). Admin/supervisor
+  // siempre pueden.
+  const perfil = usarSesion((s) => s.perfil)
+  const puedeImprimirRoles = !(esComoVendedor(perfil?.rol) && perfil?.imprime_roles === false)
+  // Arranca TILDADA (si puede): lo normal es que el vendedor quiera que, junto
+  // con las notas, salga el rol de visita de los días en que las hizo. Se puede
   // destildar si esta vez sólo quiere las notas.
-  const [conRolDeVisita, setConRolDeVisita] = useState(true)
+  const [conRolDeVisita, setConRolDeVisita] = useState(puedeImprimirRoles)
   // Arranca TILDADA, a pedido: lo habitual es cerrar el día imprimiendo las
   // notas con el rol Y la rendición de cobranzas, todo junto. Se puede destildar
   // si esta vez sólo se imprime una nota suelta y no se quiere la planilla.
@@ -161,7 +169,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
       const ids = objetivo.map((n) => n.id)
       const resultado = await imprimirNotas({
         notaIds: ids,
-        incluirRolDeVisita: conRolDeVisita,
+        incluirRolDeVisita: conRolDeVisita && puedeImprimirRoles,
         incluirCobros: conCobros,
       })
       // El sellado es un UPDATE por internet que puede fallar aunque el papel
@@ -306,11 +314,13 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               (no sólo el de hoy): el que imprime a la noche lo de varios días se
               lleva la planilla de cada uno.
             */}
-            <Casilla
-              etiqueta="SUMAR EL ROL DE VISITA DE ESOS DÍAS"
-              valor={conRolDeVisita}
-              alCambiar={setConRolDeVisita}
-            />
+            {puedeImprimirRoles ? (
+              <Casilla
+                etiqueta="SUMAR EL ROL DE VISITA DE ESOS DÍAS"
+                valor={conRolDeVisita}
+                alCambiar={setConRolDeVisita}
+              />
+            ) : null}
 
             {/*
               La rendición de cobranzas de esos días: la misma planilla que la
@@ -332,7 +342,7 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
                 if (!hayParaImprimir) return
                 navigation.navigate('VistaPrevia', {
                   notaIds: objetivo.map((n) => n.id),
-                  incluirRolDeVisita: conRolDeVisita,
+                  incluirRolDeVisita: conRolDeVisita && puedeImprimirRoles,
                   incluirCobros: conCobros,
                 })
               }}

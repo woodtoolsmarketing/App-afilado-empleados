@@ -115,14 +115,51 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
  * Lo imprime SÓLO el panel (la oficina). El teléfono ya no imprime la planilla
  * aparte: el vendedor sólo carga los cobros y los mira en el historial.
  */
+/**
+ * Umbral para partir las planillas: con 15 cobros o más entre factura y
+ * presupuesto no entran en una sola A4, así que se parten en hojas distintas.
+ * Con menos, los dos recuadros van JUNTOS en una hoja (pedido de la oficina).
+ */
+export const COBROS_PLANILLA_SE_PARTE = 15
+
+/**
+ * CSS para que las planillas de un mismo día convivan en una hoja.
+ *
+ * Lo comparten el documento del panel y el del teléfono. El salto de página va
+ * DESPUÉS del bloque del día (`.cobranzas-dia`), no entre la factura y el
+ * presupuesto: adentro del bloque las `.cobranzas` se pisan a `auto`.
+ */
+export const ESTILOS_PLANILLAS_JUNTAS = `
+.cobranzas-dia { page-break-after: always; }
+.cobranzas-dia .cobranzas { page-break-after: auto; }
+.cob-divisor { border-top: 1.5px dashed #000; margin: 5mm 6mm; }
+`
+
+/**
+ * El HTML de las planillas de UN día (su factura y/o su presupuesto).
+ *
+ * Con pocos cobros, los dos recuadros van JUNTOS en una hoja, divididos por la
+ * línea de corte. Con `COBROS_PLANILLA_SE_PARTE` (15) o más entre los dos no
+ * entran, así que quedan como hojas sueltas (cada `.cobranzas` con su salto).
+ * Con una sola planilla tampoco hay nada que juntar.
+ */
+export function bloqueDePlanillasDelDia(planillasDelDia: PlanillaCobranzasParaImprimir[]): string {
+  const html = planillasDelDia.map(generarHtmlPlanillaCobranzas)
+  const total = planillasDelDia.reduce((suma, p) => suma + p.cobros.length, 0)
+  if (html.length <= 1 || total >= COBROS_PLANILLA_SE_PARTE) {
+    return html.join('\n')
+  }
+  return `<div class="cobranzas-dia">${html.join(
+    '\n<div class="cob-divisor" aria-hidden="true"></div>\n',
+  )}</div>`
+}
+
 export function generarDocumentoPlanillasCobranzas(
   planillas: PlanillaCobranzasParaImprimir[],
 ): string {
-  // Entre una planilla y la otra va la línea divisoria; con una sola planilla no
-  // se agrega nada.
-  const cuerpo = planillas
-    .map(generarHtmlPlanillaCobranzas)
-    .join('\n<div class="cob-divisor" aria-hidden="true"></div>\n')
+  // El panel arma por vendedor+día, así que `planillas` son la factura y/o el
+  // presupuesto de un solo día: van juntas salvo que sumen 15+ cobros.
+  const cuerpo = bloqueDePlanillasDelDia(planillas)
   // El margen va en `.cobranzas` (padding) y no en `@page`: el panel imprime con
   // `printToPDF({ margins: 0 })`, que pisa el margen de `@page`.
   return `<!doctype html>
@@ -133,10 +170,7 @@ export function generarDocumentoPlanillasCobranzas(
 @page { size: A4 portrait; margin: 0; }
 html, body { margin: 0; padding: 0; }
 ${ESTILOS_PLANILLA_COBRANZAS}
-/* En esta hoja las dos planillas conviven: no se rompe pagina entre una y otra,
-   van juntas divididas por la linea de corte. */
-.cobranzas { page-break-after: auto; }
-.cob-divisor { border-top: 1.5px dashed #000; margin: 5mm 6mm; }
+${ESTILOS_PLANILLAS_JUNTAS}
 </style>
 </head>
 <body>${cuerpo}</body>
