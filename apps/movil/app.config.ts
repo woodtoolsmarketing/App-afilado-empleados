@@ -40,12 +40,21 @@ for (const archivo of [path.join(__dirname, '.env'), path.join(RAIZ_MONOREPO, '.
 }
 
 /**
- * ¿Está el `google-services.json` de Firebase? Es lo que FCM necesita para el
- * push a Android. Mientras no esté, el bloque se omite y el build sale igual
- * (sin push; el token no se toma y la app funciona). Apenas se agrega el archivo
- * a `apps/movil/`, el build lo toma y el push queda habilitado.
+ * La ruta al `google-services.json` de Firebase (lo que FCM necesita para el push
+ * a Android), o null si no está.
+ *
+ * Dos fuentes, en orden: el secreto de archivo de EAS (`GOOGLE_SERVICES_JSON`, que
+ * EAS baja a un temp en cada build —así el archivo NO vive en el repo, que lo
+ * ignora a propósito—) y, si no, una copia local en `apps/movil/` para compilar a
+ * mano. Sin ninguna, el bloque se omite y el build sale sin push (el token no se
+ * toma y la app funciona igual).
  */
-const tieneFirebase = fs.existsSync(path.join(__dirname, 'google-services.json'))
+const RUTA_GOOGLE_SERVICES = (() => {
+  const secreto = process.env.GOOGLE_SERVICES_JSON
+  if (secreto && fs.existsSync(secreto)) return secreto
+  const local = path.join(__dirname, 'google-services.json')
+  return fs.existsSync(local) ? local : null
+})()
 
 /**
  * Tres variantes, tres apps distintas para Android.
@@ -203,7 +212,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.7.7',
+  version: '1.7.8',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -238,8 +247,8 @@ const config: ExpoConfig = {
       ? { config: { googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_KEY } } }
       : {}),
     // FCM para el push. Guardado: sin el archivo, el build sale sin push en vez
-    // de fallar. Ver `tieneFirebase`.
-    ...(tieneFirebase ? { googleServicesFile: './google-services.json' } : {}),
+    // de fallar. Ver `RUTA_GOOGLE_SERVICES`.
+    ...(RUTA_GOOGLE_SERVICES ? { googleServicesFile: RUTA_GOOGLE_SERVICES } : {}),
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
