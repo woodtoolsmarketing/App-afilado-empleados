@@ -597,11 +597,13 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
 }
 
 /**
- * "AGREGAR NUEVO DESTINO" tiene dos caminos, y piden datos distintos:
+ * "AGREGAR NUEVO DESTINO" tiene tres caminos, y piden datos distintos:
  *  · cliente existente → se lo busca y la dirección viene sola de su ficha
  *  · cliente nuevo     → hay que cargar nombre y dirección a mano
+ *  · importar          → se eligen clientes de un recorrido de otro día y
+ *                        vuelven como paradas nuevas al recorrido de hoy
  */
-export type ModoDestino = 'existente' | 'nuevo'
+export type ModoDestino = 'existente' | 'nuevo' | 'importar'
 
 /**
  * Un cliente tal como lo devuelve el buscador, con su dirección principal.

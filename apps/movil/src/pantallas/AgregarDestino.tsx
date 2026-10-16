@@ -2,18 +2,24 @@ import {
   CLIENTE_NUEVO_VACIO,
   espaciado,
   fechaLocalISO,
+  formatearFechaCorta,
   FORMULARIO_DESTINO_EXISTENTE_VACIO,
   radios,
+  TOQUE_MINIMO,
   validarClienteNuevo,
   validarDestinoExistente,
   type CampoClienteNuevo,
   type CampoDestinoExistente,
   type ClienteBuscado,
+  type EstadoParada,
   type FormularioClienteNuevo,
   type FormularioDestinoExistente,
+  type ModoDestino,
+  type ParadaCompleta,
   type PrioridadParada,
   type SucursalCliente,
 } from '@woodtools/compartido'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Crypto from 'expo-crypto'
 import { useEffect, useRef, useState } from 'react'
@@ -30,7 +36,7 @@ import {
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
 import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
-import { Aviso, Pastilla } from '../componentes/Estado'
+import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
@@ -41,6 +47,8 @@ import {
   asegurarJornadaDe,
   asegurarJornadaDeHoy,
   clienteYaEnRecorrido,
+  importarVisitasDeDia,
+  obtenerJornadaDe,
   SucursalDuplicadaError,
 } from '../servicios/jornada'
 import {
@@ -93,11 +101,9 @@ export function PantallaAgregarDestino({ navigation, route }: PropsPantalla<'Agr
     )
   }
 
-  return modo === 'existente' ? (
-    <FormularioExistente navigation={navigation} route={route} />
-  ) : (
-    <FormularioNuevo navigation={navigation} route={route} />
-  )
+  if (modo === 'existente') return <FormularioExistente navigation={navigation} route={route} />
+  if (modo === 'importar') return <FormularioImportar navigation={navigation} route={route} />
+  return <FormularioNuevo navigation={navigation} route={route} />
 }
 
 const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -123,7 +129,7 @@ function Selector({
   alElegir,
   alVolver,
 }: {
-  alElegir: (modo: 'existente' | 'nuevo') => void
+  alElegir: (modo: ModoDestino) => void
   alVolver: () => void
 }) {
   const estilos = usarEstilos()
@@ -146,6 +152,12 @@ function Selector({
           titulo="CLIENTE NUEVO"
           subtitulo="Cargá el nombre y la dirección"
           alTocar={() => alElegir('nuevo')}
+        />
+
+        <BotonMenu
+          titulo="IMPORTAR VISITAS DE DÍAS ANTERIORES"
+          subtitulo="Traé los clientes de un recorrido de otro día"
+          alTocar={() => alElegir('importar')}
         />
       </Panel>
     </Pantalla>
@@ -1343,10 +1355,327 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Importar visitas de días anteriores
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ETIQUETA_ESTADO: Record<EstadoParada, string> = {
+  pendiente: 'PENDIENTE',
+  en_camino: 'EN CAMINO',
+  visitada: 'VISITADA',
+  no_visitada: 'NO VISITADA',
+  omitida: 'OMITIDA',
+}
+
+/**
+ * "IMPORTAR VISITAS DE OTRO DÍA"
+ *
+ * El vendedor elige una fecha pasada y trae al recorrido de HOY los clientes que
+ * tenía ese día. Es para repetir una ruta que ya hizo —la de ayer, la del mismo
+ * día la semana pasada— sin volver a buscar cliente por cliente.
+ *
+ * Arrancan todos destildados, como en CLIENTES DE HOY: lo de otro día es una
+ * referencia, no una orden. Lo que entra es el cliente y su sucursal; la venta y
+ * el resultado de la visita vieja quedan en ese día. `importarVisitasDeDia` no
+ * duplica a los que ya están en el recorrido de hoy.
+ */
+function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
+  const estilos = usarEstilos()
+  const perfil = usarSesion((s) => s.perfil)
+  const cliente = useQueryClient()
+
+  // Arranca en ayer: el día pasado más probable. Nunca hoy (importar lo de hoy
+  // no tiene sentido) ni el futuro.
+  const [fecha, setFecha] = useState(() => new Date(Date.now() - 86_400_000))
+  const [calendario, setCalendario] = useState(false)
+  const [elegidos, setElegidos] = useState<Set<string>>(new Set())
+
+  const fechaISO = fechaLocalISO(fecha)
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['jornada-de-dia', perfil?.id, fechaISO],
+    queryFn: () => obtenerJornadaDe(perfil!.id, fechaISO),
+    enabled: !!perfil,
+  })
+
+  // Sólo las paradas con cliente real: una parada vieja sin cliente (una razón
+  // social suelta) no se puede reagendar porque no hay a quién volver a visitar.
+  const importables = (data?.paradas ?? []).filter((p) => !!p.cliente_id)
+  const seleccionadas = importables.filter((p) => elegidos.has(p.id))
+  const todosElegidos = importables.length > 0 && importables.every((p) => elegidos.has(p.id))
+
+  function alternar(id: string) {
+    setElegidos((previos) => {
+      const nuevos = new Set(previos)
+      if (nuevos.has(id)) nuevos.delete(id)
+      else nuevos.add(id)
+      return nuevos
+    })
+  }
+
+  function alternarTodos() {
+    setElegidos((previos) => {
+      const nuevos = new Set(previos)
+      if (todosElegidos) importables.forEach((p) => nuevos.delete(p.id))
+      else importables.forEach((p) => nuevos.add(p.id))
+      return nuevos
+    })
+  }
+
+  // Cambiar de día borra la selección: son otras paradas, tildar una del lunes y
+  // quedar tildada al pasar al martes sería un destino importado por accidente.
+  function elegirFecha(nueva: Date) {
+    setFecha(nueva)
+    setElegidos(new Set())
+  }
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      if (!perfil) throw new Error('No hay sesión')
+      return importarVisitasDeDia(
+        perfil.id,
+        seleccionadas.map((p) => ({
+          clienteId: p.cliente_id,
+          direccionId: p.direccion_id,
+          razonSocial: p.cliente?.razon_social ?? p.razon_social_snapshot ?? 'Cliente',
+        })),
+      )
+    },
+    onSuccess: async (r) => {
+      await cliente.invalidateQueries()
+      setElegidos(new Set())
+
+      // Lo que no entró se cuenta por separado: "ya estaba" no es un problema
+      // —es lo correcto, no duplicar—, y un fallo de verdad sí hay que nombrarlo.
+      const extra: string[] = []
+      if (r.yaEstaban > 0) {
+        extra.push(
+          r.yaEstaban === 1
+            ? '1 ya estaba en tu recorrido de hoy.'
+            : `${r.yaEstaban} ya estaban en tu recorrido de hoy.`,
+        )
+      }
+      if (r.fallaron.length > 0) {
+        extra.push(
+          `No entraron ${r.fallaron.length}: ${r.fallaron.map((f) => f.razonSocial).join(', ')}. Volvé a intentar; si sigue pasando, avisale a la oficina.`,
+        )
+      }
+
+      Alert.alert(
+        r.agregados > 0 ? 'Visitas importadas' : 'No se agregó nada',
+        (r.agregados > 0
+          ? `${r.agregados} destino${r.agregados === 1 ? '' : 's'} en tu recorrido de hoy.`
+          : 'Ninguno de los que tildaste entró.') + (extra.length ? `\n\n${extra.join('\n')}` : ''),
+        r.agregados > 0
+          ? [
+              { text: 'Ver el recorrido', onPress: () => navigation.navigate('Recorrido') },
+              { text: 'Listo', style: 'cancel' },
+            ]
+          : [{ text: 'Listo', style: 'cancel' }],
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos importar', e.message),
+  })
+
+  return (
+    <Pantalla>
+      <Encabezado />
+
+      <Panel contentStyle={estilos.contenido}>
+        <BarraPanel alVolver={() => navigation.goBack()} />
+        <TituloPanel>{'IMPORTAR VISITAS\nDE OTRO DÍA'}</TituloPanel>
+
+        <Text style={estilos.ayudaImp}>
+          Elegí un día y tildá a qué clientes querés volver. Entran al recorrido de hoy; no se copia
+          la venta vieja.
+        </Text>
+
+        <BotonSecundario
+          titulo={`Día: ${formatearFechaCorta(fecha)}`}
+          alTocar={() => setCalendario(true)}
+        />
+
+        {calendario ? (
+          <DateTimePicker
+            value={fecha}
+            mode="date"
+            display="calendar"
+            // No hoy ni el futuro: se importa de días pasados. Tope de 90 días
+            // atrás, la misma ventana que guarda el historial.
+            maximumDate={new Date(Date.now() - 86_400_000)}
+            minimumDate={new Date(Date.now() - 90 * 86_400_000)}
+            onChange={(_evento, elegida) => {
+              setCalendario(false)
+              if (elegida) elegirFecha(elegida)
+            }}
+          />
+        ) : null}
+
+        {isLoading ? (
+          <Cargando texto="Buscando ese día…" />
+        ) : error ? (
+          <>
+            <Aviso tono="error" titulo="No pudimos traer ese día">
+              Revisá la conexión y volvé a intentar.
+            </Aviso>
+            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+          </>
+        ) : importables.length === 0 ? (
+          <Vacio
+            titulo="Ese día no tiene visitas"
+            detalle="No armaste recorrido ese día, o ninguno de sus destinos tiene un cliente que puedas volver a visitar. Probá con otra fecha."
+            icono="📅"
+          />
+        ) : (
+          <>
+            <Pressable
+              onPress={alternarTodos}
+              accessibilityRole="button"
+              style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
+            >
+              <Text style={estilos.atajoTexto}>{todosElegidos ? 'Ninguno' : 'Tildar todos'}</Text>
+            </Pressable>
+
+            <View style={estilos.listaImp}>
+              {importables.map((p) => (
+                <FilaImportar
+                  key={p.id}
+                  parada={p}
+                  elegido={elegidos.has(p.id)}
+                  alTocar={() => alternar(p.id)}
+                />
+              ))}
+            </View>
+          </>
+        )}
+      </Panel>
+
+      {seleccionadas.length > 0 ? (
+        <Panel>
+          <BotonMenu
+            titulo={`IMPORTAR ${seleccionadas.length}`}
+            alTocar={() => importar.mutate()}
+            cargando={importar.isPending}
+          />
+        </Panel>
+      ) : null}
+    </Pantalla>
+  )
+}
+
+function FilaImportar({
+  parada,
+  elegido,
+  alTocar,
+}: {
+  parada: ParadaCompleta
+  elegido: boolean
+  alTocar: () => void
+}) {
+  const { colores } = usarTema()
+  const estilos = usarEstilos()
+
+  const nombre = parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? 'Cliente'
+  const codigo = parada.cliente?.codigo ?? null
+  const domicilio = parada.direccion?.direccion_formateada ?? parada.direccion_snapshot ?? null
+
+  const colorEstado =
+    parada.estado === 'visitada'
+      ? colores.verdeOscuro
+      : parada.estado === 'no_visitada'
+        ? colores.rojoAccion
+        : parada.estado === 'omitida'
+          ? colores.tintaTenue
+          : colores.tintaSuave
+
+  return (
+    <Pressable
+      onPress={alTocar}
+      style={[estilos.filaImp, elegido && estilos.filaImpElegida]}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: elegido }}
+    >
+      <View style={[estilos.tildeImp, elegido && estilos.tildeImpMarcado]}>
+        {elegido ? <Text style={estilos.tildeImpTexto}>✓</Text> : null}
+      </View>
+
+      <View style={estilos.datosImp}>
+        <Text style={estilos.nombreImp}>
+          {codigo ? `${codigo} · ` : ''}
+          {nombre}
+        </Text>
+        {domicilio ? (
+          <Text style={estilos.domicilioImp} numberOfLines={1}>
+            {domicilio}
+          </Text>
+        ) : null}
+        <View style={estilos.pastillasImp}>
+          <Pastilla texto={ETIQUETA_ESTADO[parada.estado]} color={colorEstado} />
+          {parada.visita?.vendio ? <Pastilla texto="VENDIÓ" color={colores.azul} /> : null}
+        </View>
+      </View>
+    </Pressable>
+  )
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   campoCorto: { maxWidth: 220 },
+
+  ayudaImp: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  atajo: {
+    minHeight: TOQUE_MINIMO,
+    alignSelf: 'flex-end',
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.xs,
+  },
+  atajoTocado: { opacity: 0.6 },
+  atajoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
+    textDecorationLine: 'underline',
+  },
+  listaImp: { gap: espaciado.xs },
+  filaImp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    backgroundColor: t.colores.panelClaro,
+    borderRadius: radios.sm,
+    padding: espaciado.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  filaImpElegida: { borderColor: t.colores.verdeOscuro, backgroundColor: t.colores.campoBlanco },
+  tildeImp: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: t.colores.tintaTenue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tildeImpMarcado: { backgroundColor: t.colores.verdeOscuro, borderColor: t.colores.verdeOscuro },
+  tildeImpTexto: { color: t.colores.blanco, fontFamily: t.tipografia.familia.fuerte, fontSize: 16 },
+  datosImp: { flex: 1, gap: 2 },
+  nombreImp: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  domicilioImp: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  pastillasImp: { flexDirection: 'row', gap: espaciado.xs, flexWrap: 'wrap', marginTop: 2 },
 
   pregunta: {
     fontFamily: t.tipografia.familia.cuerpo,

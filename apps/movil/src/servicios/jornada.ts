@@ -681,6 +681,81 @@ export async function armarRecorridoCon(
   return { agregados, fallaron }
 }
 
+/** Un destino de otro día, listo para volver al recorrido de hoy. */
+export interface VisitaAImportar {
+  clienteId: string | null
+  direccionId: string | null
+  razonSocial: string
+}
+
+/**
+ * Trae al recorrido de HOY los destinos de un recorrido de otro día.
+ *
+ * Es el "repetí la ruta del otro día": el vendedor eligió una fecha pasada y
+ * cuáles de sus clientes quiere volver a ver, y acá entran como paradas nuevas
+ * —al final, prioridad baja, como cola— del recorrido de hoy. Copia sólo el
+ * cliente y su sucursal: NO arrastra la venta ni el resultado de la visita
+ * vieja, que son de ese día y no de éste.
+ *
+ * Saltea sin fallar a dos tipos de destino:
+ *  · los que ya están ABIERTOS en el recorrido de hoy (mismo cliente + misma
+ *    sucursal), para no duplicarlos — se cuentan en `yaEstaban`;
+ *  · los que no tienen cliente real (una parada vieja de razón social suelta),
+ *    porque no hay a quién volver a agendar — se cuentan en `fallaron`.
+ *
+ * Como `armarRecorridoCon`, el que falla no frena a los demás: el vendedor está
+ * por salir y lo que entró, entró.
+ */
+export async function importarVisitasDeDia(
+  vendedorId: string,
+  destinos: VisitaAImportar[],
+): Promise<{ agregados: number; yaEstaban: number; fallaron: Array<{ razonSocial: string }> }> {
+  const jornada = await asegurarJornadaDeHoy(vendedorId)
+
+  // Lo que ya está abierto hoy, para no reagendar un cliente que el vendedor ya
+  // tiene en la lista. Una sola lectura y se deduplica en memoria por cliente +
+  // sucursal, en vez de preguntar una vez por destino. Misma clave que mira
+  // `clienteYaEnRecorrido`: un lugar de entrega distinto del mismo cliente sí es
+  // otro destino y entra.
+  const hoy = await obtenerParadas(jornada.id)
+  const yaPresente = new Set(
+    hoy
+      .filter((p) => p.estado === 'pendiente' || p.estado === 'en_camino')
+      .map((p) => `${p.cliente_id ?? ''}|${p.direccion_id ?? ''}`),
+  )
+
+  let agregados = 0
+  let yaEstaban = 0
+  const fallaron: Array<{ razonSocial: string }> = []
+
+  for (const d of destinos) {
+    if (!d.clienteId) {
+      fallaron.push({ razonSocial: d.razonSocial })
+      continue
+    }
+    const clave = `${d.clienteId}|${d.direccionId ?? ''}`
+    if (yaPresente.has(clave)) {
+      yaEstaban++
+      continue
+    }
+    try {
+      await agregarParada({
+        rolVisitaId: jornada.id,
+        direccionId: d.direccionId,
+        prioridad: 'baja',
+        clienteId: d.clienteId,
+      })
+      agregados++
+      // Dos destinos iguales en la misma importación no se duplican entre sí.
+      yaPresente.add(clave)
+    } catch {
+      fallaron.push({ razonSocial: d.razonSocial })
+    }
+  }
+
+  return { agregados, yaEstaban, fallaron }
+}
+
 /**
  * La dirección principal de un cliente, o `null` si no tiene ninguna.
  *
