@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { ClaveFuncionPanel, RolUsuario } from '@woodtools/compartido'
 
 import { supabase } from './nucleo/supabase'
+import { usarAvisoDeEscritorio } from './nucleo/avisoEscritorio'
 import { usarPermisosPanel } from './nucleo/permisos'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
 import { ProveedorConsola } from './nucleo/consola'
@@ -299,6 +300,20 @@ function BarraLateral({
     enabled: esAdmin,
     refetchInterval: 30_000,
   })
+
+  // Además del globo rojo, un toast de Windows (con sonido) cuando SUBE el número:
+  // así la oficina se entera aunque esté en otra ventana. No avisa en la primera
+  // carga ni cuando baja (se resolvió). Ver `usarAvisoDeEscritorio`.
+  usarAvisoDeEscritorio(
+    clientesAConfirmar,
+    'Cliente nuevo para confirmar',
+    (n) => `Hay ${n} cliente${n === 1 ? '' : 's'} nuevo${n === 1 ? '' : 's'} esperando que la oficina lo confirme.`,
+  )
+  usarAvisoDeEscritorio(
+    edicionesPend,
+    'Pedido para editar un cliente',
+    (n) => `Hay ${n} pedido${n === 1 ? '' : 's'} de edición de cliente esperando que el admin lo apruebe.`,
+  )
 
   // Lugares de entrega del Gestión que quedaron sin ubicar y la oficina todavía
   // no cargó a mano. Va como globo para que la cola no se quede sin mirar.
