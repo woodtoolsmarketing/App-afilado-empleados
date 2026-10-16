@@ -3139,7 +3139,7 @@ export function resumenDeRenglonesDeVisita(renglones: RenglonParaResumen[]): str
 const PREPOSICION: Partial<Record<TipoServicio, string>> = { reclamo: 'por' }
 
 /** "sierras circulares", "sierras circulares y fresas", "a, b y c". */
-function enumerar(partes: string[]): string {
+export function enumerar(partes: string[]): string {
   if (partes.length <= 1) return partes[0] ?? ''
   return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
 }
@@ -3253,24 +3253,22 @@ export function resumenesDePedidoSueltoPorParada(
 }
 
 /**
- * Para cada parada, el resumen COMPLETO de "qué se hizo/vendió" con TODAS las
- * notas de ese día de ese cliente —las que ya están en la observación y las
- * sueltas—, en el formato actual: con la cantidad adelante ("3× 300x96").
+ * Para cada parada, los RENGLONES de TODAS las notas de ese día de ese cliente
+ * —las que ya están horneadas en la observación y las sueltas—, enganchadas a su
+ * parada.
  *
- * A diferencia de `resumenesDePedidoSueltoPorParada`, NO excluye las notas que
- * ya se hornearon en la observación. Justamente sirve para VOLVER a armar la
- * observación del rol impreso con las cantidades al día, aunque la visita se
- * haya registrado con una versión vieja de la app —que guardaba el resumen sin
- * contar, juntando las medidas repetidas—. El que regenera la observación
- * (`observacionConCantidades`) decide si pisa o no el texto guardado.
- *
- * Devuelve el resumen como arreglo de frases (lo que come `observacionSugerida`),
- * no enumerado, para que la observación se rearme con el mismo formato que la app.
+ * A diferencia de `resumenesDePedidoSueltoPorParada`, NO excluye las notas que ya
+ * se hornearon en la observación: con estos renglones `observacionConCantidades`
+ * recalcula el resumen y lo reemplaza DENTRO de la observación del rol para que
+ * salga con las cantidades al día ("3× 300x96"), aunque la visita se haya
+ * registrado con una versión vieja de la app que lo guardaba sin contar. Devuelve
+ * los renglones crudos (no el resumen armado) justamente porque el que reemplaza
+ * necesita calcular las DOS versiones —la vieja y la nueva— desde los mismos datos.
  */
 export function resumenesDePedidoPorParada(
   paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
   notas: NotaSuelta[],
-): Map<string, string[]> {
+): Map<string, RenglonParaResumen[]> {
   type P = Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>
   const paradaPorId = new Map<string, P>()
   const paradasPorCliente = new Map<string, P[]>()
@@ -3305,14 +3303,83 @@ export function resumenesDePedidoPorParada(
     renglonesPorParada.set(destino.id, arr)
   }
 
-  const out = new Map<string, string[]>()
-  for (const [paradaId, renglones] of renglonesPorParada) {
-    const partes = resumenDeRenglonesDeVisita(renglones)
-      .map((r) => r.trim())
-      .filter(Boolean)
-    if (partes.length > 0) out.set(paradaId, partes)
+  return renglonesPorParada
+}
+
+/**
+ * El resumen de los renglones en el formato VIEJO —el que guardaban en la
+ * observación las versiones de la app anteriores a 1.7.2—: lista las medidas sin
+ * la cantidad adelante y SIN repetir una medida idéntica ("Afilado de sierras
+ * circulares: 300x96, 250x80").
+ *
+ * No es código muerto: es el "antes" que `observacionConCantidades` busca dentro
+ * de la observación congelada para reemplazarlo por el formato nuevo (con la
+ * cantidad). Tiene que reproducir EXACTO lo que se horneó, así que es una copia
+ * fiel de la rama de servicios de `resumenDeRenglonesDeVisita` de aquella época.
+ * La venta nunca cambió de formato (ya llevaba la cantidad), así que se arma igual
+ * y sus frases coinciden con las del formato nuevo (no se reemplazan).
+ */
+export function resumenFormatoAnterior(renglones: RenglonParaResumen[]): string[] {
+  const porServicio = new Map<TipoServicio, Map<Herramienta, string[]>>()
+  const ventas: string[] = []
+
+  for (const r of renglones) {
+    if (!r.servicio) continue
+
+    if (r.servicio === 'venta') {
+      const cantidad = r.cantidad && r.cantidad > 0 ? r.cantidad : 1
+      const nombre = r.herramienta
+        ? (cantidad === 1 ? EN_SINGULAR[r.herramienta] : EN_LA_DESCRIPCION[r.herramienta]) ?? ''
+        : ''
+      const medidas = medidasDelDetalle(r.detalle)
+      const base = ['Venta', String(cantidad), nombre].filter(Boolean).join(' ')
+      ventas.push(medidas ? `${base} ${medidas}` : base)
+      continue
+    }
+
+    const porHerramienta = porServicio.get(r.servicio) ?? new Map<Herramienta, string[]>()
+    porServicio.set(r.servicio, porHerramienta)
+
+    const clase = (r.detalle?.sierra_clase as SierraClase | undefined) ?? null
+    const herramienta = herramientaEnLaDescripcion(r.herramienta, clase)
+    if (!herramienta) continue
+
+    const medida =
+      r.servicio === 'reclamo'
+        ? ''
+        : medidaCompacta(
+            herramienta,
+            {
+              diametro_exterior: r.detalle?.diametro_exterior,
+              diametro: r.detalle?.diametro,
+              largo_util: r.detalle?.largo_util,
+              largo: r.detalle?.largo,
+              ancho: r.detalle?.ancho,
+              espesor: r.detalle?.espesor,
+              paso: r.detalle?.paso,
+              dientes: r.cantidad_dientes,
+            },
+            r.detalle?.cabezal_de_cuchillas === true,
+          )
+    const lista = porHerramienta.get(herramienta) ?? []
+    lista.push(medida)
+    porHerramienta.set(herramienta, lista)
   }
-  return out
+
+  const servicios = [...porServicio].map(([servicio, porHerramienta]) => {
+    const etiqueta = servicioEnFrase(servicio)
+    const prep = PREPOSICION[servicio] ?? 'de'
+    if (porHerramienta.size === 0) return etiqueta
+    const grupos = [...porHerramienta].map(([herramienta, medidas]) => {
+      const nombre = EN_LA_DESCRIPCION[herramienta] ?? ''
+      // El "antes": sin repetir una medida idéntica (dos sierras 300x96 → "300x96").
+      const unicas = [...new Set(medidas.filter(Boolean))]
+      return unicas.length > 0 ? `${nombre}: ${unicas.join(', ')}` : nombre
+    })
+    return `${etiqueta} ${prep} ${grupos.join('; ')}`
+  })
+
+  return [...servicios, ...ventas]
 }
 
 /** `a` es posterior a `b` (dos timestamps ISO). Ante la duda (fecha ilegible), muestra. */

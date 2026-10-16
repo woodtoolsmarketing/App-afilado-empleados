@@ -13,8 +13,15 @@
  * mezclar orientaciones en un mismo trabajo termina en hojas rotadas al azar.
  */
 
+import {
+  combinarObservacionYResumen,
+  enumerar,
+  resumenDeRenglonesDeVisita,
+  resumenFormatoAnterior,
+  type RenglonParaResumen,
+} from './notas-pedido'
 import { ETIQUETA_MOTIVO_NO_VISITA, type ParadaCompleta, type Visita } from './tipos'
-import { formatearFechaCorta, formatearHora, observacionSugerida } from './validaciones'
+import { formatearFechaCorta, formatearHora } from './validaciones'
 
 /** Un renglón numerado de la planilla. */
 export interface RenglonRolDeVisita {
@@ -94,56 +101,45 @@ const RENGLON_VACIO = (): RenglonRolDeVisita => ({
  * ("250x80"), así que el conteo se perdía del texto. El rol impreso mostraba ese
  * texto viejo aunque la app de hoy ya sepa contar.
  *
- * La solución: si la observación es la que la app sugiere SOLA (no la editó a
- * mano el vendedor ni la dictó por voz), la volvemos a armar con el resumen
- * fresco —calculado desde TODAS las notas de ese día, con la cantidad adelante
- * ("3× 300x96")—. Se reconoce que es autogenerada porque arranca con el prefijo
- * que `observacionSugerida` produce a partir de los mismos tildes del parte
- * (ese prefijo no cambió entre versiones; sólo cambió el resumen). Si el texto
- * no arranca con ese prefijo, el vendedor lo tocó: su palabra manda y no se pisa.
+ * La solución: un reemplazo QUIRÚRGICO. Desde los renglones de las notas de la
+ * parada calculamos las dos versiones del resumen —la VIEJA (como quedó horneada,
+ * `resumenFormatoAnterior`) y la NUEVA (con la cantidad, `resumenDeRenglonesDeVisita`)—
+ * y, frase de servicio por frase, cambiamos el pedazo viejo por el nuevo DENTRO
+ * de la observación. Sólo se toca ese pedazo: el prefijo ("Se visitó al cliente…")
+ * y, sobre todo, CUALQUIER cosa que el vendedor haya tecleado o dictado después
+ * (el campo viene precargado con la sugerencia, así que lo natural es agregar al
+ * final) quedan intactos.
  *
- * `resumenCompleto` es `resumenDeRenglonesDeVisita(todas las notas de la parada)`
- * (lo arma `resumenesDePedidoPorParada`). Sin él —el teléfono que no lo pasa—,
- * o sin visita visitada, devuelve el texto tal cual.
+ * Si el pedazo viejo no aparece —observación dictada entera, editada, o notas
+ * cambiadas después de la visita— no se reemplaza nada y el texto queda tal cual.
+ *
+ * `renglones` son los de todas las notas de ese día de la parada (los arma
+ * `resumenesDePedidoPorParada`). Sin ellos —el teléfono sin señal— devuelve el
+ * texto tal cual (degrada al formato congelado).
  */
 export function observacionConCantidades(
-  visita: Pick<
-    Visita,
-    | 'visitado'
-    | 'vendio'
-    | 'cobro'
-    | 'retiro_afilado'
-    | 'entrego'
-    | 'sin_pedido'
-    | 'otras'
-    | 'otras_detalle'
-    | 'motivo_no_visita'
-    | 'contacto_nombre'
-    | 'observacion'
-  >,
-  resumenCompleto: string[] | undefined,
+  visita: Pick<Visita, 'observacion'>,
+  renglones: RenglonParaResumen[] | undefined,
 ): string {
   const base = visita.observacion
-  if (!visita.visitado || !resumenCompleto || resumenCompleto.length === 0) return base
+  if (!renglones || renglones.length === 0) return base
 
-  const flags = {
-    visitado: visita.visitado,
-    vendio: visita.vendio,
-    cobro: visita.cobro,
-    retiro_afilado: visita.retiro_afilado,
-    entrego: visita.entrego,
-    sin_pedido: visita.sin_pedido,
-    otras: visita.otras,
-    otras_detalle: visita.otras_detalle ?? '',
-    motivo_no_visita: visita.motivo_no_visita,
-    // "Volver a las" sólo se usa en el parte NO visitado; acá siempre es visitado.
-    volver_a_las: '',
-    contacto_nombre: visita.contacto_nombre ?? '',
+  const viejos = resumenFormatoAnterior(renglones)
+  const nuevos = resumenDeRenglonesDeVisita(renglones)
+
+  // Las dos listas corresponden frase a frase (mismo servicio, mismo orden; la
+  // venta queda igual en las dos y no se reemplaza). Cambiamos sólo donde difieren
+  // y donde el pedazo viejo realmente está en el texto.
+  let out = base
+  const tope = Math.min(viejos.length, nuevos.length)
+  for (let i = 0; i < tope; i++) {
+    const viejo = viejos[i]
+    const nuevo = nuevos[i]
+    if (viejo && nuevo && viejo !== nuevo && out.includes(viejo)) {
+      out = out.replace(viejo, nuevo)
+    }
   }
-
-  const prefijoAuto = observacionSugerida(flags, [])
-  if (!base.startsWith(prefijoAuto)) return base
-  return observacionSugerida(flags, resumenCompleto)
+  return out
 }
 
 /**
@@ -151,19 +147,23 @@ export function observacionConCantidades(
  *
  * Cuando el destino no se visitó, el motivo va adelante: en la planilla de
  * papel un renglón sin ningún tilde de "tipo de visita" y sin explicación no se
- * distingue de uno que quedó sin hacer.
+ * distingue de uno que quedó sin hacer. El parte no visitado NUNCA horneó el
+ * resumen del pedido, así que si igual hay una nota ese día se suma al final (con
+ * la cantidad al día).
  *
- * Cuando SÍ se visitó, la observación se rearma con las cantidades al día (ver
- * `observacionConCantidades`): el conteo se recalcula desde las notas, no se
- * confía en el texto que quedó congelado.
+ * Cuando SÍ se visitó, el conteo se recalcula desde las notas y se reemplaza
+ * dentro del texto congelado (ver `observacionConCantidades`).
  */
-function resultadoDeParada(p: ParadaCompleta, resumenCompleto?: string[]): string {
+function resultadoDeParada(p: ParadaCompleta, renglones?: RenglonParaResumen[]): string {
   const v = p.visita
   if (!v) return ''
   if (!v.visitado) {
-    return `NO VISITADO — ${v.motivo_no_visita ? ETIQUETA_MOTIVO_NO_VISITA[v.motivo_no_visita] : 'Sin visitar'}. ${v.observacion}`
+    const base = `NO VISITADO — ${v.motivo_no_visita ? ETIQUETA_MOTIVO_NO_VISITA[v.motivo_no_visita] : 'Sin visitar'}. ${v.observacion}`
+    return renglones && renglones.length > 0
+      ? combinarObservacionYResumen(base, enumerar(resumenDeRenglonesDeVisita(renglones)))
+      : base
   }
-  return observacionConCantidades(v, resumenCompleto)
+  return observacionConCantidades(v, renglones)
 }
 
 /**
@@ -179,12 +179,12 @@ export function rolImprimibleDesdeFilas(
   paradas: ParadaCompleta[],
   vendedor: { nombre: string; codigo: string | null },
   /**
-   * Resumen COMPLETO del pedido por parada (todas las notas de ese día del
-   * cliente), para rearmar la observación con las cantidades al día. Lo arma
+   * Renglones de todas las notas de ese día por parada, para recalcular el
+   * conteo y reemplazarlo en la observación del rol. Lo arma
    * `resumenesDePedidoPorParada`; lo pasan el panel y el teléfono. Sin esto el
    * impreso sale con el texto congelado de cada visita, como antes.
    */
-  resumenesCompletos?: Map<string, string[]>,
+  resumenesCompletos?: Map<string, RenglonParaResumen[]>,
 ): RolDeVisitaParaImprimir {
   const renglones: RenglonRolDeVisita[] = paradas.map((p) => ({
     numero: p.orden,
