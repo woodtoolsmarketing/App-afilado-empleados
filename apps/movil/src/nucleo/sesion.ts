@@ -16,6 +16,7 @@ import {
   type CuentaGuardada,
 } from './cuentas'
 import { registrarYVerificarDispositivo } from './dispositivo'
+import { registrarPushDeEsteTelefono } from '../servicios/notificaciones'
 import {
   olvidarLoRecordado,
   pareceFaltaDeSenal,
@@ -188,6 +189,10 @@ async function evaluarAcceso(
   if (!dispositivo.autorizado) {
     return { estado: 'dispositivo_no_autorizado', error: null }
   }
+
+  // Con el teléfono ya autorizado, registramos el token de push en segundo plano:
+  // no bloquea el login y, si el vendedor no da permiso o no hay FCM, no pasa nada.
+  void registrarPushDeEsteTelefono(perfil.id)
 
   // Una versión demasiado vieja puede estar guardando notas de una forma que la
   // base ya no entiende. Es preferible un cartel que pide actualizar a datos mal

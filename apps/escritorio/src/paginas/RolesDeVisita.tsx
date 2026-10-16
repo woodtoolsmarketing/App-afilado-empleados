@@ -354,9 +354,21 @@ export function PaginaRolesDeVisita({
       })
       if (err) throw err
     },
-    onSuccess: () => {
+    onSuccess: (_data, cand) => {
       setMensaje('Cliente agregado al recorrido.')
       void cliente.invalidateQueries({ queryKey: ['rol-visita'] })
+      // Aviso al teléfono del vendedor (best-effort): que vea el destino nuevo
+      // aunque no tenga la app abierta. Si no tiene token o falla, no frena nada.
+      void supabase.functions
+        .invoke('enviar-push', {
+          body: {
+            vendedorId,
+            titulo: 'Nuevo destino en tu recorrido',
+            cuerpo: `La oficina te sumó a ${cand.razon_social} a tu recorrido.`,
+            datos: { tipo: 'destino_agregado', fecha },
+          },
+        })
+        .catch(() => {})
     },
     onError: (e: Error) => setError(e.message),
   })

@@ -40,6 +40,14 @@ for (const archivo of [path.join(__dirname, '.env'), path.join(RAIZ_MONOREPO, '.
 }
 
 /**
+ * ¿Está el `google-services.json` de Firebase? Es lo que FCM necesita para el
+ * push a Android. Mientras no esté, el bloque se omite y el build sale igual
+ * (sin push; el token no se toma y la app funciona). Apenas se agrega el archivo
+ * a `apps/movil/`, el build lo toma y el push queda habilitado.
+ */
+const tieneFirebase = fs.existsSync(path.join(__dirname, 'google-services.json'))
+
+/**
  * Tres variantes, tres apps distintas para Android.
  *
  * Cada una tiene su `package`, así que Android las trata como programas
@@ -229,6 +237,9 @@ const config: ExpoConfig = {
     ...(process.env.GOOGLE_MAPS_ANDROID_KEY
       ? { config: { googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_KEY } } }
       : {}),
+    // FCM para el push. Guardado: sin el archivo, el build sale sin push en vez
+    // de fallar. Ver `tieneFirebase`.
+    ...(tieneFirebase ? { googleServicesFile: './google-services.json' } : {}),
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
@@ -259,6 +270,9 @@ const config: ExpoConfig = {
       'ACCESS_NETWORK_STATE',
       'VIBRATE',
       'WAKE_LOCK',
+      // Android 13+: sin este permiso el sistema no muestra ninguna notificación.
+      // Lo pide la app en runtime la primera vez (ver `registrarPushDeEsteTelefono`).
+      'POST_NOTIFICATIONS',
       // REQUEST_INSTALL_PACKAGES: para que la app baje el APK nuevo y lance el
       // instalador directo, sin mandar al vendedor al navegador ni al centro de
       // descargas. OJO (decisión tomada a propósito): la política de Google Play
@@ -393,6 +407,9 @@ const config: ExpoConfig = {
     // si" era el que dejaba salir APK sordos sin que nadie se enterara; ahora
     // la variable es obligatoria y esto no tiene por qué preguntar nada.
     'expo-updates',
+    // El push del recorrido (aviso cuando la oficina agrega un destino). El
+    // color es el rojo de la marca para el ícono chico de la notificación.
+    ['expo-notifications', { color: '#B30F0F' }],
   ],
 
   /**
