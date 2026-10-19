@@ -110,13 +110,13 @@ async function ubicarImpresora(
   const puerto = configurada?.puerto ?? PUERTO_IPP
   const ruta = configurada?.ruta ?? '/ipp/print'
 
-  // La de la oficina va PRIMERO. La que este teléfono recordó de un barrido
-  // anterior queda de respaldo: si alguna vez la impresora estuvo en otra
-  // dirección y volvió a la de siempre, empezar por la recordada sería probar
-  // la vieja antes que la buena.
-  const candidatas = [configurada?.ip, await ultimaImpresora()].filter(
-    (ip, i, todas): ip is string => !!ip && todas.indexOf(ip) === i,
-  )
+  // Con impresora cargada en la oficina, es la ÚNICA candidata: no se prueba una
+  // IP recordada de un barrido viejo. Esa recordada podía ser una impresora que
+  // ya no es la de la oficina (una vieja que quedó prendida), y mandarle el papel
+  // ahí imprime en la equivocada —justo el problema de la .167 que aborta—. La
+  // recordada sólo se usa como descubrimiento cuando NO hay ninguna configurada.
+  const recordada = configurada?.ip ? null : await ultimaImpresora()
+  const candidatas = configurada?.ip ? [configurada.ip] : recordada ? [recordada] : []
 
   // Hasta acá no se decía nada, y sondear las candidatas puede tardar unos
   // segundos con la impresora apagada: el vendedor tocaba IMPRIMIR y la
@@ -133,6 +133,12 @@ async function ubicarImpresora(
       return { impresora: { ip, puerto, ruta }, descubierta: false }
     }
   }
+
+  // Con una impresora configurada NO se barre la red: aceptar la primera que
+  // conteste IPP imprime en cualquier impresora vieja que haya quedado prendida.
+  // Si la configurada no contesta, se cae al diálogo del sistema para que el
+  // vendedor elija a mano, en vez de que la app adivine (y pegue a la .167).
+  if (configurada?.ip) return null
 
   if (!red.ip) return null
 
