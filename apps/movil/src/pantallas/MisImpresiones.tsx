@@ -1,4 +1,5 @@
 import { espaciado, radios } from '@woodtools/compartido'
+import { useIsFocused } from '@react-navigation/native'
 import { useQuery } from '@tanstack/react-query'
 import { Text, View } from 'react-native'
 
@@ -20,11 +21,15 @@ import type { PropsPantalla } from '../navegacion/tipos'
 export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresiones'>) {
   const estilos = usarEstilos()
 
+  // Sólo sondea mientras el vendedor está MIRANDO esta pantalla: si se va a otra
+  // (por el menú), deja de pegarle al servidor cada 8s —son dos count por orden
+  // y por 15-30 vendedores sería carga al pedo—.
+  const enfocado = useIsFocused()
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['mi-cola-impresion'],
     queryFn: miColaDeImpresion,
     // Refresca para que la posición baje a medida que la oficina imprime.
-    refetchInterval: 8_000,
+    refetchInterval: enfocado ? 8_000 : false,
   })
 
   const ordenes = data ?? []
@@ -41,7 +46,24 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
           acá ves en qué lugar va cada cosa.
         </Text>
 
-        {isLoading ? (
+        {ordenes.length > 0 ? (
+          <>
+            {/* Si el último sondeo falló pero ya teníamos la cola, se muestra
+                igual —la oficina la tiene— con un aviso chico, en vez de tapar
+                todo con un error. El vendedor trabaja con señal intermitente:
+                mejor lo último que una pantalla vacía. */}
+            {isError ? (
+              <Aviso tono="atencion">
+                No pudimos actualizar (revisá la señal). Te mostramos lo último que trajimos.
+              </Aviso>
+            ) : null}
+            <View style={estilos.lista}>
+              {ordenes.map((o) => (
+                <Fila key={o.id} orden={o} />
+              ))}
+            </View>
+          </>
+        ) : isLoading ? (
           <Cargando texto="Buscando tu cola…" />
         ) : isError ? (
           <>
@@ -50,18 +72,12 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
             </Aviso>
             <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
           </>
-        ) : ordenes.length === 0 ? (
+        ) : (
           <Vacio
             titulo="No tenés nada esperando"
             detalle="Cuando mandes una nota, el rol de visita o las cobranzas a la oficina, aparecen acá con su lugar en la cola."
             icono="🖨️"
           />
-        ) : (
-          <View style={estilos.lista}>
-            {ordenes.map((o) => (
-              <Fila key={o.id} orden={o} />
-            ))}
-          </View>
         )}
       </Panel>
     </Pantalla>
