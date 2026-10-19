@@ -2,9 +2,12 @@ import {
   ETIQUETA_ESTADO_NOTA,
   ETIQUETA_TIPO_NOTA,
   ETIQUETA_TIPO_SERVICIO,
+  generarDocumentoImpresion,
+  notaImprimibleDesdeFila,
   numeroDeNotaImpreso,
   type ClienteBuscado,
   type EstadoNotaPedido,
+  type OpcionesImpresion,
   type TipoNotaPedido,
   type TipoServicio,
 } from '@woodtools/compartido'
@@ -12,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
 import { usarConsola } from '../nucleo/consola'
+import { obtenerImpresora } from '../nucleo/impresora'
 import { supabase } from '../nucleo/supabase'
 import { EditorNota, type NotaParaEditar } from './EditorNota'
 
@@ -113,6 +117,56 @@ export function PaginaNotasPedido({
       return (data ?? []) as unknown as NotaFila[]
     },
     refetchInterval: 30_000,
+  })
+
+  // En el navegador no existe el puente de impresión del programa de escritorio.
+  const puedeImprimir = typeof window.woodtools?.imprimirDocumento === 'function'
+
+  /**
+   * Reimprimir una nota desde el panel (sólo admin).
+   *
+   * Camino DIRECTO, igual que el rol de visita: trae la nota completa, arma el
+   * documento (original + duplicado, con logo si es factura) y lo manda por la
+   * impresora de la oficina (o cae al diálogo del sistema). NO pasa por la cola
+   * (`ordenes_impresion`) ni sella `impresa_en`: es una copia en papel, no cambia
+   * el estado de la nota.
+   */
+  const imprimir = useMutation({
+    mutationFn: async (nota: NotaFila) => {
+      if (!window.woodtools?.imprimirDocumento) {
+        throw new Error('La impresión funciona sólo desde el programa de escritorio.')
+      }
+      const { data, error: err } = await supabase
+        .from('notas_pedido')
+        .select(
+          '*, items:notas_pedido_items(*),' +
+            ' vendedor:perfiles!notas_pedido_vendedor_id_fkey(nombre_completo, codigo_vendedor),' +
+            ' direccion:direcciones!notas_pedido_direccion_id_fkey(etiqueta, principal)',
+        )
+        .eq('id', nota.id)
+        .single()
+      if (err) throw err
+      const fila = data as unknown as Record<string, unknown>
+      const imprimible = notaImprimibleDesdeFila(fila)
+      const conLogo = fila.tipo_nota === 'factura'
+      const copias: OpcionesImpresion[] = [
+        { copia: 'original', conLogo },
+        { copia: 'duplicado', conLogo },
+      ]
+      const html = generarDocumentoImpresion(copias.map((o) => ({ nota: imprimible, opciones: o })))
+      const impresora = await obtenerImpresora()
+      return window.woodtools.imprimirDocumento(html, impresora)
+    },
+    onSuccess: (salida) => {
+      setError(null)
+      if (salida.impreso) setMensaje('Nota enviada a la impresora.')
+      else if (salida.via === 'ipp')
+        setMensaje(
+          `La mandé a la impresora${salida.direccion ? ` (${salida.direccion})` : ''} pero no me confirmó. Revisá el papel.`,
+        )
+      else setMensaje(salida.motivo ?? 'Se abrió el diálogo de impresión del sistema.')
+    },
+    onError: (e: Error) => setError(`No se pudo imprimir: ${e.message}`),
   })
 
   const todas = notas ?? []
@@ -347,6 +401,29 @@ export function PaginaNotasPedido({
                           }}
                         >
                           Dar Cod. Cliente
+                        </button>
+                      ) : null}
+                      {/* Imprimir (reimprimir) la nota: admin-only. Camino directo a
+                          la impresora de la oficina; no pasa por la cola ni cambia el
+                          estado de la nota (es una copia en papel). */}
+                      {esAdmin ? (
+                        <button
+                          className="chico"
+                          disabled={!puedeImprimir || imprimir.isPending}
+                          title={
+                            puedeImprimir
+                              ? undefined
+                              : 'La impresión funciona sólo desde el programa de escritorio, no desde el navegador.'
+                          }
+                          onClick={() => {
+                            setError(null)
+                            setMensaje(null)
+                            imprimir.mutate(n)
+                          }}
+                        >
+                          {imprimir.isPending && imprimir.variables?.id === n.id
+                            ? 'Imprimiendo…'
+                            : '🖨 Imprimir'}
                         </button>
                       ) : null}
                       {/* Modificar la nota entera: admin-only, como anular. Pasa por
