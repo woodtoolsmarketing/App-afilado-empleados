@@ -286,57 +286,82 @@ export const usarSesion = create<EstadoSesion>((set, get) => ({
   agregandoCuenta: false,
 
   async arrancar() {
-    const usuarioRecordado = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
-    set({ usuarioRecordado, cuentas: await listarCuentas() })
-
-    // Arranque OPTIMISTA: con el último perfil conocido se dibuja la app YA,
-    // ANTES de tocar la red —ni siquiera getSession, que puede hacer un refresh
-    // de token si venció—. La verificación completa (perfil, dispositivo, versión
-    // mínima) corre después en segundo plano y corrige el estado si algo cambió
-    // (baja, versión vieja, dispositivo desautorizado); si no hay señal, cae al
-    // mismo perfil recordado. Antes se esperaban esas consultas en serie antes de
-    // mostrar nada, y con señal lenta la app quedaba trabada en el splash en cada
-    // arranque —le pasaba a todos los que ya tenían sesión, o sea todos los días.
-    const recordado = await perfilRecordado<Perfil>()
-    if (recordado) set({ perfil: recordado, estado: accesoOptimista(recordado) })
-
-    // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
+    // Nada de lo que pase acá adentro puede dejar la app trabada en el splash:
+    // el gate de arranque espera a que `estado` deje de ser 'cargando', así que
+    // un `await` que tire —un hipo del keystore (SecureStore), una caché de
+    // cuentas corrupta, una escritura de perfil fallida dentro de refrescarPerfil—
+    // dejaría el splash puesto para siempre. El try/catch de abajo garantiza que,
+    // pase lo que pase, se termine en un estado usable (ingreso, o el perfil
+    // optimista que ya se haya mostrado).
     try {
-      const { data, error } = await supabase.auth.getSession()
-      if (!data.session) {
-        // Sin señal, un token vencido no se puede refrescar: getSession devuelve
-        // session null con un error de red. No es "no hay sesión" sino "no pude
-        // preguntar": con perfil recordado se mantiene el acceso optimista y el
-        // refresco de fondo reintenta cuando vuelva la señal (mismo criterio que
-        // la consulta de perfil). Sin recordado, o ante un rechazo real, al login.
-        if (recordado && pareceFaltaDeSenal(error)) {
-          void get().refrescarPerfil().catch(() => undefined)
+      // El usuario prefijado y la lista de cuentas son comodidades: si el keystore
+      // está ocupado al arrancar y su lectura tira, se sigue igual con la
+      // verificación de sesión —sólo se pierde el nombre prefijado—, no se aborta.
+      let usuarioRecordado: string | null = null
+      let cuentas: CuentaGuardada[] = []
+      try {
+        usuarioRecordado = await SecureStore.getItemAsync(CLAVE_ULTIMO_USUARIO)
+        cuentas = await listarCuentas()
+      } catch {
+        // Comodidades perdidas, arranque intacto.
+      }
+      set({ usuarioRecordado, cuentas })
+
+      // Arranque OPTIMISTA: con el último perfil conocido se dibuja la app YA,
+      // ANTES de tocar la red —ni siquiera getSession, que puede hacer un refresh
+      // de token si venció—. La verificación completa (perfil, dispositivo, versión
+      // mínima) corre después en segundo plano y corrige el estado si algo cambió
+      // (baja, versión vieja, dispositivo desautorizado); si no hay señal, cae al
+      // mismo perfil recordado. Antes se esperaban esas consultas en serie antes de
+      // mostrar nada, y con señal lenta la app quedaba trabada en el splash en cada
+      // arranque —le pasaba a todos los que ya tenían sesión, o sea todos los días.
+      const recordado = await perfilRecordado<Perfil>()
+      if (recordado) set({ perfil: recordado, estado: accesoOptimista(recordado) })
+
+      // La sesión no vence: lo que protege la app es el desbloqueo del teléfono.
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        if (!data.session) {
+          // Sin señal, un token vencido no se puede refrescar: getSession devuelve
+          // session null con un error de red. No es "no hay sesión" sino "no pude
+          // preguntar": con perfil recordado se mantiene el acceso optimista y el
+          // refresco de fondo reintenta cuando vuelva la señal (mismo criterio que
+          // la consulta de perfil). Sin recordado, o ante un rechazo real, al login.
+          if (recordado && pareceFaltaDeSenal(error)) {
+            void get().refrescarPerfil().catch(() => undefined)
+            return
+          }
+          set({ estado: 'sin_sesion', perfil: null })
           return
         }
-        set({ estado: 'sin_sesion', perfil: null })
+      } catch {
+        // getSession devuelve {data,error} y casi nunca tira; si el storage falla,
+        // no dejamos el arranque trabado ni el estado optimista sin verificar: con
+        // perfil recordado se verifica en segundo plano (y si de verdad no hay
+        // sesión, refrescarPerfil lleva a 'sin_sesion'); sin perfil recordado, al
+        // login.
+        if (recordado) void get().refrescarPerfil().catch(() => undefined)
+        else set({ estado: 'sin_sesion', perfil: null })
         return
       }
+
+      if (recordado) {
+        // Ya se está mostrando la app con el perfil recordado: sólo verificar y
+        // corregir en segundo plano, sin bloquear.
+        void get().refrescarPerfil().catch(() => undefined)
+        return
+      }
+
+      // Primer arranque de esta cuenta, todavía sin perfil recordado: hay que
+      // esperar la verificación completa (es la única vez).
+      await get().refrescarPerfil()
     } catch {
-      // getSession devuelve {data,error} y casi nunca tira; si el storage falla,
-      // no dejamos el arranque trabado ni el estado optimista sin verificar: con
-      // perfil recordado se verifica en segundo plano (y si de verdad no hay
-      // sesión, refrescarPerfil lleva a 'sin_sesion'); sin perfil recordado, al
-      // login.
-      if (recordado) void get().refrescarPerfil().catch(() => undefined)
-      else set({ estado: 'sin_sesion', perfil: null })
-      return
+      // Último recurso: si algo tiró (típicamente una escritura/lectura del
+      // keystore dentro de refrescarPerfil), no se deja la app en el splash. Si
+      // ya se mostró un perfil optimista, se queda como está (usable); si no, al
+      // ingreso. Es transitorio: el próximo arranque reintenta.
+      if (get().estado === 'cargando') set({ estado: 'sin_sesion', perfil: null })
     }
-
-    if (recordado) {
-      // Ya se está mostrando la app con el perfil recordado: sólo verificar y
-      // corregir en segundo plano, sin bloquear.
-      void get().refrescarPerfil().catch(() => undefined)
-      return
-    }
-
-    // Primer arranque de esta cuenta, todavía sin perfil recordado: hay que
-    // esperar la verificación completa (es la única vez).
-    await get().refrescarPerfil()
   },
 
   async iniciarSesion(usuario, contrasena) {

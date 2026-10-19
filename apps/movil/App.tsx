@@ -47,7 +47,7 @@ export default function App() {
     void cargarTema()
   }, [cargarTema])
 
-  const [fuentesListas] = useFonts({
+  const [fuentesListas, errorFuentes] = useFonts({
     Poppins_400Regular,
     Poppins_500Medium,
     Poppins_600SemiBold,
@@ -55,13 +55,20 @@ export default function App() {
     Poppins_800ExtraBold,
   })
 
+  // Si las fuentes no cargan (caché corrupta, un asset que no bajó en una
+  // actualización) `fuentesListas` nunca se pone en true. Sin contemplar el
+  // error, el `return null` de abajo deja la pantalla EN BLANCO para siempre:
+  // una traba dura, con splash oculto y nada dibujado. Preferimos arrancar con
+  // la tipografía del sistema —se ve distinto, no roto— antes que no arrancar.
+  const fuentesResueltas = fuentesListas || errorFuentes != null
+
   useEffect(() => {
     void arrancar()
   }, [arrancar])
 
   useEffect(() => {
-    if (fuentesListas && temaListo && estado !== 'cargando') void SplashScreen.hideAsync()
-  }, [fuentesListas, temaListo, estado])
+    if (fuentesResueltas && temaListo && estado !== 'cargando') void SplashScreen.hideAsync()
+  }, [fuentesResueltas, temaListo, estado])
 
   // Sin esto, el token deja de renovarse cuando la app queda en segundo plano
   // y el vendedor vuelve a una sesión vencida a mitad del recorrido.
@@ -84,7 +91,7 @@ export default function App() {
     return () => suscripcion.remove()
   }, [])
 
-  if (!fuentesListas || !temaListo) return null
+  if (!fuentesResueltas || !temaListo) return null
 
   return (
     <SafeAreaProvider>
