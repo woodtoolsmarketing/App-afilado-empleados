@@ -142,6 +142,18 @@ export function usarCandado(habilitado: boolean) {
    */
   const enCurso = useRef(false)
   /**
+   * La capacidad biométrica del teléfono (hardware + huella/PIN enrolado),
+   * cacheada. Se calcula una vez al arrancar y casi nunca cambia en runtime.
+   *
+   * Sirve para decidir el re-bloqueo al volver de segundo plano SIN esperar a
+   * las llamadas nativas (`hasHardwareAsync` + `isEnrolledAsync`). Si ese chequeo
+   * se difiere —como estaba—, la última pantalla que quedó montada (que puede
+   * tener datos del cliente, p.ej. Cobranzas) queda A LA VISTA el tiempo del
+   * round-trip nativo antes de que tape el candado. Con el valor cacheado el
+   * `setBloqueado(true)` cae en el MISMO tick del resume. `null` = aún no se supo.
+   */
+  const puedeRef = useRef<boolean | null>(null)
+  /**
    * El bloqueo "al arrancar" es una sola vez por sesión de la app, no cada vez
    * que `habilitado` vuelve a ser true.
    *
@@ -184,7 +196,9 @@ export function usarCandado(habilitado: boolean) {
     void (async () => {
       if (yaBloqueoAlArrancar.current) return
       yaBloqueoAlArrancar.current = true
-      if (await puedeDesbloquear()) {
+      const puede = await puedeDesbloquear()
+      puedeRef.current = puede
+      if (puede) {
         if (vivo) setBloqueado(true)
       } else {
         // Sin llave configurada no se bloquea, pero la jornada se registra
@@ -216,9 +230,20 @@ export function usarCandado(habilitado: boolean) {
       void fichar()
 
       if (desde && Date.now() - desde > MINUTOS_HASTA_BLOQUEAR * 60_000) {
-        void puedeDesbloquear().then((puede) => {
-          if (puede && vivo) setBloqueado(true)
-        })
+        // El candado tiene que taparse en el MISMO frame del resume, no tras un
+        // await: si no, la pantalla que quedó montada (Cobranzas, una ficha, una
+        // nota con datos del cliente) asoma el tiempo del round-trip nativo. Por
+        // eso se usa la capacidad biométrica CACHEADA y se decide sincrónico.
+        if (puedeRef.current === true) {
+          setBloqueado(true)
+        } else if (puedeRef.current === null) {
+          // Caso de borde (el arranque todavía no resolvió): se cae al async.
+          void puedeDesbloquear().then((puede) => {
+            puedeRef.current = puede
+            if (puede && vivo) setBloqueado(true)
+          })
+        }
+        // `false` = sin biometría configurada: no se bloquea (igual que antes).
       }
     })
 
