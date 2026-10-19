@@ -35,6 +35,7 @@ import { PantallaVistaPreviaNota } from '../pantallas/VistaPreviaNota'
 import { PantallaIniciarSesion } from '../pantallas/IniciarSesion'
 import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
+import { PantallaMisImpresiones } from '../pantallas/MisImpresiones'
 import { PantallaRolDeVisita } from '../pantallas/RolDeVisita'
 import { PantallaClientes } from '../pantallas/admin/Clientes'
 import { PantallaModificaciones } from '../pantallas/admin/Modificaciones'
@@ -220,6 +221,7 @@ export function Navegacion() {
               <Pila.Screen name="MapaClientes" component={PantallaMapaClientes} />
             ) : null}
             <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
+            <Pila.Screen name="MisImpresiones" component={PantallaMisImpresiones} />
             {esAdmin ? (
               <>
                 <Pila.Screen name="AdminUsuarios" component={PantallaUsuarios} />

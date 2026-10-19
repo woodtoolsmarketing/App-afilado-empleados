@@ -1,6 +1,7 @@
 import {
   espaciado,
   ETIQUETA_ESTADO_PARADA,
+  fechaLocalISO,
   formatearFechaCorta,
   radios,
   type EstadoParada,
@@ -15,6 +16,7 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
+import { encolarRol } from '../servicios/cola'
 import { imprimirRolDeVisita, type ResultadoImpresion } from '../servicios/impresion'
 import { obtenerJornadaDeHoy } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -74,18 +76,41 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
   })
 
   /**
-   * Imprimir al entrar, cuando se llega desde "IMPRIMIR ROL DE VISITA" del menú.
+   * Mandar el rol A LA OFICINA: entra a la cola y la PC de la oficina lo imprime,
+   * esté el vendedor donde esté. Es el camino PRINCIPAL; el "imprimir directo" de
+   * abajo queda de respaldo para cuando el vendedor está al lado de la impresora.
+   */
+  const encolar = useMutation({
+    mutationFn: () => encolarRol(fechaLocalISO(new Date())),
+    onSuccess: (r) => {
+      Alert.alert(
+        r.encolada ? 'Va a la oficina' : 'Ya estaba pedido',
+        r.encolada
+          ? 'El rol quedó en la cola. Lo imprimen en la oficina; mirá "Mis impresiones" para ver tu lugar.'
+          : (r.motivo ?? 'Ya hay un pedido de tu rol esperando en la oficina.'),
+        [
+          { text: 'Ver mis impresiones', onPress: () => navigation.navigate('MisImpresiones') },
+          { text: 'Listo', style: 'cancel' as const },
+        ],
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos mandarlo a la oficina', e.message),
+  })
+
+  /**
+   * Mandar a la oficina al entrar, cuando se llega desde "IMPRIMIR ROL DE VISITA"
+   * del menú.
    *
-   * El vendedor ahí ya tocó *imprimir*: hacerlo mirar la lista y tocar un
-   * segundo botón es un paso de más. Así que apenas la planilla está armada se
-   * manda sola a la impresora, con el mismo aviso de avance y el mismo cartel de
-   * resultado que el botón —no es otra impresión, es el botón apretado solo—.
+   * El vendedor ahí ya tocó *imprimir*: hacerlo mirar la lista y tocar un segundo
+   * botón es un paso de más. Así que apenas la planilla está armada se manda sola
+   * a la COLA de la oficina (la PC de la oficina la imprime), que es el camino
+   * principal —no es otra impresión, es el botón apretado solo—.
    *
-   * Se dispara una vez por `imprimirAlEntrar`: es un sello distinto en cada
-   * toque del menú (ver `ParametrosApp`), así que volver a elegir la opción
-   * vuelve a imprimir, pero un re-render cualquiera (el cartel de "enviado", un
-   * refetch) no reimprime porque el sello no cambió. Sólo con recorrido armado:
-   * sin paradas no hay planilla y se ve el estado vacío, no un cartel de error.
+   * Se dispara una vez por `imprimirAlEntrar`: es un sello distinto en cada toque
+   * del menú (ver `ParametrosApp`), así que volver a elegir la opción vuelve a
+   * encolar, pero un re-render cualquiera no reencola porque el sello no cambió.
+   * Sólo con recorrido armado: sin paradas no hay planilla y se ve el estado
+   * vacío, no un cartel de error.
    */
   const selloImpresion = route.params?.imprimirAlEntrar
   const ultimoSelloImpreso = useRef<number | undefined>(undefined)
@@ -93,10 +118,10 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
     if (!selloImpresion || ultimoSelloImpreso.current === selloImpresion) return
     if (isLoading || error || paradas.length === 0) return
     ultimoSelloImpreso.current = selloImpresion
-    imprimir.mutate()
-    // `imprimir` es estable (react-query) y se omite a propósito: listarlo haría
+    encolar.mutate()
+    // `encolar` es estable (react-query) y se omite a propósito: listarlo haría
     // re-correr el efecto en cada cambio de la mutación (p. ej. isPending) y
-    // podría reimprimir. El sello y el guard por ref ya acotan cuándo dispara.
+    // podría reencolar. El sello y el guard por ref ya acotan cuándo dispara.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selloImpresion, isLoading, error, paradas.length])
 
@@ -182,13 +207,23 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
               </View>
             ))}
 
+            {/* La cola es el camino principal: lo imprime la oficina, esté el
+                vendedor donde esté. */}
+            <BotonMenu
+              titulo="MANDAR A LA OFICINA"
+              subtitulo="Lo imprime la oficina · mirá 'Mis impresiones'"
+              alTocar={() => encolar.mutate()}
+              cargando={encolar.isPending}
+            />
+
             {/* Buscar la impresora en la red puede llevar unos segundos. Sin
                 decir qué está pasando, parecen segundos de nada. */}
             {avance ? <Aviso tono="info">{avance}</Aviso> : null}
 
-            <BotonMenu
-              titulo="IMPRIMIR"
-              subtitulo="En la impresora de la oficina"
+            {/* Respaldo: imprimir directo, para cuando el vendedor está al lado
+                de la impresora de la oficina. */}
+            <BotonSecundario
+              titulo="🖨  Imprimir directo (estoy en la oficina)"
               alTocar={() => imprimir.mutate()}
               cargando={imprimir.isPending}
             />

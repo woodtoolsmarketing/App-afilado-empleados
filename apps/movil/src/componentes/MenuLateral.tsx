@@ -91,6 +91,11 @@ const OPCIONES: Destino[] = [
     ir: (n) => n.navigate('RolDeVisita', { imprimirAlEntrar: Date.now() }),
   },
   {
+    // Lo que mandó a imprimir a la oficina, con su posición en la cola.
+    etiqueta: 'MIS IMPRESIONES',
+    ir: (n) => n.navigate('MisImpresiones'),
+  },
+  {
     etiqueta: 'HISTORIAL DE VISITAS',
     ir: (n) => n.navigate('Historial'),
   },
@@ -167,6 +172,7 @@ const ETIQUETA_PANTALLA: Record<string, string> = {
   CalendarioEnvios: 'Próximas visitas',
   CalendarioVisitas: 'Calendario de visitas',
   RolDeVisita: 'Rol de visita',
+  MisImpresiones: 'Mis impresiones',
   AdminUsuarios: 'Usuarios y teléfonos',
   AdminClientes: 'Clientes (cartera)',
   AdminModificaciones: 'Modificaciones de clientes',

@@ -93,6 +93,8 @@ export type ParametrosApp = {
    * estado vacío, igual que cuando se entra a mirar.
    */
   RolDeVisita: { imprimirAlEntrar?: number } | undefined
+  /** Lo que el vendedor mandó a imprimir a la oficina, con su posición en la cola. */
+  MisImpresiones: undefined
   // ── Administración (sólo rol admin; el menú las esconde para el resto) ──────
   /** Altas de usuarios, habilitación de teléfonos y resets de contraseña. */
   AdminUsuarios: undefined

@@ -7,7 +7,7 @@ import {
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { BuscarClienteModal } from '../componentes/BuscarClienteModal'
@@ -16,6 +16,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { cobranzasDelDia, marcarCobroDeVisita, type Cobranza } from '../servicios/cobranzas'
+import { encolarCobranzas } from '../servicios/cola'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
@@ -72,6 +73,28 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
       void consultas.invalidateQueries({ queryKey: ['historial'] })
       void consultas.invalidateQueries({ queryKey: ['detalle-parada'] })
     },
+  })
+
+  /**
+   * Mandar la rendición del día A LA OFICINA: entra a la cola y la PC de la
+   * oficina la imprime. Lo que se sella (los cobros quedan cerrados) lo hace la
+   * oficina al confirmar el papel, no acá.
+   */
+  const encolar = useMutation({
+    mutationFn: () => encolarCobranzas(fecha),
+    onSuccess: (r) => {
+      Alert.alert(
+        r.encolada ? 'Va a la oficina' : 'Ya estaba pedida',
+        r.encolada
+          ? 'La rendición quedó en la cola. La imprimen en la oficina; mirá "Mis impresiones" para ver tu lugar.'
+          : (r.motivo ?? 'Ya hay una rendición de ese día esperando en la oficina.'),
+        [
+          { text: 'Ver mis impresiones', onPress: () => navigation.navigate('MisImpresiones') },
+          { text: 'Listo', style: 'cancel' as const },
+        ],
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos mandarla a la oficina', e.message),
   })
 
   const total = (cobros ?? []).reduce((s, c) => s + Number(c.total), 0)
@@ -199,6 +222,15 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
           titulo={esHoy ? '＋ AGREGAR COBRANZA' : '＋ AGREGAR COBRANZA A ESTE DÍA'}
           alTocar={() => setBuscandoCliente(true)}
         />
+        {/* Mandar la rendición del día a la oficina para que la impriman. Sólo si
+            hay cobros: no se rinde un día vacío. */}
+        {(cobros ?? []).length > 0 ? (
+          <BotonSecundario
+            titulo="📤  Mandar la rendición a la oficina"
+            alTocar={() => encolar.mutate()}
+            cargando={encolar.isPending}
+          />
+        ) : null}
       </Panel>
 
       {/* Paso 1 del alta suelta: elegir a quién se le cobró. Arranca con los
