@@ -5,7 +5,7 @@ import {
   formatearPesos,
   radios,
 } from '@woodtools/compartido'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
@@ -15,7 +15,7 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { ModalCobranza } from '../componentes/ModalCobranza'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { cobranzasDelDia, type Cobranza } from '../servicios/cobranzas'
+import { cobranzasDelDia, marcarCobroDeVisita, type Cobranza } from '../servicios/cobranzas'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
@@ -56,6 +56,22 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
   const { data: cobros, isLoading, isError, refetch } = useQuery({
     queryKey: ['cobranzas-del-dia', fecha],
     queryFn: () => cobranzasDelDia(fecha),
+  })
+
+  // Al agregar un cobro a un cliente que ya visitó ese día, el rol de visita
+  // tiene que mostrar que cobró. El cobro ya quedó guardado en `cobranzas`; esto
+  // es el reflejo en el parte, de mejor esfuerzo (si falla, no interrumpe nada).
+  const marcarCobro = useMutation({
+    mutationFn: (p: { clienteId: string; fecha: string }) =>
+      marcarCobroDeVisita(p.clienteId, p.fecha),
+    onSettled: () => {
+      // Todas las vistas que dibujan el "cobró" por si quedaron montadas: el rol
+      // de hoy, el picker, el historial y el detalle de la parada.
+      void consultas.invalidateQueries({ queryKey: ['jornada-hoy'] })
+      void consultas.invalidateQueries({ queryKey: ['cobro-clientes-visitados'] })
+      void consultas.invalidateQueries({ queryKey: ['historial'] })
+      void consultas.invalidateQueries({ queryKey: ['detalle-parada'] })
+    },
   })
 
   const total = (cobros ?? []).reduce((s, c) => s + Number(c.total), 0)
@@ -190,6 +206,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
       <BuscarClienteModal
         visible={buscandoCliente}
         fecha={fecha}
+        soloVisitados
         alElegir={(c) => {
           setBuscandoCliente(false)
           setClienteNuevoCobro(c)
@@ -226,9 +243,14 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
           setClienteNuevoCobro(null)
         }}
         alGuardar={() => {
+          // Un alta a un cliente visitado refleja en el rol que cobró. Al
+          // corregir no: el cliente del cobro editado no sale de la lista de
+          // visitados y no se vuelve a marcar.
+          const cobrado = editando ? null : clienteNuevoCobro
           setEditando(null)
           setClienteNuevoCobro(null)
           void consultas.invalidateQueries({ queryKey: ['cobranzas-del-dia', fecha] })
+          if (cobrado?.id) marcarCobro.mutate({ clienteId: cobrado.id, fecha })
         }}
       />
     </Pantalla>

@@ -30,12 +30,19 @@ export function BuscarClienteModal({
   fecha,
   alElegir,
   alCerrar,
+  soloVisitados = false,
 }: {
   visible: boolean
   /** El día que se está mirando en COBRANZAS: de ahí salen los visitados. */
   fecha: string
   alElegir: (cliente: ClienteElegido) => void
   alCerrar: () => void
+  /**
+   * Sólo deja elegir clientes YA visitados ese día: oculta el buscador del
+   * padrón y el "cargar a mano". Así el cobro siempre cae sobre una visita real
+   * (y se puede reflejar en el rol que el cliente cobró).
+   */
+  soloVisitados?: boolean
 }) {
   const estilos = usarEstilos()
   const perfilId = usarSesion((s) => s.perfil?.id)
@@ -119,7 +126,8 @@ export function BuscarClienteModal({
   }, [consulta])
 
   // Con 2+ letras tipeadas, el picker pasa de "visitados" a buscar en el padrón.
-  const modoBusqueda = consulta.trim().length >= 2
+  // Con `soloVisitados`, nunca: no hay buscador, sólo la lista de visitados.
+  const modoBusqueda = !soloVisitados && consulta.trim().length >= 2
   const sinResultados = modoBusqueda && !buscando && !fallo && resultados.length === 0 && consultaBuscada
 
   // El nombre a mano, para un cobro de alguien que no está en el padrón (una
@@ -150,13 +158,15 @@ export function BuscarClienteModal({
         <Panel desplazable={false} contentStyle={estilos.contenido}>
           <TituloPanel>{'¿A QUIÉN\nLE COBRASTE?'}</TituloPanel>
 
-          <Campo
-            placeholder="Buscá otro cliente o escribí un nombre"
-            value={consulta}
-            onChangeText={setConsulta}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          {!soloVisitados ? (
+            <Campo
+              placeholder="Buscá otro cliente o escribí un nombre"
+              value={consulta}
+              onChangeText={setConsulta}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          ) : null}
 
           <ScrollView
             style={estilos.cuerpo}
@@ -235,8 +245,9 @@ export function BuscarClienteModal({
               </>
             ) : (
               <Aviso tono="info">
-                No hay visitas ese día. Buscá el cliente arriba por código o nombre, o escribí el
-                nombre para cargarlo a mano.
+                {soloVisitados
+                  ? 'Todavía no cerraste ninguna visita ese día. El cobro se agrega a un cliente que ya visitaste.'
+                  : 'No hay visitas ese día. Buscá el cliente arriba por código o nombre, o escribí el nombre para cargarlo a mano.'}
               </Aviso>
             )}
           </ScrollView>

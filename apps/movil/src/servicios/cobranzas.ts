@@ -173,6 +173,22 @@ export async function marcarCobranzasImpresas(fechas: string[]): Promise<number>
   return Number(data ?? 0)
 }
 
+/**
+ * Marca en el ROL DE VISITA que un cliente cobró, cuando el cobro se cargó desde
+ * COBRANZAS (no desde el parte). Busca la visita de ese cliente en el rol de ese
+ * día del vendedor y le pone cobro=true (RPC `marcar_cobro_de_visita`). Es
+ * aditivo y de mejor esfuerzo: si el cliente no tiene una visita ese día devuelve
+ * false y el cobro queda igual guardado.
+ */
+export async function marcarCobroDeVisita(clienteId: string, fecha: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('marcar_cobro_de_visita', {
+    p_cliente_id: clienteId,
+    p_fecha: fecha,
+  })
+  if (error) throw conMensajeDeSenal(error)
+  return Boolean(data)
+}
+
 /** Los cobros de hoy, en el orden en que se hicieron. */
 export async function cobranzasDelDia(fecha?: string): Promise<Cobranza[]> {
   const { data: sesion } = await supabase.auth.getSession()
