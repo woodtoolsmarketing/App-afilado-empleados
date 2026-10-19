@@ -133,6 +133,15 @@ export function usarCandado(habilitado: boolean) {
   /** Que el desbloqueo automático salte una sola vez por candado, no en cada dibujado. */
   const pedidoAuto = useRef(false)
   /**
+   * Que haya UN solo diálogo de desbloqueo a la vez.
+   *
+   * El auto-prompt y un toque del botón pueden caer casi juntos; dos
+   * `authenticateAsync` encimados tiran "Authentication is already in progress"
+   * y uno de los dos queda sin resolver. Un ref —síncrono, a diferencia del
+   * estado— corta la segunda llamada antes de abrir el segundo diálogo.
+   */
+  const enCurso = useRef(false)
+  /**
    * El bloqueo "al arrancar" es una sola vez por sesión de la app, no cada vez
    * que `habilitado` vuelve a ser true.
    *
@@ -146,6 +155,8 @@ export function usarCandado(habilitado: boolean) {
   const yaBloqueoAlArrancar = useRef(false)
 
   const desbloquear = useCallback(async () => {
+    if (enCurso.current) return false
+    enCurso.current = true
     setVerificando(true)
     try {
       const ok = await pedirDesbloqueo()
@@ -155,6 +166,7 @@ export function usarCandado(habilitado: boolean) {
       }
       return ok
     } finally {
+      enCurso.current = false
       setVerificando(false)
     }
   }, [])
@@ -187,6 +199,17 @@ export function usarCandado(habilitado: boolean) {
         return
       }
       if (estado !== 'active') return
+
+      // Al volver al frente, cualquier diálogo de desbloqueo que estuviera
+      // abierto ya no está en pantalla. El caso que traba la app: el vendedor
+      // manda la app al fondo con la huella abierta (o le entra una llamada) y
+      // en varios Android `authenticateAsync` queda sin resolver —ni éxito ni
+      // error—, así que el `finally` que baja `verificando` nunca corre y el
+      // botón DESBLOQUEAR queda girando y deshabilitado para siempre. Limpiar
+      // las banderas acá destraba ese caso: no dispara ningún diálogo (no hay
+      // riesgo de bucle), sólo devuelve el botón a estado usable.
+      enCurso.current = false
+      setVerificando(false)
 
       const desde = seFueAlFondo.current
       seFueAlFondo.current = null
