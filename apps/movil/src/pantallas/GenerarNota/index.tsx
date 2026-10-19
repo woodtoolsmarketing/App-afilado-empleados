@@ -993,6 +993,58 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setErrores({})
   }
 
+  /**
+   * Una fresa con varios anchos de corte.
+   *
+   * Cada ancho de una fresa escalonada es un trabajo distinto: su código de
+   * cómputo y su precio por diente salen del ancho, igual que en "no todas son
+   * de la misma medida". Por eso un renglón con N anchos se parte en N renglones,
+   * cada uno con su ancho y su cantidad de dientes, y todo lo que depende de la
+   * medida (código, precio) se suelta para que cada uno lo resuelva solo.
+   *
+   * Lo demás de la pieza —tipo, diámetros, descripción, cuántas fresas iguales
+   * (`cantidad`)— se conserva: es la misma herramienta con otro ancho. Los
+   * dientes rotos y la reparación NO se copian: `computoDeRenglon` los toma como
+   * total del renglón, así que copiarlos a cada ancho los cobraría N veces (el
+   * mismo cuidado que en `separarPorMedida`); el vendedor los declara por ancho.
+   */
+  function aplicarAnchosDeFresa(pares: { dientes: string; ancho: string }[]) {
+    const base = items[activo]
+    if (!base || pares.length === 0) return
+
+    // Reemplazar 1 renglón por N: si no entran en la nota, se avisa y no se parte.
+    if (items.length - 1 + pares.length > MAXIMO_RENGLONES) {
+      avisarSinLugar()
+      return
+    }
+
+    const renglones: FormularioItemNota[] = pares.map((p) => ({
+      ...base,
+      cantidad_dientes: p.dientes,
+      ancho_corte: p.ancho,
+      // La medida cambió: el código y el precio se vuelven a proponer y a
+      // confirmar por cada ancho.
+      codigos_computo: [],
+      codigo_confirmado: null,
+      precio_por_diente: '',
+      precio_total: '',
+      // Rotos y reparación, por renglón (ver el comentario de arriba).
+      dientes_rotos: false,
+      dientes_rotos_cantidad: '',
+      reparar_dientes: null,
+      codigo_reparacion: '',
+      precio_reparacion_por_diente: '',
+    }))
+
+    const nuevos = [...items]
+    nuevos.splice(activo, 1, ...renglones)
+    setItems(nuevos)
+    // Se queda en el primer ancho; el editor del renglón se cierra solo.
+    setActivo(activo)
+    setIntentado(false)
+    setErrores({})
+  }
+
   /** Agrega un renglón por cada herramienta marcada en la lista múltiple. */
   function agregarHerramientasElegidas() {
     if (herramientasElegidas.length === 0) return
@@ -1668,6 +1720,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                           // Para poder pisar el precio de lista con el que se
                           // le acordó a este cliente, si tiene alguno.
                           clienteId={encabezado.cliente_id}
+                          // Fresa con varios anchos: parte el renglón en uno por ancho.
+                          alAplicarAnchos={aplicarAnchosDeFresa}
                         />
                       )}
 

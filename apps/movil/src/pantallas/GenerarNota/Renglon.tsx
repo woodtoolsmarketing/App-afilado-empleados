@@ -74,6 +74,7 @@ import {
   SelectorMarca,
 } from '../../componentes/Formulario'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { BotonSecundario } from '../../componentes/Botones'
 import { preciosEspecialesDe } from '../../servicios/notasPedido'
 import { CampoDescuento } from './Descuento'
 import {
@@ -257,12 +258,19 @@ export function PasoRenglon({
   alCambiar,
   errores,
   clienteId,
+  alAplicarAnchos,
 }: {
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
   errores: Record<string, string | undefined>
   /** Para pisar el precio de lista con el acordado con este cliente. */
   clienteId?: string | null
+  /**
+   * Una fresa con varios anchos de corte: cada ancho es su propio trabajo (su
+   * código y su precio salen del ancho), así que esto parte el renglón en uno
+   * por ancho. Lo resuelve el padre, que es el dueño de la lista de renglones.
+   */
+  alAplicarAnchos?: (pares: { dientes: string; ancho: string }[]) => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -328,6 +336,30 @@ export function PasoRenglon({
    * cambia la medida, lo segundo no.
    */
   const propuesto = useRef<string | null>(null)
+
+  /**
+   * Una fresa escalonada (o con perfil) tiene secciones con distinto ancho de
+   * corte y distinta cantidad de dientes. Cada ancho da OTRO código de cómputo y
+   * OTRO precio por diente, así que no se puede cotizar como un solo ancho. Esto
+   * deja cargar cada (dientes, ancho) y, al aplicar, el renglón se parte en uno
+   * por ancho —igual que "no todas son de la misma medida", pero con los anchos
+   * ya cargados de una—. Sólo para afilado/rectificado/reparación de fresa.
+   *
+   * El estado es local y se reinicia solo al cambiar de renglón: `PasoRenglon`
+   * se vuelve a montar con `key={activo}`.
+   */
+  const esFresaConAnchos =
+    item.herramienta === 'fresa' &&
+    (item.servicio === 'afilado' || item.servicio === 'rectificado' || item.servicio === 'reparacion') &&
+    typeof alAplicarAnchos === 'function'
+  const [variosAnchos, setVariosAnchos] = useState(false)
+  const [paresAncho, setParesAncho] = useState<{ dientes: string; ancho: string }[]>([])
+  // Un par cuenta cuando tiene algo cargado; para aplicar, TODOS los cargados
+  // tienen que estar completos y tiene que haber al menos dos (si hubiera uno
+  // solo no son "varios anchos").
+  const paresConDatos = paresAncho.filter((p) => p.dientes.trim() !== '' || p.ancho.trim() !== '')
+  const paresCompletos = paresConDatos.every((p) => aNumero(p.dientes) > 0 && p.ancho.trim() !== '')
+  const puedeAplicarAnchos = paresConDatos.length >= 2 && paresCompletos
 
   const herramientas = HERRAMIENTAS_POR_SERVICIO[item.servicio]
   /**
@@ -1455,6 +1487,26 @@ export function PasoRenglon({
         const renderUno = (campo: CampoItem): ReactNode => {
         if (campo === 'tipo_mecha') return null
 
+        // Con "varios anchos" activo, todo lo que cambia de un ancho a otro —el
+        // ancho, los dientes, el código, los precios, los rotos— se carga o se
+        // resuelve por ancho, no en el renglón base: se ocultan acá para que la
+        // pantalla muestre sólo lo compartido (tipo, cantidad, diámetros) y el
+        // editor de pares. Los valores se aplican recién al partir el renglón.
+        if (
+          variosAnchos &&
+          esFresaConAnchos &&
+          (campo === 'ancho_corte' ||
+            campo === 'cantidad_dientes' ||
+            campo === 'codigos_computo' ||
+            campo === 'precio_por_diente' ||
+            campo === 'precio_total' ||
+            campo === 'dientes_rotos' ||
+            campo === 'dientes_rotos_cantidad' ||
+            campo === 'reparar_dientes')
+        ) {
+          return null
+        }
+
         /*
           SIERRA o INCISOR, primero de la lista y por eso primero en pantalla.
 
@@ -2221,6 +2273,99 @@ export function PasoRenglon({
           ),
         )
       })()}
+
+      {/* ── Fresa con varios anchos de corte ──────────────────────────────
+          Cada ancho es otro código y otro precio: no se cotiza como uno solo.
+          El editor junta los pares (dientes, ancho) y al aplicar el renglón se
+          parte en uno por ancho. Sólo en afilado/rectificado/reparación de fresa. */}
+      {esFresaConAnchos ? (
+        <View style={estilos.cascada}>
+          <Casilla
+            etiqueta="¿TIENE DIFERENTES ANCHOS DE CORTE?"
+            valor={variosAnchos}
+            alCambiar={(v) => {
+              setVariosAnchos(v)
+              // Al prender, el primer par arranca con lo que ya esté cargado en
+              // el renglón y se deja un segundo vacío para invitar a completarlo.
+              if (v && paresAncho.length === 0) {
+                setParesAncho([
+                  { dientes: item.cantidad_dientes, ancho: item.ancho_corte },
+                  { dientes: '', ancho: '' },
+                ])
+              }
+            }}
+          />
+          {variosAnchos ? (
+            <>
+              <Text style={estilos.cascadaAyuda}>
+                Cargá cada ancho con su cantidad de dientes. Al aplicar, cada uno
+                entra como un renglón con su propio código y su precio.
+              </Text>
+              {paresAncho.map((p, i) => (
+                <View key={i} style={estilos.par}>
+                  <View style={estilos.colPar}>
+                    <Campo
+                      etiqueta="DIENTES"
+                      obligatorio
+                      value={p.dientes}
+                      keyboardType="decimal-pad"
+                      onChangeText={(t) =>
+                        setParesAncho((xs) =>
+                          xs.map((x, j) => (j === i ? { ...x, dientes: soloNumeros(t) } : x)),
+                        )
+                      }
+                    />
+                  </View>
+                  <View style={estilos.colPar}>
+                    <Campo
+                      etiqueta="ANCHO DE CORTE (mm)"
+                      obligatorio
+                      value={p.ancho}
+                      keyboardType="decimal-pad"
+                      onChangeText={(t) =>
+                        setParesAncho((xs) =>
+                          xs.map((x, j) => (j === i ? { ...x, ancho: normalizarMedida(t) } : x)),
+                        )
+                      }
+                    />
+                  </View>
+                  {paresAncho.length > 1 ? (
+                    <Pressable
+                      onPress={() => setParesAncho((xs) => xs.filter((_, j) => j !== i))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar el ancho ${i + 1}`}
+                      style={estilos.quitarAncho}
+                    >
+                      <Text style={estilos.quitarAnchoTexto}>✕</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+              <BotonSecundario
+                titulo="⊕  AGREGAR OTRO ANCHO"
+                alTocar={() => setParesAncho((xs) => [...xs, { dientes: '', ancho: '' }])}
+              />
+              <BotonSecundario
+                titulo={`APLICAR ${paresConDatos.length} ANCHOS`}
+                deshabilitado={!puedeAplicarAnchos}
+                alTocar={() => {
+                  if (!puedeAplicarAnchos) return
+                  alAplicarAnchos?.(paresConDatos)
+                  // El editor se cierra solo: el renglón ya quedó partido y el
+                  // primer ancho se muestra en los campos de siempre.
+                  setVariosAnchos(false)
+                  setParesAncho([])
+                }}
+              />
+              {!puedeAplicarAnchos ? (
+                <Text style={estilos.cascadaAyuda}>
+                  Completá al menos dos anchos (dientes y ancho) para aplicar.
+                </Text>
+              ) : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* El descuento va afuera de `CAMPOS_POR_HERRAMIENTA` y al final de todo.
           Afuera porque no es una medida de la herramienta sino una condición
@@ -3147,6 +3292,19 @@ const usarEstilos = hojaDeTema((t) => ({
   colPar: { flex: 1, minWidth: 0 },
   tercio: { flex: 1 },
   mitad: { flex: 1 },
+
+  // La ✕ para quitar un ancho del editor de pares: alineada con el casillero de
+  // al lado (que lleva su rótulo arriba), no con el borde superior de la fila.
+  quitarAncho: {
+    paddingTop: espaciado.lg,
+    paddingHorizontal: espaciado.xs,
+    justifyContent: 'center',
+  },
+  quitarAnchoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.rojo,
+  },
 
   totalDientes: {
     fontFamily: t.tipografia.familia.fuerte,
