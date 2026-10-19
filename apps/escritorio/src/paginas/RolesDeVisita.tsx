@@ -1,10 +1,12 @@
 import {
   combinarObservacionYResumen,
+  errorObservacion,
   ETIQUETA_ESTADO_PARADA,
   fechaLocalISO,
   formatearHora,
   generarDocumentoImpresion,
   observacionConCantidades,
+  ordenarParadasDelRol,
   resumenesDePedidoPorParada,
   resumenesDePedidoSueltoPorParada,
   rolImprimibleDesdeFilas,
@@ -35,6 +37,20 @@ const MOSTRAR = 40
 
 /** La jornada cargada: el rol y sus paradas, tal como la devuelve la consulta. */
 type JornadaPanel = { rol: RolVisita; paradas: ParadaCompleta[] }
+
+/** Lo que el admin manda al editar el parte de una visita. */
+interface DatosParte {
+  visitaId: string
+  vendio: boolean
+  cobro: boolean
+  retiro_afilado: boolean
+  entrego: boolean
+  sin_pedido: boolean
+  otras: boolean
+  otras_detalle: string | null
+  observacion: string
+  contacto: string
+}
 
 /** Mueve el elemento de `desde` a `hasta` en una copia del arreglo. */
 function conMovimiento<T>(lista: T[], desde: number, hasta: number): T[] {
@@ -113,6 +129,8 @@ export function PaginaRolesDeVisita({
   const [busqueda, setBusqueda] = useState('')
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // La parada cuyo parte está editando el admin (o null si el modal está cerrado).
+  const [editandoParte, setEditandoParte] = useState<ParadaCompleta | null>(null)
 
   // Todos los que hacen recorrido = los que tienen código de vendedor (vendedor,
   // tester, y un admin que también vende). Antes se listaba sólo `rol='vendedor'`;
@@ -387,6 +405,50 @@ export function PaginaRolesDeVisita({
     onError: (e: Error) => setError(e.message),
   })
 
+  // Unir las paradas duplicadas de un cliente+sucursal en una sola (admin): junta
+  // lo que hizo en ambas y re-engancha sus notas antes de borrar la sobrante.
+  const unir = useMutation({
+    mutationFn: async (p: { clienteId: string; direccionId: string | null }) => {
+      if (!jornada) throw new Error('No hay rol de visita cargado')
+      const { error: err } = await supabase.rpc('unir_paradas_duplicadas', {
+        p_rol_visita_id: jornada.rol.id,
+        p_cliente_id: p.clienteId,
+        p_direccion_id: p.direccionId,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      setMensaje('Paradas duplicadas unidas en una.')
+      void cliente.invalidateQueries({ queryKey: ['rol-visita'] })
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  // Editar el parte de una visita hecha (admin): qué hizo el cliente + observación.
+  const editarParte = useMutation({
+    mutationFn: async (d: DatosParte) => {
+      const { error: err } = await supabase.rpc('editar_parte_visita', {
+        p_visita_id: d.visitaId,
+        p_vendio: d.vendio,
+        p_cobro: d.cobro,
+        p_retiro_afilado: d.retiro_afilado,
+        p_entrego: d.entrego,
+        p_sin_pedido: d.sin_pedido,
+        p_otras: d.otras,
+        p_otras_detalle: d.otras_detalle,
+        p_observacion: d.observacion,
+        p_contacto: d.contacto,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      setEditandoParte(null)
+      setMensaje('Parte actualizado.')
+      void cliente.invalidateQueries({ queryKey: ['rol-visita'] })
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
   const optimizar = useMutation({
     mutationFn: async () => {
       if (!jornada) return
@@ -420,6 +482,30 @@ export function PaginaRolesDeVisita({
       ),
     [jornada],
   )
+
+  // Para MOSTRAR e imprimir: ordenadas por la hora real de visita (las no
+  // visitadas al final, en el orden del recorrido); el Nº es la posición acá, no
+  // el `orden` crudo (que salta). NO se usa para reordenar: eso sigue con
+  // `abiertas`/`orden`, que no se tocan.
+  const paradasParaMostrar = useMemo(
+    () => ordenarParadasDelRol(jornada?.paradas ?? []),
+    [jornada],
+  )
+
+  // Clientes cargados dos veces en el MISMO cliente + sucursal (misma dirección):
+  // son duplicados a unir. Distinta sucursal = el mismo cliente dos veces a
+  // propósito, no cuenta como duplicado.
+  const conteoDuplicados = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of jornada?.paradas ?? []) {
+      if (!p.cliente_id) continue
+      const clave = `${p.cliente_id}|${p.direccion_id ?? ''}`
+      m.set(clave, (m.get(clave) ?? 0) + 1)
+    }
+    return m
+  }, [jornada])
+  const esDuplicado = (p: ParadaCompleta) =>
+    !!p.cliente_id && (conteoDuplicados.get(`${p.cliente_id}|${p.direccion_id ?? ''}`) ?? 0) > 1
 
   const reordenar = useMutation({
     mutationFn: async (nuevoOrden: string[]) => {
@@ -635,9 +721,9 @@ export function PaginaRolesDeVisita({
                     </td>
                   </tr>
                 ) : (
-                  jornada.paradas.map((p) => (
+                  paradasParaMostrar.map((p, i) => (
                     <tr key={p.id}>
-                      <td>{p.orden}</td>
+                      <td>{i + 1}</td>
                       <td>{p.llegada_en ? formatearHora(p.llegada_en) : ''}</td>
                       <td>{p.cliente?.codigo ?? ''}</td>
                       <td>{p.cliente?.razon_social ?? p.razon_social_snapshot ?? '—'}</td>
@@ -712,6 +798,38 @@ export function PaginaRolesDeVisita({
                                     Último
                                   </button>
                                 </>
+                              ) : null}
+                              {esAdmin && p.visita?.visitado ? (
+                                <button
+                                  className="chico"
+                                  title="Editar qué hizo el cliente y la observación"
+                                  disabled={soloLectura}
+                                  onClick={() => setEditandoParte(p)}
+                                >
+                                  Editar parte
+                                </button>
+                              ) : null}
+                              {esAdmin && esDuplicado(p) ? (
+                                <button
+                                  className="chico"
+                                  title="El cliente está cargado dos veces (misma sucursal): unir en una"
+                                  disabled={soloLectura || unir.isPending || !p.cliente_id}
+                                  onClick={() => {
+                                    if (!p.cliente_id) return
+                                    if (
+                                      !window.confirm(
+                                        'Este cliente está cargado más de una vez en esta sucursal. Se unen en una sola parada, juntando lo que hizo en todas. ¿Seguro?',
+                                      )
+                                    )
+                                      return
+                                    unir.mutate({
+                                      clienteId: p.cliente_id,
+                                      direccionId: p.direccion_id,
+                                    })
+                                  }}
+                                >
+                                  Unir duplicado
+                                </button>
                               ) : null}
                               <button
                                 className="chico peligro"
@@ -812,6 +930,161 @@ export function PaginaRolesDeVisita({
           </section>
         </>
       )}
+
+      {editandoParte && editandoParte.visita ? (
+        <ModalEditarParte
+          parada={editandoParte}
+          guardando={editarParte.isPending}
+          error={editarParte.isError ? (editarParte.error as Error).message : null}
+          alCerrar={() => setEditandoParte(null)}
+          alGuardar={(d) => editarParte.mutate(d)}
+        />
+      ) : null}
     </>
+  )
+}
+
+/**
+ * El admin corrige el parte de una visita hecha: qué hizo el cliente (vendió,
+ * cobró, retiró, entregó, no tenía nada, otras) y la observación. Es el mismo
+ * conjunto de casillas que el parte del teléfono. Guarda por la RPC
+ * `editar_parte_visita` (que revalida los mismos CHECK de la base).
+ */
+function ModalEditarParte({
+  parada,
+  guardando,
+  error,
+  alCerrar,
+  alGuardar,
+}: {
+  parada: ParadaCompleta
+  guardando: boolean
+  error: string | null
+  alCerrar: () => void
+  alGuardar: (d: DatosParte) => void
+}) {
+  const v = parada.visita!
+  const [vendio, setVendio] = useState(v.vendio)
+  const [cobro, setCobro] = useState(v.cobro)
+  const [retiro, setRetiro] = useState(v.retiro_afilado)
+  const [entrego, setEntrego] = useState(v.entrego)
+  const [sinPedido, setSinPedido] = useState(v.sin_pedido)
+  const [otras, setOtras] = useState(v.otras)
+  const [otrasDetalle, setOtrasDetalle] = useState(v.otras_detalle ?? '')
+  const [observacion, setObservacion] = useState(v.observacion)
+  const [contacto, setContacto] = useState(v.contacto_nombre ?? '')
+
+  const algunaAccion = vendio || cobro || retiro || entrego || sinPedido || otras
+  const faltaDetalle = otras && otrasDetalle.trim() === ''
+  // Misma regla que la base (y que el parte del teléfono): ≥12 caracteres y ≥3
+  // palabras. Así el botón no habilita algo que la RPC va a rechazar.
+  const errorObs = errorObservacion(observacion)
+  const puedeGuardar = algunaAccion && !faltaDetalle && !errorObs && !guardando
+
+  const Casilla = ({
+    etiqueta,
+    valor,
+    alCambiar,
+  }: {
+    etiqueta: string
+    valor: boolean
+    alCambiar: (v: boolean) => void
+  }) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+      <input type="checkbox" checked={valor} onChange={(e) => alCambiar(e.target.checked)} />
+      {etiqueta}
+    </label>
+  )
+
+  return (
+    <div
+      onClick={alCerrar}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        zIndex: 50,
+      }}
+    >
+      <div
+        className="tarjeta"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <h2 style={{ marginTop: 0 }}>
+          Editar parte — {parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? '—'}
+        </h2>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '12px 0' }}>
+          <Casilla etiqueta="Vendió" valor={vendio} alCambiar={setVendio} />
+          <Casilla etiqueta="Cobró" valor={cobro} alCambiar={setCobro} />
+          <Casilla etiqueta="Retiró afilado" valor={retiro} alCambiar={setRetiro} />
+          <Casilla etiqueta="Entregó" valor={entrego} alCambiar={setEntrego} />
+          <Casilla etiqueta="No tenía nada" valor={sinPedido} alCambiar={setSinPedido} />
+          <Casilla etiqueta="Otras" valor={otras} alCambiar={setOtras} />
+        </div>
+
+        {otras ? (
+          <div className="campo">
+            <label>¿Qué otra cosa pasó?</label>
+            <input value={otrasDetalle} onChange={(e) => setOtrasDetalle(e.target.value)} />
+          </div>
+        ) : null}
+
+        <div className="campo">
+          <label>Observación</label>
+          <textarea
+            value={observacion}
+            onChange={(e) => setObservacion(e.target.value)}
+            rows={3}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <div className="campo">
+          <label>Contacto</label>
+          <input value={contacto} onChange={(e) => setContacto(e.target.value)} />
+        </div>
+
+        {!algunaAccion ? (
+          <div className="aviso atencion">Marcá al menos una acción.</div>
+        ) : faltaDetalle ? (
+          <div className="aviso atencion">Si marcás "Otras", contá qué pasó.</div>
+        ) : errorObs ? (
+          <div className="aviso atencion">{errorObs}</div>
+        ) : null}
+        {error ? <div className="aviso error">{error}</div> : null}
+
+        <div className="acciones" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button onClick={alCerrar} disabled={guardando}>
+            Cancelar
+          </button>
+          <button
+            className="primario"
+            disabled={!puedeGuardar}
+            onClick={() =>
+              alGuardar({
+                visitaId: v.id,
+                vendio,
+                cobro,
+                retiro_afilado: retiro,
+                entrego,
+                sin_pedido: sinPedido,
+                otras,
+                otras_detalle: otras ? otrasDetalle : null,
+                observacion,
+                contacto,
+              })
+            }
+          >
+            {guardando ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -174,6 +174,31 @@ function resultadoDeParada(p: ParadaCompleta, renglones?: RenglonParaResumen[]):
  * saca la cola de la oficina— y si cada uno lo mapea a su manera, el mismo
  * recorrido sale distinto según quién apretó el botón.
  */
+/**
+ * Las paradas del rol, ordenadas para mostrar e imprimir: por la HORA real de
+ * llegada (`llegada_en`), y las que todavía no se visitaron al final, en el
+ * orden del recorrido (`orden`). El "Nº" de la planilla es la POSICIÓN en esta
+ * lista (1, 2, 3… consecutivo), no el `orden` crudo —que es la secuencia del
+ * recorrido y puede saltar (huecos al quitar/optimizar)—.
+ *
+ * Es sólo presentación: NO cambia `paradas.orden` (que el recorrido del teléfono
+ * y el reordenar del panel siguen usando).
+ */
+export function ordenarParadasDelRol<T extends { llegada_en?: string | null; orden: number }>(
+  paradas: readonly T[],
+): T[] {
+  return [...paradas].sort((a, b) => {
+    const ta = a.llegada_en ? Date.parse(a.llegada_en) : NaN
+    const tb = b.llegada_en ? Date.parse(b.llegada_en) : NaN
+    const va = !Number.isNaN(ta)
+    const vb = !Number.isNaN(tb)
+    if (va && vb) return ta - tb // las dos visitadas: por hora real
+    if (va) return -1 // una visitada va antes que una pendiente
+    if (vb) return 1
+    return a.orden - b.orden // dos pendientes: por el orden del recorrido
+  })
+}
+
 export function rolImprimibleDesdeFilas(
   jornada: { fecha: string },
   paradas: ParadaCompleta[],
@@ -186,8 +211,8 @@ export function rolImprimibleDesdeFilas(
    */
   resumenesCompletos?: Map<string, RenglonParaResumen[]>,
 ): RolDeVisitaParaImprimir {
-  const renglones: RenglonRolDeVisita[] = paradas.map((p) => ({
-    numero: p.orden,
+  const renglones: RenglonRolDeVisita[] = ordenarParadasDelRol(paradas).map((p, i) => ({
+    numero: i + 1,
     hora: p.llegada_en ? formatearHora(p.llegada_en) : '',
     cliente_numero: p.cliente?.codigo ?? '',
     razon_social: p.cliente?.razon_social ?? p.razon_social_snapshot ?? '',
