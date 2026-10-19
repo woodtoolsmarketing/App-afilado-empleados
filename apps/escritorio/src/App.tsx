@@ -5,6 +5,7 @@ import type { ClaveFuncionPanel, RolUsuario } from '@woodtools/compartido'
 
 import { supabase } from './nucleo/supabase'
 import { SelectorImpresora } from './componentes/SelectorImpresora'
+import { ProveedorAgenteImpresion } from './nucleo/agenteImpresion'
 import { usarAvisoDeEscritorio } from './nucleo/avisoEscritorio'
 import { usarPermisosPanel } from './nucleo/permisos'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
@@ -70,6 +71,7 @@ export function App() {
     )
 
   return (
+    <ProveedorAgenteImpresion>
     <ProveedorConsola rutaActual={ubicacion.pathname}>
     <div className="marco">
       <BarraLateral
@@ -149,6 +151,7 @@ export function App() {
       </main>
     </div>
     </ProveedorConsola>
+    </ProveedorAgenteImpresion>
   )
 }
 
