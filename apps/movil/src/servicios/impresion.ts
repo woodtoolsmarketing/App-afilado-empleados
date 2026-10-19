@@ -90,12 +90,18 @@ export async function obtenerImpresora(): Promise<ConfiguracionImpresora | null>
 /**
  * A qué dirección mandarle el trabajo, ahora.
  *
- * Prueba, en orden: la que este teléfono usó la última vez con éxito, la que
- * tiene cargada la oficina, y —si ninguna contesta— la busca en la red. La
- * primera está primero porque si ayer la impresora estaba en .152, hoy sigue
- * estando ahí, y probar eso cuesta medio segundo contra los ocho de un barrido.
+ * Dos caminos, según haya o no una impresora cargada en la oficina:
  *
- * Devuelve null cuando no hay forma: sin wifi, o con la impresora apagada.
+ *   · CON impresora configurada (el caso normal hoy): esa IP es la ÚNICA
+ *     candidata. Se la sondea; si contesta, se imprime ahí. Si no contesta, se
+ *     devuelve null SIN barrer la red —barrer podría encontrar una impresora
+ *     vieja que quedó prendida (la .167) y mandarle el papel a la equivocada—.
+ *   · SIN impresora configurada: se prueba la que este teléfono usó la última
+ *     vez con éxito y, si no contesta, se barre la red como descubrimiento.
+ *
+ * Devuelve null cuando no hay forma de ubicarla: sin wifi, con la configurada
+ * apagada/movida de IP, o sin encontrar ninguna en el barrido. El llamador
+ * (`entregarDocumento`) traduce ese null en un aviso al vendedor.
  */
 async function ubicarImpresora(
   configurada: ConfiguracionImpresora | null,
@@ -136,8 +142,8 @@ async function ubicarImpresora(
 
   // Con una impresora configurada NO se barre la red: aceptar la primera que
   // conteste IPP imprime en cualquier impresora vieja que haya quedado prendida.
-  // Si la configurada no contesta, se cae al diálogo del sistema para que el
-  // vendedor elija a mano, en vez de que la app adivine (y pegue a la .167).
+  // Si la configurada no contesta, se devuelve null y el llamador avisa que no
+  // se la pudo alcanzar (sin adivinar otra IP, para no pegarle a la .167).
   if (configurada?.ip) return null
 
   if (!red.ip) return null
@@ -673,7 +679,7 @@ async function entregarDocumento(
       : !red.enWifi
         ? 'Estás con datos móviles. La impresora de la oficina está en la red local: conectate a ese wifi y volvé a intentar.'
         : configurada
-          ? `No pudimos alcanzar la impresora${donde}, y tampoco la encontramos en esta red. Fijate que esté encendida y en el mismo wifi.`
+          ? `No pudimos alcanzar la impresora de la oficina${donde}. Fijate que esté encendida y en el mismo wifi; si le cambió la dirección, actualizala en el panel.`
           : 'No hay ninguna impresora cargada. Pedile a la oficina que cargue la IP en el panel.',
   )
 }

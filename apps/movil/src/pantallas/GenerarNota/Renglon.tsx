@@ -259,6 +259,7 @@ export function PasoRenglon({
   errores,
   clienteId,
   alAplicarAnchos,
+  alAnchosPendientes,
 }: {
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
@@ -271,6 +272,13 @@ export function PasoRenglon({
    * por ancho. Lo resuelve el padre, que es el dueño de la lista de renglones.
    */
   alAplicarAnchos?: (pares: { dientes: string; ancho: string }[]) => void
+  /**
+   * Avisa al padre si hay anchos cargados en el editor SIN aplicar. El padre lo
+   * usa para no dejar CONTINUAR (ni cambiar de renglón, ni sumar otro) con pares
+   * colgando: si no, el renglón se guardaría cotizando sólo el ancho base y las
+   * secciones cargadas en el editor se perderían sin que nadie lo vea.
+   */
+  alAnchosPendientes?: (pendiente: boolean) => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -360,6 +368,28 @@ export function PasoRenglon({
   const paresConDatos = paresAncho.filter((p) => p.dientes.trim() !== '' || p.ancho.trim() !== '')
   const paresCompletos = paresConDatos.every((p) => aNumero(p.dientes) > 0 && p.ancho.trim() !== '')
   const puedeAplicarAnchos = paresConDatos.length >= 2 && paresCompletos
+
+  // Mientras haya anchos cargados sin aplicar, el padre bloquea CONTINUAR y
+  // cualquier salida del renglón: si no, se guardaría el ancho base solo y las
+  // secciones del editor se perderían calladas (subfacturación). Al aplicar o
+  // destildar, `variosAnchos`/los pares se limpian y esto vuelve a false; al
+  // desmontar (cambio de renglón) también, para no dejar el candado trabado.
+  const hayAnchosSinAplicar = variosAnchos && paresConDatos.length > 0
+  useEffect(() => {
+    alAnchosPendientes?.(hayAnchosSinAplicar)
+    return () => alAnchosPendientes?.(false)
+  }, [hayAnchosSinAplicar, alAnchosPendientes])
+
+  // Si el renglón deja de ser una fresa afilable (cambió la herramienta o la
+  // operación con el editor abierto), el editor se oculta: hay que apagar
+  // `variosAnchos` para no dejar el candado de "anchos sin aplicar" puesto sin
+  // forma visible de aplicar ni destildar.
+  useEffect(() => {
+    if (!esFresaConAnchos && variosAnchos) {
+      setVariosAnchos(false)
+      setParesAncho([])
+    }
+  }, [esFresaConAnchos, variosAnchos])
 
   const herramientas = HERRAMIENTAS_POR_SERVICIO[item.servicio]
   /**

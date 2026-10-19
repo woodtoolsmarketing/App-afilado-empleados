@@ -221,6 +221,14 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   const [seleccionandoHerramientas, setSeleccionandoHerramientas] = useState(false)
   const [herramientasElegidas, setHerramientasElegidas] = useState<Herramienta[]>([])
   /**
+   * Hay anchos de corte de fresa cargados en el editor del renglón abierto, SIN
+   * aplicar. Mientras esté en true no se sale del renglón (ni CONTINUAR, ni
+   * cambiar de renglón, ni sumar/separar): si no, se guardaría cotizando el
+   * ancho base solo y las secciones del editor se perderían sin aviso. Lo
+   * reporta `PasoRenglon` por `alAnchosPendientes`. Ver `aplicarAnchosDeFresa`.
+   */
+  const [anchosPendientes, setAnchosPendientes] = useState(false)
+  /**
    * Las observaciones van a la columna "Observaciones" del talonario, una por
    * renglón, igual que en el papel.
    *
@@ -860,7 +868,22 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * medio cargar termina en una nota que no se puede crear y en un vendedor
    * buscando cuál de los seis le falta.
    */
+  /**
+   * ¿Hay anchos de fresa cargados sin aplicar? Si los hay, avisa y frena la
+   * acción. Se llama al frente de todo lo que sale del renglón abierto para que
+   * esas secciones no se pierdan (ver `anchosPendientes`).
+   */
+  function anchosSinAplicarFrenan(): boolean {
+    if (!anchosPendientes) return false
+    Alert.alert(
+      'Aplicá los anchos de corte',
+      'Cargaste anchos de corte sin aplicar. Tocá «APLICAR … ANCHOS» para que entren a la nota, o destildá «¿Tiene diferentes anchos de corte?».',
+    )
+    return true
+  }
+
   function sumarRenglon(herramienta: Herramienta | null, servicio = renglon.servicio) {
+    if (anchosSinAplicarFrenan()) return
     if (lugarLibre <= 0) {
       avisarSinLugar()
       return
@@ -903,6 +926,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * automáticamente en N grupos iguales sería adivinar cuántas van en cada uno.
    */
   function separarPorMedida() {
+    if (anchosSinAplicarFrenan()) return
     const actual = renglon
     const total = Math.max(2, Math.round(aNumero(actual.cantidad)))
 
@@ -1047,6 +1071,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   /** Agrega un renglón por cada herramienta marcada en la lista múltiple. */
   function agregarHerramientasElegidas() {
+    if (anchosSinAplicarFrenan()) return
     if (herramientasElegidas.length === 0) return
     // Marcar cinco herramientas cuando quedan dos lugares no puede entrar de
     // prepo: se avisa y no se agrega ninguna, que es más claro que meter las
@@ -1073,6 +1098,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
   }
 
   function irARenglon(i: number) {
+    if (i !== activo && anchosSinAplicarFrenan()) return
     setActivo(i)
     setIntentado(false)
     setErrores({})
@@ -1104,6 +1130,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * aparece en la tercera— y no había forma de avanzar sin ir a buscarlo.
    */
   function alContinuar() {
+    if (anchosSinAplicarFrenan()) return
     setIntentado(true)
 
     const { valido, errores: e } = validarEncabezadoNota(encabezado, {
@@ -1722,6 +1749,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                           clienteId={encabezado.cliente_id}
                           // Fresa con varios anchos: parte el renglón en uno por ancho.
                           alAplicarAnchos={aplicarAnchosDeFresa}
+                          // Para no dejar salir del renglón con anchos sin aplicar.
+                          alAnchosPendientes={setAnchosPendientes}
                         />
                       )}
 
