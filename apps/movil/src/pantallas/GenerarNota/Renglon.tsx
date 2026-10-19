@@ -2315,13 +2315,36 @@ export function PasoRenglon({
             valor={variosAnchos}
             alCambiar={(v) => {
               setVariosAnchos(v)
-              // Al prender, el primer par arranca con lo que ya esté cargado en
-              // el renglón y se deja un segundo vacío para invitar a completarlo.
-              if (v && paresAncho.length === 0) {
-                setParesAncho([
-                  { dientes: item.cantidad_dientes, ancho: item.ancho_corte },
-                  { dientes: '', ancho: '' },
-                ])
+              if (v) {
+                // Al prender, el primer par arranca con lo que ya esté cargado en
+                // el renglón (se lee del item ANTES de limpiarlo) y se deja un
+                // segundo vacío para invitar a completarlo.
+                if (paresAncho.length === 0) {
+                  setParesAncho([
+                    { dientes: item.cantidad_dientes, ancho: item.ancho_corte },
+                    { dientes: '', ancho: '' },
+                  ])
+                }
+                // El renglón base deja de ser un ancho válido por sí solo: se le
+                // limpian el ancho, los dientes, el código y el precio. Así, si el
+                // vendedor sale sin aplicar por un camino no bloqueado (Atrás, o
+                // quitar otro renglón), el renglón queda INCOMPLETO y la
+                // validación lo frena —nunca cobra un ancho solo en silencio—.
+                alCambiar({
+                  ancho_corte: '',
+                  cantidad_dientes: '',
+                  codigos_computo: [],
+                  codigo_confirmado: null,
+                  precio_por_diente: '',
+                  precio_total: '',
+                })
+              } else {
+                // Al destildar, el primer par vuelve al renglón para no perder lo
+                // cargado; el código y el precio se re-resuelven desde el ancho.
+                const primero = paresAncho[0]
+                if (primero) {
+                  alCambiar({ cantidad_dientes: primero.dientes, ancho_corte: primero.ancho })
+                }
               }
             }}
           />
