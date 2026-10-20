@@ -9,10 +9,11 @@
  *
  *  · ORIGINAL con logo   → tipo de nota "FACTURA"
  *  · ORIGINAL sin logo   → tipo de nota "PRESUPUESTO"
- *  · DUPLICADO           → **sin precios**. La copia que va al taller lleva
- *    sólo el código de cómputo y la cantidad, más los recuadros de Depósito Nº,
- *    Nº Movimiento, Fecha y Hora. El taller no tiene por qué ver lo que se le
- *    cobró al cliente.
+ *  · DUPLICADO           → **sin precios**. La copia que va al taller lleva el
+ *    código de cómputo, la cantidad y las observaciones (las notas hermanas que
+ *    juntan las hojas y lo que aclara el vendedor le sirven para el trabajo),
+ *    más los recuadros de Depósito Nº, Nº Movimiento, Fecha y Hora. El taller no
+ *    tiene por qué ver lo que se le cobró al cliente, pero sí las observaciones.
  *
  * Las filas vacías de las dos tablas se imprimen igual: el formulario en papel
  * las tiene y la gente de fábrica las usa para anotar a mano.
@@ -401,8 +402,16 @@ const COLUMNAS_COMERCIALES = [
   31, // Observaciones — hasta tres notas hermanas; el texto libre puede recortar
 ]
 
-/** El duplicado sólo lleva dos columnas, sobre los 62 mm de su tabla angosta. */
-const COLUMNAS_COMERCIALES_DUPLICADO = [62, 38]
+/**
+ * El duplicado lleva tres columnas —código, cantidad y observaciones—, sobre
+ * los 115 mm de su tabla (ver `.comercial-duplicado .comercial`). Las
+ * observaciones son del taller tanto como del cliente: las notas hermanas que
+ * juntan las hojas y lo que el vendedor aclara sirven para hacer el trabajo, y
+ * no cuestan precio, así que acá sí van. El código queda holgado (34,5 mm, más
+ * que los 93 px que `celdaCodigo` usa de referencia) y las observaciones se
+ * llevan el resto; recortan con puntos suspensivos como en el original.
+ */
+const COLUMNAS_COMERCIALES_DUPLICADO = [30, 15, 55]
 
 /**
  * El código de cómputo, dibujado lo más grande que entre en su columna.
@@ -696,10 +705,14 @@ export function generarHtmlNotaPedido(
   const filasComerciales = comerciales
     .map((c, i) => {
       if (esDuplicado) {
-        // El duplicado sólo lleva código y cantidad.
+        // El duplicado lleva código, cantidad y las observaciones de la nota:
+        // la copia del taller no ve precios ni condiciones, pero las
+        // observaciones (notas hermanas, aclaraciones del vendedor) sí le
+        // hacen falta para el trabajo.
         return `<tr>
           <td class="computo">${celdaCodigo(c.codigo_computo)}</td>
           <td class="num">${escapar(c.cantidad)}</td>
+          <td>${celdaObservacion(c.observaciones)}</td>
         </tr>`
       }
       // "Tipo de Cambio" va en la columna Condición de Venta, cerca del pie,
@@ -731,7 +744,7 @@ export function generarHtmlNotaPedido(
   // de corrido se comían el ancho de las columnas de al lado. El código de
   // cómputo cede el espacio, que es el que le sobraba.
   const comercialesCabecera = esDuplicado
-    ? `<tr><th>Código de Cómputo</th><th>Cantidad</th></tr>`
+    ? `<tr><th>Código de Cómputo</th><th>Cantidad</th><th>Observaciones</th></tr>`
     : `<tr>
         <th>Código de Cómputo</th>
         <th>Cantidad</th>
@@ -769,11 +782,9 @@ export function generarHtmlNotaPedido(
    * En el ORIGINAL la tabla ocupa el ancho entero: son siete columnas y todas
    * llevan datos.
    *
-   * En el DUPLICADO son dos —código y cantidad— y estirarlas a lo ancho de la
-   * hoja dejaba dos columnas larguísimas con un número adentro y una pared de
-   * líneas vacías al costado. Va como en el talonario impreso: la tabla angosta
-   * a la izquierda, los recuadros de depósito y la firma a la derecha, y **el
-   * medio libre** para que en fábrica agreguen renglones a mano.
+   * En el DUPLICADO son tres —código, cantidad y observaciones—. La tabla va a
+   * la izquierda, los recuadros de depósito y la firma a la derecha, y el medio
+   * libre para que en fábrica agreguen renglones a mano.
    */
   const bloqueComercial = esDuplicado
     ? `<div class="comercial-duplicado">
@@ -1232,11 +1243,12 @@ html {
 .cambio { letter-spacing: 1px; }
 
 /* ── El bloque comercial del duplicado ───────────────────────────────────────
-   Tabla angosta a la izquierda, cajas a la derecha, y el medio libre para
-   escribir a mano. Estirar dos columnas a lo ancho de la hoja dejaba una pared
-   de líneas vacías al lado de un número de cuatro dígitos. */
+   Tabla a la izquierda —código, cantidad y observaciones—, cajas a la derecha,
+   y el medio libre para escribir a mano. Con la columna de observaciones la
+   tabla pasó de 62 a 115 mm; las filas vacías de esa columna son el renglón que
+   el taller completa a mano, así que el hueco del medio puede ser angosto. */
 .comercial-duplicado { display: flex; align-items: flex-start; gap: 4mm; }
-.comercial-duplicado .comercial { width: 62mm; flex: 0 0 62mm; }
+.comercial-duplicado .comercial { width: 115mm; flex: 0 0 115mm; }
 /* El hueco del medio. Crece con la hoja: es el espacio para agregar renglones. */
 .espacio-libre { flex: 1 1 auto; }
 .cajas-duplicado { display: flex; flex-direction: column; gap: 3mm; flex: 0 0 52mm; }
