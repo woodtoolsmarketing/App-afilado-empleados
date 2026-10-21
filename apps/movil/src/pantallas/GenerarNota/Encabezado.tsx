@@ -803,6 +803,24 @@ export function PasoCliente({
     )
   }
 
+  /**
+   * El punto del mini-mapa sigue a la SUCURSAL elegida, no al domicilio principal.
+   *
+   * `clienteRef` guarda el principal —lo que trajo la búsqueda—, pero la nota
+   * puede apuntar a otra sucursal: elegida a mano con el selector de abajo, o
+   * traída de la parada del rol de visita (ver `aplicarUbicacionParada`), que
+   * puede estar en otra zona y con otro punto. Si `form.direccion_id` está entre
+   * las direcciones del cliente, el mapa usa ESA —y sus coordenadas, las tenga o
+   * no: una sucursal sin ubicar no muestra mapa (igual que el cliente sin ubicar),
+   * en vez de caer al principal y volver a contradecir la zona y los datos de
+   * entrega—. Sólo cae al principal mientras la consulta de direcciones viaja o si
+   * `direccion_id` todavía no matchea ninguna (p. ej. el principal recién elegido).
+   */
+  const sucursalEnMapa = sucursales.find((s) => s.id === form.direccion_id)
+  const puntoMapa = sucursalEnMapa ?? clienteRef.current
+  const latMapa = puntoMapa?.lat ?? null
+  const lngMapa = puntoMapa?.lng ?? null
+
   return (
     <>
       {/* ── Identificación del cliente ────────────────────────────────────── */}
@@ -848,16 +866,22 @@ export function PasoCliente({
         </View>
       ) : null}
 
-      {/* El mapa con el punto del cliente elegido: para ver dónde queda apenas se
-          lo engancha, igual que al agregarlo al recorrido. Sólo si está ubicado
-          (el nuevo/provisorio o el que no tiene coordenadas no lo muestra). */}
-      {!CLIENTE_A_MANO &&
-      form.cliente_id &&
-      clienteRef.current?.lat != null &&
-      clienteRef.current?.lng != null ? (
+      {/* El mapa con el punto de la dirección a la que va la nota: para ver dónde
+          queda apenas se la engancha, igual que al agregarla al recorrido. Sigue
+          la sucursal elegida (`latMapa`/`lngMapa`), no siempre el principal. Sólo
+          si está ubicada (el nuevo/provisorio o la que no tiene coordenadas no lo
+          muestra). */}
+      {!CLIENTE_A_MANO && form.cliente_id && latMapa != null && lngMapa != null ? (
+        // El `key` con las coords fuerza el remonte al cambiar de punto. El mapa
+        // es liteMode: una IMAGEN estática centrada por `initialRegion`, que sólo
+        // se lee al montar. Sin remontar, al cambiar de sucursal —o al llegar la
+        // consulta de direcciones un instante después de haber montado sobre el
+        // principal (caso de la nota nacida en el rol de visita)— el pin se iría
+        // de cuadro y el mapa seguiría mostrando la ubicación vieja.
         <MapaUbicacionCliente
-          lat={clienteRef.current.lat}
-          lng={clienteRef.current.lng}
+          key={`${latMapa},${lngMapa}`}
+          lat={latMapa}
+          lng={lngMapa}
           titulo={form.cliente_nombre}
         />
       ) : null}
