@@ -1,7 +1,6 @@
 import {
   agruparParaNotas,
   armarPlazoDePago,
-  CONDICIONES_CON_PLAZO,
   DESCRIPCION_GRUPO_NOTA,
   ETIQUETA_CONDICION_VENTA,
   ETIQUETA_GRUPO_NOTA,
@@ -10,6 +9,7 @@ import {
   formatearPesos,
   OBSERVACION_MAXIMO_CARACTERES,
   opcionesHasta,
+  opcionesPlazoCuentaCorriente,
   PLAZO_DESDE_DIAS,
   plazoDePago,
   soloNumeros,
@@ -119,7 +119,9 @@ export function ResumenFacturacion({
         />
       </div>
 
-      {condicionVenta && CONDICIONES_CON_PLAZO.includes(condicionVenta) ? (
+      {/* El cheque lleva una ventana que se negocia —"de 15 a 45"—: dos
+          desplegables, guardados juntos como "15-45". */}
+      {condicionVenta === 'cheque' ? (
         <>
           <div className="fila">
             <Desplegable<string>
@@ -144,6 +146,21 @@ export function ResumenFacturacion({
               estiloContenedor={{ marginBottom: 6 }}
             />
           </div>
+          <MensajeError>{errores.condicion_venta_detalle}</MensajeError>
+        </>
+      ) : condicionVenta === 'cuenta_corriente' ? (
+        /* La cuenta corriente es un vencimiento fijo —"a 30 días"— o el rango
+           histórico "0 a 30 días": un solo desplegable con opciones cerradas. */
+        <>
+          <Desplegable<string>
+            etiqueta="Plazo"
+            obligatorio
+            marcador="¿A cuántos días?"
+            valor={condicionDetalle || null}
+            items={opcionesPlazoCuentaCorriente(condicionDetalle)}
+            onChange={onCondicionDetalle}
+            estiloContenedor={{ marginBottom: 6 }}
+          />
           <MensajeError>{errores.condicion_venta_detalle}</MensajeError>
         </>
       ) : null}

@@ -10,10 +10,10 @@ import {
   esRenglonDeArticulo,
   ENCABEZADO_VACIO,
   espaciado,
-  CONDICIONES_CON_PLAZO,
   ETIQUETA_CONDICION_VENTA,
   plazoDePago,
   opcionesHasta,
+  opcionesPlazoCuentaCorriente,
   armarPlazoDePago,
   PLAZO_DESDE_DIAS,
   ETIQUETA_GRUPO_NOTA,
@@ -1941,13 +1941,12 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 <Text style={estilos.porTendencia}>{explicarTendencia(tendencia, 'condicion')}</Text>
               ) : null}
 
-              {/* El plazo del cheque y de la cuenta corriente.
-                  Son dos desplegables en paralelo y no un número suelto porque
-                  lo que se negocia es la ventana —"de 15 a 45"—, no una fecha.
-                  Se guardan juntos como "15-45", que es un solo dato: partirlo
-                  en dos columnas obligaría a mantener sincronizados dos
-                  formularios, dos validaciones y dos CHECK. */}
-              {condicionVenta && CONDICIONES_CON_PLAZO.includes(condicionVenta) ? (
+              {/* El plazo del CHEQUE: una ventana que se negocia —"de 15 a 45"—,
+                  no una fecha. Dos desplegables en paralelo, guardados juntos
+                  como "15-45", que es un solo dato: partirlo en dos columnas
+                  obligaría a mantener sincronizados dos formularios, dos
+                  validaciones y dos CHECK. */}
+              {condicionVenta === 'cheque' ? (
                 <>
                   <View style={estilos.parDePlazos}>
                     <View style={estilos.flex}>
@@ -1982,6 +1981,25 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                     />
                     </View>
                   </View>
+                  <MensajeError>{errores.condicion_venta_detalle}</MensajeError>
+                </>
+              ) : condicionVenta === 'cuenta_corriente' ? (
+                /* La cuenta corriente es un vencimiento FIJO —"a 30 días"— o el
+                   rango histórico "0 a 30 días": un solo desplegable con las
+                   opciones cerradas (ver opcionesPlazoCuentaCorriente, que suma
+                   el valor guardado de una nota vieja si ya no está en la lista). */
+                <>
+                  <Desplegable<string>
+                    etiqueta="PLAZO"
+                    obligatorio
+                    marcador="¿A cuántos días?"
+                    valor={condicionDetalle || null}
+                    items={opcionesPlazoCuentaCorriente(condicionDetalle)}
+                    alCambiar={(v) => {
+                      setCondicionDetalle(v)
+                      if (intentado) revalidarEncabezado(encabezado, servicios)
+                    }}
+                  />
                   <MensajeError>{errores.condicion_venta_detalle}</MensajeError>
                 </>
               ) : null}

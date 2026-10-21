@@ -831,6 +831,53 @@ export function plazoDePago(detalle?: string | null): { desde: number; hasta: nu
 }
 
 /**
+ * Los plazos que ofrece CUENTA CORRIENTE.
+ *
+ * El rango histórico "0 a 30 días" se mantiene, y se suman los plazos FIJOS
+ * "a N días" (un vencimiento neto: la cuenta se paga a los N días). El cheque
+ * NO usa esta lista: lo que se negocia con un cheque es una ventana —"de 15 a
+ * 45 días"—, así que sigue con sus dos puntas (ver `PLAZO_DESDE_DIAS` /
+ * `PLAZO_HASTA_DIAS`).
+ *
+ * El valor guardado distingue el rango ("0-30") del plazo fijo ("a30") para que
+ * el papel escriba "de 0 a 30 días" o "a 30 días" según corresponda, sin
+ * confundir una ventana con un vencimiento.
+ */
+export const PLAZOS_CUENTA_CORRIENTE: { valor: string; etiqueta: string }[] = [
+  { valor: '0-30', etiqueta: '0 a 30 días' },
+  { valor: 'a30', etiqueta: 'a 30 días' },
+  { valor: 'a60', etiqueta: 'a 60 días' },
+  { valor: 'a90', etiqueta: 'a 90 días' },
+]
+
+/** Un plazo fijo "a N días" partido en su número: "a30" → 30. null si no lo es. */
+export function plazoFijoDeDias(detalle?: string | null): number | null {
+  const m = /^a(\d{1,3})$/.exec(String(detalle ?? '').trim())
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Las opciones de plazo de cuenta corriente para el desplegable, incluyendo el
+ * valor guardado aunque ya no esté en la lista.
+ *
+ * Mismo criterio que `opcionesHasta` para el cheque: una nota vieja guardada con
+ * un rango que la lista nueva no ofrece (p.ej. "15-45") se muestra tal cual para
+ * que el campo no quede en blanco al corregirla. No se le cambia el plazo por
+ * atrás: la decisión es del que la carga.
+ */
+export function opcionesPlazoCuentaCorriente(
+  detalleActual?: string | null,
+): { valor: string; etiqueta: string }[] {
+  const actual = String(detalleActual ?? '').trim()
+  if (!actual || PLAZOS_CUENTA_CORRIENTE.some((o) => o.valor === actual)) {
+    return PLAZOS_CUENTA_CORRIENTE
+  }
+  const plazo = plazoDePago(actual)
+  const etiqueta = plazo ? `de ${plazo.desde} a ${plazo.hasta} días` : actual
+  return [{ valor: actual, etiqueta }, ...PLAZOS_CUENTA_CORRIENTE]
+}
+
+/**
  * Cómo se escribe la condición en la nota impresa.
  *
  * `Cheque de 15 a 45 días`, `Cuenta corriente de 0 a 30 días`,
@@ -869,6 +916,10 @@ export function describirCondicionVenta(
     : ETIQUETA_CONDICION_VENTA[condicion]
 
   if (CONDICIONES_CON_PLAZO.includes(condicion)) {
+    // Un plazo fijo de cuenta corriente —"a 30 días"— se escribe igual en el
+    // papel angosto que completo: ya es corto.
+    const fijo = plazoFijoDeDias(texto)
+    if (fijo !== null) return `${nombre} a ${fijo} días`
     const plazo = plazoDePago(texto)
     if (!plazo) return nombre
     return compacto
@@ -2184,9 +2235,18 @@ export function validarEncabezadoNota(
   const detalle = String(extra.condicionVentaDetalle ?? '').trim()
   if (!extra.condicionVenta) {
     errores.condicion_venta = 'Elegí la condición de venta'
-  } else if (CONDICIONES_CON_PLAZO.includes(extra.condicionVenta)) {
-    // El cheque y la cuenta corriente llevan plazo: desde cuándo y hasta
-    // cuándo. Un solo número no alcanza — lo que se negocia es la ventana.
+  } else if (extra.condicionVenta === 'cuenta_corriente') {
+    // La cuenta corriente lleva un plazo FIJO —"a 30 días"— o el rango histórico
+    // "0 a 30 días". Alcanza con que haya uno u otro; la lista cerrada de la
+    // pantalla garantiza que sea válido, y una nota vieja con otro rango
+    // (p.ej. "15-45") se respeta tal cual. No corre el tope del cheque: "a 90
+    // días" es un vencimiento legítimo.
+    if (plazoFijoDeDias(detalle) === null && !plazoDePago(detalle)) {
+      errores.condicion_venta_detalle = 'Elegí el plazo'
+    }
+  } else if (extra.condicionVenta === 'cheque') {
+    // El cheque lleva plazo: desde cuándo y hasta cuándo. Un solo número no
+    // alcanza — lo que se negocia es la ventana.
     const plazo = plazoDePago(detalle)
     if (!plazo) {
       errores.condicion_venta_detalle = 'Elegí desde y hasta cuántos días'
