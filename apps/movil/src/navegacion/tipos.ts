@@ -160,6 +160,24 @@ export type ParametrosApp = {
          */
         clienteId?: string
         /**
+         * Dónde visitó el vendedor, cuando la parada tiene PUNTO en el mapa (la
+         * dirección del lugar de entrega visitado, con localidad/provincia
+         * confiables).
+         *
+         * La zona de la nota sale de ACÁ, no del domicilio principal del
+         * cliente: un cliente puede tener lugares de entrega en zonas distintas
+         * y el vendedor estuvo en uno concreto. `paradaDireccionId` ata además
+         * la nota a ese lugar de entrega, con su domicilio y CP impresos. Sin
+         * punto (parada sin ubicar, o con una corrección de dirección todavía
+         * pendiente) NO se mandan: la nota conserva la zona del principal, que
+         * es la oficial hasta que la oficina aplique el cambio. Ver `Encabezado`.
+         */
+        paradaDireccionId?: string
+        paradaLocalidad?: string
+        paradaProvincia?: string
+        paradaDireccion?: string
+        paradaCodigoPostal?: string
+        /**
          * Servicios con los que arranca la nota, según lo que se tildó en el
          * parte (vendió → venta, retiró afilado → afilado). El vendedor puede
          * sumar o sacar los que quiera.

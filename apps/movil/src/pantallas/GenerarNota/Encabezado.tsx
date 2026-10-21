@@ -106,6 +106,7 @@ export function PasoCliente({
   clienteInicialCodigo,
   errores,
   ubicacionInicial,
+  ubicacionParada,
   codigoVendedorUsuario,
 }: {
   form: FormularioNotaEncabezado
@@ -134,6 +135,19 @@ export function PasoCliente({
   errores: Record<string, string | undefined>
   /** La del cliente que acaba de crearse, para asignarle la zona al volver. */
   ubicacionInicial?: UbicacionCliente | null
+  /**
+   * Dónde estuvo el vendedor, cuando la nota nace de una parada del rol de
+   * visita. La zona se recalcula desde acá —la sucursal / dirección visitada,
+   * que puede estar en otra zona que el domicilio principal—, y si trae punto
+   * en el mapa (`direccionId`) la nota apunta a ese lugar de entrega.
+   */
+  ubicacionParada?: {
+    direccionId?: string | null
+    localidad?: string | null
+    provincia?: string | null
+    direccion?: string | null
+    codigoPostal?: string | null
+  } | null
   /** El del que está usando la app. Es el primero que se prueba. */
   codigoVendedorUsuario?: string | null
 }) {
@@ -401,6 +415,55 @@ export function PasoCliente({
     alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
   }
 
+  /**
+   * La nota nació en el rol de visita: la zona la manda la localización de la
+   * parada visitada, no el domicilio principal que acaba de poner `elegirCliente`.
+   *
+   * Un cliente puede tener lugares de entrega en zonas distintas y el vendedor
+   * estuvo en uno concreto. La zona se recalcula por rango desde la localidad
+   * de la parada:
+   *  - si cae en UNA zona, pisa la del principal;
+   *  - si cae en VARIAS, se vacía (no se deja la del principal) para que el
+   *    vendedor elija —y para que el Nº de vendedor no se derive de una zona
+   *    que no es la de la visita—;
+   *  - si no matchea ninguna, queda la del principal (zona y vendedor quedan
+   *    consistentes: no hay a qué cambiar).
+   *
+   * Y como la parada tiene punto en el mapa, la nota apunta a ese lugar de
+   * entrega y rearma los DATOS DEL CLIENTE con ESA dirección —igual que
+   * `elegirSucursalNota`—; si no, el papel imprimiría el domicilio del
+   * principal mientras la nota apunta a la sucursal.
+   */
+  function aplicarUbicacionParada(u: NonNullable<typeof ubicacionParada>): void {
+    const { unica, candidatas } = zonaParaUbicacion({
+      localidad: u.localidad,
+      provincia: u.provincia,
+      direccion: u.direccion,
+    })
+    setZonaAuto(unica)
+    setZonaDudosa(candidatas.length > 1 ? candidatas : [])
+    if (unica) alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+    else if (candidatas.length > 1) alCambiar({ zona: '', zona_id: '' })
+
+    if (!u.direccionId) return
+    const c = clienteRef.current
+    const datos = [
+      c?.razon_social ?? form.cliente_nombre,
+      u.direccion,
+      u.codigoPostal ? `CP ${u.codigoPostal}` : null,
+      c?.telefono ? `Tel ${c.telefono}` : null,
+      c?.email,
+      c?.contacto_nombre ? `Contacto: ${c.contacto_nombre}` : null,
+    ]
+      .filter(Boolean)
+      .join(' — ')
+    alCambiar({
+      direccion_id: u.direccionId,
+      datos_cliente: datos,
+      ...(u.provincia ? { cliente_provincia: u.provincia } : {}),
+    })
+  }
+
   function elegirZona(id: string): void {
     const zona = ZONAS.find((z) => z.id === id)
     if (!zona) return
@@ -450,7 +513,12 @@ export function PasoCliente({
         // parada. Ver `intervenido`.
         if (!vigenteAuto || intervenido.current) return
         const exacto = encontrados.find((c) => c.codigo === clienteInicialCodigo)
-        if (exacto) elegirCliente(exacto, false)
+        if (exacto) {
+          elegirCliente(exacto, false)
+          // `elegirCliente` dejó la zona del domicilio principal; la de la
+          // parada —dónde estuvo el vendedor— le gana. Ver `aplicarUbicacionParada`.
+          if (ubicacionParada) aplicarUbicacionParada(ubicacionParada)
+        }
       })
       .catch(() => undefined)
     return () => {

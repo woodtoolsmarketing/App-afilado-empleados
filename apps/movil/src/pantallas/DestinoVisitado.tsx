@@ -940,11 +940,23 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 const serviciosIniciales: TipoServicio[] = []
                 if (form.vendio) serviciosIniciales.push('venta')
                 if (form.retiro_afilado) serviciosIniciales.push('afilado')
+                // La zona de la nota sale de DÓNDE estuvo el vendedor SÓLO
+                // cuando la parada tiene punto en el mapa (localidad/provincia
+                // confiables): una sucursal, o un destino recién ubicado. Sin
+                // punto —sin ubicar, o con una corrección de dirección todavía
+                // pendiente— se manda nada y la nota conserva la zona del
+                // domicilio principal, que es la oficial hasta que la oficina
+                // aplique el cambio. Ver `GenerarNota`/`Encabezado`.
                 navigation.navigate('GenerarNota', {
                   paradaId,
                   clienteId: parada?.cliente?.id ?? undefined,
                   clienteCodigo: parada?.cliente?.codigo ?? undefined,
                   serviciosIniciales: serviciosIniciales.length > 0 ? serviciosIniciales : undefined,
+                  paradaDireccionId: ubicada?.direccion.id,
+                  paradaLocalidad: ubicada?.direccion.localidad ?? undefined,
+                  paradaProvincia: ubicada?.direccion.provincia ?? undefined,
+                  paradaDireccion: ubicada?.direccion.direccion_formateada,
+                  paradaCodigoPostal: ubicada?.direccion.codigo_postal ?? undefined,
                 })
               }}
             />

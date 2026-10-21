@@ -56,7 +56,7 @@ import {
 } from '@woodtools/compartido'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   BackHandler,
@@ -619,6 +619,32 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     navigation.setParams({ clienteCreadoId: undefined })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creadoId])
+
+  /**
+   * Dónde estuvo el vendedor, cuando la nota nace del rol de visita: la zona
+   * sale de la localización de la parada (la sucursal / dirección visitada),
+   * no del domicilio principal del cliente. Al corregir una nota ya existente
+   * no aplica —el cliente y la zona los trae el borrador, no la parada—. Los
+   * parámetros de ruta no cambian después del montaje, así que se calcula una
+   * sola vez.
+   */
+  const ubicacionParada = useMemo(() => {
+    if (notaId) return undefined
+    const dirId = route.params?.paradaDireccionId
+    const loc = route.params?.paradaLocalidad
+    const prov = route.params?.paradaProvincia
+    const dir = route.params?.paradaDireccion
+    const cp = route.params?.paradaCodigoPostal
+    if (!dirId && !loc && !prov && !dir) return undefined
+    return {
+      direccionId: dirId ?? null,
+      localidad: loc ?? null,
+      provincia: prov ?? null,
+      direccion: dir ?? null,
+      codigoPostal: cp ?? null,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notaId])
 
   const {
     data: cotizacion,
@@ -1587,6 +1613,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
                 clienteInicialCodigo={notaId ? undefined : route.params?.clienteCodigo}
                 errores={errores}
                 ubicacionInicial={ubicacionNueva}
+                ubicacionParada={ubicacionParada}
                 codigoVendedorUsuario={perfil?.codigo_vendedor}
               />
 
