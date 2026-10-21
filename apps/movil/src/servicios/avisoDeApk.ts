@@ -48,6 +48,16 @@ let ultimoChequeo = 0
 let consultando = false
 
 /**
+ * Ya se avisó "hay una nueva, te falta el wifi" en esta corrida.
+ *
+ * El aviso sin wifi no deja nada para hacer en el momento —sólo conectarse a un
+ * wifi—, así que se muestra UNA vez por corrida y no en cada vuelta del fondo:
+ * un cartel sin acción, repetido, se aprende a cerrar sin leer. El de siempre
+ * (con botón, en wifi) no usa este freno: ese sí se puede accionar.
+ */
+let avisadoSinWifi = false
+
+/**
  * Ofrecer bajar la app nueva.
  *
  * Se abre el navegador y no se instala acá: instalar un APK desde adentro de la
@@ -89,14 +99,37 @@ export function ofrecerApk(apk: ApkDisponible) {
 }
 
 /**
+ * Avisar que hay una versión nueva cuando NO hay wifi para bajarla.
+ *
+ * Es sólo noticia, sin botón de bajar: el APK pesa ~50 MB y no se baja por datos
+ * móviles (ver `descargarEInstalarApk`), así que lo único que se puede hacer es
+ * conectarse a un wifi. Sin esto, el vendedor que trabaja todo el día con datos
+ * móviles nunca se entera de que está atrasado —el aviso con botón sólo sale en
+ * wifi—, que es el mismo agujero que este archivo nació para tapar, sólo que del
+ * lado de la calle.
+ */
+export function avisarVersionNuevaSinWifi(nueva: string, actual: string) {
+  Alert.alert(
+    `Hay una versión nueva: ${nueva}`,
+    `Tenés la ${actual}. Conectate a un wifi y la app te la ofrece sola para ` +
+      `bajarla: son unos 50 MB, por eso no se baja con datos móviles.`,
+    [{ text: 'Entendido' }],
+  )
+}
+
+/**
  * Fijarse solo, al entrar, si hay un instalador más nuevo.
  *
- * Sólo avisa cuando hay algo que el vendedor puede hacer en ese momento. Los
- * otros tres finales —no hay nada, no se pudo consultar, hay pero no se llega—
- * se callan acá y siguen saliendo por el botón de Configuración, que es donde
- * el vendedor preguntó y donde una respuesta larga tiene sentido. Un cartel que
- * aparece solo y no deja nada para hacer se aprende a cerrar sin leer, y el día
- * que diga algo importante tampoco se va a leer.
+ * Cuando hay uno (`estado: 'hay'`): en wifi sale el aviso con botón para bajarlo
+ * (`ofrecerApk`); con datos móviles sale un aviso sólo-noticia —una vez por
+ * corrida— diciendo que se conecte a un wifi (`avisarVersionNuevaSinWifi`),
+ * porque un vendedor que trabaja siempre con datos nunca entraría al wifi a
+ * enterarse. Los otros tres finales —no hay nada, no se pudo consultar, hay pero
+ * no se llega— se callan acá y siguen saliendo por el botón de Configuración,
+ * que es donde el vendedor preguntó y donde una respuesta larga tiene sentido.
+ * Un cartel que aparece solo y no deja nada para hacer se aprende a cerrar sin
+ * leer, por eso el de datos móviles es una sola vez y manda a una acción
+ * concreta (conectarse a un wifi).
  */
 export function usarAvisoDeApkAlEntrar(habilitado: boolean) {
   useEffect(() => {
@@ -112,11 +145,20 @@ export function usarAvisoDeApkAlEntrar(habilitado: boolean) {
       try {
         ultimoChequeo = Date.now()
         const busqueda = await buscarApkNuevo()
-        // Sólo se ofrece bajar cuando hay WIFI: el APK pesa ~50 MB y por datos
-        // móviles se come el plan del vendedor. En la calle el aviso no aparece;
-        // cuando vuelve a la oficina (wifi) sale solo y lo baja gratis de la PC.
         const red = await estadoDeRed()
-        if (vivo && busqueda.estado === 'hay' && red.enWifi) ofrecerApk(busqueda.apk)
+        if (!vivo || busqueda.estado !== 'hay') return
+        if (red.enWifi) {
+          // Con wifi, el aviso de siempre: con botón, baja e instala (gratis de
+          // la PC en la oficina, o de internet en otro wifi).
+          ofrecerApk(busqueda.apk)
+        } else if (!avisadoSinWifi) {
+          // Sin wifi NO se baja (son ~50 MB, no se gastan datos móviles), pero sí
+          // se avisa —una sola vez por corrida— que está atrasado, así se conecta
+          // a un wifi cuando pueda en vez de quedarse con la app vieja sin
+          // enterarse. Ver `avisarVersionNuevaSinWifi`.
+          avisadoSinWifi = true
+          avisarVersionNuevaSinWifi(busqueda.apk.nueva, busqueda.apk.actual)
+        }
       } finally {
         consultando = false
       }
