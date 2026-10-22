@@ -72,7 +72,10 @@ export function App() {
 
   return (
     <ProveedorAgenteImpresion>
-    <ProveedorConsola rutaActual={ubicacion.pathname}>
+    <ProveedorConsola
+      rutaActual={ubicacion.pathname}
+      permisos={{ ve_ubicacion_de_notas: !!sesion.perfil?.ve_ubicacion_de_notas }}
+    >
     <div className="marco">
       <BarraLateral
         nombre={sesion.perfil.nombre_completo}

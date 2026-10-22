@@ -294,6 +294,13 @@ export interface Perfil {
    * oficina desde el panel. No aplica a admin/supervisor: ellos imprimen siempre.
    */
   imprime_roles: boolean
+  /**
+   * Si en el panel puede ver DÓNDE se emitió cada nota y desde dónde se registró
+   * cada visita (el comando `regedit` de la consola). Permiso por usuario,
+   * separado del rol: muestra la ubicación GPS del vendedor, así que no lo tiene
+   * cualquiera. A quien no lo tenga, el comando ni se le reconoce.
+   */
+  ve_ubicacion_de_notas: boolean
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null

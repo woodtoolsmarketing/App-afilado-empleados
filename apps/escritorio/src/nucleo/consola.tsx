@@ -33,11 +33,18 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
  * permiso que nadie recuerda haber dado.
  */
 
-/** Los comandos que la consola entiende. */
-const COMANDOS: Record<string, { hace: string; destraba: string }> = {
+/**
+ * Los comandos que la consola entiende.
+ *
+ * `permiso`: si está, el comando sólo existe para quien tenga ese flag por
+ * usuario (`perfiles.<permiso>`). A quien NO lo tenga, el comando se le trata
+ * como inexistente —ni lo reconoce—, para no revelar que existe.
+ */
+const COMANDOS: Record<string, { hace: string; destraba: string; permiso?: string }> = {
   regedit: {
     hace: 'Muestra dónde se emitió cada nota de pedido y desde dónde se registró cada visita del rol.',
     destraba: 'ubicacion-de-notas',
+    permiso: 've_ubicacion_de_notas',
   },
 }
 
@@ -63,10 +70,16 @@ export function usarConsola(): EstadoConsola {
 export function ProveedorConsola({
   children,
   rutaActual,
+  permisos = {},
 }: {
   children: React.ReactNode
   /** Cambiar de página borra lo destrabado. */
   rutaActual: string
+  /**
+   * Los permisos por usuario del que mira (`{ ve_ubicacion_de_notas: true }`).
+   * Un comando que pide un permiso que no está acá se trata como inexistente.
+   */
+  permisos?: Record<string, boolean>
 }) {
   const [abierta, setAbierta] = useState(false)
   const [llaves, setLlaves] = useState<string[]>([])
@@ -110,7 +123,12 @@ export function ProveedorConsola({
     >
       {children}
       {abierta ? (
-        <Ventana alCerrar={() => setAbierta(false)} alDestrabar={destrabar} alTrabar={trabar} />
+        <Ventana
+          alCerrar={() => setAbierta(false)}
+          alDestrabar={destrabar}
+          alTrabar={trabar}
+          permisos={permisos}
+        />
       ) : null}
     </Contexto.Provider>
   )
@@ -120,10 +138,12 @@ function Ventana({
   alCerrar,
   alDestrabar,
   alTrabar,
+  permisos,
 }: {
   alCerrar: () => void
   alDestrabar: (llave: string) => void
   alTrabar: (llave: string) => void
+  permisos: Record<string, boolean>
 }) {
   const [lineas, setLineas] = useState<string[]>([])
   const [texto, setTexto] = useState('')
@@ -154,8 +174,11 @@ function Ventana({
     const apagar = comando.endsWith(' off')
     const nombre = apagar ? comando.slice(0, -' off'.length).trim() : comando
 
+    // Un comando que pide un permiso que este usuario no tiene se trata como
+    // inexistente: no se revela que exista (ni con " off"). El dato real lo
+    // protege igual la RPC del otro lado; esto es para no mostrar la puerta.
     const encontrado = COMANDOS[nombre]
-    if (encontrado) {
+    if (encontrado && (!encontrado.permiso || permisos[encontrado.permiso])) {
       if (apagar) {
         alTrabar(encontrado.destraba)
         nuevas.push('Apagado.')
