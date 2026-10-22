@@ -124,6 +124,11 @@ function DondeVisito({ visitaId }: { visitaId: string }) {
       return fila ?? null
     },
     retry: false,
+    // El resultado es inmutable (una visita pasada contra una dirección fija):
+    // no revalidar al volver el foco, o un rol de 25 paradas dispara 25 RPC en
+    // cada alt-tab. Una consulta por visita mientras `regedit` esté destrabado.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   })
 
   if (isPending) return <div className="donde-se-hizo no-imprimir">Consultando…</div>
@@ -780,7 +785,7 @@ export function PaginaRolesDeVisita({
                                   : ETIQUETA_ESTADO_PARADA[p.estado]),
                               resumenSuelto.get(p.id),
                             )}
-                        {consola.destrabado('ubicacion-de-notas') && p.visita ? (
+                        {consola.destrabado('ubicacion-de-notas') && p.visita?.visitado ? (
                           <DondeVisito visitaId={p.visita.id} />
                         ) : null}
                       </td>

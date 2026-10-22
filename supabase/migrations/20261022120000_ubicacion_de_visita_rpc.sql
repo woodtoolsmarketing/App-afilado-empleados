@@ -63,7 +63,9 @@ begin
 end;
 $function$;
 
--- Solo usuarios logueados; anon no la puede ni invocar (igual la funcion valida
--- el permiso por usuario adentro).
-revoke execute on function public.ubicacion_de_visita(uuid) from public;
+-- Solo usuarios logueados. OJO: en Supabase, `revoke ... from public` NO saca el
+-- GRANT EXECUTE EXPLICITO a anon que agregan los default privileges del schema;
+-- hay que revocar de anon aparte (ver memoria "SECURITY DEFINER: revocar anon
+-- aparte"). Igual la funcion valida el permiso por usuario adentro.
+revoke execute on function public.ubicacion_de_visita(uuid) from anon, public;
 grant execute on function public.ubicacion_de_visita(uuid) to authenticated;

@@ -69,6 +69,10 @@ function DondeSeHizo({ notaId }: { notaId: string }) {
       return fila ?? null
     },
     retry: false,
+    // Inmutable (una nota pasada contra una dirección fija): no revalidar al
+    // volver el foco de la ventana, que dispararía la RPC de cada nota de nuevo.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   })
 
   if (isPending) return <div className="donde-se-hizo">Consultando…</div>
