@@ -173,8 +173,11 @@ function TableroDelDia({ puedeVer }: { puedeVer: (clave: ClaveFuncionPanel) => b
                   <td>{j.con_retiro_afilado}</td>
                   <td>{j.con_entrega}</td>
                   <td>
-                    {j.distancia_total_m
-                      ? `${formatearDistancia(j.distancia_total_m)} · ${formatearDuracion(j.duracion_total_seg)}`
+                    {/* Lo que anduvo DE VERDAD (puntos GPS, 8-19h), no el
+                        estimado de la ruta —que se dispara si hay un cliente
+                        lejísimo en el rol—. */}
+                    {j.distancia_real_m
+                      ? `${formatearDistancia(j.distancia_real_m)} · ${formatearDuracion(j.duracion_real_seg)}`
                       : '—'}
                   </td>
                 </tr>

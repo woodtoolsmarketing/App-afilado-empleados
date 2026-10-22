@@ -536,6 +536,7 @@ export interface ResumenJornada {
   estado: EstadoRolVisita
   iniciado_en: string | null
   finalizado_en: string | null
+  /** Distancia/duración del ESTIMADO de la ruta optimizada (plan). */
   distancia_total_m: number | null
   duracion_total_seg: number | null
   total_paradas: number
@@ -548,6 +549,14 @@ export interface ResumenJornada {
   con_cobro: number
   con_retiro_afilado: number
   con_entrega: number
+  /**
+   * Distancia/duración REAL recorrida, de los puntos GPS, dentro de la franja
+   * 8-19h local (filtrando saltos de GPS y huecos de señal). `null` si todavía
+   * no hay puntos. Es lo que el vendedor anduvo de verdad; el panel lo muestra
+   * en "RECORRIDO" en vez del estimado, que se dispara con un cliente lejísimo.
+   */
+  distancia_real_m: number | null
+  duracion_real_seg: number | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
