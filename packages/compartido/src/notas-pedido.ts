@@ -844,7 +844,7 @@ export function plazoDePago(detalle?: string | null): { desde: number; hasta: nu
  * confundir una ventana con un vencimiento.
  */
 export const PLAZOS_CUENTA_CORRIENTE: { valor: string; etiqueta: string }[] = [
-  { valor: '0-30', etiqueta: '0 a 30 días' },
+  { valor: 'a15', etiqueta: 'a 15 días' },
   { valor: 'a30', etiqueta: 'a 30 días' },
   { valor: 'a60', etiqueta: 'a 60 días' },
   { valor: 'a90', etiqueta: 'a 90 días' },
