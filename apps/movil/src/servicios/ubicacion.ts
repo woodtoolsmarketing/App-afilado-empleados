@@ -240,8 +240,10 @@ export async function seguimientoActivo(): Promise<boolean> {
 //
 // Reusa EL MISMO task que el recorrido; la diferencia es el contexto
 // (`rolVisitaId` null, `en_recorrido` false) y quién lo prende/apaga: el flag
-// por vendedor, no el inicio/fin del recorrido. Lo prende la oficina con el
-// comando `amrheadlock` del panel, de a uno, para los teléfonos de prueba.
+// por vendedor, no el inicio/fin del recorrido. Lo prende la OFICINA desde el
+// panel (un control por vendedor, con nombre claro), y cuando está activo el
+// vendedor ve la notificación honesta del foreground service: es seguimiento
+// DIVULGADO, no oculto. Hoy sólo está prendido en el teléfono de prueba (27).
 
 /** Si ESTE vendedor tiene el 24/7 prendido (flag `perfiles.seguimiento_24_7`). */
 async function seguimiento24_7Prendido(): Promise<boolean> {
