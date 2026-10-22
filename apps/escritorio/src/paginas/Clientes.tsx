@@ -606,7 +606,11 @@ function FormularioCliente({
           </div>
           <div className="campo">
             <label htmlFor="email">Correo</label>
-            <input id="email" type="email" value={form.email} onChange={(e) => actualizar('email', e.target.value)} />
+            {/* type="text", no "email": este campo guarda varios correos (y a
+                veces teléfonos/notas) separados por " ; ", como vino del
+                Gestión. La validación nativa de email rechaza el " ; " y no
+                dejaba guardar. */}
+            <input id="email" type="text" value={form.email} onChange={(e) => actualizar('email', e.target.value)} />
           </div>
         </div>
 
@@ -912,7 +916,10 @@ function FichaClienteAdministracion({
           </div>
           <div className="campo">
             <label htmlFor="f-email">Correo</label>
-            <input id="f-email" type="email" value={form.email} disabled={!editable} onChange={(e) => actualizar('email', e.target.value)} />
+            {/* type="text", no "email": el campo guarda varios correos (y a
+                veces teléfonos/notas) separados por " ; "; la validación nativa
+                de email rechazaba el " ; " y no dejaba guardar la ficha. */}
+            <input id="f-email" type="text" value={form.email} disabled={!editable} onChange={(e) => actualizar('email', e.target.value)} />
           </div>
         </div>
 
