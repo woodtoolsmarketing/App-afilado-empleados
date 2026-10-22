@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
 import { supabase, tokenDeSesion } from '../nucleo/supabase'
+import { usarConsola } from '../nucleo/consola'
 
 /** Un cliente que se puede meter en el recorrido: ya tiene dirección con coordenadas. */
 interface Candidato {
@@ -104,6 +105,39 @@ async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?:
 }
 
 /**
+ * Desde dónde se registró la visita. Sólo aparece si la consola lo destrabó
+ * (comando `regedit`), y en pantalla, nunca en la impresión (`no-imprimir`).
+ *
+ * Igual que `DondeSeHizo` de las notas: la consulta va por nota/visita y recién
+ * cuando hace falta, no en la lista. Del otro lado hay una función que exige el
+ * permiso por usuario `ve_ubicacion_de_notas`: si el que mira no lo tiene,
+ * contesta 42501 y acá no se muestra nada —el desbloqueo de la consola no
+ * alcanza por sí solo, y es a propósito—.
+ */
+function DondeVisito({ visitaId }: { visitaId: string }) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: ['donde-visito', visitaId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('ubicacion_de_visita', { p_visita_id: visitaId })
+      if (error) throw error
+      const fila = (data ?? [])[0] as { veredicto: string; metros: number | null } | undefined
+      return fila ?? null
+    },
+    retry: false,
+  })
+
+  if (isPending) return <div className="donde-se-hizo no-imprimir">Consultando…</div>
+  if (isError || !data) return null
+
+  return (
+    <div className="donde-se-hizo no-imprimir">
+      <strong>{data.veredicto}</strong>
+      {data.metros !== null ? ` · a ${data.metros} m del cliente` : ''}
+    </div>
+  )
+}
+
+/**
  * Armado e impresión del Rol de Visita.
  *
  * Reemplaza la planilla en papel: se elige el vendedor y el día, se agregan los
@@ -121,6 +155,10 @@ export function PaginaRolesDeVisita({
   esAdmin: boolean
 }) {
   const cliente = useQueryClient()
+  // La consola (F12): con `regedit` destrabado se muestra, por fila, desde dónde
+  // se registró la visita (o "Cambio de ubicación"). Se apaga al navegar o con
+  // "regedit off".
+  const consola = usarConsola()
   const [vendedorId, setVendedorId] = useState('')
   // En el calendario de acá y no en UTC: después de las 21:00 `toISOString()`
   // devuelve mañana, y la pantalla abría en el día equivocado — decía que el
@@ -742,6 +780,9 @@ export function PaginaRolesDeVisita({
                                   : ETIQUETA_ESTADO_PARADA[p.estado]),
                               resumenSuelto.get(p.id),
                             )}
+                        {consola.destrabado('ubicacion-de-notas') && p.visita ? (
+                          <DondeVisito visitaId={p.visita.id} />
+                        ) : null}
                       </td>
                       <td className="no-imprimir">
                         {(() => {

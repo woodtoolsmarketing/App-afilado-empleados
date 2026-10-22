@@ -36,7 +36,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 /** Los comandos que la consola entiende. */
 const COMANDOS: Record<string, { hace: string; destraba: string }> = {
   regedit: {
-    hace: 'Muestra dónde se emitió cada nota de pedido.',
+    hace: 'Muestra dónde se emitió cada nota de pedido y desde dónde se registró cada visita del rol.',
     destraba: 'ubicacion-de-notas',
   },
 }
@@ -92,6 +92,13 @@ export function ProveedorConsola({
     setLlaves((previas) => (previas.includes(llave) ? previas : [...previas, llave]))
   }, [])
 
+  // El "<comando> off" apaga a mano lo que ese comando destrabó, sin tener que
+  // cambiar de página. Es la otra mitad del pedido: encenderlo para mirar y
+  // apagarlo cuando terminás, en vez de que quede prendido hasta navegar.
+  const trabar = useCallback((llave: string) => {
+    setLlaves((previas) => previas.filter((l) => l !== llave))
+  }, [])
+
   return (
     <Contexto.Provider
       value={{
@@ -102,7 +109,9 @@ export function ProveedorConsola({
       }}
     >
       {children}
-      {abierta ? <Ventana alCerrar={() => setAbierta(false)} alDestrabar={destrabar} /> : null}
+      {abierta ? (
+        <Ventana alCerrar={() => setAbierta(false)} alDestrabar={destrabar} alTrabar={trabar} />
+      ) : null}
     </Contexto.Provider>
   )
 }
@@ -110,9 +119,11 @@ export function ProveedorConsola({
 function Ventana({
   alCerrar,
   alDestrabar,
+  alTrabar,
 }: {
   alCerrar: () => void
   alDestrabar: (llave: string) => void
+  alTrabar: (llave: string) => void
 }) {
   const [lineas, setLineas] = useState<string[]>([])
   const [texto, setTexto] = useState('')
@@ -139,12 +150,21 @@ function Ventana({
       return
     }
 
-    const encontrado = COMANDOS[comando]
+    // "regedit off" apaga lo que "regedit" destrabó, acá mismo y sin navegar.
+    const apagar = comando.endsWith(' off')
+    const nombre = apagar ? comando.slice(0, -' off'.length).trim() : comando
+
+    const encontrado = COMANDOS[nombre]
     if (encontrado) {
-      alDestrabar(encontrado.destraba)
-      nuevas.push(encontrado.hace)
-      // Se avisa que se apaga solo: si no, la próxima vez parece que se rompió.
-      nuevas.push('Se apaga al cambiar de página.')
+      if (apagar) {
+        alTrabar(encontrado.destraba)
+        nuevas.push('Apagado.')
+      } else {
+        alDestrabar(encontrado.destraba)
+        nuevas.push(encontrado.hace)
+        // Se avisa cómo se apaga: solo al cambiar de página, o a mano con " off".
+        nuevas.push(`Se apaga al cambiar de página, o con "${nombre} off".`)
+      }
     } else {
       // El mismo texto para un comando que no existe y para uno que existe pero
       // no le corresponde a este usuario: la diferencia entre las dos cosas es
