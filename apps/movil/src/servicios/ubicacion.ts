@@ -2,7 +2,14 @@ import * as Battery from 'expo-battery'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 
-import { distanciaEnMetros, fechaLocalISO } from '@woodtools/compartido'
+import {
+  distanciaEnMetros,
+  enHorarioDeSeguimiento,
+  fechaLocalISO,
+  horarioSeguimientoDesde,
+  HORARIO_SEGUIMIENTO_DEFECTO,
+  type HorarioSeguimiento,
+} from '@woodtools/compartido'
 
 import { cacheLocal, supabase } from '../nucleo/supabase'
 
@@ -40,11 +47,18 @@ interface ContextoSeguimiento {
   /**
    * El día local (Argentina) de la jornada. En modo RECORRIDO la tarea corta el
    * seguimiento cuando el reloj pasa a otro día (un recorrido que no se finaliza
-   * no debe seguir rastreando noches y fines de semana). En modo 24/7 NO se
-   * corta por el día: ése es justamente el punto. Puede faltar en un contexto
-   * viejo; ahí se trata como "sin fecha" y no se corta por este motivo.
+   * no debe seguir rastreando noches y fines de semana). En modo seguimiento por
+   * horario (rolVisitaId null) el corte lo da el `horario`, no el día. Puede
+   * faltar en un contexto viejo; ahí se trata como "sin fecha".
    */
   fecha?: string
+  /**
+   * El horario laboral fijado al arrancar (lun-vie 8-17 por defecto). En modo
+   * seguimiento por horario la tarea corta cuando el reloj sale de esta franja
+   * (p. ej. a las 17), sin pegarle a la base por cada punto. Falta en recorrido
+   * (ahí no aplica) y en contextos viejos (rige el default).
+   */
+  horario?: HorarioSeguimiento
 }
 
 interface PuntoEncolado {
@@ -191,7 +205,7 @@ async function arrancarTarea(esRecorrido: boolean): Promise<void> {
         : 'WoodTools · seguimiento activo',
       notificationBody: esRecorrido
         ? 'La oficina puede ver tu ubicación mientras dure el recorrido.'
-        : 'La oficina puede ver tu ubicación mientras el seguimiento esté activo.',
+        : 'La oficina puede ver tu ubicación durante el horario laboral.',
       notificationColor: '#B30F0F',
       killServiceOnDestroy: false,
     },
@@ -235,15 +249,20 @@ export async function seguimientoActivo(): Promise<boolean> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seguimiento 24/7 (flag por vendedor `seguimiento_24_7`)
+// Seguimiento por HORARIO LABORAL (flag por vendedor `seguimiento_24_7`)
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// NO es 24 horas: rastrea sólo dentro del horario laboral (lun-vie 8-17 por
+// defecto, configurable en `configuracion.seguimiento_horario`), no de noche ni
+// fines de semana. El nombre del flag `seguimiento_24_7` quedó de la primera
+// versión; el comportamiento es por horario.
 //
 // Reusa EL MISMO task que el recorrido; la diferencia es el contexto
 // (`rolVisitaId` null, `en_recorrido` false) y quién lo prende/apaga: el flag
-// por vendedor, no el inicio/fin del recorrido. Lo prende la OFICINA desde el
-// panel (un control por vendedor, con nombre claro), y cuando está activo el
+// por vendedor + el horario, no el inicio/fin del recorrido. Lo prende la
+// OFICINA desde el panel (un control por vendedor), y mientras está activo el
 // vendedor ve la notificación honesta del foreground service: es seguimiento
-// DIVULGADO, no oculto. Hoy sólo está prendido en el teléfono de prueba (27).
+// DIVULGADO, no oculto. Hoy sólo prendido en los teléfonos de prueba (27 y 12).
 
 /** Si ESTE vendedor tiene el 24/7 prendido (flag `perfiles.seguimiento_24_7`). */
 async function seguimiento24_7Prendido(): Promise<boolean> {
@@ -271,18 +290,39 @@ async function permisoDeFondo(): Promise<boolean> {
   }
 }
 
+/** El horario laboral configurado por la oficina (o el default lun-vie 8-17). */
+async function horarioDeSeguimiento(): Promise<HorarioSeguimiento> {
+  try {
+    const { data } = await supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'seguimiento_horario')
+      .maybeSingle()
+    return horarioSeguimientoDesde((data as { valor: unknown } | null)?.valor)
+  } catch {
+    return HORARIO_SEGUIMIENTO_DEFECTO
+  }
+}
+
 /**
- * Prende o apaga el seguimiento 24/7 según el flag del vendedor.
+ * Prende o apaga el seguimiento según el flag del vendedor Y el horario laboral.
  *
- * Se llama al loguearse, al volver la app al frente, y por un reloj cada pocos
- * minutos (para no depender de un solo evento). NO pisa un recorrido en curso:
- * si la tarea ya corre en modo recorrido (rolVisitaId set), la deja —ese lo
- * cierra "finalizar"—, y sólo corta cuando lo que corre es el 24/7 (rolVisitaId
- * null) y ya no corresponde (flag apagado o dejó de estar habilitado).
+ * Debe rastrear = habilitado + flag `seguimiento_24_7` + estamos DENTRO del
+ * horario (lun-vie 8-17 por defecto, configurable). Se llama al loguearse, al
+ * volver la app al frente, y por un reloj cada pocos minutos (así arranca/corta
+ * al cruzar las 8 y las 17 aunque no haya otro evento). NO pisa un recorrido en
+ * curso: si la tarea ya corre en modo recorrido (rolVisitaId set), la deja —ese
+ * lo cierra "finalizar"—, y sólo corta cuando lo que corre es el seguimiento por
+ * horario (rolVisitaId null) y ya no corresponde (flag apagado, fuera de horario,
+ * o dejó de estar habilitado).
  */
 export async function revisarSeguimiento(habilitado: boolean): Promise<void> {
   const activo = await seguimientoActivo()
-  const debe = habilitado && (await seguimiento24_7Prendido())
+  // El horario sólo importa si el vendedor tiene el flag: el `&&` evita la
+  // consulta de config para la gran mayoría que no lo tiene.
+  const tieneFlag = habilitado && (await seguimiento24_7Prendido())
+  const horario = tieneFlag ? await horarioDeSeguimiento() : null
+  const debe = tieneFlag && horario !== null && enHorarioDeSeguimiento(new Date(), horario)
 
   if (debe && !activo) {
     // Sin el permiso "siempre" no se puede: se pide aparte (al loguearse) y acá
@@ -291,14 +331,14 @@ export async function revisarSeguimiento(habilitado: boolean): Promise<void> {
     const { data } = await supabase.auth.getSession()
     const vendedorId = data.session?.user.id
     if (!vendedorId) return
-    await iniciarSeguimiento({ vendedorId, rolVisitaId: null })
+    await iniciarSeguimiento({ vendedorId, rolVisitaId: null, horario: horario ?? undefined })
     return
   }
 
   if (!debe && activo) {
     const ctx = await leerContexto()
-    // Sólo corta el 24/7 (rolVisitaId null). Un recorrido explícito no se toca:
-    // lo cierra "finalizar". Sin contexto, se corta igual (estado inconsistente).
+    // Sólo corta el seguimiento por horario (rolVisitaId null). Un recorrido
+    // explícito no se toca: lo cierra "finalizar". Sin contexto, corta igual.
     if (!ctx || ctx.rolVisitaId === null) {
       await detenerSeguimiento(ctx?.vendedorId)
     }
@@ -353,6 +393,20 @@ TaskManager.defineTask(TAREA_UBICACION, async ({ data, error }) => {
     contexto.rolVisitaId !== null &&
     contexto.fecha &&
     fechaLocalISO(new Date(ultima.timestamp)) !== contexto.fecha
+  ) {
+    await detenerSeguimiento(contexto.vendedorId)
+    return
+  }
+
+  // En modo seguimiento por horario (rolVisitaId null): si el punto cae FUERA
+  // del horario laboral (p. ej. pasaron las 17, o es fin de semana), se corta
+  // acá —con el horario grabado en el contexto, sin pegarle a la base—. El
+  // reloj de `revisarSeguimiento` también corta al cruzar las 17; esto es el
+  // respaldo por si llega un punto antes de ese tic.
+  if (
+    contexto.rolVisitaId === null &&
+    contexto.horario &&
+    !enHorarioDeSeguimiento(new Date(ultima.timestamp), contexto.horario)
   ) {
     await detenerSeguimiento(contexto.vendedorId)
     return
