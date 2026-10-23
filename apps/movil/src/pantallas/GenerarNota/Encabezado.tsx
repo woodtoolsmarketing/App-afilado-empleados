@@ -18,7 +18,7 @@ import {
 } from '@woodtools/compartido'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 
 import {
   Campo,
@@ -371,6 +371,39 @@ export function PasoCliente({
       cliente_nombre: '',
       cliente_cuit: '',
       cliente_provisorio: false,
+      // También sale del modo "cliente nuevo a mano": si lo eligió por error,
+      // "✕ CAMBIAR" lo devuelve a buscar un cliente existente.
+      cliente_nuevo: false,
+    })
+    alReiniciarFacturacion?.()
+  }
+
+  /**
+   * Cliente nuevo "a mano": la nota se hace SIN dar de alta todo el cliente.
+   *
+   * Es el camino liviano para el cliente que todavía no está en el sistema y que
+   * la oficina va a cargar después: el vendedor escribe el nombre y los datos a
+   * mano, elige la zona, y la nota sale SIN número —con "ES NUEVO CLIENTE ___" en
+   * el lugar del código—, para que Administración le asigne el código al darlo de
+   * alta. No crea ninguna ficha (a diferencia de "cargarlo completo"): no ensucia
+   * el padrón con un provisorio a medias. Se conserva el nombre ya tipeado.
+   */
+  function marcarClienteNuevoAMano() {
+    intervenido.current = true
+    vigente.current++
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setConsulta('')
+    setResultados([])
+    setConsultaBuscada('')
+    setBuscando(false)
+    setFallo(null)
+    setZonaAbierta(false)
+    setClienteTraeCuit(false)
+    alCambiar({
+      cliente_nuevo: true,
+      cliente_id: null,
+      cliente_codigo: '',
+      cliente_provisorio: false,
     })
     alReiniciarFacturacion?.()
   }
@@ -603,6 +636,9 @@ export function PasoCliente({
    */
   const muestraZona =
     CLIENTE_A_MANO ||
+    // Cliente nuevo "a mano": no hay ficha de donde deducir la zona, así que el
+    // desplegable se muestra solo (igual que en la beta), no escondido tras CAMBIAR.
+    form.cliente_nuevo ||
     zonaAbierta ||
     zonaDudosa.length > 1 ||
     !!errores.zona ||
@@ -718,15 +754,18 @@ export function PasoCliente({
           En una línea, no en un recuadro de tres. El rótulo "CLIENTE ELEGIDO"
           lo dicen igual el tilde y el borde verde, y el nombre entra al lado.
           Eran un centímetro y pico de una página que tiene que entrar entera. */}
-      {!CLIENTE_A_MANO && form.cliente_id ? (
+      {!CLIENTE_A_MANO && (form.cliente_id || form.cliente_nuevo) ? (
         <View style={estilos.clienteElegido}>
           <Text style={estilos.clienteElegidoTilde}>✓</Text>
           <Text
             style={[estilos.clienteElegidoNombre, estilos.mitad]}
             numberOfLines={1}
-            accessibilityLabel={`Cliente elegido: ${form.cliente_provisorio ? 'nuevo cliente' : form.cliente_codigo}, ${form.cliente_nombre}`}
+            accessibilityLabel={`Cliente elegido: ${form.cliente_nuevo || form.cliente_provisorio ? 'nuevo cliente' : form.cliente_codigo}, ${form.cliente_nombre}`}
           >
-            {form.cliente_provisorio ? 'Nuevo cliente' : form.cliente_codigo} · {form.cliente_nombre}
+            {form.cliente_nuevo || form.cliente_provisorio
+              ? 'Nuevo cliente'
+              : form.cliente_codigo}{' '}
+            · {form.cliente_nombre || '(escribí el nombre)'}
           </Text>
           <Pressable
             onPress={soltarCliente}
@@ -764,22 +803,23 @@ export function PasoCliente({
           terminó de tipear. `blurOnSubmit={false}` deja el teclado abierto,
           porque lo que sigue es tocar el cliente en la lista de abajo y
           cerrarlo la haría saltar justo cuando aparece. */}
-      {/* Un cliente nuevo (provisorio) todavía no tiene código: la oficina se lo
-          pone al confirmarlo. Hasta entonces, en "Código de cliente" va este
-          cartel en vez de un casillero vacío, para que quede claro que la nota se
-          puede seguir y el número llega después. */}
-      {form.cliente_provisorio ? (
+      {/* Un cliente nuevo (a mano o provisorio) todavía no tiene código: la
+          oficina se lo asigna al darlo de alta. Hasta entonces, en "Código de
+          cliente" va este cartel en vez de un casillero vacío —y en la nota
+          impresa sale "ES NUEVO CLIENTE ___" para completarlo a mano—, para que
+          quede claro que la nota se puede seguir y el número llega después. */}
+      {form.cliente_provisorio || form.cliente_nuevo ? (
         <Campo
           etiqueta="CÓDIGO DE CLIENTE"
-          value="Nuevo cliente, completar a continuación"
+          value="ES NUEVO CLIENTE ______"
           onChangeText={() => {}}
           editable={false}
-          ayuda="La oficina le asigna el código al confirmarlo; hasta entonces la nota queda sin número."
+          ayuda="La oficina le asigna el código al darlo de alta; hasta entonces la nota queda sin número."
         />
       ) : null}
 
       <View style={estilos.fila}>
-        {!form.cliente_provisorio ? (
+        {!form.cliente_provisorio && !form.cliente_nuevo ? (
           <Campo
             etiqueta="COD. CLIENTE"
             value={form.cliente_codigo}
@@ -861,9 +901,25 @@ export function PasoCliente({
           En la beta no se dan de alta clientes: escribirlos en la nota es
           justamente lo que se está probando, y crear fichas sueltas mientras
           tanto ensuciaría el padrón que después hay que cargar en serio. */}
-      {CLIENTE_A_MANO || form.cliente_id ? null : (
+      {CLIENTE_A_MANO || form.cliente_id || form.cliente_nuevo ? null : (
         <Pressable
-          onPress={alCrearCliente}
+          onPress={() =>
+            Alert.alert('Cliente nuevo', '¿Cómo lo querés cargar?', [
+              {
+                // El alta de siempre: crea la ficha completa (queda buscable
+                // después de que la oficina la confirme).
+                text: 'Cargarlo completo',
+                onPress: alCrearCliente,
+              },
+              {
+                // El camino liviano: nombre y datos a mano, sin código. La nota
+                // sale con "ES NUEVO CLIENTE ___" y la oficina completa el resto.
+                text: 'Sólo esta nota (a mano)',
+                onPress: marcarClienteNuevoAMano,
+              },
+              { text: 'Cancelar', style: 'cancel' },
+            ])
+          }
           hitSlop={10}
           accessibilityRole="button"
           style={estilos.enlaceNuevo}

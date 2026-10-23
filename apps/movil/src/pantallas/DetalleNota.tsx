@@ -280,7 +280,12 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
         <View style={estilos.tarjeta}>
           <Text style={estilos.tarjetaTitulo}>CLIENTE</Text>
           <Text style={estilos.cliente}>{n.cliente_nombre}</Text>
-          {n.cliente_codigo ? <Dato etiqueta="Cliente Nº" valor={n.cliente_codigo} /> : null}
+          {n.cliente_codigo ? (
+            <Dato etiqueta="Cliente Nº" valor={n.cliente_codigo} />
+          ) : (
+            // Cliente nuevo sin código: lo asigna la oficina al darlo de alta.
+            <Dato etiqueta="Cliente Nº" valor="ES NUEVO CLIENTE ______" />
+          )}
           {n.cliente_cuit ? <Dato etiqueta="CUIT" valor={n.cliente_cuit} /> : null}
           {n.zona ? <Dato etiqueta="Zona" valor={n.zona} /> : null}
           <Dato
