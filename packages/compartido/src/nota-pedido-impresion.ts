@@ -886,10 +886,10 @@ export function generarHtmlNotaPedido(
     ${
       nota.cliente_numero
         ? `<span>Cliente Nº <u>${escapar(nota.cliente_numero)}</u></span>`
-        : // Cliente sin código todavía (nuevo / provisorio): va "CLIENTE NUEVO" y
-          // una línea en blanco para escribir el número a mano cuando la oficina
+        : // Cliente sin código todavía (nuevo / provisorio): va "ES NUEVO CLIENTE"
+          // y una línea en blanco para escribir el número a mano cuando la oficina
           // se lo asigne.
-          `<span>CLIENTE NUEVO <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></span>`
+          `<span>ES NUEVO CLIENTE <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></span>`
     }
     <span>Zona <u>${escapar(nota.zona)}</u></span>
     ${nota.sucursal ? `<span class="sucursal">Sucursal <u>${escapar(nota.sucursal)}</u></span>` : ''}

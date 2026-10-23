@@ -209,7 +209,11 @@ function TarjetaVistaPrevia({ nota }: { nota: NotaParaImprimir }) {
 
       <View style={estilos.identificacion}>
         <Text style={estilos.dato}>Vendedor Nº {nota.vendedor_numero || '—'}</Text>
-        <Text style={estilos.dato}>Cliente Nº {nota.cliente_numero ?? '—'}</Text>
+        {/* Sin código todavía (cliente nuevo): va "ES NUEVO CLIENTE ___" para
+            completar el número a mano, igual que en el papel. */}
+        <Text style={estilos.dato}>
+          {nota.cliente_numero ? `Cliente Nº ${nota.cliente_numero}` : 'ES NUEVO CLIENTE ______'}
+        </Text>
         <Text style={estilos.dato}>
           Zona {nota.zona || '—'}
           {nota.zona ? ` · ${nombreDeZona(nota.zona)}` : ''}
