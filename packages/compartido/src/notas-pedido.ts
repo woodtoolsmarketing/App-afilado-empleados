@@ -2999,6 +2999,14 @@ export interface RenglonParaResumen {
    * `sierra_clase` (para distinguir sierra de incisor) al listar las medidas.
    */
   detalle?: Record<string, unknown> | null
+  /**
+   * La descripción completa del renglón —la misma que sale impresa en el
+   * talonario—. El resumen condensado (`resumenDeRenglonesDeVisita`) la descarta
+   * a propósito; `detalleDeServiciosPorParada` la usa para el detalle largo del
+   * rol. La consulta que alimenta ese detalle tiene que pedir la columna
+   * `notas_pedido_items.descripcion`.
+   */
+  descripcion?: string | null
 }
 
 /** "AFILADO" → "Afilado", "REPARACIÓN" → "Reparación": en una frase, no a los gritos. */
@@ -3364,6 +3372,103 @@ export function resumenesDePedidoPorParada(
   }
 
   return renglonesPorParada
+}
+
+/**
+ * Para cada parada, el DETALLE LARGO de los servicios de las notas del día de ese
+ * cliente: una línea por renglón con su descripción completa —la misma que sale
+ * impresa en el talonario—, con el servicio adelante. A diferencia del resumen
+ * condensado (`resumenDeRenglonesDeVisita`, que agrupa y descarta la descripción),
+ * acá es "qué trajo el cliente" renglón por renglón, para verlo en el rol. Reusa
+ * el mismo enganche parada↔notas que `resumenesDePedidoPorParada`.
+ */
+export function detalleDeServiciosPorParada(
+  paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
+  notas: NotaSuelta[],
+): Map<string, string[]> {
+  const renglonesPorParada = resumenesDePedidoPorParada(paradas, notas)
+  const out = new Map<string, string[]>()
+  for (const [paradaId, renglones] of renglonesPorParada) {
+    const lineas = renglones.map(lineaDeDetalleDeRenglon).filter(Boolean)
+    if (lineas.length > 0) out.set(paradaId, lineas)
+  }
+  return out
+}
+
+/** Una línea del detalle largo: "AFILADO · 2× SIERRA CIRCULAR 300x96". */
+function lineaDeDetalleDeRenglon(r: RenglonParaResumen): string {
+  if (!r.servicio) return ''
+  const etiqueta = ETIQUETA_TIPO_SERVICIO[r.servicio]
+  const cantidad = r.cantidad && r.cantidad > 1 ? `${r.cantidad}× ` : ''
+  const desc = (r.descripcion ?? '').trim()
+  // Sin descripción cargada, cae al nombre de la herramienta: mejor eso que una
+  // línea muda con sólo el servicio.
+  const cuerpo = desc || (r.herramienta ? EN_LA_DESCRIPCION[r.herramienta] ?? '' : '')
+  return cuerpo ? `${etiqueta} · ${cantidad}${cuerpo}` : etiqueta
+}
+
+/** Una nota a entregar (o ya entregada) de ese día, para el bloque "entregué" del rol. */
+export interface NotaEntrega {
+  id: string
+  numero: number | null
+  cliente_id: string | null
+  direccion_id: string | null
+  cliente_codigo: string | null
+  fecha_entrega: string | null
+  /** Cuándo se marcó entregada, o null si todavía no. */
+  entregada_en: string | null
+  items: RenglonParaResumen[]
+}
+
+/** Lo que el rol muestra por cada nota a entregar, ya resumida. */
+export interface EntregaDeParada {
+  id: string
+  numero: number | null
+  /** Ya entregada (tiene `entregada_en`). */
+  entregada: boolean
+  /** Qué es, resumido como en la observación ("Afilado de sierras: 3× 300x96"). */
+  detalle: string
+}
+
+/**
+ * Para cada parada, las notas cuya fecha de entrega cae ese día —lo que hay que
+ * entregarle al cliente—. Engancha por cliente (y por dirección cuando hay varias
+ * sucursales); las notas de entrega casi nunca tienen `parada_id` apuntando al rol
+ * de hoy (se crearon días antes), así que el enganche es siempre por cliente.
+ */
+export function entregasDePedidoPorParada(
+  paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
+  notas: NotaEntrega[],
+): Map<string, EntregaDeParada[]> {
+  type P = Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>
+  const paradasPorCliente = new Map<string, P[]>()
+  for (const p of paradas) {
+    if (!p.cliente_id) continue
+    const arr = paradasPorCliente.get(p.cliente_id) ?? []
+    arr.push(p)
+    paradasPorCliente.set(p.cliente_id, arr)
+  }
+
+  const out = new Map<string, EntregaDeParada[]>()
+  for (const n of notas) {
+    if (!n.cliente_id) continue
+    const candidatas = paradasPorCliente.get(n.cliente_id)
+    if (!candidatas || candidatas.length === 0) continue
+    const destino =
+      candidatas.length === 1
+        ? candidatas[0]
+        : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+          candidatas[0])
+    const detalle = enumerar(
+      resumenDeRenglonesDeVisita(n.items)
+        .map((r) => r.trim())
+        .filter(Boolean),
+    )
+    const arr = out.get(destino.id) ?? []
+    arr.push({ id: n.id, numero: n.numero, entregada: !!n.entregada_en, detalle })
+    out.set(destino.id, arr)
+  }
+  return out
 }
 
 /**

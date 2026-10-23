@@ -1,5 +1,7 @@
 import {
   combinarObservacionYResumen,
+  detalleDeServiciosPorParada,
+  entregasDePedidoPorParada,
   errorObservacion,
   ETIQUETA_ESTADO_PARADA,
   fechaLocalISO,
@@ -10,6 +12,7 @@ import {
   resumenesDePedidoPorParada,
   resumenesDePedidoSueltoPorParada,
   rolImprimibleDesdeFilas,
+  type NotaEntrega,
   type NotaSuelta,
   type ParadaCompleta,
   type Perfil,
@@ -243,7 +246,7 @@ export function PaginaRolesDeVisita({
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
+          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
         )
         .eq('vendedor_id', vendedorId)
         .neq('estado', 'anulada')
@@ -287,6 +290,83 @@ export function PaginaRolesDeVisita({
       ),
     [jornada, notasSueltas],
   )
+
+  /**
+   * El DETALLE LARGO de los servicios por parada: una línea por renglón con su
+   * descripción completa (la del talonario). Va debajo del resumen condensado en
+   * la columna Resultado. Sale de las MISMAS notas del día que el resumen.
+   */
+  const detallesPorParada = useMemo(
+    () =>
+      detalleDeServiciosPorParada(
+        (jornada?.paradas ?? []).map((p) => ({
+          id: p.id,
+          cliente_id: p.cliente_id,
+          direccion_id: p.direccion_id,
+        })),
+        notasSueltas ?? [],
+      ),
+    [jornada, notasSueltas],
+  )
+
+  /** Los clientes del rol, para pedir sus notas a entregar de ese día. */
+  const clienteIds = useMemo(
+    () => [...new Set((jornada?.paradas ?? []).map((p) => p.cliente_id).filter(Boolean))] as string[],
+    [jornada],
+  )
+
+  /**
+   * "Entregué": las notas de este vendedor cuya FECHA DE ENTREGA cae el día del
+   * rol, para los clientes del rol —lo que hay que entregarle hoy a cada uno—.
+   * Sólo las impresas (la nota física existe) o ya entregadas. Se enganchan a la
+   * parada por cliente (y por sucursal) en `entregasDePedidoPorParada`.
+   */
+  const { data: entregasDelDia } = useQuery({
+    queryKey: ['entregas-rol', vendedorId, fecha, clienteIds],
+    enabled: !!vendedorId && clienteIds.length > 0,
+    queryFn: async () => {
+      const { data, error: err } = await supabase
+        .from('notas_pedido')
+        .select(
+          'id, numero, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
+        )
+        .eq('vendedor_id', vendedorId)
+        .eq('fecha_entrega', fecha)
+        .in('estado', ['impresa', 'entregada'])
+        .in('cliente_id', clienteIds)
+      if (err) throw err
+      return (data ?? []) as unknown as NotaEntrega[]
+    },
+  })
+
+  const entregasPorParada = useMemo(
+    () =>
+      entregasDePedidoPorParada(
+        (jornada?.paradas ?? []).map((p) => ({
+          id: p.id,
+          cliente_id: p.cliente_id,
+          direccion_id: p.direccion_id,
+        })),
+        entregasDelDia ?? [],
+      ),
+    [jornada, entregasDelDia],
+  )
+
+  // Marcar/desmarcar una nota como entregada (admin). La oficina lo hace desde el
+  // rol cuando el vendedor entregó. Deja la nota en 'entregada' con la fecha/hora.
+  const marcarEntregada = useMutation({
+    mutationFn: async (v: { notaId: string; entregada: boolean }) => {
+      const { error: err } = await supabase.rpc('marcar_nota_entregada', {
+        p_nota_id: v.notaId,
+        p_entregada: v.entregada,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['entregas-rol'] })
+    },
+    onError: (e: Error) => setError(e.message),
+  })
 
   // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
   const [termino, setTermino] = useState('')
@@ -613,6 +693,8 @@ export function PaginaRolesDeVisita({
         },
         // Las cantidades al día: rearma la observación del rol desde las notas.
         resumenCompleto,
+        // El detalle largo de los servicios y lo que hay que entregar ese día.
+        { detallesPorParada, entregasPorParada },
       )
       const html = generarDocumentoImpresion([], { rolDeVisita })
 
@@ -787,6 +869,55 @@ export function PaginaRolesDeVisita({
                             )}
                         {consola.destrabado('ubicacion-de-notas') && p.visita?.visitado ? (
                           <DondeVisito visitaId={p.visita.id} />
+                        ) : null}
+                        {(detallesPorParada.get(p.id)?.length ?? 0) > 0 ? (
+                          <div style={{ marginTop: 4, fontSize: 11 }}>
+                            <strong style={{ textTransform: 'uppercase', fontSize: 10 }}>
+                              Servicios
+                            </strong>
+                            <ul style={{ margin: '2px 0 0', paddingLeft: 16 }}>
+                              {detallesPorParada.get(p.id)!.map((l, k) => (
+                                <li key={k}>{l}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {(entregasPorParada.get(p.id)?.length ?? 0) > 0 ? (
+                          <div style={{ marginTop: 4, fontSize: 11 }}>
+                            <strong style={{ textTransform: 'uppercase', fontSize: 10 }}>
+                              Entregué
+                            </strong>
+                            <ul style={{ margin: '2px 0 0', paddingLeft: 4, listStyle: 'none' }}>
+                              {entregasPorParada.get(p.id)!.map((e) => (
+                                <li key={e.id} style={{ marginBottom: 2 }}>
+                                  <label
+                                    style={{
+                                      display: 'flex',
+                                      gap: 4,
+                                      alignItems: 'flex-start',
+                                      cursor: esAdmin && !soloLectura ? 'pointer' : 'default',
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={e.entregada}
+                                      disabled={soloLectura || !esAdmin || marcarEntregada.isPending}
+                                      onChange={() =>
+                                        marcarEntregada.mutate({
+                                          notaId: e.id,
+                                          entregada: !e.entregada,
+                                        })
+                                      }
+                                    />
+                                    <span>
+                                      {e.numero ? `Nº ${e.numero}` : 'nota'}
+                                      {e.detalle ? ` — ${e.detalle}` : ''}
+                                    </span>
+                                  </label>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ) : null}
                       </td>
                       <td className="no-imprimir">
