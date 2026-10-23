@@ -297,21 +297,23 @@ export function PaginaRolesDeVisita({
   )
 
   /**
-   * "Entregué": las notas de este vendedor cuya FECHA DE ENTREGA cae el día del
-   * rol, para los clientes del rol —lo que hay que entregarle hoy a cada uno—.
-   * Sólo las impresas (la nota física existe) o ya entregadas. Se enganchan a la
-   * parada por cliente (y por sucursal) en `entregasDePedidoPorParada`.
+   * "Entregué": las notas cuya FECHA DE ENTREGA cae el día del rol, para los
+   * clientes del rol —lo que hay que entregarle hoy a cada uno—. De CUALQUIER
+   * vendedor: si el cliente del recorrido tiene algo para entregar ese día,
+   * aparece aunque la nota la haya hecho otro (la oficina ve todas por RLS,
+   * `notas_leer` → `puede_ver_todo()`). Sólo las impresas (la nota física existe)
+   * o ya entregadas. Se enganchan a la parada por cliente (y sucursal) en
+   * `entregasDePedidoPorParada`.
    */
   const { data: entregasDelDia } = useQuery({
-    queryKey: ['entregas-rol', vendedorId, fecha, clienteIds],
-    enabled: !!vendedorId && clienteIds.length > 0,
+    queryKey: ['entregas-rol', fecha, clienteIds],
+    enabled: clienteIds.length > 0,
     queryFn: async () => {
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
           'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
         )
-        .eq('vendedor_id', vendedorId)
         .eq('fecha_entrega', fecha)
         .in('estado', ['impresa', 'entregada'])
         .in('cliente_id', clienteIds)
