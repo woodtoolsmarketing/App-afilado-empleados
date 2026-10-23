@@ -1,4 +1,5 @@
 import {
+  datosDeClienteNuevoAMano,
   espaciado,
   etiquetaZona,
   ETIQUETA_TIPO_SERVICIO,
@@ -374,6 +375,10 @@ export function PasoCliente({
       // También sale del modo "cliente nuevo a mano": si lo eligió por error,
       // "✕ CAMBIAR" lo devuelve a buscar un cliente existente.
       cliente_nuevo: false,
+      cliente_direccion: '',
+      cliente_contacto: '',
+      cliente_telefono: '',
+      cliente_email: '',
     })
     alReiniciarFacturacion?.()
   }
@@ -404,6 +409,12 @@ export function PasoCliente({
       cliente_id: null,
       cliente_codigo: '',
       cliente_provisorio: false,
+      // Los datos se cargan en los campos separados; arrancan en blanco.
+      cliente_direccion: '',
+      cliente_contacto: '',
+      cliente_telefono: '',
+      cliente_email: '',
+      datos_cliente: '',
     })
     alReiniciarFacturacion?.()
   }
@@ -615,6 +626,53 @@ export function PasoCliente({
   }, [form.vendedor_numero, form.zona, codigoVendedorUsuario])
 
   /**
+   * Cliente nuevo a mano: los campos separados (dirección, teléfono, email,
+   * contacto) se arman solos en `datos_cliente`, que es lo que se guarda, lo que
+   * la oficina lee y lo que sale impreso.
+   *
+   * El guard `algo` es clave: sin él, al REABRIR una nota de cliente nuevo (los
+   * campos separados no se guardan en columnas, así que vuelven vacíos) este
+   * efecto pisaría el `datos_cliente` cargado con un texto vacío y se perdería.
+   * Con el guard, si no hay nada en los campos no toca `datos_cliente` (y ahí el
+   * recuadro "DATOS DEL CLIENTE" libre vuelve a mostrarse con lo que ya había).
+   */
+  useEffect(() => {
+    if (!form.cliente_nuevo) return
+    const algo = (
+      form.cliente_direccion +
+      form.cliente_contacto +
+      form.cliente_telefono +
+      form.cliente_email
+    ).trim()
+    if (!algo) return
+    const compuesto = datosDeClienteNuevoAMano(form)
+    if (compuesto !== form.datos_cliente) {
+      alCambiar({ datos_cliente: compuesto, datos_cliente_origen: 'texto' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.cliente_nuevo,
+    form.cliente_nombre,
+    form.cliente_direccion,
+    form.cliente_contacto,
+    form.cliente_telefono,
+    form.cliente_email,
+  ])
+
+  /** Con campos separados cargados, el recuadro de "datos" libre sobra: lo que
+   *  se escribe en ellos ya arma `datos_cliente`. El libre sólo vuelve cuando no
+   *  hay ninguno cargado (cliente ya elegido, o una nota de cliente nuevo
+   *  reabierta, donde el texto ya está en `datos_cliente`). */
+  const camposNuevosVacios = !(
+    form.cliente_direccion +
+    form.cliente_contacto +
+    form.cliente_telefono +
+    form.cliente_email
+  ).trim()
+  const muestraDatosLibres =
+    !form.cliente_nuevo || (camposNuevosVacios && form.datos_cliente.trim() !== '')
+
+  /**
    * ¿Se dibuja el CUIT?
    *
    * Sólo si hay uno que mostrar. En la beta el cliente se escribe entero —así
@@ -693,6 +751,11 @@ export function PasoCliente({
       // Sólo se completa si el vendedor todavía no escribió nada: lo suyo manda.
       datos_cliente: form.datos_cliente.trim() ? form.datos_cliente : datos,
       cliente_nuevo: false,
+      // Los campos del cliente nuevo a mano no aplican a un cliente elegido.
+      cliente_direccion: '',
+      cliente_contacto: '',
+      cliente_telefono: '',
+      cliente_email: '',
     })
 
     // Elegir otro cliente sí pisa la zona: es la ubicación la que manda, y
@@ -947,6 +1010,50 @@ export function PasoCliente({
         />
       ) : null}
 
+      {/* Cliente NUEVO a mano: los datos en campos separados, como el alta, pero
+          escritos a mano (sin geolocalizar ni crear la ficha). Se arman solos en
+          "DATOS DEL CLIENTE" (lo que la oficina lee y lo que sale impreso); el
+          código queda "ES NUEVO CLIENTE ___". La dirección lleva el error del
+          campo "datos" porque es el dato que el comprobante necesita sí o sí. */}
+      {form.cliente_nuevo ? (
+        <>
+          <Campo
+            etiqueta="DIRECCIÓN"
+            value={form.cliente_direccion}
+            onChangeText={(t) => alCambiar({ cliente_direccion: t })}
+            placeholder="Calle, número, localidad"
+            autoCapitalize="words"
+            error={errores.datos_cliente}
+          />
+          <Campo
+            etiqueta="CONTACTO"
+            value={form.cliente_contacto}
+            onChangeText={(t) => alCambiar({ cliente_contacto: t })}
+            placeholder="Quién atiende"
+            autoCapitalize="words"
+          />
+          <View style={estilos.fila}>
+            <Campo
+              etiqueta="TELÉFONO"
+              value={form.cliente_telefono}
+              onChangeText={(t) => alCambiar({ cliente_telefono: t })}
+              placeholder="11 4444 5555"
+              keyboardType="phone-pad"
+              contenedorStyle={estilos.mitad}
+            />
+            <Campo
+              etiqueta="EMAIL"
+              value={form.cliente_email}
+              onChangeText={(t) => alCambiar({ cliente_email: t })}
+              placeholder="cliente@correo.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              contenedorStyle={estilos.mitad}
+            />
+          </View>
+        </>
+      ) : null}
+
       {/* ── Resultados de la búsqueda ─────────────────────────────────────────
           Van JUSTO ABAJO de los tres campos que buscan —código, nombre y
           CUIT—, no al final del encabezado. Estaban después de la zona y del
@@ -1151,12 +1258,16 @@ export function PasoCliente({
         />
       ) : null}
 
-      <DetalleDelCliente
-        valor={form.datos_cliente}
-        alCambiar={(t) => alCambiar({ datos_cliente: t })}
-        alCambiarOrigen={(o) => alCambiar({ datos_cliente_origen: o })}
-        error={errores.datos_cliente}
-      />
+      {muestraDatosLibres ? (
+        <DetalleDelCliente
+          valor={form.datos_cliente}
+          alCambiar={(t) => alCambiar({ datos_cliente: t })}
+          alCambiarOrigen={(o) => alCambiar({ datos_cliente_origen: o })}
+          // En cliente nuevo a mano el error va en el campo DIRECCIÓN; acá sólo
+          // cuando el recuadro libre es el que se muestra (cliente elegido).
+          error={form.cliente_nuevo ? undefined : errores.datos_cliente}
+        />
+      ) : null}
     </>
   )
 }
