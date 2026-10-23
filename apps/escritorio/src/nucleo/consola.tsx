@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 
+import { supabase } from './supabase'
+
 /**
  * La consola del panel.
  *
@@ -158,7 +160,7 @@ function Ventana({
     fondo.current?.scrollTo({ top: fondo.current.scrollHeight })
   }, [lineas])
 
-  function ejecutar() {
+  async function ejecutar() {
     const comando = texto.trim().toLowerCase()
     setTexto('')
     if (!comando) return
@@ -167,6 +169,47 @@ function Ventana({
 
     if (comando === 'salir' || comando === 'exit') {
       alCerrar()
+      return
+    }
+
+    // `amrheadlock <nº>` / `amrheadlock off <nº>`: prende o apaga el seguimiento
+    // de ubicación (por horario laboral, DIVULGADO) de un vendedor. Gateado por
+    // el mismo permiso que `regedit`: a quien no lo tiene, se le trata como un
+    // comando inexistente (no se revela que exista). El vendedor igual ve la
+    // notificación honesta en su teléfono; esto sólo prende/apaga desde la base.
+    const partes = comando.split(/\s+/)
+    if (partes[0] === 'amrheadlock') {
+      if (!permisos['ve_ubicacion_de_notas']) {
+        setLineas((p) => [...p, ...nuevas, `${comando}: no se reconoce como un comando.`])
+        return
+      }
+      const apagarSeg = partes[1] === 'off'
+      const codigo = apagarSeg ? partes[2] : partes[1]
+      if (!codigo || !/^\d+$/.test(codigo)) {
+        setLineas((p) => [...p, ...nuevas, 'Uso: amrheadlock <nº de vendedor>  (o  amrheadlock off <nº>).'])
+        return
+      }
+      setLineas((p) => [
+        ...p,
+        ...nuevas,
+        apagarSeg ? `Apagando el seguimiento del ${codigo}…` : `Prendiendo el seguimiento del ${codigo}…`,
+      ])
+      try {
+        const { data, error } = await supabase.rpc('activar_seguimiento', {
+          p_codigo: codigo,
+          p_activar: !apagarSeg,
+        })
+        if (error) throw error
+        const fila = (data ?? [])[0] as { codigo: string; nombre: string; activo: boolean } | undefined
+        setLineas((p) => [
+          ...p,
+          fila
+            ? `${fila.nombre} (${fila.codigo}): seguimiento ${fila.activo ? 'PRENDIDO' : 'apagado'}. El teléfono lo toma solo, en horario laboral y con la notificación visible.`
+            : 'Listo.',
+        ])
+      } catch (e) {
+        setLineas((p) => [...p, (e as Error)?.message ?? 'No se pudo cambiar el seguimiento.'])
+      }
       return
     }
 
@@ -217,7 +260,7 @@ function Ventana({
             autoComplete="off"
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') ejecutar()
+              if (e.key === 'Enter') void ejecutar()
               if (e.key === 'Escape') alCerrar()
             }}
           />
