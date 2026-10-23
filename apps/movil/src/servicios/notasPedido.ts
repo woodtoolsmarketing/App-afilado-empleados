@@ -1026,7 +1026,13 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
       ),
       descripcion_herramienta_origen:
         nota.descripcion_herramienta_origen === 'voz' ? 'voz' : 'texto',
-      cliente_nuevo: false,
+      // Reconstruir el modo del cliente al reabrir, según cómo quedó la nota:
+      //  · "cliente nuevo a mano" (sin ficha): pendiente_cliente SIN cliente_id.
+      //  · provisorio (alta completa): pendiente_cliente CON cliente_id.
+      // Sin esto, una nota de cliente nuevo reabierta volvía con los dos flags en
+      // false y cliente_id null, y la validación la trababa pidiendo buscar un
+      // cliente que no existe.
+      cliente_nuevo: nota.estado === 'pendiente_cliente' && !nota.cliente_id,
       cliente_provisorio: nota.estado === 'pendiente_cliente' && !!nota.cliente_id,
     },
     servicios: Array.isArray(nota.servicios) ? (nota.servicios as TipoServicio[]) : [],
