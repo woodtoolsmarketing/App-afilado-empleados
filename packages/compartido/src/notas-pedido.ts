@@ -1003,6 +1003,17 @@ export interface FormularioNotaEncabezado {
    * del buscador, y de Google cuando se lo acaba de crear.
    */
   cliente_provincia: string
+  /**
+   * Datos del cliente NUEVO a mano (sólo cuando `cliente_nuevo`): el vendedor los
+   * escribe en campos separados, como en el alta, pero sin geolocalizar ni crear
+   * la ficha. Se arman solos dentro de `datos_cliente` (lo que la oficina ya lee
+   * para dar de alta al cliente y lo que sale impreso); no se guardan en columnas
+   * propias. Vacíos para un cliente ya elegido o provisorio.
+   */
+  cliente_direccion: string
+  cliente_contacto: string
+  cliente_telefono: string
+  cliente_email: string
 }
 
 export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
@@ -1022,6 +1033,36 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   cliente_nuevo: false,
   cliente_provisorio: false,
   cliente_provincia: '',
+  cliente_direccion: '',
+  cliente_contacto: '',
+  cliente_telefono: '',
+  cliente_email: '',
+}
+
+/**
+ * Arma el texto de "DATOS DEL CLIENTE" de un cliente nuevo cargado a mano, con
+ * los campos separados que escribió el vendedor. Mismo formato que el que se
+ * compone solo para un cliente ya elegido (nombre — dirección — Tel — email —
+ * Contacto), para que la oficina lo lea igual y salga impreso igual. '' si no
+ * cargó nada (ahí el campo de "datos" libre sigue valiendo).
+ */
+export function datosDeClienteNuevoAMano(
+  enc: Pick<
+    FormularioNotaEncabezado,
+    'cliente_nombre' | 'cliente_direccion' | 'cliente_telefono' | 'cliente_email' | 'cliente_contacto'
+  >,
+): string {
+  const tel = enc.cliente_telefono.trim()
+  const contacto = enc.cliente_contacto.trim()
+  return [
+    enc.cliente_nombre.trim(),
+    enc.cliente_direccion.trim(),
+    tel ? `Tel ${tel}` : '',
+    enc.cliente_email.trim(),
+    contacto ? `Contacto: ${contacto}` : '',
+  ]
+    .filter(Boolean)
+    .join(' — ')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
