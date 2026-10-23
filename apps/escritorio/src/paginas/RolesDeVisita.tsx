@@ -328,7 +328,7 @@ export function PaginaRolesDeVisita({
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'id, numero, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
+          'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
         )
         .eq('vendedor_id', vendedorId)
         .eq('fecha_entrega', fecha)
@@ -354,6 +354,8 @@ export function PaginaRolesDeVisita({
 
   // Marcar/desmarcar una nota como entregada (admin). La oficina lo hace desde el
   // rol cuando el vendedor entregó. Deja la nota en 'entregada' con la fecha/hora.
+  // Optimista: el tilde cambia al toque y se revierte si la base falla; así se
+  // pueden marcar varias seguidas sin esperar el refetch.
   const marcarEntregada = useMutation({
     mutationFn: async (v: { notaId: string; entregada: boolean }) => {
       const { error: err } = await supabase.rpc('marcar_nota_entregada', {
@@ -362,10 +364,23 @@ export function PaginaRolesDeVisita({
       })
       if (err) throw err
     },
-    onSuccess: () => {
-      void cliente.invalidateQueries({ queryKey: ['entregas-rol'] })
+    onMutate: async (v) => {
+      await cliente.cancelQueries({ queryKey: ['entregas-rol'] })
+      const previas = cliente.getQueriesData<NotaEntrega[]>({ queryKey: ['entregas-rol'] })
+      cliente.setQueriesData<NotaEntrega[]>({ queryKey: ['entregas-rol'] }, (viejas) =>
+        (viejas ?? []).map((n) =>
+          n.id === v.notaId
+            ? { ...n, entregada_en: v.entregada ? new Date().toISOString() : null }
+            : n,
+        ),
+      )
+      return { previas }
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error, _v, ctx) => {
+      ctx?.previas?.forEach(([clave, datos]) => cliente.setQueryData(clave, datos))
+      setError(e.message)
+    },
+    onSettled: () => void cliente.invalidateQueries({ queryKey: ['entregas-rol'] }),
   })
 
   // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
@@ -901,7 +916,7 @@ export function PaginaRolesDeVisita({
                                     <input
                                       type="checkbox"
                                       checked={e.entregada}
-                                      disabled={soloLectura || !esAdmin || marcarEntregada.isPending}
+                                      disabled={soloLectura || !esAdmin}
                                       onChange={() =>
                                         marcarEntregada.mutate({
                                           notaId: e.id,

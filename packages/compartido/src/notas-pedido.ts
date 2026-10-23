@@ -3411,6 +3411,13 @@ function lineaDeDetalleDeRenglon(r: RenglonParaResumen): string {
 export interface NotaEntrega {
   id: string
   numero: number | null
+  /**
+   * La parada donde se creó la nota. Casi siempre es de OTRO día (la nota se hizo
+   * días antes que la entrega), así que no suele caer en el rol de hoy; por eso el
+   * enganche es principalmente por cliente. Se usa sólo para desempatar cuando la
+   * nota sí apunta a una parada del rol de hoy (entrega el mismo día).
+   */
+  parada_id: string | null
   cliente_id: string | null
   direccion_id: string | null
   cliente_codigo: string | null
@@ -3441,8 +3448,10 @@ export function entregasDePedidoPorParada(
   notas: NotaEntrega[],
 ): Map<string, EntregaDeParada[]> {
   type P = Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>
+  const paradaPorId = new Map<string, P>()
   const paradasPorCliente = new Map<string, P[]>()
   for (const p of paradas) {
+    paradaPorId.set(p.id, p)
     if (!p.cliente_id) continue
     const arr = paradasPorCliente.get(p.cliente_id) ?? []
     arr.push(p)
@@ -3451,14 +3460,24 @@ export function entregasDePedidoPorParada(
 
   const out = new Map<string, EntregaDeParada[]>()
   for (const n of notas) {
-    if (!n.cliente_id) continue
-    const candidatas = paradasPorCliente.get(n.cliente_id)
-    if (!candidatas || candidatas.length === 0) continue
-    const destino =
-      candidatas.length === 1
-        ? candidatas[0]
-        : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
-          candidatas[0])
+    // Mismo criterio que `resumenesDePedidoPorParada`, para que "Servicios" y
+    // "Entregué" caigan siempre en la MISMA fila: primero por `parada_id` cuando
+    // apunta a una parada del rol de hoy (entrega el mismo día); si no —el caso
+    // normal, nota de días antes—, por cliente (y por sucursal si hay varias).
+    let destino: P | undefined
+    if (n.parada_id && paradaPorId.has(n.parada_id)) {
+      destino = paradaPorId.get(n.parada_id)
+    } else {
+      if (!n.cliente_id) continue
+      const candidatas = paradasPorCliente.get(n.cliente_id)
+      if (!candidatas || candidatas.length === 0) continue
+      destino =
+        candidatas.length === 1
+          ? candidatas[0]
+          : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+            candidatas[0])
+    }
+    if (!destino) continue
     const detalle = enumerar(
       resumenDeRenglonesDeVisita(n.items)
         .map((r) => r.trim())
