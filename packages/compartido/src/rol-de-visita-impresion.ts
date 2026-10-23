@@ -41,16 +41,9 @@ export interface RenglonRolDeVisita {
   /** Columna "RESULTADO (OBSERVACIONES)". */
   resultado: string
   /**
-   * El detalle largo de los servicios de las notas del cliente (una línea por
-   * renglón, con su descripción completa). Va debajo del resultado. Lo arma
-   * `detalleDeServiciosPorParada`; vacío/omitido = no se dibuja (así el teléfono,
-   * que todavía no lo pasa, imprime igual que antes).
-   */
-  serviciosDetalle?: string[]
-  /**
    * Lo que hay que entregarle al cliente ese día (notas con fecha de entrega =
    * día del rol). Lo arma `entregasDePedidoPorParada`; vacío/omitido = no se
-   * dibuja.
+   * dibuja (así el teléfono, que todavía no lo pasa, imprime igual que antes).
    */
   entregas?: { numero: number | string; detalle: string; entregada: boolean }[]
 }
@@ -224,12 +217,11 @@ export function rolImprimibleDesdeFilas(
    */
   resumenesCompletos?: Map<string, RenglonParaResumen[]>,
   /**
-   * El detalle largo de los servicios por parada (`detalleDeServiciosPorParada`)
-   * y lo que hay que entregar ese día (`entregasDePedidoPorParada`). Opcionales:
-   * los pasa el panel; el teléfono todavía no, así que su impreso no cambia.
+   * Lo que hay que entregar ese día por parada (`entregasDePedidoPorParada`).
+   * Opcional: lo pasa el panel; el teléfono todavía no, así que su impreso no
+   * cambia.
    */
   extras?: {
-    detallesPorParada?: Map<string, string[]>
     entregasPorParada?: Map<string, { numero: number | null; detalle: string; entregada: boolean }[]>
   },
 ): RolDeVisitaParaImprimir {
@@ -244,7 +236,6 @@ export function rolImprimibleDesdeFilas(
     entrego: p.visita?.entrego ?? false,
     contacto: p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? '',
     resultado: resultadoDeParada(p, resumenesCompletos?.get(p.id)),
-    serviciosDetalle: extras?.detallesPorParada?.get(p.id),
     entregas: (extras?.entregasPorParada?.get(p.id) ?? []).map((e) => ({
       numero: e.numero ?? '',
       detalle: e.detalle,
@@ -262,13 +253,6 @@ export function rolImprimibleDesdeFilas(
     visitadas: paradas.filter((p) => p.visita?.visitado === true).length,
     no_visitadas: paradas.filter((p) => p.visita?.visitado === false).length,
   }
-}
-
-/** El detalle largo de los servicios, debajo del resultado. '' si no hay. */
-function htmlDetalleServicios(lineas?: string[]): string {
-  if (!lineas || lineas.length === 0) return ''
-  const items = lineas.map((l) => `<li>${escapar(l)}</li>`).join('')
-  return `<div class="rol-sub"><span class="rol-sub-rotulo">Servicios</span><ul class="rol-lista">${items}</ul></div>`
 }
 
 /** Lo que hay que entregar ese día, con el tilde de entregado. '' si no hay. */
@@ -305,7 +289,7 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
       <td class="tick">${tilde(p.retiro_afilado)}</td>
       <td class="tick">${tilde(p.entrego)}</td>
       <td>${escapar(p.contacto)}</td>
-      <td class="resultado">${escapar(p.resultado)}${htmlDetalleServicios(p.serviciosDetalle)}${htmlEntregas(p.entregas)}</td>
+      <td class="resultado">${escapar(p.resultado)}${htmlEntregas(p.entregas)}</td>
     </tr>`,
     )
     .join('')
@@ -408,9 +392,9 @@ export const ESTILOS_ROL_DE_VISITA = `
 .rol-tabla .tick { text-align: center; font-weight: bold; }
 .rol-tabla .resultado { font-size: 7pt; line-height: 1.15; }
 
-/* Los dos bloques que cuelgan del resultado: el detalle largo de los servicios
-   y lo que hay que entregar ese día. Chiquitos y con su rótulo, para que se
-   distingan del texto de la observación sin robarle lugar. */
+/* El bloque "Entregué" que cuelga del resultado: lo que hay que entregarle al
+   cliente ese día. Chiquito y con su rótulo, para que se distinga del texto de
+   la observación sin robarle lugar. */
 .rol-sub { margin-top: 1.5mm; font-size: 6.5pt; line-height: 1.1; }
 .rol-sub-rotulo { font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; }
 .rol-lista { margin: 0; padding-left: 3mm; }

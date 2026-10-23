@@ -1,6 +1,5 @@
 import {
   combinarObservacionYResumen,
-  detalleDeServiciosPorParada,
   entregasDePedidoPorParada,
   errorObservacion,
   ETIQUETA_ESTADO_PARADA,
@@ -246,7 +245,7 @@ export function PaginaRolesDeVisita({
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
+          'parada_id, cliente_id, direccion_id, creado_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
         )
         .eq('vendedor_id', vendedorId)
         .neq('estado', 'anulada')
@@ -291,24 +290,6 @@ export function PaginaRolesDeVisita({
     [jornada, notasSueltas],
   )
 
-  /**
-   * El DETALLE LARGO de los servicios por parada: una línea por renglón con su
-   * descripción completa (la del talonario). Va debajo del resumen condensado en
-   * la columna Resultado. Sale de las MISMAS notas del día que el resumen.
-   */
-  const detallesPorParada = useMemo(
-    () =>
-      detalleDeServiciosPorParada(
-        (jornada?.paradas ?? []).map((p) => ({
-          id: p.id,
-          cliente_id: p.cliente_id,
-          direccion_id: p.direccion_id,
-        })),
-        notasSueltas ?? [],
-      ),
-    [jornada, notasSueltas],
-  )
-
   /** Los clientes del rol, para pedir sus notas a entregar de ese día. */
   const clienteIds = useMemo(
     () => [...new Set((jornada?.paradas ?? []).map((p) => p.cliente_id).filter(Boolean))] as string[],
@@ -328,7 +309,7 @@ export function PaginaRolesDeVisita({
       const { data, error: err } = await supabase
         .from('notas_pedido')
         .select(
-          'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle, descripcion )',
+          'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
         )
         .eq('vendedor_id', vendedorId)
         .eq('fecha_entrega', fecha)
@@ -708,8 +689,8 @@ export function PaginaRolesDeVisita({
         },
         // Las cantidades al día: rearma la observación del rol desde las notas.
         resumenCompleto,
-        // El detalle largo de los servicios y lo que hay que entregar ese día.
-        { detallesPorParada, entregasPorParada },
+        // Lo que hay que entregar ese día, por parada.
+        { entregasPorParada },
       )
       const html = generarDocumentoImpresion([], { rolDeVisita })
 
@@ -884,18 +865,6 @@ export function PaginaRolesDeVisita({
                             )}
                         {consola.destrabado('ubicacion-de-notas') && p.visita?.visitado ? (
                           <DondeVisito visitaId={p.visita.id} />
-                        ) : null}
-                        {(detallesPorParada.get(p.id)?.length ?? 0) > 0 ? (
-                          <div style={{ marginTop: 4, fontSize: 11 }}>
-                            <strong style={{ textTransform: 'uppercase', fontSize: 10 }}>
-                              Servicios
-                            </strong>
-                            <ul style={{ margin: '2px 0 0', paddingLeft: 16 }}>
-                              {detallesPorParada.get(p.id)!.map((l, k) => (
-                                <li key={k}>{l}</li>
-                              ))}
-                            </ul>
-                          </div>
                         ) : null}
                         {(entregasPorParada.get(p.id)?.length ?? 0) > 0 ? (
                           <div style={{ marginTop: 4, fontSize: 11 }}>

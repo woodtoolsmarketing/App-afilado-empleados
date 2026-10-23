@@ -2999,14 +2999,6 @@ export interface RenglonParaResumen {
    * `sierra_clase` (para distinguir sierra de incisor) al listar las medidas.
    */
   detalle?: Record<string, unknown> | null
-  /**
-   * La descripción completa del renglón —la misma que sale impresa en el
-   * talonario—. El resumen condensado (`resumenDeRenglonesDeVisita`) la descarta
-   * a propósito; `detalleDeServiciosPorParada` la usa para el detalle largo del
-   * rol. La consulta que alimenta ese detalle tiene que pedir la columna
-   * `notas_pedido_items.descripcion`.
-   */
-  descripcion?: string | null
 }
 
 /** "AFILADO" → "Afilado", "REPARACIÓN" → "Reparación": en una frase, no a los gritos. */
@@ -3372,39 +3364,6 @@ export function resumenesDePedidoPorParada(
   }
 
   return renglonesPorParada
-}
-
-/**
- * Para cada parada, el DETALLE LARGO de los servicios de las notas del día de ese
- * cliente: una línea por renglón con su descripción completa —la misma que sale
- * impresa en el talonario—, con el servicio adelante. A diferencia del resumen
- * condensado (`resumenDeRenglonesDeVisita`, que agrupa y descarta la descripción),
- * acá es "qué trajo el cliente" renglón por renglón, para verlo en el rol. Reusa
- * el mismo enganche parada↔notas que `resumenesDePedidoPorParada`.
- */
-export function detalleDeServiciosPorParada(
-  paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
-  notas: NotaSuelta[],
-): Map<string, string[]> {
-  const renglonesPorParada = resumenesDePedidoPorParada(paradas, notas)
-  const out = new Map<string, string[]>()
-  for (const [paradaId, renglones] of renglonesPorParada) {
-    const lineas = renglones.map(lineaDeDetalleDeRenglon).filter(Boolean)
-    if (lineas.length > 0) out.set(paradaId, lineas)
-  }
-  return out
-}
-
-/** Una línea del detalle largo: "AFILADO · 2× SIERRA CIRCULAR 300x96". */
-function lineaDeDetalleDeRenglon(r: RenglonParaResumen): string {
-  if (!r.servicio) return ''
-  const etiqueta = ETIQUETA_TIPO_SERVICIO[r.servicio]
-  const cantidad = r.cantidad && r.cantidad > 1 ? `${r.cantidad}× ` : ''
-  const desc = (r.descripcion ?? '').trim()
-  // Sin descripción cargada, cae al nombre de la herramienta: mejor eso que una
-  // línea muda con sólo el servicio.
-  const cuerpo = desc || (r.herramienta ? EN_LA_DESCRIPCION[r.herramienta] ?? '' : '')
-  return cuerpo ? `${etiqueta} · ${cantidad}${cuerpo}` : etiqueta
 }
 
 /** Una nota a entregar (o ya entregada) de ese día, para el bloque "entregué" del rol. */
