@@ -659,18 +659,24 @@ export function PasoCliente({
     form.cliente_email,
   ])
 
-  /** Con campos separados cargados, el recuadro de "datos" libre sobra: lo que
-   *  se escribe en ellos ya arma `datos_cliente`. El libre sólo vuelve cuando no
-   *  hay ninguno cargado (cliente ya elegido, o una nota de cliente nuevo
-   *  reabierta, donde el texto ya está en `datos_cliente`). */
   const camposNuevosVacios = !(
     form.cliente_direccion +
     form.cliente_contacto +
     form.cliente_telefono +
     form.cliente_email
   ).trim()
-  const muestraDatosLibres =
-    !form.cliente_nuevo || (camposNuevosVacios && form.datos_cliente.trim() !== '')
+  /**
+   * Los campos separados del cliente nuevo se muestran para CARGARLO. Pero al
+   * REABRIR una nota (los campos no se guardan en columnas, así que vuelven
+   * vacíos, y el texto ya está armado en `datos_cliente`) se ESCONDEN y se edita
+   * por el recuadro libre: si no, tocar un solo campo recompondría
+   * `datos_cliente` con los otros vacíos y se perderían teléfono/email/contacto.
+   */
+  const muestraCamposNuevos =
+    form.cliente_nuevo && !(camposNuevosVacios && form.datos_cliente.trim() !== '')
+  /** El recuadro de "datos" libre sale cuando NO se muestran los campos separados
+   *  (cliente ya elegido, o una nota de cliente nuevo reabierta). */
+  const muestraDatosLibres = !muestraCamposNuevos
 
   /**
    * ¿Se dibuja el CUIT?
@@ -1014,8 +1020,10 @@ export function PasoCliente({
           escritos a mano (sin geolocalizar ni crear la ficha). Se arman solos en
           "DATOS DEL CLIENTE" (lo que la oficina lee y lo que sale impreso); el
           código queda "ES NUEVO CLIENTE ___". La dirección lleva el error del
-          campo "datos" porque es el dato que el comprobante necesita sí o sí. */}
-      {form.cliente_nuevo ? (
+          campo "datos" porque es el dato que el comprobante necesita sí o sí.
+          Al reabrir la nota no se muestran (se edita por el recuadro libre, para
+          no pisar los otros datos que ya están en `datos_cliente`). */}
+      {muestraCamposNuevos ? (
         <>
           <Campo
             etiqueta="DIRECCIÓN"
@@ -1263,9 +1271,9 @@ export function PasoCliente({
           valor={form.datos_cliente}
           alCambiar={(t) => alCambiar({ datos_cliente: t })}
           alCambiarOrigen={(o) => alCambiar({ datos_cliente_origen: o })}
-          // En cliente nuevo a mano el error va en el campo DIRECCIÓN; acá sólo
-          // cuando el recuadro libre es el que se muestra (cliente elegido).
-          error={form.cliente_nuevo ? undefined : errores.datos_cliente}
+          // Cuando se muestran los campos separados, el error va en DIRECCIÓN;
+          // acá sólo cuando el recuadro libre es el que se edita.
+          error={muestraCamposNuevos ? undefined : errores.datos_cliente}
         />
       ) : null}
     </>
