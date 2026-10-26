@@ -2,9 +2,13 @@ import {
   espaciado,
   estaUbicada,
   ETIQUETA_MOTIVO_NO_VISITA,
+  fechaEntregaPorDefecto,
+  fechaLocalISO,
+  formatearFechaCorta,
   observacionSugerida,
   FORMULARIO_VISITA_VACIO,
   radios,
+  TOQUE_MINIMO,
   validarFormularioVisita,
   type CampoVisita,
   type FormularioVisita,
@@ -13,6 +17,7 @@ import {
   type TipoServicio,
   todaviaNoLeToca,
 } from '@woodtools/compartido'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { StackActions, useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -46,6 +51,7 @@ import {
   tomarBorradorDeVisita,
 } from '../servicios/borradorDeVisita'
 import { resumenDeNotasDeLaParada } from '../servicios/notasPedido'
+import { agendarVisita } from '../servicios/agenda'
 import { misCambiosPendientes } from '../servicios/cambiosDireccion'
 import {
   buscarEnMapsPorTexto,
@@ -121,6 +127,14 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   // El cobro se carga en un modal a pantalla completa que se abre al tildar
   // "COBRÓ". El tilde del parte queda puesto recién cuando se guarda un cobro.
   const [modalCobranza, setModalCobranza] = useState(false)
+
+  // Cuándo volver a ver al cliente, si el vendedor lo pide. `null` = no agendar
+  // nada (es opcional). Se agenda recién al guardar el parte, reusando el mismo
+  // `agendar_visita` que la entrega de la nota de pedido. `calendarioVolver`
+  // abre el almanaque de "Elegir fecha". Se recupera del borrador, igual que el
+  // resto del parte, si se volvió de la nota y la pantalla se había re-montado.
+  const [volverAVisitar, setVolverAVisitar] = useState<Date | null>(recuperado?.volverAVisitar ?? null)
+  const [calendarioVolver, setCalendarioVolver] = useState(false)
 
   /**
    * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
@@ -358,13 +372,49 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       // la jornada finalizada no se puede agregar un destino ni reabrirla, así
       // que un cliente que llama a las 16:00 no se podía registrar de ninguna
       // forma. Ahora se pregunta.
+
+      // Si el vendedor pidió volver a verlo, se agenda la próxima visita. Va
+      // DESPUÉS de registrar el parte y no lo corta si falla: la visita es lo
+      // importante, y el agendado se puede rehacer desde el Calendario de
+      // visitas. Reusa `agendar_visita`, el mismo camino que la entrega de la
+      // nota. Sólo con cliente de verdad: una parada sin ficha no tiene a quién
+      // agendarle.
+      // El `form.visitado === true` no es de más: el bloque de la próxima visita
+      // sólo se muestra con SÍ, pero `volverAVisitar` es estado aparte del form.
+      // Sin este chequeo, una fecha elegida en SÍ y después corregida a NO
+      // agendaría una parada que el vendedor ya no ve ni pidió. Además se limpia
+      // al pasar a NO (en el toggle SÍ/NO), así que esto es el segundo cerrojo.
+      let agendadoOk: boolean | null = null
+      if (form.visitado === true && volverAVisitar && clienteId) {
+        agendadoOk = false
+        try {
+          await agendarVisita({
+            clienteId,
+            fecha: fechaLocalISO(volverAVisitar),
+            direccionId: ubicada?.direccion.id ?? null,
+          })
+          agendadoOk = true
+        } catch {
+          // La visita ya quedó registrada; el agendado no es obligatorio.
+        }
+      }
+
+      return { agendadoOk, fechaAgendada: volverAVisitar }
     },
-    onSuccess: async () => {
+    onSuccess: async ({ agendadoOk, fechaAgendada }) => {
       // Guardada de verdad: el borrador ya no tiene nada que recuperar, y esta
       // pantalla no se vuelve a guardar.
       registrada.current = true
       olvidarBorradorDeVisita(paradaId)
       await cliente.invalidateQueries()
+
+      // Lo que se le suma al aviso si se pidió agendar la próxima visita.
+      const notaAgenda =
+        agendadoOk === null || !fechaAgendada
+          ? ''
+          : agendadoOk
+            ? `\n\nAgendaste la próxima visita para el ${formatearFechaCorta(fechaAgendada)}.`
+            : '\n\nLa visita quedó registrada, pero no pudimos agendar la próxima. Probala desde el Calendario de visitas.'
 
       // De acá en adelante se sale con `salirA` (popTo) y no con navigate. En
       // React Navigation 7, navigate apila la pantalla nueva ENCIMA de ésta: la
@@ -373,7 +423,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       if (esUltima) {
         Alert.alert(
           'Visita registrada',
-          'Era tu último destino del día. ¿Cerramos la jornada?\n\nUna vez cerrada no se le pueden agregar más destinos.',
+          `Era tu último destino del día. ¿Cerramos la jornada?\n\nUna vez cerrada no se le pueden agregar más destinos.${notaAgenda}`,
           [
             {
               text: 'Seguir abierta',
@@ -390,7 +440,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       }
 
       // Encadena con el próximo destino: lanza la navegación y vuelve al mapa.
-      Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}`, [
+      Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}${notaAgenda}`, [
         { text: 'Ver recorrido', onPress: () => salirA('Recorrido') },
         {
           // Si el que sigue no tiene punto, el botón lo dice: lo que se abre es
@@ -610,6 +660,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     await dictado.comenzar()
   }
 
+  // Cuál de los atajos de "¿cuándo lo volvés a ver?" quedó elegido. Se compara
+  // por fecha local (día a día alcanza: la hora no importa para agendar), así
+  // el chip se prende aunque la fecha venga del almanaque y coincida con un
+  // atajo. "Otra" es cuando hay fecha pero no es ninguno de los dos plazos.
+  const isoVolver = volverAVisitar ? fechaLocalISO(volverAVisitar) : null
+  const activaSemana = isoVolver !== null && isoVolver === fechaLocalISO(enDias(7))
+  const activaQuince = isoVolver !== null && isoVolver === fechaLocalISO(enDias(15))
+  const activaOtra = isoVolver !== null && !activaSemana && !activaQuince
+
   if (isLoading) {
     return (
       <Pantalla>
@@ -749,7 +808,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
 
           <BotonesSiNo
             valor={form.visitado}
-            alCambiar={(v) =>
+            alCambiar={(v) => {
               actualizar({
                 visitado: v,
                 // Cambiar de respuesta limpia lo que ya no aplica.
@@ -765,7 +824,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                       otras_detalle: '',
                     }),
               })
-            }
+              // Al pasar a NO, el bloque "¿cuándo lo volvés a ver?" se esconde,
+              // y con él el botón Quitar. Si no se limpiara acá, la fecha elegida
+              // en SÍ quedaría colgada —invisible e inquitable— y agendaría una
+              // parada futura que el vendedor ya no ve ni pidió.
+              if (!v) {
+                setVolverAVisitar(null)
+                setCalendarioVolver(false)
+              }
+            }}
             error={!!errores.visitado}
           />
           <MensajeError>{errores.visitado}</MensajeError>
@@ -933,7 +1000,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
               titulo="📝 HACER LA NOTA DE PEDIDO"
               deshabilitado={ocupado}
               alTocar={() => {
-                guardarBorradorDeVisita(paradaId, form, escritaAMano.current)
+                guardarBorradorDeVisita(paradaId, form, escritaAMano.current, volverAVisitar)
                 // Lo que se tildó en el parte pre-selecciona el servicio en la
                 // nota: vendió → venta, retiró afilado → afilado. Entregó y otras
                 // quedan como estaban (no mapean a un servicio).
@@ -960,6 +1027,80 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 })
               }}
             />
+          ) : null}
+
+          {/*
+            ── ¿Cuándo lo volvés a ver? ─────────────────────────────────────
+
+            El cliente no siempre compra: a veces está completo, o no necesita
+            nada hoy, y lo único que queda es cuándo volver. Hasta ahora eso sólo
+            se podía agendar haciendo una nota de pedido (la casilla "AGENDAR LA
+            VISITA PARA ESE DÍA"), así que una visita sin venta no tenía cómo
+            dejar comprometida la próxima. Acá se ofrece suelto, con los dos
+            plazos que el vendedor usa siempre —la semana que viene, en 15 días—
+            y la opción de elegir una fecha. Es opcional: arranca sin nada
+            elegido y se agenda recién al guardar el parte.
+
+            Sólo con "SÍ visitado" y con cliente de verdad: agendar al que no se
+            visitó es otra cosa ("visitar más tarde" ya lo trae de vuelta hoy),
+            y una parada sin ficha no tiene a quién agendarle.
+          */}
+          {form.visitado === true && clienteId ? (
+            <View style={estilos.bloque}>
+              <Text style={estilos.bloqueTitulo}>¿CUÁNDO LO VOLVÉS A VER?</Text>
+              <Text style={estilos.volverAyuda}>
+                Opcional. Si te dijo cuándo volver, agendalo y te aparece ese día en el calendario.
+              </Text>
+
+              <View style={estilos.volverOpciones}>
+                <OpcionVolver
+                  etiqueta="Próxima semana"
+                  activa={activaSemana}
+                  alTocar={() => setVolverAVisitar(activaSemana ? null : enDias(7))}
+                />
+                <OpcionVolver
+                  etiqueta="En 15 días"
+                  activa={activaQuince}
+                  alTocar={() => setVolverAVisitar(activaQuince ? null : enDias(15))}
+                />
+                <OpcionVolver
+                  etiqueta="Elegir fecha"
+                  activa={activaOtra}
+                  alTocar={() => setCalendarioVolver(true)}
+                />
+              </View>
+
+              {volverAVisitar ? (
+                <View style={estilos.volverElegido}>
+                  <Text style={estilos.volverElegidoTexto}>
+                    {`✓ Volvés el ${formatearFechaCorta(volverAVisitar)}`}
+                  </Text>
+                  <Pressable
+                    onPress={() => setVolverAVisitar(null)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitar la próxima visita agendada"
+                  >
+                    <Text style={estilos.volverQuitar}>Quitar</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {/* El almanaque de "Elegir fecha". Desde mañana: volver a verlo es
+                  siempre un día futuro; para hoy mismo está "visitar más tarde". */}
+              {calendarioVolver ? (
+                <DateTimePicker
+                  value={volverAVisitar ?? fechaEntregaPorDefecto()}
+                  mode="date"
+                  display="calendar"
+                  minimumDate={enDias(1)}
+                  onChange={(_evento, elegida) => {
+                    setCalendarioVolver(false)
+                    if (elegida) setVolverAVisitar(elegida)
+                  }}
+                />
+              ) : null}
+            </View>
           ) : null}
 
           {/* ── Observación ────────────────────────────────────────────────── */}
@@ -1049,6 +1190,47 @@ function nombreDe(parada?: { cliente?: { razon_social: string } | null; razon_so
   return parada?.cliente?.razon_social ?? parada?.razon_social_snapshot ?? 'el siguiente destino'
 }
 
+/** La fecha que cae `n` días después de hoy, para los atajos de la próxima visita. */
+function enDias(n: number): Date {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return d
+}
+
+/**
+ * Un atajo de "¿cuándo lo volvés a ver?": un chip que se prende cuando está
+ * elegido. Verde lleno al elegirlo, como el "SÍ" de la app, para que se lea de
+ * un vistazo qué quedó agendado.
+ */
+function OpcionVolver({
+  etiqueta,
+  activa,
+  alTocar,
+}: {
+  etiqueta: string
+  activa: boolean
+  alTocar: () => void
+}) {
+  const estilos = usarEstilos()
+  return (
+    <Pressable
+      onPress={alTocar}
+      accessibilityRole="button"
+      accessibilityState={{ selected: activa }}
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => [
+        estilos.volverChip,
+        activa && estilos.volverChipActivo,
+        pressed && estilos.volverChipTocado,
+      ]}
+    >
+      <Text style={[estilos.volverChipTexto, activa && estilos.volverChipTextoActivo]}>
+        {etiqueta}
+      </Text>
+    </Pressable>
+  )
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
@@ -1109,6 +1291,64 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.base,
     color: t.colores.tinta,
     letterSpacing: 0.8,
+  },
+
+  // ── "¿Cuándo lo volvés a ver?" ───────────────────────────────────────────
+  volverAyuda: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+    lineHeight: 18,
+  },
+  // Los tres atajos en fila; envuelven en un teléfono angosto para no apretarse.
+  volverOpciones: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: espaciado.xs,
+  },
+  volverChip: {
+    minHeight: TOQUE_MINIMO,
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.sm,
+    paddingVertical: espaciado.sm,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  volverChipActivo: {
+    backgroundColor: t.colores.verde,
+    borderColor: t.colores.verdeOscuro,
+  },
+  volverChipTocado: { opacity: 0.7 },
+  volverChipTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    textAlign: 'center',
+  },
+  volverChipTextoActivo: { color: t.colores.blanco },
+  volverElegido: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: espaciado.sm,
+  },
+  volverElegidoTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.verdeOscuro,
+    flexShrink: 1,
+  },
+  volverQuitar: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojoAccion,
+    letterSpacing: 0.5,
   },
 
   microfono: {
