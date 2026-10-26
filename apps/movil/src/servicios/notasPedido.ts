@@ -5,6 +5,7 @@ import {
   comoTexto,
   descripcionGeneralDeLaNota,
   CONDICIONES_CON_DETALLE,
+  plazoCuentaCorrienteNormalizado,
   aplicarSinCargo,
   ENCABEZADO_VACIO,
   esObservacionDelSistema,
@@ -1039,7 +1040,14 @@ export async function notaParaCorregir(id: string): Promise<BorradorNota> {
     tipoNota: (nota.tipo_nota as TipoNotaPedido | null) ?? null,
     fechaEntrega: nota.fecha_entrega ?? null,
     condicionVenta: (nota.condicion_venta as CondicionVenta | null) ?? null,
-    condicionDetalle: comoCadena(nota.condicion_venta_detalle),
+    // Una cuenta corriente vieja guardada como rango —"0-15"— se reabre en su
+    // formato fijo "a15", para que el desplegable muestre "a 15 días" y al
+    // guardar quede migrada. El resto (cheque, otro) se respeta tal cual.
+    condicionDetalle:
+      nota.condicion_venta === 'cuenta_corriente'
+        ? (plazoCuentaCorrienteNormalizado(nota.condicion_venta_detalle) ??
+          comoCadena(nota.condicion_venta_detalle))
+        : comoCadena(nota.condicion_venta_detalle),
     observaciones: todas.filter((o) => !esObservacionDelSistema(o)),
     observacionesDelSistema: todas.filter(esObservacionDelSistema),
     items,

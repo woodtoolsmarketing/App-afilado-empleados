@@ -857,6 +857,33 @@ export function plazoFijoDeDias(detalle?: string | null): number | null {
 }
 
 /**
+ * El plazo de CUENTA CORRIENTE, llevado al formato fijo "aN".
+ *
+ * Una cuenta corriente es un vencimiento: lo único que dice el plazo es a
+ * cuántos días vence la cuenta. Las notas viejas lo guardaban como un rango
+ * —"0-15", "15-30"— de cuando el desplegable era el mismo que el del cheque, y
+ * la tendencia del cliente arrastra ese formato viejo a las notas nuevas, así
+ * que sin normalizar el papel sigue diciendo "de 0 a 15 días". Para una cuenta
+ * corriente la punta de abajo no significa nada —se paga al vencimiento—, así
+ * que el rango se lee por su "hasta": "0-15" es "a 15 días", y "0-30" y "15-30"
+ * son los dos "a 30 días" (comparten el "hasta").
+ * Un suelto "15" es el hasta a secas; un "aN" ya está fijo y pasa igual.
+ *
+ * SÓLO para cuenta corriente. El cheque NO se normaliza: ahí el rango es una
+ * ventana negociada y las dos puntas importan.
+ *
+ * Devuelve null si no hay con qué (vacío) o si el número cae fuera de 1..180
+ * (el tope del CHECK de la base), para que el que llama muestre el valor crudo
+ * en vez de fabricar un "a0" inválido.
+ */
+export function plazoCuentaCorrienteNormalizado(detalle?: string | null): string | null {
+  const fijo = plazoFijoDeDias(detalle)
+  const dias = fijo !== null ? fijo : (plazoDePago(detalle)?.hasta ?? null)
+  if (dias === null || dias < 1 || dias > 180) return null
+  return `a${dias}`
+}
+
+/**
  * Las opciones de plazo de cuenta corriente para el desplegable, incluyendo el
  * valor guardado aunque ya no esté en la lista.
  *
@@ -872,8 +899,13 @@ export function opcionesPlazoCuentaCorriente(
   if (!actual || PLAZOS_CUENTA_CORRIENTE.some((o) => o.valor === actual)) {
     return PLAZOS_CUENTA_CORRIENTE
   }
+  // Un plazo fijo fuera de la lista —"a45", que sale de normalizar un rango
+  // viejo "30-45"— se escribe "a 45 días"; un rango crudo que no se pudo
+  // normalizar, "de X a Y días". Así el valor guardado nunca queda como código.
+  const fijo = plazoFijoDeDias(actual)
   const plazo = plazoDePago(actual)
-  const etiqueta = plazo ? `de ${plazo.desde} a ${plazo.hasta} días` : actual
+  const etiqueta =
+    fijo !== null ? `a ${fijo} días` : plazo ? `de ${plazo.desde} a ${plazo.hasta} días` : actual
   return [{ valor: actual, etiqueta }, ...PLAZOS_CUENTA_CORRIENTE]
 }
 
@@ -916,11 +948,16 @@ export function describirCondicionVenta(
     : ETIQUETA_CONDICION_VENTA[condicion]
 
   if (CONDICIONES_CON_PLAZO.includes(condicion)) {
-    // Un plazo fijo de cuenta corriente —"a 30 días"— se escribe igual en el
-    // papel angosto que completo: ya es corto.
-    const fijo = plazoFijoDeDias(texto)
+    // La cuenta corriente es un vencimiento: cualquier plazo guardado —incluso
+    // un rango viejo "0-15"— se lee como "a N días" (el "hasta"). El cheque no
+    // se toca: ahí el rango es una ventana negociada y se escribe "de X a Y".
+    const paraLeer =
+      condicion === 'cuenta_corriente' ? (plazoCuentaCorrienteNormalizado(texto) ?? texto) : texto
+    // Un plazo fijo —"a 30 días"— se escribe igual en el papel angosto que
+    // completo: ya es corto.
+    const fijo = plazoFijoDeDias(paraLeer)
     if (fijo !== null) return `${nombre} a ${fijo} días`
-    const plazo = plazoDePago(texto)
+    const plazo = plazoDePago(paraLeer)
     if (!plazo) return nombre
     return compacto
       ? `${nombre} ${plazo.desde}-${plazo.hasta} días`

@@ -12,6 +12,7 @@ import {
   espaciado,
   ETIQUETA_CONDICION_VENTA,
   plazoDePago,
+  plazoCuentaCorrienteNormalizado,
   opcionesHasta,
   opcionesPlazoCuentaCorriente,
   armarPlazoDePago,
@@ -337,7 +338,13 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               setServicios(b.servicios)
               setTipoNota(b.tipoNota)
               setCondicionVenta(b.condicionVenta)
-              setCondicionDetalle(b.condicionDetalle)
+              // Un borrador viejo de cuenta corriente puede traer el rango
+              // "0-15"; se lo lleva al plazo fijo "a15" como en el alta.
+              setCondicionDetalle(
+                b.condicionVenta === 'cuenta_corriente'
+                  ? (plazoCuentaCorrienteNormalizado(b.condicionDetalle) ?? b.condicionDetalle)
+                  : b.condicionDetalle,
+              )
               setFechaEntrega(b.fechaEntrega ? new Date(b.fechaEntrega) : null)
               setItems(b.items.length > 0 ? b.items : [ITEM_VACIO])
               setObservaciones(b.observaciones.length > 0 ? b.observaciones : [''])
@@ -479,7 +486,13 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setServicios(borrador.servicios)
     setTipoNota(borrador.tipoNota)
     setCondicionVenta(borrador.condicionVenta)
-    setCondicionDetalle(borrador.condicionDetalle)
+    // Misma normalización que el alta: una cuenta corriente vieja guardada como
+    // rango se reabre en su formato fijo "aN".
+    setCondicionDetalle(
+      borrador.condicionVenta === 'cuenta_corriente'
+        ? (plazoCuentaCorrienteNormalizado(borrador.condicionDetalle) ?? borrador.condicionDetalle)
+        : borrador.condicionDetalle,
+    )
     // La fecha viene como `2026-08-20`; con `new Date` de un ISO corto se lee
     // en UTC y en Argentina eso la corre un día para atrás.
     if (borrador.fechaEntrega) {
@@ -518,8 +531,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
           setCondicionVenta((actual) => {
             if (actual) return actual
             // El detalle viaja con la condición: un "cheque" sin los días
-            // preseleccionados deja el campo obligatorio en blanco.
-            if (t.condicion_detalle) setCondicionDetalle(t.condicion_detalle)
+            // preseleccionados deja el campo obligatorio en blanco. En cuenta
+            // corriente la costumbre del cliente suele venir del rango viejo
+            // ("0-15"); se la normaliza al plazo fijo ("a15") para que la nota
+            // nueva no herede el formato que estamos dejando atrás.
+            if (t.condicion_detalle) {
+              setCondicionDetalle(
+                t.condicion_venta === 'cuenta_corriente'
+                  ? (plazoCuentaCorrienteNormalizado(t.condicion_detalle) ?? t.condicion_detalle)
+                  : t.condicion_detalle,
+              )
+            }
             return t.condicion_venta
           })
         }
