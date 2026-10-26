@@ -131,6 +131,38 @@ function canalDeEsteTelefono(): string {
   return typeof variante === 'string' && variante ? variante : 'interno'
 }
 
+/**
+ * El canal de actualizaciones que mira ESTE teléfono.
+ *
+ * Normalmente es la variante con la que se compiló (`interno`). PERO los
+ * teléfonos con el seguimiento de ubicación prendido (`perfiles.seguimiento_24_7`)
+ * miran el canal `seguimiento`: ese APK lleva el seguimiento, que NUNCA va a la
+ * flota. Así se actualizan POR WIFI a los builds de seguimiento —sin cable— y NO
+ * se les ofrece la versión de flota, que no lo trae y los dejaría sin la función
+ * (era por eso que al actualizarse a una de flota el `amrheadlock` dejaba de
+ * activar la ubicación).
+ *
+ * Si el flag está apagado —o no se puede consultar— vuelve al canal de flota: un
+ * teléfono al que le sacan el seguimiento vuelve a recibir las versiones de la
+ * flota como cualquier otro.
+ */
+async function canalDeActualizaciones(): Promise<string> {
+  const base = canalDeEsteTelefono()
+  try {
+    const { data } = await supabase.auth.getSession()
+    const id = data.session?.user.id
+    if (!id) return base
+    const { data: perfil } = await supabase
+      .from('perfiles')
+      .select('seguimiento_24_7')
+      .eq('id', id)
+      .maybeSingle()
+    return (perfil as { seguimiento_24_7?: boolean } | null)?.seguimiento_24_7 ? 'seguimiento' : base
+  } catch {
+    return base
+  }
+}
+
 function versionDeEsteTelefono(): string {
   return Constants.expoConfig?.version ?? '0.0.0'
 }
@@ -176,7 +208,7 @@ export async function buscarApkNuevo(): Promise<BusquedaDeApk> {
     const { data: fila, error } = await supabase
       .from('versiones_app')
       .select('version, notas, url_externa, archivo')
-      .eq('canal', canalDeEsteTelefono())
+      .eq('canal', await canalDeActualizaciones())
       .order('publicado_en', { ascending: false })
       .limit(1)
       .maybeSingle()
