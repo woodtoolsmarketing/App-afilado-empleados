@@ -199,6 +199,9 @@ export function PaginaRolesDeVisita({
 
   const { data: jornada, isLoading } = useQuery({
     queryKey: ['rol-visita', vendedorId, fecha],
+    // Se refresca solo (como "Notas de pedido"): el admin ve avanzar el recorrido
+    // —visitas, "ENT.", y el tilde ENTREGUÉ que marca el trigger— sin reabrir el rol.
+    refetchInterval: 30_000,
     queryFn: async () => {
       const { data: rol, error: err } = await supabase
         .from('roles_visita')
@@ -237,6 +240,7 @@ export function PaginaRolesDeVisita({
   const { data: notasSueltas } = useQuery({
     queryKey: ['notas-sueltas-rol', vendedorId, fecha],
     enabled: !!vendedorId,
+    refetchInterval: 30_000,
     queryFn: async () => {
       // La ventana es el día local del rol (Argentina no tiene horario de verano).
       const desde = new Date(`${fecha}T00:00:00`)
@@ -308,6 +312,7 @@ export function PaginaRolesDeVisita({
   const { data: entregasDelDia } = useQuery({
     queryKey: ['entregas-rol', fecha, clienteIds],
     enabled: clienteIds.length > 0,
+    refetchInterval: 30_000,
     queryFn: async () => {
       const { data, error: err } = await supabase
         .from('notas_pedido')
