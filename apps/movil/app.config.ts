@@ -212,7 +212,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.9.2',
+  version: '1.9.5',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
