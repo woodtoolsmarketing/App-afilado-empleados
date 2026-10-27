@@ -7,8 +7,10 @@ import {
   formatearPesos,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
+  entregasDePedidoPorParada,
   resumenesDePedidoPorParada,
   rolImprimibleDesdeFilas,
+  type NotaEntrega,
   type NotaSuelta,
   type OpcionesImpresion,
   type PlanillaCobranzasParaImprimir,
@@ -262,6 +264,30 @@ async function rolDeVisitaDe(
     notas,
   )
 
+  // "Entregué": lo que hay que entregarle al cliente ese día (notas con
+  // fecha_entrega = el día del rol). En el teléfono el vendedor ve SÓLO sus
+  // propias notas (RLS), así que salen sus entregas; la oficina las ve todas.
+  // Si falla la consulta, el rol sale sin el bloque (no frena la impresión).
+  const clienteIds = [
+    ...new Set(jornada.paradas.map((p) => p.cliente_id).filter(Boolean)),
+  ] as string[]
+  let entregas: NotaEntrega[] = []
+  if (clienteIds.length > 0) {
+    const { data } = await supabase
+      .from('notas_pedido')
+      .select(
+        'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
+      )
+      .eq('fecha_entrega', fecha)
+      .in('estado', ['impresa', 'entregada'])
+      .in('cliente_id', clienteIds)
+    entregas = (data ?? []) as unknown as NotaEntrega[]
+  }
+  const entregasPorParada = entregasDePedidoPorParada(
+    jornada.paradas.map((p) => ({ id: p.id, cliente_id: p.cliente_id, direccion_id: p.direccion_id })),
+    entregas,
+  )
+
   return rolImprimibleDesdeFilas(
     jornada.jornada,
     jornada.paradas,
@@ -270,6 +296,7 @@ async function rolDeVisitaDe(
       codigo: perfil?.codigo_vendedor ?? null,
     },
     resumenCompleto,
+    { entregasPorParada },
   )
 }
 
