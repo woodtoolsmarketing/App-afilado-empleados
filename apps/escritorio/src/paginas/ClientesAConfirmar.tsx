@@ -115,6 +115,14 @@ function TarjetaProvisorio({
   const [codigo, setCodigo] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // Diálogo de rechazo: se abre con "Rechazar", pide un motivo (obligatorio) y
+  // un detalle opcional. Rechazar saca al cliente de la cola (activo=false) y
+  // guarda el motivo; no se da de alta.
+  const [rechazando, setRechazando] = useState(false)
+  const [motivo, setMotivo] = useState<'datos_erroneos' | 'cliente_ya_existe' | null>(null)
+  const [detalle, setDetalle] = useState('')
+  const [errorRechazo, setErrorRechazo] = useState<string | null>(null)
+
   const principal =
     cliente.direcciones.find((d) => d.principal) ?? cliente.direcciones[0] ?? null
 
@@ -150,6 +158,30 @@ function TarjetaProvisorio({
     },
     onError: (e: Error) => setError(e.message),
   })
+
+  const rechazar = useMutation({
+    mutationFn: async () => {
+      if (!motivo) throw new Error('Elegí un motivo de rechazo.')
+      const { error: errRech } = await supabase.rpc('rechazar_cliente_provisorio', {
+        p_cliente_id: cliente.id,
+        p_motivo: motivo,
+        p_detalle: detalle.trim() || null,
+      })
+      if (errRech) throw new Error(errRech.message)
+    },
+    onSuccess: async () => {
+      setRechazando(false)
+      await query.invalidateQueries()
+    },
+    onError: (e: Error) => setErrorRechazo(e.message),
+  })
+
+  function abrirRechazo() {
+    setMotivo(null)
+    setDetalle('')
+    setErrorRechazo(null)
+    setRechazando(true)
+  }
 
   return (
     <section className="tarjeta" style={{ borderLeft: '4px solid var(--ambar, #c98a00)' }}>
@@ -217,12 +249,114 @@ function TarjetaProvisorio({
           >
             {confirmar.isPending ? 'Confirmando…' : 'Confirmar y dar de alta'}
           </button>
+          <button
+            style={{ marginTop: 8, color: 'var(--rojo-accion)' }}
+            disabled={soloLectura || confirmar.isPending || rechazar.isPending}
+            onClick={abrirRechazo}
+          >
+            Rechazar
+          </button>
           {soloLectura && (
-            <small style={{ color: 'var(--tinta-tenue)' }}>Sólo un administrador puede confirmar.</small>
+            <small style={{ color: 'var(--tinta-tenue)' }}>Sólo un administrador puede confirmar o rechazar.</small>
           )}
           {error && <div className="aviso error">{error}</div>}
         </div>
       </div>
+
+      {rechazando && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !rechazar.isPending && setRechazando(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            className="tarjeta"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 440, width: '100%', margin: 0 }}
+          >
+            <h2 style={{ marginTop: 0 }}>Rechazar cliente</h2>
+            <p style={{ margin: '0 0 14px', color: 'var(--tinta-suave)' }}>
+              <strong>{cliente.razon_social}</strong> <code>{cliente.codigo}</code>
+            </p>
+
+            <p style={{ margin: '0 0 8px', fontWeight: 700 }}>¿Por qué lo rechazás?</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(
+                [
+                  ['datos_erroneos', 'Datos erróneos'],
+                  ['cliente_ya_existe', 'El cliente ya existe'],
+                ] as const
+              ).map(([valor, etiqueta]) => (
+                <label
+                  key={valor}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <input
+                    type="radio"
+                    name={`motivo-${cliente.id}`}
+                    checked={motivo === valor}
+                    onChange={() => {
+                      setMotivo(valor)
+                      setErrorRechazo(null)
+                    }}
+                    style={{ width: 'auto', minHeight: 0 }}
+                  />
+                  {etiqueta}
+                </label>
+              ))}
+            </div>
+
+            <label style={{ display: 'block', marginTop: 14 }}>
+              <span style={{ color: 'var(--tinta-suave)' }}>Detalle (opcional)</span>
+              <textarea
+                value={detalle}
+                onChange={(e) => setDetalle(e.target.value)}
+                rows={2}
+                placeholder="Aclaración para la oficina…"
+                style={{ marginTop: 4 }}
+              />
+            </label>
+
+            {notasPendientes.length > 0 && (
+              <div className="aviso atencion" style={{ marginTop: 12 }}>
+                Tiene {notasPendientes.length} nota{notasPendientes.length === 1 ? '' : 's'} de pedido
+                esperando. Al rechazarlo{' '}
+                {notasPendientes.length === 1 ? 'esa nota queda' : 'esas notas quedan'} sin cliente:
+                hay que resolver{notasPendientes.length === 1 ? 'la' : 'las'} aparte.
+              </div>
+            )}
+
+            {errorRechazo && (
+              <div className="aviso error" style={{ marginTop: 12 }}>
+                {errorRechazo}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+              <button disabled={rechazar.isPending} onClick={() => setRechazando(false)}>
+                Cancelar
+              </button>
+              <button
+                className="peligro"
+                disabled={!motivo || rechazar.isPending}
+                onClick={() => rechazar.mutate()}
+              >
+                {rechazar.isPending ? 'Rechazando…' : 'Rechazar cliente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
