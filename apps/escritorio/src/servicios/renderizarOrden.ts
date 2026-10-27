@@ -190,9 +190,10 @@ async function rolDeVisitaDe(
     (notasSueltas ?? []) as unknown as NotaSuelta[],
   )
 
-  // "Entregué": lo que hay que entregarle al cliente ese día (notas con
-  // fecha_entrega = el día del rol). La oficina ve las de cualquier vendedor
-  // (RLS puede_ver_todo), igual que el botón "Imprimir" del panel. Si la consulta
+  // "Entregué": lo que hay que entregarle al cliente —las pendientes con
+  // fecha_entrega ese día o ANTES (se arrastran hasta que se entreguen), más las
+  // entregadas ese mismo día—. La oficina ve las de cualquier vendedor (RLS
+  // puede_ver_todo), igual que el botón "Imprimir" del panel. Si la consulta
   // falla no se frena el impreso: el rol sale sin el bloque (como el resumen).
   const clienteIds = [
     ...new Set(completas.map((p) => p.cliente_id).filter(Boolean)),
@@ -204,8 +205,9 @@ async function rolDeVisitaDe(
       .select(
         'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
       )
-      .eq('fecha_entrega', jornada.fecha)
-      .in('estado', ['impresa', 'entregada'])
+      .or(
+        `and(estado.eq.impresa,fecha_entrega.lte.${jornada.fecha}),and(estado.eq.entregada,fecha_entrega.eq.${jornada.fecha})`,
+      )
       .in('cliente_id', clienteIds)
     entregas = (data ?? []) as unknown as NotaEntrega[]
   }

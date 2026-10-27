@@ -301,12 +301,12 @@ export function PaginaRolesDeVisita({
   )
 
   /**
-   * "Entregué": las notas cuya FECHA DE ENTREGA cae el día del rol, para los
-   * clientes del rol —lo que hay que entregarle hoy a cada uno—. De CUALQUIER
-   * vendedor: si el cliente del recorrido tiene algo para entregar ese día,
-   * aparece aunque la nota la haya hecho otro (la oficina ve todas por RLS,
-   * `notas_leer` → `puede_ver_todo()`). Sólo las impresas (la nota física existe)
-   * o ya entregadas. Se enganchan a la parada por cliente (y sucursal) en
+   * "Entregué": lo que hay que entregarle al cliente en el rol —las pendientes
+   * con FECHA DE ENTREGA ese día o ANTES (se arrastran hasta que se entreguen),
+   * más las que ya se entregaron ese mismo día (para ver el tilde)—. De CUALQUIER
+   * vendedor: si el cliente del recorrido tiene algo para entregar, aparece aunque
+   * la nota la haya hecho otro (la oficina ve todas por RLS, `notas_leer` →
+   * `puede_ver_todo()`). Se enganchan a la parada por cliente (y sucursal) en
    * `entregasDePedidoPorParada`.
    */
   const { data: entregasDelDia } = useQuery({
@@ -319,8 +319,9 @@ export function PaginaRolesDeVisita({
         .select(
           'id, numero, parada_id, cliente_id, direccion_id, cliente_codigo, fecha_entrega, entregada_en, items:notas_pedido_items ( servicio, herramienta, cantidad, cantidad_dientes, detalle )',
         )
-        .eq('fecha_entrega', fecha)
-        .in('estado', ['impresa', 'entregada'])
+        .or(
+          `and(estado.eq.impresa,fecha_entrega.lte.${fecha}),and(estado.eq.entregada,fecha_entrega.eq.${fecha})`,
+        )
         .in('cliente_id', clienteIds)
       if (err) throw err
       return (data ?? []) as unknown as NotaEntrega[]
@@ -875,9 +876,7 @@ export function PaginaRolesDeVisita({
                         ) : null}
                         {(entregasPorParada.get(p.id)?.length ?? 0) > 0 ? (
                           <div style={{ marginTop: 4, fontSize: 11 }}>
-                            <strong style={{ textTransform: 'uppercase', fontSize: 10 }}>
-                              Entregué
-                            </strong>
+                            <strong style={{ fontSize: 10 }}>Entregué:</strong>
                             <ul style={{ margin: '2px 0 0', paddingLeft: 4, listStyle: 'none' }}>
                               {entregasPorParada.get(p.id)!.map((e) => (
                                 <li key={e.id} style={{ marginBottom: 2 }}>
@@ -901,8 +900,7 @@ export function PaginaRolesDeVisita({
                                       }
                                     />
                                     <span>
-                                      {e.numero ? `Nº ${e.numero}` : 'nota'}
-                                      {e.detalle ? ` — ${e.detalle}` : ''}
+                                      {e.herramientas.length > 0 ? e.herramientas.join(', ') : 'nota'}
                                     </span>
                                   </label>
                                 </li>

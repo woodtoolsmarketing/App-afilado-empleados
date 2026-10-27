@@ -18,6 +18,7 @@ import {
   enumerar,
   resumenDeRenglonesDeVisita,
   resumenFormatoAnterior,
+  type EntregaDeParada,
   type RenglonParaResumen,
 } from './notas-pedido'
 import { ETIQUETA_MOTIVO_NO_VISITA, type ParadaCompleta, type Visita } from './tipos'
@@ -41,11 +42,11 @@ export interface RenglonRolDeVisita {
   /** Columna "RESULTADO (OBSERVACIONES)". */
   resultado: string
   /**
-   * Lo que hay que entregarle al cliente ese día (notas con fecha de entrega =
-   * día del rol). Lo arma `entregasDePedidoPorParada`; vacío/omitido = no se
-   * dibuja (así el teléfono, que todavía no lo pasa, imprime igual que antes).
+   * Las herramientas a entregarle al cliente ese día (notas con fecha de entrega
+   * = día del rol), sin el servicio. Lo arma `entregasDePedidoPorParada`;
+   * vacío/omitido = no se dibuja.
    */
-  entregas?: { numero: number | string; detalle: string; entregada: boolean }[]
+  entregas?: { herramientas: string[] }[]
 }
 
 export interface RolDeVisitaParaImprimir {
@@ -222,7 +223,7 @@ export function rolImprimibleDesdeFilas(
    * cambia.
    */
   extras?: {
-    entregasPorParada?: Map<string, { numero: number | null; detalle: string; entregada: boolean }[]>
+    entregasPorParada?: Map<string, EntregaDeParada[]>
   },
 ): RolDeVisitaParaImprimir {
   const renglones: RenglonRolDeVisita[] = ordenarParadasDelRol(paradas).map((p, i) => ({
@@ -237,9 +238,7 @@ export function rolImprimibleDesdeFilas(
     contacto: p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? '',
     resultado: resultadoDeParada(p, resumenesCompletos?.get(p.id)),
     entregas: (extras?.entregasPorParada?.get(p.id) ?? []).map((e) => ({
-      numero: e.numero ?? '',
-      detalle: e.detalle,
-      entregada: e.entregada,
+      herramientas: e.herramientas,
     })),
   }))
 
@@ -255,22 +254,14 @@ export function rolImprimibleDesdeFilas(
   }
 }
 
-/** Lo que hay que entregar ese día, con el tilde de entregado. '' si no hay. */
-function htmlEntregas(
-  entregas?: { numero: number | string; detalle: string; entregada: boolean }[],
-): string {
+/** Lo que hay que entregar ese día, en una línea separado por coma. '' si no hay. */
+function htmlEntregas(entregas?: { herramientas: string[] }[]): string {
   if (!entregas || entregas.length === 0) return ''
-  const items = entregas
-    .map((e) => {
-      // ASCII a propósito: el rol sale desde el WebView de Android, donde no se
-      // puede mirar antes, y un glifo de casilla no siempre tiene fuente.
-      const marca = e.entregada ? '[X]' : '[ ]'
-      const num = e.numero ? `Nº ${escapar(e.numero)}` : 'nota'
-      const det = e.detalle ? ` — ${escapar(e.detalle)}` : ''
-      return `<li>${marca} ${num}${det}</li>`
-    })
-    .join('')
-  return `<div class="rol-sub rol-entregas"><span class="rol-sub-rotulo">Entregué</span><ul class="rol-lista">${items}</ul></div>`
+  // En una línea, separadas por coma. Sin casilla ni Nº: en el impreso interesa
+  // QUÉ se entrega (la pieza y sus medidas): "Sierra circular 2 250 x 80, Fresa 1 140 x 4".
+  const piezas = entregas.flatMap((e) => e.herramientas).filter(Boolean)
+  if (piezas.length === 0) return ''
+  return `<div class="rol-sub rol-entregas"><span class="rol-sub-rotulo">Entregué:</span> ${escapar(piezas.join(', '))}</div>`
 }
 
 export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
@@ -396,7 +387,7 @@ export const ESTILOS_ROL_DE_VISITA = `
    cliente ese día. Chiquito y con su rótulo, para que se distinga del texto de
    la observación sin robarle lugar. */
 .rol-sub { margin-top: 1.5mm; font-size: 6.5pt; line-height: 1.1; }
-.rol-sub-rotulo { font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; }
+.rol-sub-rotulo { font-weight: bold; letter-spacing: 0.3px; }
 .rol-lista { margin: 0; padding-left: 3mm; }
 .rol-lista li { margin: 0; }
 .rol-entregas { margin-top: 1mm; }

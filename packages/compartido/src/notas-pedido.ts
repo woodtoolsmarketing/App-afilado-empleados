@@ -3245,6 +3245,57 @@ export function enumerar(partes: string[]): string {
   return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
 }
 
+/**
+ * Las HERRAMIENTAS de los renglones, con sus medidas y SIN el nombre del
+ * servicio: "Sierras circulares: 2× 250x80", "Fresas: 1× 140x4". Para el bloque
+ * "Entregué" del rol, donde interesa QUÉ pieza se entrega —la sierra y sus
+ * características—, no el servicio que se le hizo. Agrupa por tipo de herramienta
+ * (sumando las de igual medida, aunque vengan de servicios distintos): una
+ * entrada por herramienta. El reclamo va sin medida (como en el resumen normal).
+ */
+export function resumenDeHerramientasDeVisita(renglones: RenglonParaResumen[]): string[] {
+  // Una entrada por (herramienta, medida), sumando las de igual medida:
+  // "Sierra circular 2 250 x 80". El nombre va en SINGULAR, la cantidad como
+  // número plano, y la medida con espacios ("250 x 80"). Conserva el orden de
+  // aparición. El reclamo va sin medida ("Sierra circular 2").
+  const grupos = new Map<string, { herramienta: Herramienta; medida: string; cantidad: number }>()
+  for (const r of renglones) {
+    if (!r.servicio || !r.herramienta) continue
+    const clase = (r.detalle?.sierra_clase as SierraClase | undefined) ?? null
+    const herramienta = herramientaEnLaDescripcion(r.herramienta, clase)
+    if (!herramienta) continue
+    const medida =
+      r.servicio === 'reclamo'
+        ? ''
+        : medidaCompacta(
+            herramienta,
+            {
+              diametro_exterior: r.detalle?.diametro_exterior,
+              diametro: r.detalle?.diametro,
+              largo_util: r.detalle?.largo_util,
+              largo: r.detalle?.largo,
+              ancho: r.detalle?.ancho,
+              espesor: r.detalle?.espesor,
+              paso: r.detalle?.paso,
+              dientes: r.cantidad_dientes,
+            },
+            r.detalle?.cabezal_de_cuchillas === true,
+          )
+    const cantidad = r.cantidad && r.cantidad > 0 ? r.cantidad : 1
+    const clave = `${herramienta}|${medida}`
+    const g = grupos.get(clave)
+    if (g) g.cantidad += cantidad
+    else grupos.set(clave, { herramienta, medida, cantidad })
+  }
+  return [...grupos.values()].map(({ herramienta, medida, cantidad }) => {
+    const singular = EN_SINGULAR[herramienta] ?? ''
+    const Nombre = singular ? singular.charAt(0).toUpperCase() + singular.slice(1) : singular
+    // Espacios alrededor de la 'x': "250x80" → "250 x 80" (incluye cuchilla: "250 x 40 x 3").
+    const medidaEspaciada = medida.replace(/x/g, ' x ')
+    return [Nombre, String(cantidad), medidaEspaciada].filter(Boolean).join(' ')
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Notas "sueltas": las que no salieron del botón de la parada
 //
@@ -3430,16 +3481,16 @@ export interface NotaEntrega {
 /** Lo que el rol muestra por cada nota a entregar, ya resumida. */
 export interface EntregaDeParada {
   id: string
-  numero: number | null
   /** Ya entregada (tiene `entregada_en`). */
   entregada: boolean
-  /** Qué es, resumido como en la observación ("Afilado de sierras: 3× 300x96"). */
-  detalle: string
+  /** Las herramientas entregadas, sin el servicio: ["Sierras circulares: 2× 250x80"]. */
+  herramientas: string[]
 }
 
 /**
- * Para cada parada, las notas cuya fecha de entrega cae ese día —lo que hay que
- * entregarle al cliente—. Engancha por cliente (y por dirección cuando hay varias
+ * Para cada parada, las notas cuya fecha de entrega cae ese día o antes
+ * (pendientes arrastradas) —lo que hay que entregarle al cliente—. Engancha por
+ * cliente (y por dirección cuando hay varias
  * sucursales); las notas de entrega casi nunca tienen `parada_id` apuntando al rol
  * de hoy (se crearon días antes), así que el enganche es siempre por cliente.
  */
@@ -3478,13 +3529,13 @@ export function entregasDePedidoPorParada(
             candidatas[0])
     }
     if (!destino) continue
-    const detalle = enumerar(
-      resumenDeRenglonesDeVisita(n.items)
-        .map((r) => r.trim())
-        .filter(Boolean),
-    )
+    // Sólo la herramienta + medidas ("Sierras circulares: 2× 250x80"), sin el
+    // servicio: para el rol interesa QUÉ se entrega, no el afilado que se le hizo.
+    const herramientas = resumenDeHerramientasDeVisita(n.items)
+      .map((r) => r.trim())
+      .filter(Boolean)
     const arr = out.get(destino.id) ?? []
-    arr.push({ id: n.id, numero: n.numero, entregada: !!n.entregada_en, detalle })
+    arr.push({ id: n.id, entregada: !!n.entregada_en, herramientas })
     out.set(destino.id, arr)
   }
   return out
