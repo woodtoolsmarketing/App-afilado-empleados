@@ -4511,3 +4511,86 @@ export function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     reparacion_sin_cargo: detalle.reparacion_sin_cargo === true,
   }
 }
+
+/** Una nota a entregar (o ya entregada) de ese día, para el bloque "entregué" del rol. */
+export interface NotaEntrega {
+  id: string
+  numero: number | null
+  /**
+   * La parada donde se creó la nota. Casi siempre es de OTRO día (la nota se hizo
+   * días antes que la entrega), así que no suele caer en el rol de hoy; por eso el
+   * enganche es principalmente por cliente. Se usa sólo para desempatar cuando la
+   * nota sí apunta a una parada del rol de hoy (entrega el mismo día).
+   */
+  parada_id: string | null
+  cliente_id: string | null
+  direccion_id: string | null
+  cliente_codigo: string | null
+  fecha_entrega: string | null
+  /** Cuándo se marcó entregada, o null si todavía no. */
+  entregada_en: string | null
+  items: RenglonParaResumen[]
+}
+
+/** Lo que el rol muestra por cada nota a entregar, ya resumida. */
+export interface EntregaDeParada {
+  id: string
+  numero: number | null
+  /** Ya entregada (tiene `entregada_en`). */
+  entregada: boolean
+  /** Qué es, resumido como en la observación ("Afilado de sierras: 3× 300x96"). */
+  detalle: string
+}
+
+/**
+ * Para cada parada, las notas cuya fecha de entrega cae ese día —lo que hay que
+ * entregarle al cliente—. Engancha por cliente (y por dirección cuando hay varias
+ * sucursales); las notas de entrega casi nunca tienen `parada_id` apuntando al rol
+ * de hoy (se crearon días antes), así que el enganche es siempre por cliente.
+ */
+export function entregasDePedidoPorParada(
+  paradas: Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>[],
+  notas: NotaEntrega[],
+): Map<string, EntregaDeParada[]> {
+  type P = Pick<ParadaParaResumen, 'id' | 'cliente_id' | 'direccion_id'>
+  const paradaPorId = new Map<string, P>()
+  const paradasPorCliente = new Map<string, P[]>()
+  for (const p of paradas) {
+    paradaPorId.set(p.id, p)
+    if (!p.cliente_id) continue
+    const arr = paradasPorCliente.get(p.cliente_id) ?? []
+    arr.push(p)
+    paradasPorCliente.set(p.cliente_id, arr)
+  }
+
+  const out = new Map<string, EntregaDeParada[]>()
+  for (const n of notas) {
+    // Mismo criterio que `resumenesDePedidoPorParada`, para que "Servicios" y
+    // "Entregué" caigan siempre en la MISMA fila: primero por `parada_id` cuando
+    // apunta a una parada del rol de hoy (entrega el mismo día); si no —el caso
+    // normal, nota de días antes—, por cliente (y por sucursal si hay varias).
+    let destino: P | undefined
+    if (n.parada_id && paradaPorId.has(n.parada_id)) {
+      destino = paradaPorId.get(n.parada_id)
+    } else {
+      if (!n.cliente_id) continue
+      const candidatas = paradasPorCliente.get(n.cliente_id)
+      if (!candidatas || candidatas.length === 0) continue
+      destino =
+        candidatas.length === 1
+          ? candidatas[0]
+          : (candidatas.find((p) => p.direccion_id && p.direccion_id === n.direccion_id) ??
+            candidatas[0])
+    }
+    if (!destino) continue
+    const detalle = enumerar(
+      resumenDeRenglonesDeVisita(n.items)
+        .map((r) => r.trim())
+        .filter(Boolean),
+    )
+    const arr = out.get(destino.id) ?? []
+    arr.push({ id: n.id, numero: n.numero, entregada: !!n.entregada_en, detalle })
+    out.set(destino.id, arr)
+  }
+  return out
+}

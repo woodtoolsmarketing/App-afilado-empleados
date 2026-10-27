@@ -40,6 +40,12 @@ export interface RenglonRolDeVisita {
   contacto: string
   /** Columna "RESULTADO (OBSERVACIONES)". */
   resultado: string
+  /**
+   * Lo que hay que entregarle al cliente ese día (notas con fecha de entrega =
+   * día del rol). Lo arma `entregasDePedidoPorParada`; vacío/omitido = no se
+   * dibuja (así el teléfono, que todavía no lo pasa, imprime igual que antes).
+   */
+  entregas?: { numero: number | string; detalle: string; entregada: boolean }[]
 }
 
 export interface RolDeVisitaParaImprimir {
@@ -210,6 +216,14 @@ export function rolImprimibleDesdeFilas(
    * impreso sale con el texto congelado de cada visita, como antes.
    */
   resumenesCompletos?: Map<string, RenglonParaResumen[]>,
+  /**
+   * Lo que hay que entregar ese día por parada (`entregasDePedidoPorParada`).
+   * Opcional: lo pasa el panel; el teléfono todavía no, así que su impreso no
+   * cambia.
+   */
+  extras?: {
+    entregasPorParada?: Map<string, { numero: number | null; detalle: string; entregada: boolean }[]>
+  },
 ): RolDeVisitaParaImprimir {
   const renglones: RenglonRolDeVisita[] = ordenarParadasDelRol(paradas).map((p, i) => ({
     numero: i + 1,
@@ -222,6 +236,11 @@ export function rolImprimibleDesdeFilas(
     entrego: p.visita?.entrego ?? false,
     contacto: p.visita?.contacto_nombre ?? p.cliente?.contacto_nombre ?? '',
     resultado: resultadoDeParada(p, resumenesCompletos?.get(p.id)),
+    entregas: (extras?.entregasPorParada?.get(p.id) ?? []).map((e) => ({
+      numero: e.numero ?? '',
+      detalle: e.detalle,
+      entregada: e.entregada,
+    })),
   }))
 
   return {
@@ -234,6 +253,24 @@ export function rolImprimibleDesdeFilas(
     visitadas: paradas.filter((p) => p.visita?.visitado === true).length,
     no_visitadas: paradas.filter((p) => p.visita?.visitado === false).length,
   }
+}
+
+/** Lo que hay que entregar ese día, con el tilde de entregado. '' si no hay. */
+function htmlEntregas(
+  entregas?: { numero: number | string; detalle: string; entregada: boolean }[],
+): string {
+  if (!entregas || entregas.length === 0) return ''
+  const items = entregas
+    .map((e) => {
+      // ASCII a propósito: el rol sale desde el WebView de Android, donde no se
+      // puede mirar antes, y un glifo de casilla no siempre tiene fuente.
+      const marca = e.entregada ? '[X]' : '[ ]'
+      const num = e.numero ? `Nº ${escapar(e.numero)}` : 'nota'
+      const det = e.detalle ? ` — ${escapar(e.detalle)}` : ''
+      return `<li>${marca} ${num}${det}</li>`
+    })
+    .join('')
+  return `<div class="rol-sub rol-entregas"><span class="rol-sub-rotulo">Entregué</span><ul class="rol-lista">${items}</ul></div>`
 }
 
 export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
@@ -252,7 +289,7 @@ export function generarHtmlRolDeVisita(rol: RolDeVisitaParaImprimir): string {
       <td class="tick">${tilde(p.retiro_afilado)}</td>
       <td class="tick">${tilde(p.entrego)}</td>
       <td>${escapar(p.contacto)}</td>
-      <td class="resultado">${escapar(p.resultado)}</td>
+      <td class="resultado">${escapar(p.resultado)}${htmlEntregas(p.entregas)}</td>
     </tr>`,
     )
     .join('')
@@ -354,6 +391,15 @@ export const ESTILOS_ROL_DE_VISITA = `
 .rol-tabla .c { text-align: center; }
 .rol-tabla .tick { text-align: center; font-weight: bold; }
 .rol-tabla .resultado { font-size: 7pt; line-height: 1.15; }
+
+/* El bloque "Entregué" que cuelga del resultado: lo que hay que entregarle al
+   cliente ese día. Chiquito y con su rótulo, para que se distinga del texto de
+   la observación sin robarle lugar. */
+.rol-sub { margin-top: 1.5mm; font-size: 6.5pt; line-height: 1.1; }
+.rol-sub-rotulo { font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; }
+.rol-lista { margin: 0; padding-left: 3mm; }
+.rol-lista li { margin: 0; }
+.rol-entregas { margin-top: 1mm; }
 
 /* Con table-layout:fixed las columnas salen de la PRIMERA fila del thead, así
    que el grupo "Tipo de visita" necesita su propio ancho: sin él las cuatro
