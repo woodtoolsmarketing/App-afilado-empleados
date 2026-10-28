@@ -32,6 +32,14 @@ interface BorradorDeVisita {
    * que el vendedor había dictado antes de irse a hacer la nota.
    */
   escritaAMano: boolean
+  /**
+   * Cuándo volver a ver al cliente, si el vendedor lo eligió en el parte.
+   *
+   * Viaja con el borrador por la misma razón que el resto: si la pantalla se
+   * re-monta al volver de la nota, lo que ya había dejado agendado no se pierde
+   * en silencio. `null` es "no eligió nada".
+   */
+  volverAVisitar: Date | null
 }
 
 const borradores = new Map<string, BorradorDeVisita>()
@@ -40,8 +48,9 @@ export function guardarBorradorDeVisita(
   paradaId: string,
   form: FormularioVisita,
   escritaAMano: boolean,
+  volverAVisitar: Date | null,
 ): void {
-  borradores.set(paradaId, { form: { ...form }, escritaAMano })
+  borradores.set(paradaId, { form: { ...form }, escritaAMano, volverAVisitar })
 }
 
 export function tomarBorradorDeVisita(paradaId: string): BorradorDeVisita | null {
