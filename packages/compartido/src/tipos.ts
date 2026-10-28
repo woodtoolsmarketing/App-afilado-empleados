@@ -97,6 +97,7 @@ export type ClaveFuncionPanel =
   | 'panel_actualizaciones'
   | 'panel_cobranzas'
   | 'panel_lugares_entrega_cargar'
+  | 'panel_stock'
 
 /**
  * El catálogo canónico: la lista de opciones limitables, su etiqueta para el

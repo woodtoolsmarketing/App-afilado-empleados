@@ -28,6 +28,7 @@ import { PaginaNotasPedido } from './paginas/NotasPedido'
 import { PaginaProblemas } from './paginas/Problemas'
 import { PaginaRolMaestro } from './paginas/RolMaestro'
 import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
+import { PaginaStock } from './paginas/Stock'
 import { PaginaTablero } from './paginas/Tablero'
 import { PaginaUsuarios } from './paginas/Usuarios'
 import { PaginaReporteTiempos } from './paginas/ReporteTiempos'
@@ -128,6 +129,10 @@ export function App() {
           <Route
             path="/a-confirmar"
             element={gate('panel_articulos_confirmar', <PaginaArticulosAConfirmar soloLectura={!sesion.esAdministracion} />)}
+          />
+          <Route
+            path="/stock"
+            element={gate('panel_stock', <PaginaStock soloLectura={!sesion.esAdministracion} />)}
           />
           <Route
             path="/notas"
@@ -383,6 +388,7 @@ function BarraLateral({
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes, permiso: 'panel_usuarios' },
     { a: '/permisos', icono: '🔒', texto: 'Permisos', soloAdmin: true },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar, permiso: 'panel_articulos_confirmar' },
+    { a: '/stock', icono: '🗃', texto: 'Stock', permiso: 'panel_stock' },
     { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas, permiso: 'panel_problemas' },
     { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones', permiso: 'panel_actualizaciones' },
   ]
