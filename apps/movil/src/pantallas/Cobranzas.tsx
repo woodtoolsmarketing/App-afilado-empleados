@@ -6,7 +6,7 @@ import {
   radios,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -106,6 +106,26 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
     if (nueva > hoy) return // no se mira para adelante
     setFecha(nueva)
   }
+
+  // El cobro que se corrige, con la forma que espera el modal. Se memoiza para
+  // que su identidad sea ESTABLE entre re-renders del padre (p.ej. un refetch de
+  // cobranzasDelDia): si fuera un objeto literal nuevo en cada render, el
+  // useEffect de reset de ModalCobranza volvería a correr y borraría lo que el
+  // vendedor está tipeando a mitad de una corrección.
+  const editandoProp = useMemo(
+    () =>
+      editando
+        ? {
+            id: editando.id,
+            tipo: editando.tipo_comprobante,
+            cheque: editando.cheque,
+            efectivo: editando.efectivo,
+            retenciones: editando.retenciones,
+            comentarios: editando.comentarios,
+          }
+        : null,
+    [editando],
+  )
 
   return (
     <Pantalla>
@@ -265,18 +285,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
         }
         // Sólo el alta suelta elige el día; al corregir, el día no se toca.
         fecha={editando ? undefined : fecha}
-        editando={
-          editando
-            ? {
-                id: editando.id,
-                tipo: editando.tipo_comprobante,
-                cheque: editando.cheque,
-                efectivo: editando.efectivo,
-                retenciones: editando.retenciones,
-                comentarios: editando.comentarios,
-              }
-            : null
-        }
+        editando={editandoProp}
         alCerrar={() => {
           setEditando(null)
           setClienteNuevoCobro(null)

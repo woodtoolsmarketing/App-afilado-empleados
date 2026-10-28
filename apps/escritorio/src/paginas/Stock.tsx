@@ -34,10 +34,14 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
 
   const guardar = useMutation({
     mutationFn: (p: { codigo: string; cantidad: number }) => fijarStock(p.codigo, p.cantidad),
-    onSuccess: (_d, v) => {
+    onSuccess: (fila) => {
       setError(null)
-      setMensaje(`Stock de ${v.codigo} guardado: ${v.cantidad} unidad${v.cantidad === 1 ? '' : 'es'}.`)
-      void cliente.invalidateQueries({ queryKey: ['stock'] })
+      setMensaje(`Stock de ${fila.codigo} guardado: ${fila.cantidad} unidad${fila.cantidad === 1 ? '' : 'es'}.`)
+      // El RPC ya devolvió la fila: parcheamos sólo ese código en la lista
+      // cacheada, en vez de refetchear toda vista_stock en cada Guardar.
+      cliente.setQueryData<ArticuloStock[]>(['stock', aplicada], (prev) =>
+        prev?.map((a) => (a.codigo === fila.codigo ? { ...a, stock: fila.cantidad } : a)),
+      )
     },
     onError: (e: Error) => {
       setMensaje(null)
@@ -85,11 +89,7 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
         {isLoading ? (
           <p>Cargando…</p>
         ) : todos.length === 0 ? (
-          <p className="vacio">
-            {aplicada.trim()
-              ? 'Ningún producto coincide con la búsqueda.'
-              : 'Escribí arriba para buscar un producto.'}
-          </p>
+          <p className="vacio">Ningún producto coincide con la búsqueda.</p>
         ) : (
           <>
             <table>
@@ -109,7 +109,7 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
                     key={a.codigo}
                     articulo={a}
                     soloLectura={soloLectura}
-                    guardando={guardar.isPending}
+                    guardando={guardar.isPending && guardar.variables?.codigo === a.codigo}
                     alGuardar={(cantidad) => guardar.mutate({ codigo: a.codigo, cantidad })}
                   />
                 ))}

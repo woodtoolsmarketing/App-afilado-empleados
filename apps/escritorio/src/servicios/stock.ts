@@ -20,7 +20,6 @@ export interface ArticuloStock {
   moneda: 'ARS' | 'USD' | null
   precio_a_confirmar: boolean
   stock: number
-  stock_actualizado_en: string | null
 }
 
 /** numeric/entero de Postgres puede venir como string; se normaliza a número. */
@@ -45,9 +44,7 @@ function normalizar(fila: Record<string, unknown>): ArticuloStock {
 export async function buscarStock(texto: string, limite = 100): Promise<ArticuloStock[]> {
   let q = supabase
     .from('vista_stock')
-    .select(
-      'codigo, descripcion, medida, familia, precio, moneda, precio_a_confirmar, stock, stock_actualizado_en',
-    )
+    .select('codigo, descripcion, medida, familia, precio, moneda, precio_a_confirmar, stock')
     .order('codigo')
     .limit(limite)
 
@@ -64,11 +61,20 @@ export async function buscarStock(texto: string, limite = 100): Promise<Articulo
   return (data ?? []).map(normalizar)
 }
 
-/** Fija el stock de un producto (RPC `fijar_stock`, sólo Administración). */
-export async function fijarStock(codigo: string, cantidad: number): Promise<void> {
-  const { error } = await supabase.rpc('fijar_stock', {
+/**
+ * Fija el stock de un producto (RPC `fijar_stock`, sólo Administración) y
+ * devuelve el código y la cantidad guardados —el RPC ya retorna la fila—, para
+ * que la página parchee esa fila en la cache sin refetchear toda la vista.
+ */
+export async function fijarStock(
+  codigo: string,
+  cantidad: number,
+): Promise<{ codigo: string; cantidad: number }> {
+  const { data, error } = await supabase.rpc('fijar_stock', {
     p_codigo: codigo,
     p_cantidad: cantidad,
   })
   if (error) throw error
+  const fila = data as { codigo?: string; cantidad?: number | string } | null
+  return { codigo: fila?.codigo ?? codigo, cantidad: aNum(fila?.cantidad ?? cantidad) }
 }

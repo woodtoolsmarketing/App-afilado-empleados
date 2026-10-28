@@ -88,14 +88,14 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
     .single()
 
   if (error) {
-    // Los CHECK de la tabla `cobranzas` (cheque + efectivo = total, total > 0,
+    // Los CHECK de la tabla `cobranzas` (cheque + efectivo + retenciones = total, total > 0,
     // montos no negativos) devuelven 23514 con el texto crudo de Postgres en
     // inglés —a diferencia de las RPC de otros servicios, que arman el mensaje
     // en castellano con RAISE EXCEPTION—. Como es una pantalla de plata, lo
     // traducimos a mano en vez de mostrar el crudo. El resto de los errores: si
     // fue falta de señal, salen en castellano en lugar del crudo de la red.
     if (error.code === '23514') {
-      throw new Error('No pudimos guardar el cobro: los montos no cierran. Revisá cheque y efectivo.')
+      throw new Error('No pudimos guardar el cobro: los montos no cierran. Revisá cheque, efectivo y retención.')
     }
     // Clave repetida: ya hay un cobro con este id. Pasa cuando el INSERT anterior
     // entró pero se perdió la respuesta (mala señal) y el vendedor tocó GUARDAR de
@@ -143,7 +143,9 @@ export async function editarCobranza(datos: {
   tipoComprobante: 'factura' | 'presupuesto'
   cheque: number
   efectivo: number
-  retenciones?: number
+  // Requerido: el único caller (ModalCobranza) siempre lo manda. Si se omitiera,
+  // el RPC lo recibe NULL y PRESERVA la retención del cobro (no la pisa con 0).
+  retenciones: number
   comentarios?: string | null
 }): Promise<Cobranza> {
   const { data, error } = await supabase.rpc('editar_cobranza', {
@@ -151,7 +153,7 @@ export async function editarCobranza(datos: {
     p_tipo: datos.tipoComprobante,
     p_cheque: redondear(datos.cheque),
     p_efectivo: redondear(datos.efectivo),
-    p_retenciones: redondear(datos.retenciones ?? 0),
+    p_retenciones: redondear(datos.retenciones),
     p_comentarios: (datos.comentarios ?? '').trim() || null,
   })
 
