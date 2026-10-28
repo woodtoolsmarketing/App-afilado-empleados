@@ -1,4 +1,10 @@
-import { etiquetaDeOpcion, fechaLocalISO, type PlataformaTelemetria } from '@woodtools/compartido'
+import {
+  etiquetaDeOpcion,
+  fechaLocalISO,
+  OPCIONES_APP,
+  OPCIONES_PANEL,
+  type PlataformaTelemetria,
+} from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import ExcelJS from 'exceljs'
 import { useMemo, useState } from 'react'
@@ -96,6 +102,10 @@ export function PaginaReporteTiempos() {
   const [exportando, setExportando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [vista, setVista] = useState<'heatmap' | 'resumen'>('heatmap')
+  // Por defecto se muestran las opciones que SE USARON (las más entradas arriba);
+  // con esto se suma el catálogo entero, para tener acceso a TODAS aunque no se
+  // hayan usado todavía.
+  const [incluirSinUso, setIncluirSinUso] = useState(false)
 
   const { data: filas, isLoading } = useQuery({
     queryKey: ['heatmap-telemetria', desde, hasta, plataforma],
@@ -170,6 +180,23 @@ export function PaginaReporteTiempos() {
       idx.set(`${f.perfil_id}|${claveOp}`, f)
       max = Math.max(max, num(f[metrica]))
     }
+    if (incluirSinUso) {
+      const sembrar = (plat: PlataformaTelemetria, secc: string) => {
+        const claveOp = `${plat}|${secc}|`
+        if (op.has(claveOp)) return
+        op.set(claveOp, {
+          clave: claveOp,
+          plataforma: plat,
+          seccion: secc,
+          paso: null,
+          etiqueta: etiquetaDeOpcion(plat, secc, null),
+          objetivo_ms: null,
+          total: 0,
+        })
+      }
+      if (plataforma !== 'panel') for (const k of Object.keys(OPCIONES_APP)) sembrar('app', k)
+      if (plataforma !== 'app') for (const k of Object.keys(OPCIONES_PANEL)) sembrar('panel', k)
+    }
     return {
       usuarios: [...us.values()].sort((a, b) =>
         (a.codigo ?? a.nombre).localeCompare(b.codigo ?? b.nombre, 'es', { numeric: true }),
@@ -180,19 +207,25 @@ export function PaginaReporteTiempos() {
       celda: idx,
       maxValor: max,
     }
-  }, [filas, metrica])
+  }, [filas, metrica, plataforma, incluirSinUso])
 
   const usuariosVisibles = usuarioSel ? usuarios.filter((u) => u.id === usuarioSel) : usuarios
 
+  // Los indicadores de arriba cuentan SIEMPRE lo usado (no lo que suma el catálogo
+  // con el toggle de "incluir sin uso"), para que no cambien de significado.
   const resumen = useMemo(() => {
     let eventos = 0
     let total = 0
+    const ops = new Set<string>()
+    const us = new Set<string>()
     for (const f of filas ?? []) {
       eventos += num(f.eventos)
       total += num(f.total_ms)
+      ops.add(`${f.plataforma}|${f.seccion}|${f.paso ?? ''}`)
+      us.add(f.perfil_id)
     }
-    return { eventos, total, usuarios: usuarios.length, opciones: opciones.length }
-  }, [filas, usuarios.length, opciones.length])
+    return { eventos, total, usuarios: us.size, opciones: ops.size }
+  }, [filas])
 
   // Totales POR USUARIO (con el reparto app/panel) y POR OPCIÓN, para la vista
   // de resumen. Sale de las mismas filas del heatmap, agregando del lado del cliente.
@@ -229,8 +262,25 @@ export function PaginaReporteTiempos() {
       o.totalMs += num(f.total_ms)
       m.set(clave, o)
     }
-    return [...m.values()].sort((a, b) => b.totalMs - a.totalMs)
-  }, [filas])
+    if (incluirSinUso) {
+      const sembrar = (plat: PlataformaTelemetria, secc: string) => {
+        const clave = `${plat}|${secc}|`
+        if (m.has(clave)) return
+        m.set(clave, {
+          clave,
+          plataforma: plat,
+          etiqueta: etiquetaDeOpcion(plat, secc, null),
+          usuarios: new Set<string>(),
+          eventos: 0,
+          totalMs: 0,
+        })
+      }
+      if (plataforma !== 'panel') for (const k of Object.keys(OPCIONES_APP)) sembrar('app', k)
+      if (plataforma !== 'app') for (const k of Object.keys(OPCIONES_PANEL)) sembrar('panel', k)
+    }
+    // Ordenado por las que MÁS se entran (cantidad de visitas), y a igualdad, por tiempo.
+    return [...m.values()].sort((a, b) => b.eventos - a.eventos || b.totalMs - a.totalMs)
+  }, [filas, plataforma, incluirSinUso])
 
   async function descargar() {
     if (!filas?.length) return
@@ -338,6 +388,17 @@ export function PaginaReporteTiempos() {
               <option value="resumen">Por usuario y totales</option>
             </select>
           </label>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, paddingBottom: 7 }}
+            title="Suma todas las pantallas de la app y secciones del panel, aunque todavía no se hayan usado."
+          >
+            <input
+              type="checkbox"
+              checked={incluirSinUso}
+              onChange={(e) => setIncluirSinUso(e.target.checked)}
+            />
+            <span style={{ color: 'var(--tinta-suave)' }}>Incluir opciones sin uso</span>
+          </label>
           <button
             className="primario"
             disabled={exportando || !(filas?.length)}
@@ -377,7 +438,7 @@ export function PaginaReporteTiempos() {
         <div className="tarjeta">
           <p>Cargando…</p>
         </div>
-      ) : !filas?.length ? (
+      ) : !filas?.length && !incluirSinUso ? (
         <div className="tarjeta">
           <p className="vacio">
             Todavía no hay tiempos registrados en ese período. A medida que la gente use la app y el
