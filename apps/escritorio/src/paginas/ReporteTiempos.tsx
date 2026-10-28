@@ -94,6 +94,7 @@ export function PaginaReporteTiempos() {
   const [metrica, setMetrica] = useState<Metrica>('promedio_ms')
   const [usuarioSel, setUsuarioSel] = useState<string>('')
   const [exportando, setExportando] = useState(false)
+  const [mensaje, setMensaje] = useState<string | null>(null)
 
   const { data: filas, isLoading } = useQuery({
     queryKey: ['heatmap-telemetria', desde, hasta, plataforma],
@@ -124,7 +125,11 @@ export function PaginaReporteTiempos() {
       })
       if (error) throw error
     },
-    onSuccess: () => clienteConsultas.invalidateQueries({ queryKey: ['heatmap-telemetria'] }),
+    onSuccess: () => {
+      setMensaje(null)
+      void clienteConsultas.invalidateQueries({ queryKey: ['heatmap-telemetria'] })
+    },
+    onError: (e: Error) => setMensaje(`No se pudo guardar el objetivo: ${e.message}`),
   })
 
   // Usuarios (columnas), opciones (filas) y el índice de celdas.
@@ -297,6 +302,12 @@ export function PaginaReporteTiempos() {
         </div>
       </header>
 
+      {mensaje && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          {mensaje}
+        </div>
+      )}
+
       <section className="rejilla" style={{ marginBottom: 18 }}>
         <div className="indicador">
           <span className="valor">{resumen.eventos.toLocaleString('es-AR')}</span>
@@ -364,6 +375,7 @@ export function PaginaReporteTiempos() {
                     </td>
                     <td>
                       <input
+                        key={`${op.clave}:${op.objetivo_ms ?? ''}`}
                         type="number"
                         min={0}
                         step={5}

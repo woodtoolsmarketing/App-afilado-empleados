@@ -1,6 +1,7 @@
 import { NavigationContainer, useNavigationContainerRef, type Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useCallback, useEffect } from 'react'
+import { AppState } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { Aviso, Cargando } from '../componentes/Estado'
@@ -46,7 +47,7 @@ import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarBloqueoDeCaptura } from '../servicios/bloqueoDeCaptura'
 import { usarPermisos } from '../servicios/permisos'
 import { usarCandado } from '../servicios/presencia'
-import { marcarPantalla, pausarTelemetria } from '../servicios/telemetria'
+import { marcarPantalla, pausarTelemetria, reanudarTelemetria } from '../servicios/telemetria'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
@@ -154,6 +155,16 @@ export function Navegacion() {
   // desbloquear, el NavigationContainer se vuelve a montar y `onReady` reabre.
   useEffect(() => {
     if (candado.bloqueado) pausarTelemetria()
+  }, [candado.bloqueado])
+
+  // Reanudar el cronómetro al volver al frente, SÓLO si no está trabado el candado:
+  // si no, el tiempo de la pantalla de desbloqueo se contaría como uso. (El
+  // `pausar` al ir al fondo vive en App.tsx, junto al resto del ciclo de vida.)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active' && !candado.bloqueado) reanudarTelemetria()
+    })
+    return () => sub.remove()
   }, [candado.bloqueado])
 
   if (estado === 'cargando') {

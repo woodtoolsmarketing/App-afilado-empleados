@@ -27,22 +27,33 @@ const MAX_EN_COLA = 2000
 const UMBRAL_FLUSH = 25
 /** Tramos más cortos que esto se descartan: son de paso, no uso real. */
 const MINIMO_MS = 500
+/** Tope de duración de un tramo (24h), igual que el CHECK de la tabla. */
+const MAX_DURACION_MS = 86400000
 
 interface Tramo {
   seccion: string | null
   paso: string | null
   inicio: number | null
+  /** Perfil capturado al ABRIR, para atribuir el tiempo a quien lo empezó. */
+  perfilId: string | null
 }
 
-/** En la cola cada evento lleva de quién es, para no atribuirlo a otra cuenta al drenar. */
+/** En la cola cada evento lleva un id propio y de quién es. Ninguno va al servidor. */
 interface EventoEncolado extends EventoTelemetria {
+  _id: string
   _perfil_id: string
 }
 
-const tramoSeccion: Tramo = { seccion: null, paso: null, inicio: null }
-const tramoPaso: Tramo = { seccion: null, paso: null, inicio: null }
+const tramoSeccion: Tramo = { seccion: null, paso: null, inicio: null, perfilId: null }
+const tramoPaso: Tramo = { seccion: null, paso: null, inicio: null, perfilId: null }
 let uidActual: string | null = null
 let enviando = false
+let contador = 0
+
+function nuevoId(): string {
+  contador = (contador + 1) % 1_000_000
+  return `${Date.now()}-${contador}`
+}
 
 function leerCola(): EventoEncolado[] {
   try {
@@ -55,21 +66,20 @@ function leerCola(): EventoEncolado[] {
 
 function escribirCola(cola: EventoEncolado[]): void {
   try {
-    localStorage.setItem(CLAVE_COLA, JSON.stringify(cola.slice(-MAX_EN_COLA)))
+    if (cola.length === 0) localStorage.removeItem(CLAVE_COLA)
+    else localStorage.setItem(CLAVE_COLA, JSON.stringify(cola.slice(-MAX_EN_COLA)))
   } catch {
     // Sin localStorage (modo privado, cuota): la telemetría se pierde, no rompe.
   }
 }
 
 function cerrar(tramo: Tramo): void {
-  if (tramo.inicio == null || !tramo.seccion) {
-    tramo.inicio = null
-    return
-  }
-  const duracion = Date.now() - tramo.inicio
+  const { seccion, paso, inicio, perfilId } = tramo
   tramo.inicio = null
+  if (inicio == null || !seccion || !perfilId) return
+  const duracion = Date.now() - inicio
   if (duracion < MINIMO_MS) return
-  encolar(tramo.seccion, tramo.paso, duracion)
+  encolar(seccion, paso, duracion, perfilId)
 }
 
 function abrir(tramo: Tramo, seccion: string, paso: string | null): void {
@@ -77,6 +87,7 @@ function abrir(tramo: Tramo, seccion: string, paso: string | null): void {
   tramo.seccion = seccion
   tramo.paso = paso
   tramo.inicio = Date.now()
+  tramo.perfilId = uidActual
 }
 
 /** Marca la sección actual (pathname). `null` cierra sin abrir otra. */
@@ -111,16 +122,17 @@ function reanudar(): void {
   if (tramoPaso.seccion && tramoPaso.paso && tramoPaso.inicio == null) tramoPaso.inicio = Date.now()
 }
 
-function encolar(seccion: string, paso: string | null, duracion_ms: number): void {
+function encolar(seccion: string, paso: string | null, duracion_ms: number, perfilId: string): void {
   try {
-    if (!uidActual) return
+    const dur = Math.min(Math.max(Math.round(duracion_ms), 0), MAX_DURACION_MS)
     const evento: EventoEncolado = {
-      _perfil_id: uidActual,
+      _id: nuevoId(),
+      _perfil_id: perfilId,
       plataforma: 'panel',
       seccion,
       paso: paso ?? null,
-      inicio: new Date(Date.now() - duracion_ms).toISOString(),
-      duracion_ms,
+      inicio: new Date(Date.now() - dur).toISOString(),
+      duracion_ms: dur,
       version_app: null,
     }
     const cola = leerCola()
@@ -132,29 +144,27 @@ function encolar(seccion: string, paso: string | null, duracion_ms: number): voi
   }
 }
 
-/** Vacía la cola a la base por RPC. Sólo manda los eventos de la cuenta ACTIVA. */
+/**
+ * Vacía la cola a la base por RPC. Sólo manda los eventos de la cuenta ACTIVA, y
+ * tras el envío re-lee la cola para quitar SÓLO los `_id` enviados (no pisa lo que
+ * se encoló mientras esperaba la red).
+ */
 export async function flush(): Promise<void> {
   if (enviando) return
   enviando = true
   try {
-    const cola = leerCola()
-    if (cola.length === 0) return
     const {
       data: { session },
     } = await supabase.auth.getSession()
     const uid = session?.user?.id
     if (!uid) return
-    const propios = cola.filter((e) => e._perfil_id === uid)
-    if (propios.length === 0) {
-      localStorage.removeItem(CLAVE_COLA)
-      return
-    }
-    const eventos = propios.map(({ _perfil_id, ...e }) => e)
+    const propios = leerCola().filter((e) => e._perfil_id === uid)
+    if (propios.length === 0) return
+    const ids = new Set(propios.map((e) => e._id))
+    const eventos = propios.map(({ _id, _perfil_id, ...e }) => e)
     const { error } = await supabase.rpc('registrar_eventos_telemetria', { p_eventos: eventos })
     if (error) return
-    const resto = cola.filter((e) => e._perfil_id !== uid)
-    if (resto.length === 0) localStorage.removeItem(CLAVE_COLA)
-    else escribirCola(resto)
+    escribirCola(leerCola().filter((e) => !ids.has(e._id)))
   } catch {
     // Best-effort: la cola queda para el próximo intento.
   } finally {

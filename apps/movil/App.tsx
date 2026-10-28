@@ -24,7 +24,7 @@ import { supabase } from './src/nucleo/supabase'
 // plano. TaskManager exige que la definición corra en el arranque, antes de que
 // el sistema pueda despertar la app para entregar ubicaciones.
 import { pedirPermisoDeSeguimientoSiFalta, revisarSeguimiento } from './src/servicios/ubicacion'
-import { flushTelemetria, pausarTelemetria, reanudarTelemetria } from './src/servicios/telemetria'
+import { flushTelemetria, pausarTelemetria } from './src/servicios/telemetria'
 
 void SplashScreen.preventAutoHideAsync()
 
@@ -91,9 +91,9 @@ export default function App() {
       // (flag + habilitado + permiso) o apagar el seguimiento del vendedor.
       if (activo) void revisarSeguimiento(usarSesion.getState().estado === 'habilitado')
       // Telemetría de tiempos: al irse al fondo se cierra el tramo en curso y se
-      // drena la cola (antes de que Android suspenda); al volver, se reabre.
-      if (activo) reanudarTelemetria()
-      else pausarTelemetria()
+      // drena la cola (antes de que Android suspenda). El reanudar al volver vive
+      // en Navegacion, gateado por el candado (no contar la pantalla de bloqueo).
+      if (!activo) pausarTelemetria()
       void flushTelemetria()
     })
     supabase.auth.startAutoRefresh()

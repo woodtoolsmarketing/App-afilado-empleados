@@ -101,6 +101,7 @@ import {
 } from '../../servicios/borradorDeNota'
 import { BuscadorArticulo } from './BuscadorArticulo'
 import { limpiarPaso, marcarPaso } from '../../servicios/telemetria'
+import { useIsFocused } from '@react-navigation/native'
 import { CampoDescuento } from './Descuento'
 import { PasoCliente, PasoOperacion } from './Encabezado'
 import { PasoRenglon } from './Renglon'
@@ -459,10 +460,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
 
   // Telemetría de tiempos: cronometra cada sub-paso de la nota (1·Cliente,
   // 2·Herramienta, 3·Facturación). El tiempo dentro del buscador de artículos lo
-  // mide el propio BuscadorArticulo. Al salir de la nota se cierra el sub-paso.
+  // mide el propio BuscadorArticulo. Mientras la pantalla está enfocada el sub-paso
+  // sigue a `paso`; al perder foco (ir a VistaPrevia/NuevoCliente, que dejan esta
+  // pantalla montada) se CIERRA, para no absorber el tiempo de la pantalla hija.
+  const enfocado = useIsFocused()
   useEffect(() => {
+    if (!enfocado) {
+      marcarPaso(SECCION_NOTA, null)
+      return
+    }
     marcarPaso(SECCION_NOTA, paso === 1 ? 'cliente' : paso === 2 ? 'herramienta' : 'facturacion')
-  }, [paso])
+  }, [enfocado, paso])
   useEffect(() => () => limpiarPaso(), [])
 
   // ── La nota que se está corrigiendo ──────────────────────────────────────
