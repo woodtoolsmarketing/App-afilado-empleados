@@ -34,6 +34,7 @@ interface CobranzaFila {
   total: number | string
   cheque: number | string
   efectivo: number | string
+  retenciones: number | string
   comentarios: string | null
   creado_en: string
   perfiles: { nombre_completo: string; codigo_vendedor: string | null } | null
@@ -64,6 +65,7 @@ interface Totales {
   total: number
   cheque: number
   efectivo: number
+  retenciones: number
 }
 
 function sumar(cobros: CobranzaFila[]): Totales {
@@ -72,8 +74,9 @@ function sumar(cobros: CobranzaFila[]): Totales {
       total: acc.total + n(c.total),
       cheque: acc.cheque + n(c.cheque),
       efectivo: acc.efectivo + n(c.efectivo),
+      retenciones: acc.retenciones + n(c.retenciones),
     }),
-    { total: 0, cheque: 0, efectivo: 0 },
+    { total: 0, cheque: 0, efectivo: 0, retenciones: 0 },
   )
 }
 
@@ -96,6 +99,7 @@ function armarPlanilla(
     // Un cero se deja en blanco: una columna de ceros se lee como si hubiera pasado algo.
     cheque: n(c.cheque) > 0 ? formatearPesos(n(c.cheque)) : '',
     efectivo: n(c.efectivo) > 0 ? formatearPesos(n(c.efectivo)) : '',
+    retenciones: n(c.retenciones) > 0 ? formatearPesos(n(c.retenciones)) : '',
     comentarios: c.comentarios ?? '',
   }))
   return {
@@ -147,7 +151,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       const { data, error } = await supabase
         .from('cobranzas')
         .select(
-          'id, vendedor_id, fecha, cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, comentarios, creado_en, perfiles:vendedor_id ( nombre_completo, codigo_vendedor )',
+          'id, vendedor_id, fecha, cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, retenciones, comentarios, creado_en, perfiles:vendedor_id ( nombre_completo, codigo_vendedor )',
         )
         .gte('fecha', desde)
         .lte('fecha', hasta)
@@ -177,13 +181,14 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
     const porVend = new Map<string, { nombre: string; tot: Totales }>()
     for (const c of cobranzas ?? []) {
       const prev = porVend.get(c.vendedor_id)
-      const tot = prev?.tot ?? { total: 0, cheque: 0, efectivo: 0 }
+      const tot = prev?.tot ?? { total: 0, cheque: 0, efectivo: 0, retenciones: 0 }
       porVend.set(c.vendedor_id, {
         nombre: nombreVendedor(c),
         tot: {
           total: tot.total + n(c.total),
           cheque: tot.cheque + n(c.cheque),
           efectivo: tot.efectivo + n(c.efectivo),
+          retenciones: tot.retenciones + n(c.retenciones),
         },
       })
     }
@@ -259,6 +264,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         { header: 'Total', key: 'total', width: 14 },
         { header: 'Cheque', key: 'cheque', width: 14 },
         { header: 'Efectivo', key: 'efectivo', width: 14 },
+        { header: 'Retenciones', key: 'retenciones', width: 14 },
         { header: 'Comentarios', key: 'comentarios', width: 30 },
       ]
       for (const c of cobranzas) {
@@ -271,6 +277,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
           total: n(c.total),
           cheque: n(c.cheque),
           efectivo: n(c.efectivo),
+          retenciones: n(c.retenciones),
           comentarios: c.comentarios ?? '',
         })
       }
@@ -282,6 +289,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         { header: 'Total', key: 'total', width: 14 },
         { header: 'Cheque', key: 'cheque', width: 14 },
         { header: 'Efectivo', key: 'efectivo', width: 14 },
+        { header: 'Retenciones', key: 'retenciones', width: 14 },
       ]
       for (const v of resumenVendedores) {
         resumen.addRow({
@@ -289,6 +297,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
           total: v.tot.total,
           cheque: v.tot.cheque,
           efectivo: v.tot.efectivo,
+          retenciones: v.tot.retenciones,
         })
       }
       const totalRow = resumen.addRow({
@@ -296,13 +305,14 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         total: totalPeriodo.total,
         cheque: totalPeriodo.cheque,
         efectivo: totalPeriodo.efectivo,
+        retenciones: totalPeriodo.retenciones,
       })
       totalRow.font = { bold: true }
 
       // Formato de moneda y encabezados en negrita en las dos hojas.
       for (const h of [hoja, resumen]) {
         h.getRow(1).font = { bold: true }
-        for (const k of ['total', 'cheque', 'efectivo']) {
+        for (const k of ['total', 'cheque', 'efectivo', 'retenciones']) {
           h.getColumn(k).numFmt = '"$"#,##0.00'
         }
       }
@@ -379,6 +389,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                   <th style={{ textAlign: 'right' }}>Total</th>
                   <th style={{ textAlign: 'right' }}>Cheque</th>
                   <th style={{ textAlign: 'right' }}>Efectivo</th>
+                  <th style={{ textAlign: 'right' }}>Retenciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -393,6 +404,9 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {v.tot.efectivo > 0 ? pesos.format(v.tot.efectivo) : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {v.tot.retenciones > 0 ? pesos.format(v.tot.retenciones) : '—'}
                     </td>
                   </tr>
                 ))}
@@ -410,6 +424,9 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {totalPeriodo.efectivo > 0 ? pesos.format(totalPeriodo.efectivo) : '—'}
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {totalPeriodo.retenciones > 0 ? pesos.format(totalPeriodo.retenciones) : '—'}
                   </td>
                 </tr>
               </tfoot>
@@ -484,6 +501,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                             <th style={{ textAlign: 'right', width: 120 }}>Total</th>
                             <th style={{ textAlign: 'right', width: 110 }}>Cheque</th>
                             <th style={{ textAlign: 'right', width: 110 }}>Efectivo</th>
+                            <th style={{ textAlign: 'right', width: 110 }}>Retenciones</th>
                             <th>Comentarios</th>
                           </tr>
                         </thead>
@@ -509,6 +527,9 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                                 {n(c.efectivo) > 0 ? pesos.format(n(c.efectivo)) : '—'}
                               </td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                {n(c.retenciones) > 0 ? pesos.format(n(c.retenciones)) : '—'}
+                              </td>
                               <td style={{ color: 'var(--tinta-suave)' }}>{c.comentarios ?? ''}</td>
                             </tr>
                           ))}
@@ -527,6 +548,9 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                             </td>
                             <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                               {tot.efectivo > 0 ? pesos.format(tot.efectivo) : '—'}
+                            </td>
+                            <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                              {tot.retenciones > 0 ? pesos.format(tot.retenciones) : '—'}
                             </td>
                             <td />
                           </tr>

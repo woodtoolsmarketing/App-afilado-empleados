@@ -195,6 +195,12 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
                           color={colores.verdeOscuro}
                         />
                       ) : null}
+                      {c.retenciones > 0 ? (
+                        <Pastilla
+                          texto={`RETENCIÓN ${formatearPesos(c.retenciones)}`}
+                          color={colores.ambar}
+                        />
+                      ) : null}
                       {/* Cerrado: ya salió en papel, no se corrige. Va último,
                           como la pastilla de estado en el resto de la app. */}
                       {impreso ? <Pastilla texto="🔒 IMPRESO" color={colores.rojoAccion} /> : null}
@@ -266,6 +272,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
                 tipo: editando.tipo_comprobante,
                 cheque: editando.cheque,
                 efectivo: editando.efectivo,
+                retenciones: editando.retenciones,
                 comentarios: editando.comentarios,
               }
             : null

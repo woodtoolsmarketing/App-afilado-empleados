@@ -30,9 +30,9 @@ import { Pantalla, Panel, TituloPanel } from './Pantalla'
  * tiene `overflow: hidden`, así que un botón que se pase de alto no se podría
  * tocar).
  *
- * El total NO se pide: es la suma de cheque + efectivo (lo mismo que hacía la
- * pantalla "Cobranzas del día"), para que no quede abierta la puerta a que no
- * cierre contra el TOTAL de la planilla, que es lo que la oficina compara.
+ * El total NO se pide: es la suma de cheque + efectivo + retención (lo mismo que
+ * hacía la pantalla "Cobranzas del día"), para que no quede abierta la puerta a
+ * que no cierre contra el TOTAL de la planilla, que es lo que la oficina compara.
  */
 
 /** "1.234,50" → 1234,5; descarta lo que no sea positivo. Igual que la vieja pantalla. */
@@ -52,6 +52,7 @@ export interface CobranzaEnEdicion {
   tipo: 'factura' | 'presupuesto'
   cheque: number
   efectivo: number
+  retenciones: number
   comentarios: string | null
 }
 
@@ -92,6 +93,7 @@ export function ModalCobranza({
   const [tipo, setTipo] = useState<'factura' | 'presupuesto'>(tipoSugerido ?? 'factura')
   const [cheque, setCheque] = useState('')
   const [efectivo, setEfectivo] = useState('')
+  const [retenciones, setRetenciones] = useState('')
   const [comentarios, setComentarios] = useState('')
 
   // El id del cobro se genera en el teléfono, no en la base. Así, si se guarda
@@ -111,6 +113,7 @@ export function ModalCobranza({
       setTipo(editando.tipo)
       setCheque(aEntrada(editando.cheque))
       setEfectivo(aEntrada(editando.efectivo))
+      setRetenciones(aEntrada(editando.retenciones))
       setComentarios(editando.comentarios ?? '')
       return
     }
@@ -118,10 +121,11 @@ export function ModalCobranza({
     setTipo(tipoSugerido ?? 'factura')
     setCheque('')
     setEfectivo('')
+    setRetenciones('')
     setComentarios('')
   }, [visible, tipoSugerido, editando])
 
-  const total = aPesos(cheque) + aPesos(efectivo)
+  const total = aPesos(cheque) + aPesos(efectivo) + aPesos(retenciones)
 
   const guardar = useMutation({
     mutationFn: () =>
@@ -131,6 +135,7 @@ export function ModalCobranza({
             tipoComprobante: tipo,
             cheque: aPesos(cheque),
             efectivo: aPesos(efectivo),
+            retenciones: aPesos(retenciones),
             comentarios,
           })
         : registrarCobranza({
@@ -142,6 +147,7 @@ export function ModalCobranza({
             tipoComprobante: tipo,
             cheque: aPesos(cheque),
             efectivo: aPesos(efectivo),
+            retenciones: aPesos(retenciones),
             comentarios,
             fecha,
           }),
@@ -203,6 +209,17 @@ export function ModalCobranza({
                 />
               </View>
             </View>
+
+            {/* La retención salda parte del comprobante: el cliente retiene un
+                importe (impuestos) y entrega un certificado en lugar de plata. Es
+                una forma de pago más y SUMA al total, junto con cheque y efectivo. */}
+            <Campo
+              etiqueta="RETENCIONES"
+              value={retenciones}
+              onChangeText={(t) => setRetenciones(soloNumeros(t))}
+              keyboardType="decimal-pad"
+              placeholder="0"
+            />
 
             {total > 0 ? (
               <Aviso tono="exito" titulo="Total">

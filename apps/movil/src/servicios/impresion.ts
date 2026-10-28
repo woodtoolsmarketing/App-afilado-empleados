@@ -354,6 +354,7 @@ function armarPlanillaCobros(
     total: formatearPesos(c.total),
     cheque: c.cheque > 0 ? formatearPesos(c.cheque) : '',
     efectivo: c.efectivo > 0 ? formatearPesos(c.efectivo) : '',
+    retenciones: c.retenciones > 0 ? formatearPesos(c.retenciones) : '',
     comentarios: c.comentarios ?? '',
   }))
   return {

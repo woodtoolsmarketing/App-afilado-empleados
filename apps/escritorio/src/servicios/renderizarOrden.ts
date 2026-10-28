@@ -236,6 +236,7 @@ interface CobranzaFila {
   total: number | string
   cheque: number | string
   efectivo: number | string
+  retenciones: number | string
   comentarios: string | null
   perfiles: { codigo_vendedor: string | null } | null
 }
@@ -259,6 +260,7 @@ function armarPlanilla(
     // Un cero se deja en blanco: una columna de ceros se lee como si hubiera pasado algo.
     cheque: n(c.cheque) > 0 ? formatearPesos(n(c.cheque)) : '',
     efectivo: n(c.efectivo) > 0 ? formatearPesos(n(c.efectivo)) : '',
+    retenciones: n(c.retenciones) > 0 ? formatearPesos(n(c.retenciones)) : '',
     comentarios: c.comentarios ?? '',
   }))
   return {
@@ -277,7 +279,7 @@ async function renderizarCobranzas(orden: OrdenImpresion): Promise<DocumentoARen
   const { data, error } = await supabase
     .from('cobranzas')
     .select(
-      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, comentarios,' +
+      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, retenciones, comentarios,' +
         ' perfiles:vendedor_id ( codigo_vendedor )',
     )
     .eq('vendedor_id', orden.pedida_por)
