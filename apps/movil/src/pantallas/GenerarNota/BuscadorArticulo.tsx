@@ -10,9 +10,11 @@ import {
   marcaDeCodigo,
   radios,
   resumenCaracteristicas,
+  SECCION_NOTA,
   type CaracteristicasArticulo,
   type FormularioItemNota,
 } from '@woodtools/compartido'
+import { marcarPaso } from '../../servicios/telemetria'
 import { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -70,6 +72,18 @@ export function BuscadorArticulo({
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const [abierto, setAbierto] = useState(false)
+
+  // Telemetría: el tiempo con la ventana de búsqueda abierta se mide como su
+  // propio sub-paso ('buscar_articulo'); al cerrarla se vuelve a 'herramienta'
+  // (el buscador sólo aparece en el paso 2). Se saltea el primer render.
+  const montado = useRef(false)
+  useEffect(() => {
+    if (!montado.current) {
+      montado.current = true
+      return
+    }
+    marcarPaso(SECCION_NOTA, abierto ? 'buscar_articulo' : 'herramienta')
+  }, [abierto])
 
   // Las características se leen del texto de la lista, no de la descripción
   // corta: "SC nueva" no tiene adentro ningún D=, ningún Z=.

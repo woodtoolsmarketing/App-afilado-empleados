@@ -24,6 +24,7 @@ import { supabase } from './src/nucleo/supabase'
 // TaskManager exige que la definición corra en el arranque, antes de que el
 // sistema pueda despertar la app para entregar ubicaciones.
 import './src/servicios/ubicacion'
+import { flushTelemetria, pausarTelemetria } from './src/servicios/telemetria'
 
 void SplashScreen.preventAutoHideAsync()
 
@@ -86,8 +87,15 @@ export default function App() {
       focusManager.setFocused(activo)
       if (activo) supabase.auth.startAutoRefresh()
       else supabase.auth.stopAutoRefresh()
+      // Telemetría de tiempos: al irse al fondo se cierra el tramo en curso y se
+      // drena la cola (antes de que Android suspenda). El reanudar al volver vive
+      // en Navegacion, gateado por el candado (no contar la pantalla de bloqueo).
+      if (!activo) pausarTelemetria()
+      void flushTelemetria()
     })
     supabase.auth.startAutoRefresh()
+    // Al arrancar se drena lo que haya quedado de una sesión anterior sin señal.
+    void flushTelemetria()
     return () => suscripcion.remove()
   }, [])
 

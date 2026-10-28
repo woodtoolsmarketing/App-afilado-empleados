@@ -1,5 +1,7 @@
-import { NavigationContainer, type Theme } from '@react-navigation/native'
+import { NavigationContainer, useNavigationContainerRef, type Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import { useCallback, useEffect } from 'react'
+import { AppState } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { Aviso, Cargando } from '../componentes/Estado'
@@ -45,6 +47,7 @@ import { usarAvisoDeApkAlEntrar } from '../servicios/avisoDeApk'
 import { usarBloqueoDeCaptura } from '../servicios/bloqueoDeCaptura'
 import { usarPermisos } from '../servicios/permisos'
 import { usarCandado } from '../servicios/presencia'
+import { marcarPantalla, pausarTelemetria, reanudarTelemetria } from '../servicios/telemetria'
 import type { ParametrosApp } from './tipos'
 
 const Pila = createNativeStackNavigator<ParametrosApp>()
@@ -132,6 +135,38 @@ export function Navegacion() {
    */
   const { puedeVer } = usarPermisos()
 
+  /**
+   * Telemetría de tiempos: el único punto para cronometrar cuánto pasa el
+   * vendedor en cada pantalla, sin tocar cada una. `onReady` abre el tramo de la
+   * pantalla inicial; `onStateChange`, el de cada navegación. Sólo se mide con la
+   * cuenta habilitada: las pantallas de pre-ingreso (todas bajo el nombre 'Menu')
+   * no cuentan, así que ahí se cierra el tramo con `marcarPantalla(null)`.
+   */
+  const navRef = useNavigationContainerRef<ParametrosApp>()
+  const alCambiarRuta = useCallback(() => {
+    if (usarSesion.getState().estado !== 'habilitado') {
+      marcarPantalla(null)
+      return
+    }
+    marcarPantalla(navRef.getCurrentRoute()?.name ?? null)
+  }, [navRef])
+
+  // Con el candado puesto no se cuenta tiempo: se cierra el tramo abierto. Al
+  // desbloquear, el NavigationContainer se vuelve a montar y `onReady` reabre.
+  useEffect(() => {
+    if (candado.bloqueado) pausarTelemetria()
+  }, [candado.bloqueado])
+
+  // Reanudar el cronómetro al volver al frente, SÓLO si no está trabado el candado:
+  // si no, el tiempo de la pantalla de desbloqueo se contaría como uso. (El
+  // `pausar` al ir al fondo vive en App.tsx, junto al resto del ciclo de vida.)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active' && !candado.bloqueado) reanudarTelemetria()
+    })
+    return () => sub.remove()
+  }, [candado.bloqueado])
+
   if (estado === 'cargando') {
     return (
       <Pantalla>
@@ -167,7 +202,12 @@ export function Navegacion() {
   }
 
   return (
-    <NavigationContainer theme={temaDeLaNavegacion(tema)}>
+    <NavigationContainer
+      ref={navRef}
+      theme={temaDeLaNavegacion(tema)}
+      onReady={alCambiarRuta}
+      onStateChange={alCambiarRuta}
+    >
       <Pila.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         {estado === 'sin_sesion' ? (
           <Pila.Screen name="Menu" component={PantallaIniciarSesion} />
