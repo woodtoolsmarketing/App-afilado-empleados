@@ -74,8 +74,18 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Como recién aparecen cuando el racimo se abrió —o sea, cuando quedan pocos en
  * pantalla—, los carteles no se pisan.
  *
- * Tocar un pin abre un menú con tres acciones: agregarlo como próximo destino,
- * ponerlo en la cola de viajes, o modificar sus datos.
+ * Salvo cuando dos (o más) clientes caen EXACTAMENTE en el mismo punto (mismo
+ * edificio, mismo geocode): ahí supercluster, ya abierto, devolvía un pin por
+ * cliente sobre la misma coordenada y los carteles quedaban uno encima del otro,
+ * ilegibles. Por eso los clientes se AGRUPAN por coordenada ANTES de entrar a
+ * supercluster: cada punto es un lugar, y si ese lugar tiene varios clientes el
+ * pin los lista apilados (un renglón por cliente) en vez de pisar un cartel con
+ * otro. El racimo sigue contando CLIENTES —no lugares— gracias a `map`/`reduce`.
+ *
+ * Tocar un pin de un solo cliente abre el menú de acciones directo; tocar uno
+ * con varios abre primero un selector para elegir con cuál trabajar. Las
+ * acciones son tres: agregarlo como próximo destino, ponerlo en la cola de
+ * viajes, o modificar sus datos.
  *
  * Los datos llegan del RPC `clientes_en_mapa` en un solo `jsonb`: PostgREST
  * corta en 1.000 filas y son casi diez mil, así que un SELECT normal traería
@@ -90,7 +100,26 @@ interface ClienteMapa {
   lng: number
 }
 
-type PropiedadesPin = { id: string; codigo: string; razon_social: string }
+/** Un cliente, lo mínimo para dibujar su renglón en el cartel y después actuar. */
+type ClientePin = { id: string; codigo: string; razon_social: string }
+
+/**
+ * Lo que lleva un pin individual: uno o más clientes que caen EXACTAMENTE en el
+ * mismo punto. Casi siempre es uno. Cuando son varios (mismo edificio, mismo
+ * geocode), antes cada uno dibujaba su propio Marker sobre la misma coordenada y
+ * los carteles se pisaban; ahora van todos en este pin, apilados.
+ */
+type PropiedadesPin = { clientes: ClientePin[] }
+
+/** Lo que supercluster acumula por racimo: cuántos CLIENTES abarca (no lugares). */
+type PropiedadesRacimo = { cantidadClientes: number }
+
+/** Cuántos clientes se listan en el cartel de un pin antes de resumir con "+N más". */
+const TOPE_CARTEL = 3
+
+/** Decimales a los que se redondea la coordenada para considerar "el mismo punto".
+ *  5 ≈ 1,1 m: junta geocodes idénticos sin fusionar edificios distintos. */
+const DECIMALES_AGRUPAR = 5
 
 /** El cliente que el vendedor tocó en el mapa, con lo que hace falta para actuar. */
 interface PinTocado {
@@ -139,12 +168,17 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   const enviandoMapa = useRef(false)
   const [region, setRegion] = useState<Region>(REGION_INICIAL)
   const [racimos, setRacimos] = useState<
-    Array<Supercluster.PointFeature<PropiedadesPin> | Supercluster.ClusterFeature<Supercluster.AnyProps>>
+    Array<Supercluster.PointFeature<PropiedadesPin> | Supercluster.ClusterFeature<PropiedadesRacimo>>
   >([])
 
   // El cliente tocado (abre el menú de acciones) y, si eligió modificar, la ficha.
   const [tocado, setTocado] = useState<PinTocado | null>(null)
   const [editando, setEditando] = useState<PinTocado | null>(null)
+  // Un pin con varios clientes en el mismo punto: antes de actuar hay que elegir
+  // con cuál. Al tocarlo se abre este selector; al elegir uno se pasa a `tocado`.
+  const [eligiendo, setEligiendo] = useState<{ lat: number; lng: number; clientes: ClientePin[] } | null>(
+    null,
+  )
   const [form, setForm] = useState({ razon_social: '', nombre_fantasia: '', direccion: '' })
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
 
@@ -195,17 +229,46 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
   // no romper el `useMemo` de abajo y no caer en el bucle infinito de renders.
   const puntos = data ?? SIN_PUNTOS
 
+  /**
+   * Los clientes agrupados por coordenada: un elemento por LUGAR. Los que caen en
+   * el mismo punto (redondeando a `DECIMALES_AGRUPAR`) comparten un pin en vez de
+   * pintar un Marker por cliente sobre la misma posición, que es lo que pisaba los
+   * carteles. El orden de inserción sigue al de `puntos` (estable entre renders),
+   * así la lista apilada no baila al redibujar.
+   */
+  const grupos = useMemo(() => {
+    const porLugar = new Map<string, { lat: number; lng: number; clientes: ClientePin[] }>()
+    for (const p of puntos) {
+      const clave = `${p.lat.toFixed(DECIMALES_AGRUPAR)},${p.lng.toFixed(DECIMALES_AGRUPAR)}`
+      const cliente: ClientePin = { id: p.id, codigo: p.codigo, razon_social: p.razon_social }
+      const existente = porLugar.get(clave)
+      if (existente) existente.clientes.push(cliente)
+      else porLugar.set(clave, { lat: p.lat, lng: p.lng, clientes: [cliente] })
+    }
+    return [...porLugar.values()]
+  }, [puntos])
+
   const indice = useMemo(() => {
-    const s = new Supercluster<PropiedadesPin>({ radius: 60, maxZoom: 18 })
+    // `map`/`reduce` hacen que el número del racimo cuente CLIENTES, no lugares:
+    // sin esto, un racimo sobre una zona con edificios compartidos mostraría menos
+    // de los que hay. Cada lugar aporta la cantidad de clientes que tiene.
+    const s = new Supercluster<PropiedadesPin, PropiedadesRacimo>({
+      radius: 60,
+      maxZoom: 18,
+      map: (props) => ({ cantidadClientes: props.clientes.length }),
+      reduce: (acumulado, props) => {
+        acumulado.cantidadClientes += props.cantidadClientes
+      },
+    })
     s.load(
-      puntos.map((p) => ({
+      grupos.map((g) => ({
         type: 'Feature' as const,
-        properties: { id: p.id, codigo: p.codigo, razon_social: p.razon_social },
-        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+        properties: { clientes: g.clientes },
+        geometry: { type: 'Point' as const, coordinates: [g.lng, g.lat] },
       })),
     )
     return s
-  }, [puntos])
+  }, [grupos])
 
   function recalcular(r: Region) {
     const limites: [number, number, number, number] = [
@@ -495,8 +558,11 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
             const esRacimo = 'cluster' in f.properties && f.properties.cluster
 
             if (esRacimo) {
-              const cantidad = (f.properties as Supercluster.ClusterProperties).point_count
-              const clusterId = (f.properties as Supercluster.ClusterProperties).cluster_id
+              const propsRacimo = f.properties as Supercluster.ClusterProperties & PropiedadesRacimo
+              // El número del racimo cuenta CLIENTES (lo acumula `reduce`), no la
+              // cantidad de lugares/pines que agrupó.
+              const cantidad = propsRacimo.cantidadClientes
+              const clusterId = propsRacimo.cluster_id
               return (
                 <Marker
                   key={`c${clusterId}`}
@@ -518,22 +584,37 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
             }
 
             const p = f.properties as PropiedadesPin
+            const clientes = p.clientes
+            const mostrados = clientes.slice(0, TOPE_CARTEL)
+            const ocultos = clientes.length - mostrados.length
             return (
               <Marker
-                key={p.id}
+                key={`g${lat},${lng}`}
                 coordinate={{ latitude: lat, longitude: lng }}
                 anchor={{ x: 0.5, y: 1 }}
                 tracksViewChanges={false}
-                onPress={() =>
-                  setTocado({ id: p.id, codigo: p.codigo, razon_social: p.razon_social, lat, lng })
-                }
+                onPress={() => {
+                  // Un solo cliente: directo al menú de acciones. Varios en el
+                  // mismo punto: primero elegir con cuál (ver `eligiendo`).
+                  if (clientes.length === 1) {
+                    const c = clientes[0]
+                    setTocado({ id: c.id, codigo: c.codigo, razon_social: c.razon_social, lat, lng })
+                  } else {
+                    setEligiendo({ lat, lng, clientes })
+                  }
+                }}
               >
                 <View style={estilos.pinColumna}>
                   <View style={estilos.cartel}>
-                    <Text style={estilos.cartelNombre} numberOfLines={1}>
-                      {p.razon_social}
-                    </Text>
-                    <Text style={estilos.cartelCodigo}>Código: {p.codigo}</Text>
+                    {mostrados.map((c, i) => (
+                      <View key={c.id} style={i > 0 ? estilos.cartelFilaExtra : undefined}>
+                        <Text style={estilos.cartelNombre} numberOfLines={1}>
+                          {c.razon_social}
+                        </Text>
+                        <Text style={estilos.cartelCodigo}>Código: {c.codigo}</Text>
+                      </View>
+                    ))}
+                    {ocultos > 0 ? <Text style={estilos.cartelMas}>+{ocultos} más</Text> : null}
                   </View>
                   <View style={estilos.pin} />
                 </View>
@@ -605,6 +686,52 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
           ) : null}
         </View>
       </View>
+
+      {/* ── Elegir cliente cuando varios comparten el mismo punto ────────────── */}
+      <Modal
+        visible={!!eligiendo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEligiendo(null)}
+      >
+        <Pressable style={estilos.velo} onPress={() => setEligiendo(null)}>
+          <Pressable style={estilos.hoja} onPress={(e) => e.stopPropagation()}>
+            <Text style={estilos.hojaTitulo}>¿Cuál cliente?</Text>
+            <Text style={estilos.hojaSub}>
+              {eligiendo?.clientes.length} clientes en este punto
+            </Text>
+            <ScrollView style={estilos.listaElegir} keyboardShouldPersistTaps="handled">
+              {eligiendo?.clientes.map((c) => (
+                <Pressable
+                  key={c.id}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [estilos.resultado, pressed && estilos.resultadoTocado]}
+                  onPress={() => {
+                    setTocado({
+                      id: c.id,
+                      codigo: c.codigo,
+                      razon_social: c.razon_social,
+                      lat: eligiendo.lat,
+                      lng: eligiendo.lng,
+                    })
+                    setEligiendo(null)
+                  }}
+                >
+                  <Text style={estilos.resultadoCodigo}>Código: {c.codigo}</Text>
+                  <Text style={estilos.resultadoNombre} numberOfLines={2}>
+                    {c.razon_social}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <BotonSecundario
+              titulo="Cerrar"
+              alTocar={() => setEligiendo(null)}
+              style={estilos.cerrar}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── Menú de acciones al tocar un pin ─────────────────────────────────── */}
       <Modal
@@ -774,6 +901,15 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   cartelNombre: { fontSize: 11, fontWeight: '700' as const, color: '#111' },
   cartelCodigo: { fontSize: 10, color: '#555' },
+  // Renglón de un cliente extra apilado en el mismo cartel: una línea fina lo
+  // separa del de arriba para que se lean como dos clientes, no uno largo.
+  cartelFilaExtra: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#ccc',
+    marginTop: 3,
+    paddingTop: 3,
+  },
+  cartelMas: { fontSize: 10, fontWeight: '700' as const, color: t.colores.rojo, marginTop: 3 },
   pin: {
     width: 16,
     height: 16,
@@ -891,6 +1027,9 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   acciones: { gap: espaciado.sm },
   cerrar: { marginTop: espaciado.xs },
+  // Lista del selector "¿cuál cliente?": acotada para que, si en un punto hay
+  // muchos, se pueda scrollear en vez de desbordar la hoja.
+  listaElegir: { maxHeight: 320, marginVertical: espaciado.xs },
 
   // ── Formulario de edición (tarjeta centrada) ──────────────────────────────
   veloCentro: {
