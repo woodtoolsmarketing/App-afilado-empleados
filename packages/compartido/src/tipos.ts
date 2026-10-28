@@ -301,6 +301,13 @@ export interface Perfil {
    * cualquiera. A quien no lo tenga, el comando ni se le reconoce.
    */
   ve_ubicacion_de_notas: boolean
+  /**
+   * Si ve el reporte / mapa de calor de tiempos de uso de TODA la flota. Permiso
+   * por usuario (no por rol: hay varios admins y esto lo ven sólo dos personas,
+   * Admin Master y Ariel Sosa #12). Se administra desde el panel (Usuarios). La
+   * MEDICIÓN de tiempos corre para todos; este flag sólo abre el REPORTE.
+   */
+  ve_reporte_tiempos: boolean
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null
