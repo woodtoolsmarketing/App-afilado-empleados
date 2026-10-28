@@ -121,6 +121,28 @@ export function PaginaReporteTiempos() {
     },
   })
 
+  // Todos los usuarios habilitados (roster), para poder filtrar y mostrar a
+  // CUALQUIERA, no sólo a los que ya generaron datos. El reporte lo ven admins
+  // (#27 y #12), que por RLS leen todos los perfiles.
+  const { data: roster } = useQuery({
+    queryKey: ['roster-perfiles'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('perfiles')
+        .select('id, nombre_completo, codigo_vendedor')
+        .eq('estado', 'aprobado')
+      if (error) throw error
+      return (data ?? []) as { id: string; nombre_completo: string; codigo_vendedor: string | null }[]
+    },
+  })
+  const usuariosRoster = useMemo(
+    () =>
+      (roster ?? [])
+        .map((p) => ({ id: p.id, nombre: p.nombre_completo, codigo: p.codigo_vendedor }))
+        .sort((a, b) => (a.codigo ?? a.nombre).localeCompare(b.codigo ?? b.nombre, 'es', { numeric: true })),
+    [roster],
+  )
+
   const objetivo = useMutation({
     mutationFn: async (args: {
       plataforma: PlataformaTelemetria
@@ -181,6 +203,7 @@ export function PaginaReporteTiempos() {
       max = Math.max(max, num(f[metrica]))
     }
     if (incluirSinUso) {
+      for (const u of usuariosRoster) if (!us.has(u.id)) us.set(u.id, u)
       const sembrar = (plat: PlataformaTelemetria, secc: string) => {
         const claveOp = `${plat}|${secc}|`
         if (op.has(claveOp)) return
@@ -207,7 +230,7 @@ export function PaginaReporteTiempos() {
       celda: idx,
       maxValor: max,
     }
-  }, [filas, metrica, plataforma, incluirSinUso])
+  }, [filas, metrica, plataforma, incluirSinUso, usuariosRoster])
 
   const usuariosVisibles = usuarioSel ? usuarios.filter((u) => u.id === usuarioSel) : usuarios
 
@@ -244,8 +267,14 @@ export function PaginaReporteTiempos() {
       else u.panelMs += num(f.total_ms)
       m.set(f.perfil_id, u)
     }
+    if (incluirSinUso) {
+      for (const u of usuariosRoster) {
+        if (!m.has(u.id))
+          m.set(u.id, { id: u.id, nombre: u.nombre, codigo: u.codigo, eventos: 0, totalMs: 0, appMs: 0, panelMs: 0 })
+      }
+    }
     return [...m.values()].sort((a, b) => b.totalMs - a.totalMs)
-  }, [filas])
+  }, [filas, incluirSinUso, usuariosRoster])
 
   const porOpcion = useMemo(() => {
     const m = new Map<
@@ -373,7 +402,7 @@ export function PaginaReporteTiempos() {
             <span style={{ color: 'var(--tinta-suave)' }}>Usuario</span>
             <select value={usuarioSel} onChange={(e) => setUsuarioSel(e.target.value)}>
               <option value="">Todos</option>
-              {usuarios.map((u) => (
+              {(usuariosRoster.length ? usuariosRoster : usuarios).map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.nombre}
                   {u.codigo ? ` (#${u.codigo})` : ''}
@@ -390,14 +419,14 @@ export function PaginaReporteTiempos() {
           </label>
           <label
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, paddingBottom: 7 }}
-            title="Suma todas las pantallas de la app y secciones del panel, aunque todavía no se hayan usado."
+            title="Suma TODAS las opciones (pantallas de la app y secciones del panel) y TODOS los usuarios, aunque todavía no hayan usado nada."
           >
             <input
               type="checkbox"
               checked={incluirSinUso}
               onChange={(e) => setIncluirSinUso(e.target.checked)}
             />
-            <span style={{ color: 'var(--tinta-suave)' }}>Incluir opciones sin uso</span>
+            <span style={{ color: 'var(--tinta-suave)' }}>Incluir opciones y usuarios sin uso</span>
           </label>
           <button
             className="primario"
