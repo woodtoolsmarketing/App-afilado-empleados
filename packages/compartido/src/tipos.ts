@@ -377,6 +377,13 @@ export interface Cliente {
    * completa desde el panel.
    */
   provisorio: boolean
+  /**
+   * Habilitado para operar en la app móvil (vendedores). Lo pone el import del
+   * listado de habilitados del Gestión, la confirmación de un provisorio, o el
+   * toggle del panel. La oficina (admin/supervisor/administración) ve a todos
+   * igual; este flag sólo filtra lo que ve el vendedor.
+   */
+  habilitado: boolean
   notas: string | null
 
   /**

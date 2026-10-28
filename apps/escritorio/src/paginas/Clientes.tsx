@@ -141,6 +141,26 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
     },
   })
 
+  // Habilitar / deshabilitar para la app móvil. Va por RPC (set_cliente_habilitado,
+  // gateada a administración/admin) y no por un update directo: así el permiso lo
+  // decide el servidor, igual que confirmar un provisorio. El vendedor sólo ve a
+  // los habilitados; la oficina ve a todos igual, así que esto no cambia lo que
+  // ve el panel —sólo lo que queda visible en el teléfono—.
+  const alternarHabilitado = useMutation({
+    mutationFn: async (c: Cliente) => {
+      const { error } = await supabase.rpc('set_cliente_habilitado', {
+        p_cliente_id: c.id,
+        p_habilitado: !c.habilitado,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Cliente actualizado.')
+      refrescarClientes()
+    },
+    onError: (e: Error) => setMensaje(e.message),
+  })
+
   return (
     <>
       <header className="encabezado-pagina">
@@ -204,7 +224,7 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
                 <th>Vendedor</th>
                 <th>Direcciones</th>
                 <th>Estado</th>
-                <th style={{ width: 170 }} />
+                <th style={{ width: 250 }} />
               </tr>
             </thead>
             <tbody>
@@ -278,6 +298,20 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
                     <span className={`pastilla ${c.activo ? 'verde' : 'gris'}`}>
                       {c.activo ? 'Activo' : 'Inactivo'}
                     </span>
+                    <br />
+                    {/* Habilitado = lo ve el vendedor en el teléfono. Los no
+                        habilitados siguen acá (la oficina los ve), pero no
+                        aparecen en la app móvil para hacer notas ni en el mapa. */}
+                    <span
+                      className={`pastilla ${c.habilitado ? 'verde' : 'ambar'}`}
+                      title={
+                        c.habilitado
+                          ? 'El vendedor lo ve en la app'
+                          : 'Oculto en la app del vendedor (la oficina lo ve igual)'
+                      }
+                    >
+                      {c.habilitado ? 'Habilitado' : 'No habilitado'}
+                    </span>
                   </td>
                   <td>
                     <div className="acciones">
@@ -294,6 +328,14 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
                         onClick={() => alternarActivo.mutate(c)}
                       >
                         {c.activo ? 'Dar de baja' : 'Reactivar'}
+                      </button>
+                      <button
+                        className="chico"
+                        disabled={(!esAdmin && !esAdministracion) || alternarHabilitado.isPending}
+                        onClick={() => alternarHabilitado.mutate(c)}
+                        title="Habilita o esconde este cliente en la app del vendedor"
+                      >
+                        {c.habilitado ? 'Deshabilitar' : 'Habilitar'}
                       </button>
                     </div>
                   </td>
