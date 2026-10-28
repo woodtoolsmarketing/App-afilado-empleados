@@ -10,6 +10,7 @@ import { usarAvisoDeEscritorio } from './nucleo/avisoEscritorio'
 import { usarPermisosPanel } from './nucleo/permisos'
 import { usarPublicarDireccionDelPanel } from './nucleo/publicarPanel'
 import { ProveedorConsola } from './nucleo/consola'
+import { ProveedorTelemetria } from './nucleo/telemetria'
 import { usarSesion } from './nucleo/sesion'
 import { PaginaActualizaciones } from './paginas/Actualizaciones'
 import { PaginaArticulosAConfirmar } from './paginas/ArticulosAConfirmar'
@@ -29,6 +30,7 @@ import { PaginaRolMaestro } from './paginas/RolMaestro'
 import { PaginaRolesDeVisita } from './paginas/RolesDeVisita'
 import { PaginaTablero } from './paginas/Tablero'
 import { PaginaUsuarios } from './paginas/Usuarios'
+import { PaginaReporteTiempos } from './paginas/ReporteTiempos'
 import { PaginaPermisos } from './paginas/Permisos'
 import { PaginaPermisosEdicion } from './paginas/PermisosEdicion'
 
@@ -76,12 +78,14 @@ export function App() {
       rutaActual={ubicacion.pathname}
       permisos={{ ve_ubicacion_de_notas: !!sesion.perfil?.ve_ubicacion_de_notas }}
     >
+    <ProveedorTelemetria perfilId={sesion.perfil.id} pathname={ubicacion.pathname}>
     <div className="marco">
       <BarraLateral
         nombre={sesion.perfil.nombre_completo}
         rol={sesion.perfil.rol}
         puedeVer={permisos.puedeVer}
         esAdmin={sesion.esAdmin}
+        veReporteTiempos={!!sesion.perfil.ve_reporte_tiempos}
         alSalir={sesion.salir}
       />
 
@@ -149,10 +153,21 @@ export function App() {
               <PaginaActualizaciones soloLectura={!sesion.esAdmin} />,
             )}
           />
+          {/* El reporte / mapa de calor de tiempos: sólo quien tiene el flag
+              `ve_reporte_tiempos` (hoy Admin Master y Ariel Sosa #12). Gateado
+              por el flag del perfil, NO por `funciones` (que es por rol y admin
+              ve todo). La RPC vuelve a chequear el permiso del lado del servidor. */}
+          <Route
+            path="/reporte-tiempos"
+            element={
+              sesion.perfil.ve_reporte_tiempos ? <PaginaReporteTiempos /> : <Navigate to="/" replace />
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
+    </ProveedorTelemetria>
     </ProveedorConsola>
     </ProveedorAgenteImpresion>
   )
@@ -163,12 +178,14 @@ function BarraLateral({
   rol,
   puedeVer,
   esAdmin,
+  veReporteTiempos,
   alSalir,
 }: {
   nombre: string
   rol: string
   puedeVer: (clave: ClaveFuncionPanel) => boolean
   esAdmin: boolean
+  veReporteTiempos: boolean
   alSalir: () => void
 }) {
   // El globo rojo sobre "Usuarios" es lo que hace que las altas pendientes no
@@ -346,8 +363,10 @@ function BarraLateral({
     globo?: number
     permiso?: ClaveFuncionPanel
     soloAdmin?: boolean
+    soloReporteTiempos?: boolean
   }> = [
     { a: '/', icono: '▦', texto: 'Tablero' },
+    { a: '/reporte-tiempos', icono: '⏱', texto: 'Reporte de tiempos', soloReporteTiempos: true },
     { a: '/mapa', icono: '◉', texto: 'Mapa en vivo', permiso: 'panel_mapa_en_vivo' },
     { a: '/clientes-mapa', icono: '🗺', texto: 'Mapa', permiso: 'panel_mapa_clientes' },
     { a: '/notas', icono: '🧾', texto: 'Notas de pedido', globo: sinCliente, permiso: 'panel_notas_pedido' },
@@ -369,7 +388,13 @@ function BarraLateral({
   ]
 
   const visibles = enlaces.filter((e) =>
-    e.soloAdmin ? esAdmin : e.permiso ? puedeVer(e.permiso) : true,
+    e.soloAdmin
+      ? esAdmin
+      : e.soloReporteTiempos
+        ? veReporteTiempos
+        : e.permiso
+          ? puedeVer(e.permiso)
+          : true,
   )
 
   return (
