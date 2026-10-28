@@ -167,6 +167,28 @@ if (faltantes.length > 0) {
 const easUpdateUrl = process.env.EAS_UPDATE_URL as string
 const easProjectId = process.env.EAS_PROJECT_ID
 
+/**
+ * La versión visible (versionName) y, DERIVADO de ella, el versionCode de Android.
+ *
+ * El versionCode se calcula desde la versión a propósito. Antes lo llevaba EAS
+ * (`appVersionSource: remote` + `autoIncrement`) y lo numeraba por ORDEN DE
+ * COMPILACIÓN, no por versión: al recompilar una versión o compilar fuera de orden
+ * (pasó: 1.9.5→1.9.6→1.9.5→1.9.7 quedaron en 64→65→66→67), un versionName más NUEVO
+ * terminaba con un versionCode más BAJO que uno viejo. El botón "Actualizar" ofrece
+ * la nueva mirando la VERSIÓN, pero Android la instala mirando el versionCode:
+ * cuando el de la nueva es más bajo, Android la RECHAZA con "No se instaló la app"
+ * (INSTALL_FAILED_VERSION_DOWNGRADE). Derivándolo de la versión, el versionCode
+ * SIEMPRE sube con la versión y nunca se contradicen. Requiere `appVersionSource:
+ * local` en eas.json (con `remote`, EAS ignora este número).
+ *
+ * Fórmula: 1.9.8 → 1_009_008. Admite minor y patch hasta 999, y el salto desde los
+ * versionCodes viejos (≤ ~70) es enorme, así que la próxima actualización entra
+ * por encima de TODO lo instalado hoy en la flota.
+ */
+const VERSION = '1.9.8'
+const [__verMaj, __verMin, __verPat] = VERSION.split('.').map((n) => parseInt(n, 10) || 0)
+const VERSION_CODE = __verMaj * 1_000_000 + __verMin * 1_000 + __verPat
+
 const config: ExpoConfig = {
   name: NOMBRE[VARIANTE],
 
@@ -212,7 +234,7 @@ const config: ExpoConfig = {
    * de compilar hay que publicar de nuevo, o el botón del panel manda a un
    * runtime que ya no usa nadie.
    */
-  version: '1.9.7',
+  version: VERSION,
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   primaryColor: '#B30F0F',
@@ -228,9 +250,11 @@ const config: ExpoConfig = {
 
   android: {
     package: PAQUETE[VARIANTE],
-    // Sin versionCode: con `appVersionSource: remote` lo lleva EAS y este campo
-    // se ignora —lo avisa en cada compilación—. Dejarlo escrito acá en 1 hacía
-    // creer que todas las compilaciones eran la misma.
+    // El versionCode se DERIVA de la versión (ver VERSION_CODE arriba): así una
+    // versión más nueva nunca queda con un versionCode más bajo, que es lo que hacía
+    // que Android rechazara la actualización ("No se instaló la app"). Necesita
+    // `appVersionSource: local` en eas.json (con `remote`, EAS lo ignora).
+    versionCode: VERSION_CODE,
     adaptiveIcon: {
       foregroundImage: './assets/icono-adaptativo.png',
       // Blanco, no el rojo de la marca: el logo lleva el texto en negro y la

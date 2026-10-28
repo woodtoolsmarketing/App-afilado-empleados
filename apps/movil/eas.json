@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 12.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "base": {
@@ -27,7 +27,6 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "interno",
-      "autoIncrement": true,
       "environment": "production",
       "env": {
         "APP_VARIANTE": "interno",
@@ -42,7 +41,6 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "beta",
-      "autoIncrement": true,
       "environment": "production",
       "env": {
         "APP_VARIANTE": "beta",
@@ -57,7 +55,6 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "produccion",
-      "autoIncrement": true,
       "env": {
         "APP_VARIANTE": "produccion",
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
