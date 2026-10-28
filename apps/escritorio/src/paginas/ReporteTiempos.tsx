@@ -95,6 +95,7 @@ export function PaginaReporteTiempos() {
   const [usuarioSel, setUsuarioSel] = useState<string>('')
   const [exportando, setExportando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
+  const [vista, setVista] = useState<'heatmap' | 'resumen'>('heatmap')
 
   const { data: filas, isLoading } = useQuery({
     queryKey: ['heatmap-telemetria', desde, hasta, plataforma],
@@ -192,6 +193,44 @@ export function PaginaReporteTiempos() {
     }
     return { eventos, total, usuarios: usuarios.length, opciones: opciones.length }
   }, [filas, usuarios.length, opciones.length])
+
+  // Totales POR USUARIO (con el reparto app/panel) y POR OPCIÓN, para la vista
+  // de resumen. Sale de las mismas filas del heatmap, agregando del lado del cliente.
+  const porUsuario = useMemo(() => {
+    const m = new Map<
+      string,
+      { id: string; nombre: string; codigo: string | null; eventos: number; totalMs: number; appMs: number; panelMs: number }
+    >()
+    for (const f of filas ?? []) {
+      const u =
+        m.get(f.perfil_id) ??
+        { id: f.perfil_id, nombre: f.nombre, codigo: f.codigo_vendedor, eventos: 0, totalMs: 0, appMs: 0, panelMs: 0 }
+      u.eventos += num(f.eventos)
+      u.totalMs += num(f.total_ms)
+      if (f.plataforma === 'app') u.appMs += num(f.total_ms)
+      else u.panelMs += num(f.total_ms)
+      m.set(f.perfil_id, u)
+    }
+    return [...m.values()].sort((a, b) => b.totalMs - a.totalMs)
+  }, [filas])
+
+  const porOpcion = useMemo(() => {
+    const m = new Map<
+      string,
+      { clave: string; plataforma: PlataformaTelemetria; etiqueta: string; usuarios: Set<string>; eventos: number; totalMs: number }
+    >()
+    for (const f of filas ?? []) {
+      const clave = `${f.plataforma}|${f.seccion}|${f.paso ?? ''}`
+      const o =
+        m.get(clave) ??
+        { clave, plataforma: f.plataforma, etiqueta: etiquetaDeOpcion(f.plataforma, f.seccion, f.paso), usuarios: new Set<string>(), eventos: 0, totalMs: 0 }
+      o.usuarios.add(f.perfil_id)
+      o.eventos += num(f.eventos)
+      o.totalMs += num(f.total_ms)
+      m.set(clave, o)
+    }
+    return [...m.values()].sort((a, b) => b.totalMs - a.totalMs)
+  }, [filas])
 
   async function descargar() {
     if (!filas?.length) return
@@ -292,6 +331,13 @@ export function PaginaReporteTiempos() {
               ))}
             </select>
           </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
+            <span style={{ color: 'var(--tinta-suave)' }}>Vista</span>
+            <select value={vista} onChange={(e) => setVista(e.target.value as 'heatmap' | 'resumen')}>
+              <option value="heatmap">Mapa de calor</option>
+              <option value="resumen">Por usuario y totales</option>
+            </select>
+          </label>
           <button
             className="primario"
             disabled={exportando || !(filas?.length)}
@@ -338,7 +384,7 @@ export function PaginaReporteTiempos() {
             panel, el mapa se va llenando.
           </p>
         </div>
-      ) : (
+      ) : vista === 'heatmap' ? (
         <section className="tarjeta">
           <h2>Mapa de calor</h2>
           <p style={{ color: 'var(--tinta-suave)', fontSize: 12, marginTop: -4 }}>
@@ -423,6 +469,105 @@ export function PaginaReporteTiempos() {
             </table>
           </div>
         </section>
+      ) : (
+        <>
+          <section className="tarjeta" style={{ marginBottom: 18 }}>
+            <h2>Tiempo por usuario</h2>
+            <p style={{ color: 'var(--tinta-suave)', fontSize: 12, marginTop: -4 }}>
+              Cuánto tiempo pasó cada usuario en total, y cómo se reparte entre la app y el panel.
+            </p>
+            <div className="tabla-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Usuario</th>
+                    <th style={{ textAlign: 'right' }}>Visitas</th>
+                    <th style={{ textAlign: 'right' }}>App</th>
+                    <th style={{ textAlign: 'right' }}>Panel</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'right' }}>Prom/visita</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porUsuario.map((u) => (
+                    <tr key={u.id}>
+                      <td style={{ textAlign: 'left' }}>
+                        {u.nombre}
+                        {u.codigo ? ` (#${u.codigo})` : ''}
+                      </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.eventos.toLocaleString('es-AR')}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.appMs ? formatearDuracion(u.appMs) : '—'}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.panelMs ? formatearDuracion(u.panelMs) : '—'}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatearDuracion(u.totalMs)}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {u.eventos ? formatearDuracion(Math.round(u.totalMs / u.eventos)) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700, borderTop: '2px solid var(--negro)' }}>
+                    <td style={{ textAlign: 'left' }}>TOTAL ({porUsuario.length} usuarios)</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{resumen.eventos.toLocaleString('es-AR')}</td>
+                    <td colSpan={2} />
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatearDuracion(resumen.total)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <section className="tarjeta">
+            <h2>Tiempo por opción</h2>
+            <p style={{ color: 'var(--tinta-suave)', fontSize: 12, marginTop: -4 }}>
+              El total acumulado en cada opción, sumando a todos los usuarios.
+            </p>
+            <div className="tabla-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Opción</th>
+                    <th style={{ textAlign: 'right' }}>Usuarios</th>
+                    <th style={{ textAlign: 'right' }}>Visitas</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'right' }}>Prom/visita</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porOpcion.map((o) => (
+                    <tr key={o.clave}>
+                      <td style={{ textAlign: 'left' }}>
+                        <span
+                          className={`pastilla ${o.plataforma === 'app' ? 'azul' : 'gris'}`}
+                          style={{ marginRight: 6, fontSize: 10 }}
+                        >
+                          {o.plataforma === 'app' ? 'APP' : 'PANEL'}
+                        </span>
+                        {o.etiqueta}
+                      </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{o.usuarios.size}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{o.eventos.toLocaleString('es-AR')}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatearDuracion(o.totalMs)}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {o.eventos ? formatearDuracion(Math.round(o.totalMs / o.eventos)) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700, borderTop: '2px solid var(--negro)' }}>
+                    <td style={{ textAlign: 'left' }}>TOTAL ({porOpcion.length} opciones)</td>
+                    <td />
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{resumen.eventos.toLocaleString('es-AR')}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatearDuracion(resumen.total)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+        </>
       )}
     </>
   )
