@@ -29,6 +29,7 @@ import {
   iniciarRecorrido,
   obtenerJornadaDeHoy,
   quitarParadaDelRecorrido,
+  reactivarParada,
   reordenarParadas,
   type JornadaCompleta,
 } from '../servicios/jornada'
@@ -628,6 +629,37 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     [quitar],
   )
 
+  // ── Volver a visitar una "no visitada" ─────────────────────────────────────
+  // Una parada marcada "no visité" (cliente ausente / dirección errónea) queda
+  // terminal. Esto la devuelve a 'pendiente' —borrando ese parte— para
+  // registrar la visita de verdad, sin tener que re-agregar al cliente (que
+  // dejaba un duplicado en el recorrido).
+  const reactivar = useMutation({
+    mutationFn: (paradaId: string) => reactivarParada(paradaId),
+    onError: (e: Error) => Alert.alert('No pudimos reabrir el destino', e.message),
+    onSuccess: (_d, paradaId) => {
+      void cliente.invalidateQueries({ queryKey: ['jornada-hoy', perfil?.id] })
+      // Ya está 'pendiente': se abre el parte para cargarla en el acto.
+      yaPreguntado.current = paradaId
+      navigation.navigate('DestinoVisitado', { paradaId })
+    },
+  })
+
+  const pedirReactivar = useCallback(
+    (p: ParadaCompleta) => {
+      const nombre = p.cliente?.razon_social ?? p.razon_social_snapshot ?? 'este destino'
+      Alert.alert(
+        'Volver a visitar',
+        `${nombre} figura como "No visitada". ¿La reabrís para registrar la visita?`,
+        [
+          { text: 'No', style: 'cancel' },
+          { text: 'Volver a visitar', onPress: () => reactivar.mutate(p.id) },
+        ],
+      )
+    },
+    [reactivar],
+  )
+
   // Llegó desde "INICIAR RECORRIDO": se pregunta cómo arrancar.
   useEffect(() => {
     if (debeIniciar && jornada && !enCurso && !finalizada && !arrancar.isPending) {
@@ -921,6 +953,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   !finalizada && (p.estado === 'pendiente' || p.estado === 'en_camino')
                     ? () => setMoviendo(p.id)
                     : undefined
+                }
+                alReactivar={
+                  // "No visitada" con la jornada abierta: se puede reabrir para
+                  // registrar la visita de verdad (volvió, o le corrigió la dirección).
+                  !finalizada && p.estado === 'no_visitada' ? () => pedirReactivar(p) : undefined
                 }
               />
             ))}
@@ -1265,15 +1302,21 @@ function FilaParada({
   parada,
   alTocar,
   alOpciones,
+  alReactivar,
 }: {
   parada: ParadaCompleta
   alTocar?: () => void
   /** Abre la hoja de opciones (mover / quitar). Sólo en destinos abiertos. */
   alOpciones?: () => void
+  /** Reabre una parada "no visitada" para volver a visitarla. */
+  alReactivar?: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
-  const resuelta = parada.estado === 'visitada' || parada.estado === 'no_visitada'
+  // Sólo la VISITADA lleva el tilde verde de "hecho". La "no visitada" NO: antes
+  // mostraba el mismo ✓ verde que una visita cerrada —al lado de una pastilla
+  // roja "No visitada"— y parecía resuelta cuando en realidad hay que volver.
+  const visitada = parada.estado === 'visitada'
   // Una parada sin ubicar es una parada normal a la que le falta un dato, no
   // una parada rota: misma fila, mismo número, mismo toque para cargar la
   // visita. Lo único que cambia es una pastilla más y de dónde sale el
@@ -1324,8 +1367,21 @@ function FilaParada({
         </View>
       </View>
 
-      {resuelta ? (
+      {visitada ? (
         <Text style={estilos.tildeFila}>✓</Text>
+      ) : alReactivar ? (
+        // "No visitada": asa para volver a visitarla (reabre la parada). Es su
+        // propio Pressable para no disparar el toque de la fila.
+        <Pressable
+          onPress={alReactivar}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Volver a visitar el destino ${parada.orden}`}
+          style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
+        >
+          <Text style={estilos.asaIcono}>↻</Text>
+          <Text style={estilos.asaTexto}>Volver a{'\n'}visitar</Text>
+        </Pressable>
       ) : alOpciones ? (
         // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
         // mover/quitar y no dispara el toque de la fila (que lleva a cargar la

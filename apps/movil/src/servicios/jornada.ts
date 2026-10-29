@@ -432,6 +432,21 @@ export async function quitarParadaDelRecorrido(paradaId: string): Promise<void> 
   }
 }
 
+/**
+ * Reabre una parada "no visitada": la vuelve a `pendiente` y borra el parte de
+ * "no visité", para poder registrar la visita de verdad (sin re-agregar al
+ * cliente, que dejaba un duplicado).
+ */
+export async function reactivarParada(paradaId: string): Promise<void> {
+  const { error } = await supabase.rpc('reactivar_parada', {
+    p_parada_id: paradaId,
+  })
+  if (error) {
+    if (error.code === '23514' || error.code === '42501') throw new Error(error.message)
+    throw error
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Historial
 // ─────────────────────────────────────────────────────────────────────────────
