@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { buscarStock, fijarStock, type ArticuloStock } from '../servicios/stock'
+import { CargaStockExcel } from '../componentes/CargaStockExcel'
 
 /**
  * Stock de productos.
@@ -59,9 +60,26 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
           <p>
             Stock de los productos del catálogo. Los servicios (afilado, reparación,
             rectificado…) no llevan stock.{' '}
-            {soloLectura ? 'Lo carga Administración.' : 'Se carga a mano.'}
+            {soloLectura ? 'Lo carga Administración.' : 'Se carga a mano o subiendo el Excel del Gestión.'}
           </p>
         </div>
+        {!soloLectura && (
+          <CargaStockExcel
+            onAplicado={(r) => {
+              setError(null)
+              setMensaje(
+                `Stock cargado desde el Excel: ${r.productos} producto${r.productos === 1 ? '' : 's'} actualizado${
+                  r.productos === 1 ? '' : 's'
+                }` +
+                  (r.puestos_en_cero > 0
+                    ? `, ${r.puestos_en_cero} puesto${r.puestos_en_cero === 1 ? '' : 's'} en 0`
+                    : '') +
+                  '.',
+              )
+              void cliente.invalidateQueries({ queryKey: ['stock'] })
+            }}
+          />
+        )}
       </header>
 
       {mensaje && <div className="aviso exito">{mensaje}</div>}

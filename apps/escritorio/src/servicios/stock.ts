@@ -1,4 +1,5 @@
 import { supabase } from '../nucleo/supabase'
+import { type ItemStock } from './stockExcel'
 
 /**
  * Stock de productos del catálogo.
@@ -77,4 +78,40 @@ export async function fijarStock(
   if (error) throw error
   const fila = data as { codigo?: string; cantidad?: number | string } | null
   return { codigo: fila?.codigo ?? codigo, cantidad: aNum(fila?.cantidad ?? cantidad) }
+}
+
+/** El reporte que devuelve `fijar_stock_masivo` (igual en previa y al aplicar). */
+export interface ReporteCargaStock {
+  dry_run: boolean
+  cero_faltantes: boolean
+  /** Códigos distintos recibidos del Excel. */
+  recibidos: number
+  /** Productos vendibles a los que se les carga (o cargó) el stock. */
+  productos: number
+  /** Códigos que son servicios (afilado/reparación/etc.): se ignoran. */
+  servicios: number
+  /** Códigos del Excel que no están en el catálogo de precios: se ignoran. */
+  no_catalogo: number
+  /** Productos con stock que quedan (o quedaron) en 0 por no venir en el Excel. */
+  puestos_en_cero: number
+  /** Lista (hasta 100) de los códigos que no están en el catálogo, para revisar. */
+  faltan_en_catalogo: string[]
+}
+
+/**
+ * Carga masiva de stock desde el Excel del Gestión (RPC `fijar_stock_masivo`).
+ * Con `dryRun` devuelve la PREVIA (clasifica y cuenta, sin escribir). Con
+ * `ceroFaltantes` pone en 0 los productos vendibles que no vinieron en el Excel.
+ */
+export async function fijarStockMasivo(
+  items: ItemStock[],
+  opts: { ceroFaltantes?: boolean; dryRun?: boolean } = {},
+): Promise<ReporteCargaStock> {
+  const { data, error } = await supabase.rpc('fijar_stock_masivo', {
+    p_items: items,
+    p_cero_faltantes: opts.ceroFaltantes ?? false,
+    p_dry_run: opts.dryRun ?? false,
+  })
+  if (error) throw error
+  return data as ReporteCargaStock
 }
