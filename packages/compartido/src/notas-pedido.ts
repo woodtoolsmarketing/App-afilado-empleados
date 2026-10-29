@@ -343,6 +343,39 @@ export function esRenglonDeArticulo(servicio: TipoServicio): boolean {
   return servicio === 'venta' || servicio === 'reclamo'
 }
 
+/**
+ * El código de cómputo de un RECLAMO: el del trabajo SIN CARGO que se rehace, no
+ * el modelo del artículo.
+ *
+ * Un reclamo se carga como artículo —con el buscador, para traer marca y
+ * medidas— pero lo que se computa no es el modelo de la herramienta (una Freud
+ * "LU3F 0300") sino el afilado o la reparación que se rehace sin cobrar. La lista
+ * de precios tiene uno por (herramienta, trabajo reclamado):
+ *
+ *   · sierra + afilado    → 8060  ("AFILADO S.C. SIN CARGO")
+ *   · sierra + reparación → 6009  ("REP. DTE. DE SIERRA SIN CARGO")
+ *   · fresa  + afilado    → 9123  ("AFIL.SIN CARGO DTE FRESA")
+ *   · fresa  + reparación → 7901  ("REPOSICION SIN CARGO")
+ *
+ * Son un código único por trabajo, no por ancho de corte: a diferencia del
+ * afilado que se cobra (8001/8002/8005…), el sin cargo no se desglosa por medida.
+ *
+ * Para el resto —otra herramienta, un rectificado/hermanado/rebaje reclamado, o
+ * una pieza que "vino fallada" (`servicio_reclamado === 'venta'`)— la lista no
+ * tiene un código sin cargo, así que se deja el del artículo (como era antes).
+ */
+const CODIGO_RECLAMO_SIN_CARGO: Record<string, Record<string, string>> = {
+  sierra: { afilado: '8060', reparacion: '6009' },
+  fresa: { afilado: '9123', reparacion: '7901' },
+}
+export function codigoReclamoSinCargo(
+  herramienta: string | null | undefined,
+  servicioReclamado: string | null | undefined,
+): string | null {
+  if (!herramienta || !servicioReclamado) return null
+  return CODIGO_RECLAMO_SIN_CARGO[herramienta]?.[servicioReclamado] ?? null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de mecha
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2764,6 +2797,13 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
   // por diente en vez de por su precio total. Con datos limpios no cambia nada.
   const campos = camposDelItem(item)
   const tiene = (c: CampoItem) => campos.includes(c)
+  // En un reclamo lo que se computa es el trabajo sin cargo que se rehace (8060
+  // en una sierra que se afila, etc.), no el modelo del artículo que se eligió
+  // con el buscador sólo para traer marca y medidas.
+  const codigoReclamo =
+    item.servicio === 'reclamo'
+      ? codigoReclamoSinCargo(item.herramienta, item.servicio_reclamado)
+      : null
   return {
     concepto: comoArticulo
       ? 'venta'
@@ -2791,9 +2831,11 @@ export function computoDeRenglon(item: FormularioItemNota): DatosComputo {
         ? aNumero(item.precio_por_diente)
         : 0,
     codigos: comoArticulo
-      ? item.codigo_herramienta
-        ? [item.codigo_herramienta]
-        : []
+      ? codigoReclamo
+        ? [codigoReclamo]
+        : item.codigo_herramienta
+          ? [item.codigo_herramienta]
+          : []
       : item.codigos_computo,
     dientesRotos: tiene('dientes_rotos') && item.dientes_rotos ? aNumero(item.dientes_rotos_cantidad) : 0,
     /**

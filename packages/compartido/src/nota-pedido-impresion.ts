@@ -23,6 +23,7 @@ import { formatearMoneda, type Moneda } from './catalogo'
 import { LOGO_WOODTOOLS } from './logo'
 import {
   aNumero,
+  codigoReclamoSinCargo,
   consolidarLineasDeComputo,
   describirCondicionVenta,
   esRenglonDeArticulo,
@@ -1419,6 +1420,24 @@ const ETIQUETA_RECLAMO: Record<string, string> = {
   venta: 'vino fallada',
 }
 
+/**
+ * El código que va en la columna de cómputo de una fila guardada.
+ *
+ * Espeja `computoDeRenglon`: el del servicio si lo hay; en un reclamo, el del
+ * trabajo sin cargo que se rehace (8060 en una sierra que se afila, etc.), no el
+ * modelo del artículo; y si no, el del artículo. Al derivarlo de la fila guardada
+ * —y no de una columna— una nota vieja se reimprime ya con el código correcto.
+ */
+function codigosDeComputoImpresos(i: Record<string, any>): string[] {
+  if (i.codigos_computo?.length) return i.codigos_computo
+  const sinCargo =
+    i.servicio === 'reclamo'
+      ? codigoReclamoSinCargo(i.herramienta, i.detalle?.servicio_reclamado)
+      : null
+  if (sinCargo) return [sinCargo]
+  return i.codigo_herramienta ? [i.codigo_herramienta] : []
+}
+
 export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImprimir {
   const items: Array<Record<string, any>> = nota.items ?? []
   const d = (i: Record<string, any>, k: string) => String(i.detalle?.[k] ?? '')
@@ -1465,14 +1484,9 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
     precioUnitario: Number(i.precio_unitario) || 0,
     // Media lista de precios está en dólares y el renglón se cotiza así.
     moneda: (i.moneda === 'USD' ? 'USD' : 'ARS') as Moneda,
-    // En la venta no hay código de cómputo: lo que se computa es el código del
-    // artículo. `?? []` no alcanzaba porque la columna guarda un array vacío,
-    // no null, y la nota salía sin código en la columna de cómputo.
-    codigos: i.codigos_computo?.length
-      ? i.codigos_computo
-      : i.codigo_herramienta
-        ? [i.codigo_herramienta]
-        : [],
+    // En la venta se computa el código del artículo; en el reclamo, el del
+    // trabajo sin cargo (ver `codigosDeComputoImpresos`).
+    codigos: codigosDeComputoImpresos(i),
     dientesRotos: i.dientes_rotos ? Number(i.detalle?.dientes_rotos_cantidad) || 0 : 0,
     /**
      * Reparar los dientes agrega una línea, no cambia la principal.
