@@ -115,3 +115,31 @@ export async function fijarStockMasivo(
   if (error) throw error
   return data as ReporteCargaStock
 }
+
+/** Un aviso de stock bajo/agotado (lo genera el trigger al cruzar el umbral). */
+export interface AlertaStock {
+  id: string
+  codigo: string
+  nombre: string
+  cantidad: number
+  tipo: 'bajo' | 'agotado'
+  creado_en: string
+}
+
+/** Las alertas de stock sin ver (las nuevas), de la más reciente a la más vieja. */
+export async function alertasStockNuevas(): Promise<AlertaStock[]> {
+  const { data, error } = await supabase
+    .from('alertas_stock')
+    .select('id, codigo, nombre, cantidad, tipo, creado_en')
+    .is('visto_en', null)
+    .order('creado_en', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as AlertaStock[]
+}
+
+/** Marca como vistas todas las alertas de stock nuevas (RPC, sólo oficina). */
+export async function marcarAlertasStockVistas(): Promise<number> {
+  const { data, error } = await supabase.rpc('marcar_alertas_stock_vistas')
+  if (error) throw error
+  return Number(data ?? 0)
+}

@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import { buscarStock, fijarStock, type ArticuloStock } from '../servicios/stock'
+import {
+  alertasStockNuevas,
+  buscarStock,
+  fijarStock,
+  marcarAlertasStockVistas,
+  type ArticuloStock,
+} from '../servicios/stock'
 import { CargaStockExcel } from '../componentes/CargaStockExcel'
 
 /**
@@ -52,6 +58,16 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
 
   const todos = articulos ?? []
 
+  // Alertas de stock bajo/agotado sin ver (las genera el trigger al cruzar el umbral).
+  const { data: alertas } = useQuery({
+    queryKey: ['alertas-stock', 'lista'],
+    queryFn: alertasStockNuevas,
+  })
+  const marcarVistas = useMutation({
+    mutationFn: marcarAlertasStockVistas,
+    onSuccess: () => void cliente.invalidateQueries({ queryKey: ['alertas-stock'] }),
+  })
+
   return (
     <>
       <header className="encabezado-pagina">
@@ -77,6 +93,7 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
                   '.',
               )
               void cliente.invalidateQueries({ queryKey: ['stock'] })
+              void cliente.invalidateQueries({ queryKey: ['alertas-stock'] })
             }}
           />
         )}
@@ -92,6 +109,57 @@ export function PaginaStock({ soloLectura }: { soloLectura: boolean }) {
         <div className="aviso atencion">
           Estás como supervisor: podés ver el stock, pero lo carga Administración.
         </div>
+      )}
+
+      {(alertas?.length ?? 0) > 0 && (
+        <section className="tarjeta" style={{ marginBottom: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}
+          >
+            <h2 style={{ margin: 0 }}>⚠ Stock bajo</h2>
+            {!soloLectura && (
+              <button
+                className="chico"
+                onClick={() => marcarVistas.mutate()}
+                disabled={marcarVistas.isPending}
+              >
+                Marcar como vistas
+              </button>
+            )}
+          </div>
+          <table style={{ marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 130 }}>Código</th>
+                <th>Herramienta</th>
+                <th style={{ textAlign: 'right', width: 90 }}>Quedan</th>
+                <th style={{ width: 100 }}>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertas!.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <code>{a.codigo}</code>
+                  </td>
+                  <td>{a.nombre}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.cantidad}</td>
+                  <td>
+                    <span className={`pastilla ${a.tipo === 'agotado' ? 'roja' : 'ambar'}`}>
+                      {a.tipo === 'agotado' ? 'AGOTADO' : 'BAJO'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       <div className="tarjeta">

@@ -242,6 +242,20 @@ function BarraLateral({
     refetchInterval: 30_000,
   })
 
+  // Productos que cruzaron a stock bajo/agotado y la oficina todavía no vio. Va
+  // como globo sobre "Stock" y dispara el toast de abajo.
+  const { data: stockBajo } = useQuery({
+    queryKey: ['alertas-stock', 'count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('alertas_stock')
+        .select('id', { count: 'exact', head: true })
+        .is('visto_en', null)
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
   // Clientes que cargó un vendedor y la oficina todavía no confirmó (código
   // definitivo). Van como globo para que no queden esperando sin que nadie mire.
   const { data: clientesAConfirmar } = useQuery({
@@ -343,6 +357,11 @@ function BarraLateral({
     'Pedido para editar un cliente',
     (n) => `Hay ${n} pedido${n === 1 ? '' : 's'} de edición de cliente esperando que el admin lo apruebe.`,
   )
+  usarAvisoDeEscritorio(
+    stockBajo,
+    'Stock bajo',
+    (n) => `Hay ${n} producto${n === 1 ? '' : 's'} con stock bajo o agotado.`,
+  )
 
   // Lugares de entrega del Gestión que quedaron sin ubicar y la oficina todavía
   // no cargó a mano. Va como globo para que la cola no se quede sin mirar.
@@ -388,7 +407,7 @@ function BarraLateral({
     { a: '/usuarios', icono: '◍', texto: 'Usuarios', globo: pendientes, permiso: 'panel_usuarios' },
     { a: '/permisos', icono: '🔒', texto: 'Permisos', soloAdmin: true },
     { a: '/a-confirmar', icono: '⚠', texto: 'A confirmar', globo: aConfirmar, permiso: 'panel_articulos_confirmar' },
-    { a: '/stock', icono: '🗃', texto: 'Stock', permiso: 'panel_stock' },
+    { a: '/stock', icono: '🗃', texto: 'Stock', globo: stockBajo, permiso: 'panel_stock' },
     { a: '/problemas', icono: '🛠', texto: 'Problemas', globo: problemas, permiso: 'panel_problemas' },
     { a: '/actualizaciones', icono: '⭮', texto: 'Actualizaciones', permiso: 'panel_actualizaciones' },
   ]
