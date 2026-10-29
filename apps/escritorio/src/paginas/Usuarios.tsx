@@ -885,7 +885,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                         cambiarRol.mutate({ perfilId: p.id, rol: e.target.value as RolUsuario })
                       }
                     >
-                      {(['vendedor', 'tester', 'supervisor', 'administracion', 'admin'] as RolUsuario[]).map(
+                      {(['vendedor', 'tester', 'supervisor', 'administracion', 'panol', 'admin'] as RolUsuario[]).map(
                         (r) => (
                           <option key={r} value={r}>
                             {ETIQUETA_ROL[r]}
@@ -1312,6 +1312,7 @@ function FilaPendiente({
             <option value="tester">Vendedor (tester)</option>
             <option value="supervisor">Supervisor</option>
             <option value="administracion">Administración</option>
+            <option value="panol">Pañol</option>
             <option value="admin">Administrador</option>
           </select>
           <input

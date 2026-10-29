@@ -24,7 +24,9 @@ export function PaginaTablero({
   rol: RolUsuario
   puedeVer: (clave: ClaveFuncionPanel) => boolean
 }) {
-  return rol === 'administracion' ? <TableroAdministracion /> : <TableroDelDia puedeVer={puedeVer} />
+  if (rol === 'administracion') return <TableroAdministracion />
+  if (rol === 'panol') return <TableroPanol />
+  return <TableroDelDia puedeVer={puedeVer} />
 }
 
 /** Tablero del día: cómo viene la jornada y quién está usando la app. */
@@ -337,6 +339,75 @@ function TableroAdministracion() {
         <p className="vacio">
           Desde acá confirmás los clientes nuevos que cargan los vendedores, aplicás los cambios de
           dirección que proponen y seguís las notas de pedido. Tocá cada número para ir a su lista.
+        </p>
+      </section>
+    </>
+  )
+}
+
+/**
+ * Tablero del pañolero: cuántas herramientas hay disponibles para entregar y si
+ * algo está por agotarse. Los dos números llevan a Stock, que es lo único que el
+ * pañol maneja.
+ */
+function TableroPanol() {
+  // Unidades totales en stock (suma de todas las cantidades). La hace la base con
+  // una RPC para no bajarse las ~1.300 filas sólo para sumarlas.
+  const { data: disponibles } = useQuery({
+    queryKey: ['stock-disponible-total'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('total_herramientas_disponibles')
+      if (error) throw error
+      return Number(data ?? 0)
+    },
+    refetchInterval: 30_000,
+  })
+
+  // Productos que cruzaron a stock bajo o se agotaron y todavía nadie marcó visto.
+  const { data: stockBajo } = useQuery({
+    queryKey: ['alertas-stock', 'count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('alertas_stock')
+        .select('id', { count: 'exact', head: true })
+        .is('visto_en', null)
+      return count ?? 0
+    },
+    refetchInterval: 30_000,
+  })
+
+  return (
+    <>
+      <header className="encabezado-pagina">
+        <div>
+          <h1>Pañol</h1>
+          <p>{new Date().toLocaleDateString('es-AR', { dateStyle: 'full' })}</p>
+        </div>
+        <Link to="/stock">
+          <button className="rojo">Ver y cargar stock</button>
+        </Link>
+      </header>
+
+      <div className="rejilla" style={{ marginBottom: 18 }}>
+        <TarjetaTablero
+          a="/stock"
+          valor={disponibles ?? 0}
+          etiqueta="Herramientas disponibles"
+          color="var(--verde-oscuro)"
+        />
+        <TarjetaTablero
+          a="/stock"
+          valor={stockBajo ?? 0}
+          etiqueta="Con stock bajo o agotado"
+          color={stockBajo ? 'var(--rojo-accion)' : undefined}
+        />
+      </div>
+
+      <section className="tarjeta">
+        <h2>Tu trabajo</h2>
+        <p className="vacio">
+          Desde acá cargás y corregís el stock de las herramientas. Subí el Excel del Gestión o
+          ajustá las cantidades a mano en <Link to="/stock">Stock</Link>.
         </p>
       </section>
     </>

@@ -6,9 +6,10 @@ import { supabase } from './supabase'
 /**
  * Sesión del panel.
  *
- * Al panel sólo entran `admin` y `supervisor`. Un vendedor tiene credenciales
- * válidas pero acá no tiene nada que hacer, así que se lo rechaza en el
- * ingreso — y aunque forzara la interfaz, RLS no le devolvería datos ajenos.
+ * Al panel entran `admin`, `supervisor`, `administracion` y `panol`. Un vendedor
+ * (o tester) tiene credenciales válidas pero acá no tiene nada que hacer, así que
+ * se lo rechaza en el ingreso — y aunque forzara la interfaz, RLS no le
+ * devolvería datos ajenos.
  */
 
 export interface EstadoSesion {
@@ -100,6 +101,9 @@ export function usarSesion() {
     // Administracion completa precios y asigna codigos de cliente; el admin
     // puede todo eso ademas de lo suyo.
     esAdministracion: estado.perfil?.rol === 'admin' || estado.perfil?.rol === 'administracion',
+    // El pañolero: ve y carga el stock (y nada más). Se usa para dejarlo editar
+    // la página de Stock y para mandarlo a su propio tablero.
+    esPanol: estado.perfil?.rol === 'panol',
     recargar: cargarPerfil,
     salir: () => supabase.auth.signOut({ scope: 'local' }),
     setError: (error: string | null) => setEstado((e) => ({ ...e, error })),

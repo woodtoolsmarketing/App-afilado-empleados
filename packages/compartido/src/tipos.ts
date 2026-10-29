@@ -15,8 +15,10 @@
  * · tester         → igual que un vendedor, pero PUEDE sacar capturas de pantalla
  *                    (no se le pone el bloqueo) y figura como "Vendedor (tester)".
  *                    Es para probar la app del vendedor viéndola por dentro.
+ * · panol          → el pañolero: ve y carga el stock de herramientas desde el
+ *                    panel, y nada más. No hereda los poderes de administración.
  */
-export type RolUsuario = 'vendedor' | 'supervisor' | 'administracion' | 'admin' | 'tester'
+export type RolUsuario = 'vendedor' | 'supervisor' | 'administracion' | 'admin' | 'tester' | 'panol'
 
 export const ETIQUETA_ROL: Record<RolUsuario, string> = {
   vendedor: 'Vendedor',
@@ -24,6 +26,7 @@ export const ETIQUETA_ROL: Record<RolUsuario, string> = {
   administracion: 'Administración',
   admin: 'Administrador',
   tester: 'Vendedor (tester)',
+  panol: 'Pañol',
 }
 
 /**

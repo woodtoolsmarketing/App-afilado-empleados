@@ -79,6 +79,11 @@ const ITEMS_ROL: ItemDesplegable<RolUsuario>[] = [
     etiqueta: 'Administración',
     descripcion: 'Ve las notas, asigna códigos de cliente y completa precios',
   },
+  {
+    valor: 'panol',
+    etiqueta: 'Pañol',
+    descripcion: 'Ve y carga el stock de herramientas desde el panel',
+  },
   { valor: 'admin', etiqueta: 'Administrador', descripcion: 'Control total, incluidas las altas' },
 ]
 

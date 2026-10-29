@@ -250,6 +250,7 @@ export function AltaUsuario({
             <option value="tester">Vendedor (tester)</option>
             <option value="supervisor">Supervisor</option>
             <option value="administracion">Administración</option>
+            <option value="panol">Pañol</option>
             <option value="admin">Administrador</option>
           </select>
           <small>
@@ -259,9 +260,11 @@ export function AltaUsuario({
                 ? 'Ve a todos los vendedores en vivo. No resuelve altas ni bajas.'
                 : rol === 'admin'
                   ? 'Control total, incluidas las altas de usuarios.'
-                  : rol === 'tester'
-                    ? 'Igual que un vendedor, pero puede sacar capturas de pantalla (para probar la app).'
-                    : 'Usa la app del celular y ve sólo lo suyo.'}
+                  : rol === 'panol'
+                    ? 'El pañolero: ve y carga el stock de herramientas desde el panel. No ve nada más.'
+                    : rol === 'tester'
+                      ? 'Igual que un vendedor, pero puede sacar capturas de pantalla (para probar la app).'
+                      : 'Usa la app del celular y ve sólo lo suyo.'}
           </small>
         </div>
 

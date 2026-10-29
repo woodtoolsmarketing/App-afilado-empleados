@@ -22,8 +22,12 @@ import { supabase } from '../nucleo/supabase'
  * visible (app) / oculta para no-admin (panel): ver `usarPermisos`/`usarPermisosPanel`.
  */
 
-/** Los roles que se pueden tildar en la matriz del PANEL (el vendedor no entra). */
-const ROLES_PANEL: RolUsuario[] = ROLES_CONFIGURABLES.filter((r) => r !== 'vendedor')
+/**
+ * Los roles que se pueden tildar en la matriz del PANEL (el vendedor no entra).
+ * El pañol se suma acá —y NO a ROLES_CONFIGURABLES— para que sea configurable en
+ * el panel sin aparecer en la matriz de la app, que no usa.
+ */
+const ROLES_PANEL: RolUsuario[] = [...ROLES_CONFIGURABLES.filter((r) => r !== 'vendedor'), 'panol']
 
 export function PaginaPermisos({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()

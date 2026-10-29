@@ -132,7 +132,7 @@ export function App() {
           />
           <Route
             path="/stock"
-            element={gate('panel_stock', <PaginaStock soloLectura={!sesion.esAdministracion} />)}
+            element={gate('panel_stock', <PaginaStock soloLectura={!(sesion.esAdministracion || sesion.esPanol)} />)}
           />
           <Route
             path="/notas"
