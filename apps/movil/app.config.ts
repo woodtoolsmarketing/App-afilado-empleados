@@ -185,7 +185,7 @@ const easProjectId = process.env.EAS_PROJECT_ID
  * versionCodes viejos (≤ ~70) es enorme, así que la próxima actualización entra
  * por encima de TODO lo instalado hoy en la flota.
  */
-const VERSION = '1.9.8'
+const VERSION = '1.9.9'
 const [__verMaj, __verMin, __verPat] = VERSION.split('.').map((n) => parseInt(n, 10) || 0)
 const VERSION_CODE = __verMaj * 1_000_000 + __verMin * 1_000 + __verPat
 
