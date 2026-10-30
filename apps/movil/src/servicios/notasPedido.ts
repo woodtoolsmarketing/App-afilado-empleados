@@ -795,6 +795,13 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
     ? !enc.cliente_codigo.trim()
     : !enc.cliente_id || enc.cliente_provisorio
 
+  // Un cliente del padrón de verdad: ni nuevo "a mano" (sin cliente_id) ni
+  // provisorio (todavía sin confirmar). Es la única clase de cliente que puede
+  // tener una parada en un rol de visita, y por eso la única a la que la nota
+  // puede colgarse de una `parada_id`. Ver el uso de abajo (materializar la
+  // visita fuera de rol) y el guard del `parada_id` en la carga.
+  const esClienteReal = !!enc.cliente_id && !enc.cliente_provisorio
+
   // El tipo de cambio entra en el agrupado para poder expresar el total de
   // cada nota en pesos aunque sus renglones estén cotizados en dólares.
   const grupos = agruparParaNotas(datos.items, datos.tipoCambio)
@@ -855,7 +862,13 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
       condicion_venta_detalle: CONDICIONES_CON_DETALLE.includes(datos.condicionVenta)
         ? (datos.condicionVentaDetalle ?? '').trim()
         : null,
-      parada_id: datos.paradaId ?? null,
+      // La parada es de un cliente del padrón. Un cliente nuevo "a mano" o
+      // provisorio no tiene parada: si la pantalla arrastró un `paradaId` de una
+      // nota anterior (el formulario de "CREAR NOTA" se reusa entre notas), ese
+      // id apunta a la parada de OTRO cliente —o a una que ya no existe— y el
+      // insert explota con la FK `notas_pedido_parada_id_fkey`. Sólo las notas de
+      // un cliente real cuelgan de una parada.
+      parada_id: esClienteReal ? (datos.paradaId ?? null) : null,
     },
     items: g.items.map((i, orden) => filaDeItem(i, orden + 1)),
   }))
@@ -892,7 +905,6 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   // visita con el resumen y engancha estas notas a esa parada, todo junto. Si el
   // cliente ya tenía una parada hoy, la reusa (la cierra como visitada si estaba sin
   // visitar; si ya estaba visitada de verdad, no la pisa).
-  const esClienteReal = !!enc.cliente_id && !enc.cliente_provisorio
   if (!datos.paradaId && esClienteReal) {
     try {
       const renglones = datos.items.map((item, i) => filaDeItem(item, i + 1)) as RenglonParaResumen[]
