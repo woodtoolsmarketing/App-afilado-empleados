@@ -85,6 +85,12 @@ export interface ArticuloCatalogo {
   ancho_corte: number | null
   diametro_interior: number | null
   dientes: number | null
+  /**
+   * El stock del producto, por código. `null` = la oficina no lo trackea; un
+   * número son las unidades, con 0 = agotado. Lo usa el semáforo de stock del
+   * buscador de la venta (ver `editor-nota/BuscadorArticulo`), igual que el móvil.
+   */
+  stock: number | null
 }
 
 export interface CodigoComputo {

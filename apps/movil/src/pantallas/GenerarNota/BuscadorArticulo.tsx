@@ -8,6 +8,7 @@ import {
   formatearMoneda,
   formatearPesos,
   marcaDeCodigo,
+  nivelDeStock,
   radios,
   resumenCaracteristicas,
   SECCION_NOTA,
@@ -538,30 +539,6 @@ function VentanaBusqueda({
       </ScrollView>
     </View>
   )
-}
-
-/**
- * El semáforo de stock de la venta. La oficina trackea el stock de algunos
- * productos (los que carga en el panel); el buscador lo muestra así:
- *
- *   · 'ok'      → hay de sobra (más de STOCK_BAJO), o la oficina no lo trackea
- *                 (stock null): se ofrece como siempre.
- *   · 'bajo'    → quedan pocas (de 1 a STOCK_BAJO): se avisa en amarillo.
- *   · 'agotado' → no queda ninguna (0): se pinta en rojo y opaco, y NO se puede
- *                 elegir —no se vende lo que no hay—.
- *
- * El corte en cinco es para la vista del vendedor; es aparte de cualquier
- * alerta de reposición del panel.
- */
-export const STOCK_BAJO = 5
-
-type NivelStock = 'ok' | 'bajo' | 'agotado'
-
-function nivelDeStock(stock: number | null): NivelStock {
-  if (stock == null) return 'ok'
-  if (stock <= 0) return 'agotado'
-  if (stock <= STOCK_BAJO) return 'bajo'
-  return 'ok'
 }
 
 /**

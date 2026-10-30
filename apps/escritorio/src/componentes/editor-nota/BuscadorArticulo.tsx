@@ -7,6 +7,7 @@ import {
   formatearMoneda,
   formatearPesos,
   marcaDeCodigo,
+  nivelDeStock,
   resumenCaracteristicas,
   type CaracteristicasArticulo,
   type FormularioItemNota,
@@ -205,6 +206,9 @@ function PanelBusqueda({
   const familiaTruncada = familia !== null && (baseFamilia?.length ?? 0) >= FAMILIA_COMPLETA
 
   function elegir(a: ArticuloCatalogo) {
+    // No se vende lo que no hay: el agotado ni llega acá (su fila está
+    // deshabilitada), pero el guard lo deja explícito.
+    if (nivelDeStock(a.stock) === 'agotado') return
     const c = caracteristicasDeArticulo(a.descripcion, a.medida)
     const esVentaSierra = item.servicio === 'venta' && item.herramienta === 'sierra'
     const nuevaMarca = esVentaSierra ? marcaDeCodigo(a.codigo) : item.sierra_marca
@@ -376,10 +380,19 @@ function FilaMedida({
   const codigoCorto =
     prefijo && articulo.codigo.startsWith(prefijo) ? articulo.codigo.slice(prefijo.length) : articulo.codigo
 
+  const nivel = nivelDeStock(articulo.stock)
+  const agotado = nivel === 'agotado'
+  const bajo = nivel === 'bajo'
+  // Verde (de sobra / no trackeado): color de siempre. Amarillo (1–5) y rojo (0)
+  // tiñen el código y el precio; el agotado va además opaco y deshabilitado.
+  const colorStock = agotado ? 'var(--rojo-accion)' : bajo ? 'var(--ambar-oscuro, #b87a12)' : undefined
+
   return (
     <button
       type="button"
       onClick={alTocar}
+      disabled={agotado}
+      aria-disabled={agotado}
       style={{
         display: 'block',
         width: '100%',
@@ -387,22 +400,35 @@ function FilaMedida({
         border: 'none',
         borderBottom: '1px solid var(--panel-oscuro)',
         borderRadius: 0,
-        background: 'none',
+        background: agotado ? 'rgba(224, 27, 36, 0.1)' : 'none',
         padding: '8px 12px',
+        opacity: agotado ? 0.55 : 1,
+        cursor: agotado ? 'not-allowed' : 'pointer',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontWeight: 700 }}>
+        <span style={{ fontWeight: 700, ...(colorStock ? { color: colorStock } : {}) }}>
           {codigoCorto}
           {compacto ? <span style={{ fontWeight: 400, color: 'var(--tinta-suave)' }}>{`  ${compacto}`}</span> : null}
         </span>
-        <span style={{ fontWeight: 700, color: 'var(--verde-oscuro)' }}>
+        <span style={{ fontWeight: 700, color: colorStock ?? 'var(--verde-oscuro)' }}>
           {articulo.sin_precio ? 'a confirmar' : formatearMoneda(Number(articulo.precio), moneda)}
         </span>
       </div>
       <div style={{ fontSize: 12, color: 'var(--tinta-suave)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {articulo.descripcion}
       </div>
+      {/* Semáforo de stock: el agotado va opaco y deshabilitado; con pocas
+          unidades se avisa cuántas quedan. Lo no trackeado (null) no dice nada. */}
+      {agotado ? (
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--rojo-accion)', letterSpacing: 0.3 }}>
+          ⚠ SIN STOCK — no disponible
+        </div>
+      ) : bajo ? (
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ambar-oscuro, #b87a12)', letterSpacing: 0.3 }}>
+          {`⚠ Quedan ${articulo.stock}`}
+        </div>
+      ) : null}
       {moneda === 'USD' && articulo.precio_pesos ? (
         <div style={{ fontSize: 11, color: 'var(--tinta-tenue)' }}>{`≈ ${formatearPesos(Number(articulo.precio_pesos))}`}</div>
       ) : moneda === 'USD' && tipoCambio > 0 ? (
