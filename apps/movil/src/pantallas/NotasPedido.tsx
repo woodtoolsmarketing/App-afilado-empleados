@@ -61,7 +61,10 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
 
         <BotonMenu
           titulo={'GENERAR NUEVA NOTA\nDE PEDIDO'}
-          alTocar={() => navigation.navigate('GenerarNota')}
+          // `push`, no `navigate`: una instancia NUEVA del formulario, sin
+          // arrastrar el cliente/renglones/`paradaId` de una nota anterior que
+          // haya quedado en la pila (ver MenuLateral y NotasPendientes).
+          alTocar={() => navigation.push('GenerarNota')}
         />
 
         <BotonMenu

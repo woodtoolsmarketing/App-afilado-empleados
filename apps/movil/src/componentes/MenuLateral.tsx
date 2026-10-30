@@ -72,7 +72,12 @@ const OPCIONES: Destino[] = [
   },
   {
     etiqueta: 'CREAR NOTA DE PEDIDO',
-    ir: (n) => n.navigate('GenerarNota'),
+    // `push`, no `navigate`: siempre una instancia NUEVA del formulario. Con
+    // `navigate`, si GenerarNota quedó en la pila volvía a ÉSA —con el cliente,
+    // los renglones y el `paradaId` de la nota anterior—, y ese `paradaId`
+    // arrastrado reventaba el alta de una nota de cliente nuevo (FK de parada).
+    // Es lo mismo que ya hace "IMPRIMIR NOTAS" al corregir (ver NotasPendientes).
+    ir: (n) => n.push('GenerarNota'),
     permiso: 'notas_pedido',
   },
   {

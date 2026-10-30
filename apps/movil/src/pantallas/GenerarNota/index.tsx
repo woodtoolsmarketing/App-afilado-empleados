@@ -1251,7 +1251,17 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       // De qué parada del rol de visita salió, si salió de una. Es lo que
       // después deja contar en la observación de la visita qué se vendió, y
       // saber si la nota se hizo en el lugar.
-      paradaId: route.params?.paradaId ?? null,
+      //
+      // Sólo si la nota sigue siendo del MISMO cliente de esa parada. Si se
+      // cambió a un cliente nuevo o a otro del padrón (con "✕ CAMBIAR"), la
+      // parada es de otro —o ya no existe— y colgar la nota ahí la metería en la
+      // visita equivocada, o rompería la FK `notas_pedido_parada_id_fkey` al
+      // mandar un id que no corresponde. `crearNotaPedido` corta además el caso
+      // del cliente nuevo/provisorio.
+      paradaId:
+        encabezado.cliente_id && encabezado.cliente_id === route.params?.clienteId
+          ? (route.params?.paradaId ?? null)
+          : null,
     }
   }
 
