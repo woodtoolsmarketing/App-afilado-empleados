@@ -302,6 +302,9 @@ function VentanaBusqueda({
    * no trae, para no dejar puestas las medidas del anterior.
    */
   function elegir(a: ArticuloCatalogo) {
+    // No se vende lo que no hay: un producto agotado ni llega acá —su fila está
+    // deshabilitada—, pero el guard lo deja explícito.
+    if (nivelDeStock(a.stock) === 'agotado') return
     const c = caracteristicasDeArticulo(a.descripcion, a.medida)
     // En una VENTA de sierra la marca SIGUE al artículo elegido: la que sale del
     // código (LG3D es Freud, SSK es Shark), y si el código no la dice, se limpia
@@ -538,6 +541,30 @@ function VentanaBusqueda({
 }
 
 /**
+ * El semáforo de stock de la venta. La oficina trackea el stock de algunos
+ * productos (los que carga en el panel); el buscador lo muestra así:
+ *
+ *   · 'ok'      → hay de sobra (más de STOCK_BAJO), o la oficina no lo trackea
+ *                 (stock null): se ofrece como siempre.
+ *   · 'bajo'    → quedan pocas (de 1 a STOCK_BAJO): se avisa en amarillo.
+ *   · 'agotado' → no queda ninguna (0): se pinta en rojo y opaco, y NO se puede
+ *                 elegir —no se vende lo que no hay—.
+ *
+ * El corte en cinco es para la vista del vendedor; es aparte de cualquier
+ * alerta de reposición del panel.
+ */
+export const STOCK_BAJO = 5
+
+type NivelStock = 'ok' | 'bajo' | 'agotado'
+
+function nivelDeStock(stock: number | null): NivelStock {
+  if (stock == null) return 'ok'
+  if (stock <= 0) return 'agotado'
+  if (stock <= STOCK_BAJO) return 'bajo'
+  return 'ok'
+}
+
+/**
  * Una fila compacta de la lista: el código corto (sin el prefijo de familia) y
  * la medida en una línea —"0200: Ø250 Z80"—, con el precio a la derecha.
  */
@@ -559,25 +586,49 @@ function FilaMedida({
   const codigoCorto =
     prefijo && articulo.codigo.startsWith(prefijo) ? articulo.codigo.slice(prefijo.length) : articulo.codigo
 
+  const nivel = nivelDeStock(articulo.stock)
+  const agotado = nivel === 'agotado'
+  const bajo = nivel === 'bajo'
+
   return (
     <Pressable
       onPress={alTocar}
+      disabled={agotado}
       accessibilityRole="button"
-      accessibilityLabel={`${articulo.codigo}, ${articulo.descripcion}`}
-      style={({ pressed }) => [estilos.fila, pressed && estilos.tocada]}
+      accessibilityState={{ disabled: agotado }}
+      accessibilityLabel={
+        agotado
+          ? `${articulo.codigo}, ${articulo.descripcion}, sin stock, no disponible`
+          : bajo
+            ? `${articulo.codigo}, ${articulo.descripcion}, quedan ${articulo.stock}`
+            : `${articulo.codigo}, ${articulo.descripcion}`
+      }
+      style={({ pressed }) => [
+        estilos.fila,
+        agotado && estilos.filaAgotada,
+        pressed && !agotado && estilos.tocada,
+      ]}
     >
       <View style={estilos.filaCabecera}>
-        <Text style={estilos.codigo}>
+        <Text style={[estilos.codigo, bajo && estilos.textoBajo, agotado && estilos.textoAgotado]}>
           {codigoCorto}
           {compacto ? <Text style={estilos.medida}>{`  ${compacto}`}</Text> : null}
         </Text>
-        <Text style={estilos.precio}>
+        <Text style={[estilos.precio, bajo && estilos.textoBajo, agotado && estilos.textoAgotado]}>
           {articulo.sin_precio ? 'a confirmar' : formatearMoneda(Number(articulo.precio), moneda)}
         </Text>
       </View>
       <Text style={estilos.descripcion} numberOfLines={1}>
         {articulo.descripcion}
       </Text>
+      {/* El semáforo de stock: lo agotado se ofrece opaco y no se puede elegir;
+          con pocas unidades se avisa cuántas quedan para que el vendedor no se
+          quede corto. Lo que la oficina no trackea (stock null) no dice nada. */}
+      {agotado ? (
+        <Text style={estilos.sinStock}>⚠ SIN STOCK — no disponible</Text>
+      ) : bajo ? (
+        <Text style={estilos.pocoStock}>{`⚠ Quedan ${articulo.stock}`}</Text>
+      ) : null}
       {moneda === 'USD' && articulo.precio_pesos ? (
         <Text style={estilos.enPesos}>{`≈ ${formatearPesos(Number(articulo.precio_pesos))}`}</Text>
       ) : moneda === 'USD' && tipoCambio > 0 ? (
@@ -716,6 +767,28 @@ const usarEstilos = hojaDeTema((t) => ({
     minHeight: 60,
     justifyContent: 'center',
     gap: 2,
+  },
+  // Producto agotado: opaco y con un dejo de rojo, para que se lea de un vistazo
+  // que ese no se puede tomar (la fila va además deshabilitada).
+  filaAgotada: {
+    opacity: 0.55,
+    backgroundColor: 'rgba(224,27,36,0.10)',
+  },
+  // El código y el precio se tiñen según el stock; la medida y la descripción
+  // conservan su color (no hace falta repetir el aviso en cada línea).
+  textoBajo: { color: t.colores.ambarOscuro },
+  textoAgotado: { color: t.colores.rojoAccion },
+  pocoStock: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.ambarOscuro,
+    letterSpacing: 0.3,
+  },
+  sinStock: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.rojoAccion,
+    letterSpacing: 0.3,
   },
   filaCabecera: { flexDirection: 'row', justifyContent: 'space-between', gap: espaciado.sm },
   codigo: {
