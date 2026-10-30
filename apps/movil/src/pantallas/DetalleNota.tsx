@@ -1,4 +1,5 @@
 import {
+  esComoVendedor,
   espaciado,
   ETIQUETA_ESTADO_NOTA,
   ETIQUETA_HERRAMIENTA,
@@ -38,6 +39,7 @@ import {
 } from '../servicios/notasPedido'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { usarPermisos } from '../servicios/permisos'
+import { usarSesion } from '../nucleo/sesion'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
@@ -109,6 +111,12 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   // Cobranzas (arranca admin-only): si el rol no la tiene, no se ofrece el atajo.
   const { puedeVer } = usarPermisos()
   const [modalCobranza, setModalCobranza] = useState(false)
+  // Al imprimir una nota PENDIENTE desde acá sale también el rol de visita de su
+  // día, que trae el bloque "Entregué:" (lo que hay que devolverle al cliente).
+  // Sólo para quien puede imprimir roles —mismo criterio que NOTAS PENDIENTES—:
+  // un vendedor con imprime_roles=false no lo suma; admin/supervisor siempre.
+  const perfil = usarSesion((s) => s.perfil)
+  const puedeImprimirRoles = !(esComoVendedor(perfil?.rol) && perfil?.imprime_roles === false)
 
   const { data: nota, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['nota', notaId],
@@ -116,15 +124,21 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
   })
 
   const imprimir = useMutation({
-    mutationFn: async () => {
-      const r = await imprimirNotas({ notaIds: [notaId] })
+    mutationFn: async ({ incluirRol }: { incluirRol: boolean }) => {
+      // Junto con la nota va el rol de visita de su día, que trae el bloque
+      // "Entregué:" (lo que hay que devolverle al cliente). Lo decide el
+      // llamador: sólo en notas pendientes y para quien puede imprimir roles;
+      // una reimpresión de una nota vieja sale sola, sin arrastrar aquel rol.
+      const r = await imprimirNotas({ notaIds: [notaId], incluirRolDeVisita: incluirRol })
       // Se marca porque la impresora de la oficina confirma el trabajo por IPP.
       if (r.confirmado) await marcarImpresas([notaId])
       return r
     },
     onSuccess: (r) => {
       void cliente.invalidateQueries()
-      Alert.alert('Enviado a la impresora', r.mensaje)
+      // El rol puede no haber salido (ese día sin recorrido): se avisa, sin tratarlo como error.
+      const texto = r.advertencia ? `${r.mensaje}\n\n${r.advertencia}` : r.mensaje
+      Alert.alert('Enviado a la impresora', texto)
     },
     onError: (e: Error) => Alert.alert('No pudimos imprimir', e.message),
   })
@@ -382,7 +396,12 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 
         <BotonSecundario
           titulo="👁  Ver antes de imprimir"
-          alTocar={() => navigation.navigate('VistaPrevia', { notaIds: [notaId] })}
+          alTocar={() =>
+            navigation.navigate('VistaPrevia', {
+              notaIds: [notaId],
+              incluirRolDeVisita: puedeImprimirRoles && !yaImpresa,
+            })
+          }
         />
 
         {/* El cobro va acá y no adentro del botón de imprimir: se cobra sin
@@ -396,8 +415,12 @@ export function PantallaDetalleNota({ navigation, route }: PropsPantalla<'Detall
 
         <BotonMenu
           titulo={yaImpresa ? 'VOLVER A IMPRIMIR' : 'IMPRIMIR'}
-          subtitulo="Original y duplicado"
-          alTocar={() => imprimir.mutate()}
+          subtitulo={
+            puedeImprimirRoles && !yaImpresa
+              ? 'Original, duplicado y el rol con las entregas'
+              : 'Original y duplicado'
+          }
+          alTocar={() => imprimir.mutate({ incluirRol: puedeImprimirRoles && !yaImpresa })}
           cargando={imprimir.isPending}
         />
 
