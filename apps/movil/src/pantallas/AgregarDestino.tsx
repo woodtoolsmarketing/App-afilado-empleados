@@ -122,6 +122,41 @@ function nombrarDia(fechaISO: string): string {
   return `${NOMBRES_DIA[d.getDay()]} ${d.getDate()}`
 }
 
+/**
+ * El vendedor dijo que NO al aviso de reabrir la jornada cerrada. No es un
+ * error que haya que mostrar: cortó a propósito, como el "no, cancelar" del
+ * aviso de sucursal. Se lo deja pasar en el `onError` de cada alta.
+ */
+class ReaperturaCancelada extends Error {
+  constructor() {
+    super('REAPERTURA_CANCELADA')
+    this.name = 'ReaperturaCancelada'
+  }
+}
+
+/**
+ * Pregunta antes de reabrir una jornada ya cerrada.
+ *
+ * Agregar un destino a una jornada 'finalizado' la reabre (vuelve a 'en_curso')
+ * y reenciende el seguimiento de ubicación. Antes eso pasaba solo, sin avisar:
+ * el vendedor que cerraba para irse y después sumaba un cliente quedaba "en
+ * recorrido" otra vez sin enterarse. Ahora se pregunta primero; si dice que no,
+ * el alta se corta sin tocar nada.
+ */
+function preguntarReabrirJornada(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      'La jornada está cerrada',
+      'Ya finalizaste el recorrido de hoy. Agregar este cliente lo reabre y vuelve a prender el seguimiento de ubicación. ¿Reabrir la jornada?',
+      [
+        { text: 'No', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Reabrir', onPress: () => resolve(true) },
+      ],
+      { onDismiss: () => resolve(false) },
+    )
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Paso 1 — elegir el camino
 // ─────────────────────────────────────────────────────────────────────────────
@@ -472,6 +507,18 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
         ? await asegurarJornadaDe(perfil.id, route.params.fecha)
         : await asegurarJornadaDeHoy(perfil.id)
 
+      // Cerrar la jornada quedó firme: si ya está finalizada, agregar la reabre
+      // (y reenciende el seguimiento), así que se pregunta antes en vez de
+      // reabrirla sola. Sólo para el recorrido de HOY; agendar para otro día no
+      // reabre nada.
+      if (
+        !route.params?.fecha &&
+        jornada.estado === 'finalizado' &&
+        !(await preguntarReabrirJornada())
+      ) {
+        throw new ReaperturaCancelada()
+      }
+
       /*
        * La prioridad la decide la distancia, y para medirla hacen falta las dos
        * coordenadas del cliente. Sin ellas no hay contra qué medir: entra
@@ -541,6 +588,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       )
     },
     onError: (e: Error) => {
+      // El vendedor dijo que no al aviso de reabrir la jornada: cortó a
+      // propósito, no se muestra ningún error.
+      if (e instanceof ReaperturaCancelada) return
       // No es un error: el cliente ya está en la lista y hay que preguntar si
       // es otra sucursal. Si el vendedor confirma, se agrega igual.
       if (e instanceof SucursalDuplicadaError) {
@@ -1288,6 +1338,16 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       const jornada = route.params?.fecha
         ? await asegurarJornadaDe(perfil.id, route.params.fecha)
         : await asegurarJornadaDeHoy(perfil.id)
+
+      // Cerrar la jornada quedó firme: agregar a una finalizada la reabre, así
+      // que se pregunta antes (sólo para el recorrido de hoy).
+      if (
+        !route.params?.fecha &&
+        jornada.estado === 'finalizado' &&
+        !(await preguntarReabrirJornada())
+      ) {
+        throw new ReaperturaCancelada()
+      }
       // El cliente nuevo se acaba de ubicar, así que hay contra qué medir: si el
       // vendedor está encima, el destino se clava adelante. Para otro día no vale
       // la cercanía de ahora: entra 'baja'.
@@ -1307,7 +1367,10 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
         [{ text: 'Listo', onPress: () => navigation.navigate(route.params?.volverA ?? 'Recorrido') }],
       )
     },
-    onError: (e: Error) => Alert.alert('No pudimos crear el cliente', e.message),
+    onError: (e: Error) => {
+      if (e instanceof ReaperturaCancelada) return
+      Alert.alert('No pudimos crear el cliente', e.message)
+    },
   })
 
   function alAgregar() {
@@ -1449,6 +1512,12 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
   const importar = useMutation({
     mutationFn: async () => {
       if (!perfil) throw new Error('No hay sesión')
+      // Importar trae los clientes al recorrido de HOY: si ya lo cerraste,
+      // reabre la jornada. Se pregunta antes en vez de reabrirla sola.
+      const jornada = await asegurarJornadaDeHoy(perfil.id)
+      if (jornada.estado === 'finalizado' && !(await preguntarReabrirJornada())) {
+        throw new ReaperturaCancelada()
+      }
       return importarVisitasDeDia(
         perfil.id,
         seleccionadas.map((p) => ({
@@ -1491,7 +1560,10 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
           : [{ text: 'Listo', style: 'cancel' }],
       )
     },
-    onError: (e: Error) => Alert.alert('No pudimos importar', e.message),
+    onError: (e: Error) => {
+      if (e instanceof ReaperturaCancelada) return
+      Alert.alert('No pudimos importar', e.message)
+    },
   })
 
   return (
