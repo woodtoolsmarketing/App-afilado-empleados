@@ -357,12 +357,20 @@ function armarPlanillaCobros(
     retenciones: c.retenciones > 0 ? formatearPesos(c.retenciones) : '',
     comentarios: c.comentarios ?? '',
   }))
+  // Subtotales por columna para el pie: la suma de cheque, de efectivo y de
+  // retenciones. En blanco cuando dan 0 (misma regla que por fila).
+  const sumaCheque = cobros.reduce((suma, c) => suma + c.cheque, 0)
+  const sumaEfectivo = cobros.reduce((suma, c) => suma + c.efectivo, 0)
+  const sumaRetenciones = cobros.reduce((suma, c) => suma + c.retenciones, 0)
   return {
     vendedor_numero: vendedorNumero,
     esPresupuesto,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
     total_general: formatearPesos(cobros.reduce((suma, c) => suma + c.total, 0)),
+    total_cheque: sumaCheque > 0 ? formatearPesos(sumaCheque) : '',
+    total_efectivo: sumaEfectivo > 0 ? formatearPesos(sumaEfectivo) : '',
+    total_retenciones: sumaRetenciones > 0 ? formatearPesos(sumaRetenciones) : '',
   }
 }
 
@@ -751,4 +759,69 @@ export async function imprimirRolDeVisita(params?: {
     nombreDelArchivo: `rol-de-visita-${hoyLocal()}`,
     alAvisar: params?.alAvisar,
   })
+}
+
+/**
+ * Imprime la rendición de cobranzas de un día, sola, directo a la impresora de
+ * la oficina (mismo camino que todo el resto: `entregarDocumento`).
+ *
+ * Es la misma hoja que arma la oficina en el panel —y la que sale pegada a las
+ * notas con "SUMAR LOS COBROS DEL DÍA"—, pero salida sola desde el teléfono. La
+ * usa el botón de la pantalla COBRANZAS, que sólo ve el vendedor que la oficina
+ * habilitó (`perfiles.imprime_cobranzas`); el resto nada más manda la rendición
+ * a la cola.
+ *
+ * Sin cobros ese día no hay planilla: se avisa y no se genera una hoja vacía,
+ * igual que el rol sin recorrido.
+ *
+ * Al confirmarse la impresión (IPP responde que salió), esos cobros quedan
+ * sellados como impresos y el vendedor ya no los corrige, igual que cuando la
+ * rendición sale pegada a las notas.
+ */
+export async function imprimirCobranzas(params: {
+  fecha: string
+  alAvisar?: (mensaje: string) => void
+}): Promise<ResultadoImpresion> {
+  const { data: sesionActual } = await supabase.auth.getSession()
+  const vendedorId = sesionActual.session?.user.id
+  if (!vendedorId) throw new Error('No hay sesión')
+
+  const { data: perfil } = await supabase
+    .from('perfiles')
+    .select('codigo_vendedor')
+    .eq('id', vendedorId)
+    .maybeSingle()
+
+  const planillasCobranzas = await planillasDeCobranzasDe(
+    [params.fecha],
+    perfil?.codigo_vendedor ?? '',
+  )
+  if (planillasCobranzas.length === 0) {
+    throw new Error('Ese día no cargaste cobros, así que no hay planilla para imprimir.')
+  }
+
+  const html = generarDocumentoImpresion([], {
+    planillasCobranzas,
+    escalaDeLetra: escalaDeLetraDelSistema(),
+  })
+
+  const resultado = await entregarDocumento(html, {
+    queSalio: 'la rendición de cobranzas',
+    plural: false,
+    nombreDelArchivo: `cobranzas-${params.fecha}`,
+    alAvisar: params.alAvisar,
+  })
+
+  // Confirmada la impresión, esos cobros quedan cerrados (pastilla IMPRESO).
+  // Best-effort, como en imprimirNotas: una impresión que sí salió no se desdice
+  // porque falle el sello; el próximo lo toma.
+  if (resultado.confirmado) {
+    try {
+      await marcarCobranzasImpresas([params.fecha])
+    } catch {
+      /* el papel ya salió; el sello se reintenta */
+    }
+  }
+
+  return resultado
 }

@@ -232,6 +232,28 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
   })
 
   /**
+   * Si el vendedor puede imprimir la rendición de cobranzas del día desde la app.
+   *
+   * Molde de `imprime_roles`, pero arranca APAGADO: la oficina lo prende a quien
+   * quiera. Al que lo tiene en `false` no le aparece el botón para imprimir las
+   * cobranzas del día en el teléfono. No aplica a admin/supervisor.
+   */
+  const guardarImprimeCobranzas = useMutation({
+    mutationFn: async (params: { perfilId: string; imprime: boolean }) => {
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ imprime_cobranzas: params.imprime })
+        .eq('id', params.perfilId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setMensaje('Permiso de impresión de cobranzas actualizado.')
+      void cliente.invalidateQueries()
+    },
+    onError: (e: Error) => setMensaje(`No se pudo guardar el permiso de impresión: ${e.message}`),
+  })
+
+  /**
    * Cambiar el rol de un usuario.
    *
    * Va por la RPC `cambiar_rol_usuario` y no por un UPDATE directo: la función
@@ -805,6 +827,7 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
               <th>Código</th>
               <th>Zonas a cargo</th>
               <th>Imprime rol</th>
+              <th>Imprime cobros</th>
               <th>Rol</th>
               <th>Estado</th>
               <th>Última conexión</th>
@@ -868,6 +891,34 @@ export function PaginaUsuarios({ soloLectura }: { soloLectura: boolean }) {
                         }
                       />
                       <span style={{ fontSize: 13 }}>{p.imprime_roles ? 'Sí' : 'No'}</span>
+                    </label>
+                  ) : (
+                    <small style={{ color: 'var(--tinta-tenue)' }}>Siempre</small>
+                  )}
+                </td>
+                <td>
+                  {esComoVendedor(p.rol) ? (
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: soloLectura ? 'default' : 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={p.imprime_cobranzas}
+                        disabled={
+                          soloLectura ||
+                          (guardarImprimeCobranzas.isPending &&
+                            guardarImprimeCobranzas.variables?.perfilId === p.id)
+                        }
+                        onChange={(e) =>
+                          guardarImprimeCobranzas.mutate({ perfilId: p.id, imprime: e.target.checked })
+                        }
+                      />
+                      <span style={{ fontSize: 13 }}>{p.imprime_cobranzas ? 'Sí' : 'No'}</span>
                     </label>
                   ) : (
                     <small style={{ color: 'var(--tinta-tenue)' }}>Siempre</small>

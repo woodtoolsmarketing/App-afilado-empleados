@@ -38,6 +38,16 @@ export interface PlanillaCobranzasParaImprimir {
   cobros: RenglonCobranza[]
   /** La suma, ya escrita. */
   total_general: string
+  /**
+   * El subtotal de cada columna de plata, ya escrito, para el renglón del pie
+   * debajo de su columna. Vacío cuando es 0 —misma regla que por fila: una
+   * columna de ceros se lee como si hubiera pasado algo—, así que si un día no
+   * tuvo cheques (o efectivo, o retenciones) esa casilla del total queda en
+   * blanco, igual que toda su columna.
+   */
+  total_cheque: string
+  total_efectivo: string
+  total_retenciones: string
 }
 
 function escapar(v: unknown): string {
@@ -94,9 +104,9 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
         <td></td>
         <td>TOTAL GENERAL</td>
         <td class="num">${escapar(planilla.total_general)}</td>
-        <td></td>
-        <td></td>
-        <td></td>
+        <td class="num">${escapar(planilla.total_cheque)}</td>
+        <td class="num">${escapar(planilla.total_efectivo)}</td>
+        <td class="num">${escapar(planilla.total_retenciones)}</td>
         <td></td>
       </tr>
     </tfoot>

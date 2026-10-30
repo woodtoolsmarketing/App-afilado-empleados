@@ -102,12 +102,17 @@ function armarPlanilla(
     retenciones: n(c.retenciones) > 0 ? formatearPesos(n(c.retenciones)) : '',
     comentarios: c.comentarios ?? '',
   }))
+  // Subtotales por columna para el pie. En blanco cuando dan 0, igual que por fila.
+  const tot = sumar(cobros)
   return {
     vendedor_numero: cobros[0]?.perfiles?.codigo_vendedor ?? '',
     esPresupuesto,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
-    total_general: formatearPesos(sumar(cobros).total),
+    total_general: formatearPesos(tot.total),
+    total_cheque: tot.cheque > 0 ? formatearPesos(tot.cheque) : '',
+    total_efectivo: tot.efectivo > 0 ? formatearPesos(tot.efectivo) : '',
+    total_retenciones: tot.retenciones > 0 ? formatearPesos(tot.retenciones) : '',
   }
 }
 

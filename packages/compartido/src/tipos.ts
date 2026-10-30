@@ -299,6 +299,14 @@ export interface Perfil {
    */
   imprime_roles: boolean
   /**
+   * Si el vendedor puede imprimir la rendición de cobranzas del día desde la app
+   * (directo a la impresora de la oficina, como el rol). Lo decide la oficina
+   * desde el panel. Arranca APAGADO (opt-in): hoy el teléfono sólo MANDA la
+   * rendición a la cola; esto habilita el botón para imprimirla él mismo. No
+   * aplica a admin/supervisor: ellos imprimen siempre.
+   */
+  imprime_cobranzas: boolean
+  /**
    * Si en el panel puede ver DÓNDE se emitió cada nota y desde dónde se registró
    * cada visita (el comando `regedit` de la consola). Permiso por usuario,
    * separado del rol: muestra la ubicación GPS del vendedor, así que no lo tiene
