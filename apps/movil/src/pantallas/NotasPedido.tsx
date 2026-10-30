@@ -61,10 +61,10 @@ export function PantallaNotasPedido({ navigation }: PropsPantalla<'NotasPedido'>
 
         <BotonMenu
           titulo={'GENERAR NUEVA NOTA\nDE PEDIDO'}
-          // `push`, no `navigate`: una instancia NUEVA del formulario, sin
-          // arrastrar el cliente/renglones/`paradaId` de una nota anterior que
-          // haya quedado en la pila (ver MenuLateral y NotasPendientes).
-          alTocar={() => navigation.push('GenerarNota')}
+          // `navigate`, no `push`: una sola instancia del formulario. El guard de
+          // `datosDeLaNota` ya evita arrastrar un `paradaId` ajeno; `push` abría
+          // una 2ª nota nueva que se pisaba el borrador (slot único). Ver MenuLateral.
+          alTocar={() => navigation.navigate('GenerarNota')}
         />
 
         <BotonMenu
