@@ -294,6 +294,14 @@ export interface Perfil {
    * oficina desde el panel. No aplica a admin/supervisor: ellos imprimen siempre.
    */
   imprime_roles: boolean
+  /**
+   * Si el vendedor puede imprimir la rendición de cobranzas del día desde la app
+   * (directo a la impresora de la oficina, como el rol). Lo decide la oficina
+   * desde el panel. Arranca APAGADO (opt-in): hoy el teléfono sólo MANDA la
+   * rendición a la cola; esto habilita el botón para imprimirla él mismo. No
+   * aplica a admin/supervisor: ellos imprimen siempre.
+   */
+  imprime_cobranzas: boolean
   telefono: string | null
   foto_url: string | null
   origen_lat: number | null

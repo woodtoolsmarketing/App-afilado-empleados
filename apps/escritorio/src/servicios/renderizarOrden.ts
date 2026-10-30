@@ -207,6 +207,7 @@ interface CobranzaFila {
   total: number | string
   cheque: number | string
   efectivo: number | string
+  retenciones: number | string
   comentarios: string | null
   perfiles: { codigo_vendedor: string | null } | null
 }
@@ -230,14 +231,22 @@ function armarPlanilla(
     // Un cero se deja en blanco: una columna de ceros se lee como si hubiera pasado algo.
     cheque: n(c.cheque) > 0 ? formatearPesos(n(c.cheque)) : '',
     efectivo: n(c.efectivo) > 0 ? formatearPesos(n(c.efectivo)) : '',
+    retenciones: n(c.retenciones) > 0 ? formatearPesos(n(c.retenciones)) : '',
     comentarios: c.comentarios ?? '',
   }))
+  // Subtotales por columna para el pie. En blanco cuando dan 0, igual que por fila.
+  const sumaCheque = cobros.reduce((s, c) => s + n(c.cheque), 0)
+  const sumaEfectivo = cobros.reduce((s, c) => s + n(c.efectivo), 0)
+  const sumaRetenciones = cobros.reduce((s, c) => s + n(c.retenciones), 0)
   return {
     vendedor_numero: cobros[0]?.perfiles?.codigo_vendedor ?? '',
     esPresupuesto,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
     total_general: formatearPesos(cobros.reduce((s, c) => s + n(c.total), 0)),
+    total_cheque: sumaCheque > 0 ? formatearPesos(sumaCheque) : '',
+    total_efectivo: sumaEfectivo > 0 ? formatearPesos(sumaEfectivo) : '',
+    total_retenciones: sumaRetenciones > 0 ? formatearPesos(sumaRetenciones) : '',
   }
 }
 
@@ -248,7 +257,7 @@ async function renderizarCobranzas(orden: OrdenImpresion): Promise<DocumentoARen
   const { data, error } = await supabase
     .from('cobranzas')
     .select(
-      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, comentarios,' +
+      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, retenciones, comentarios,' +
         ' perfiles:vendedor_id ( codigo_vendedor )',
     )
     .eq('vendedor_id', orden.pedida_por)

@@ -23,6 +23,7 @@ export interface Cobranza {
   total: number
   cheque: number
   efectivo: number
+  retenciones: number
   comentarios: string | null
   /** Cuándo salió en papel. Null = todavía se puede corregir. */
   impreso_en: string | null
@@ -38,6 +39,8 @@ export interface DatosCobranza {
   tipoComprobante: 'factura' | 'presupuesto'
   cheque: number
   efectivo: number
+  /** Importe retenido (certificado de retención). Suma al total. Default 0. */
+  retenciones?: number
   comentarios?: string | null
   /**
    * El día del cobro. Sin esto la base pone hoy —lo normal, porque se cobra en la
@@ -54,9 +57,10 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
 
   const cheque = redondear(datos.cheque)
   const efectivo = redondear(datos.efectivo)
-  const total = redondear(cheque + efectivo)
+  const retenciones = redondear(datos.retenciones ?? 0)
+  const total = redondear(cheque + efectivo + retenciones)
 
-  if (total <= 0) throw new Error('Poné cuánto cobraste, en cheque o en efectivo.')
+  if (total <= 0) throw new Error('Poné cuánto cobraste, en cheque, efectivo o retención.')
 
   const { data, error } = await supabase
     .from('cobranzas')
@@ -77,20 +81,21 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
       total,
       cheque,
       efectivo,
+      retenciones,
       comentarios: (datos.comentarios ?? '').trim() || null,
     })
     .select()
     .single()
 
   if (error) {
-    // Los CHECK de la tabla `cobranzas` (cheque + efectivo = total, total > 0,
+    // Los CHECK de la tabla `cobranzas` (cheque + efectivo + retenciones = total, total > 0,
     // montos no negativos) devuelven 23514 con el texto crudo de Postgres en
     // inglés —a diferencia de las RPC de otros servicios, que arman el mensaje
     // en castellano con RAISE EXCEPTION—. Como es una pantalla de plata, lo
     // traducimos a mano en vez de mostrar el crudo. El resto de los errores: si
     // fue falta de señal, salen en castellano en lugar del crudo de la red.
     if (error.code === '23514') {
-      throw new Error('No pudimos guardar el cobro: los montos no cierran. Revisá cheque y efectivo.')
+      throw new Error('No pudimos guardar el cobro: los montos no cierran. Revisá cheque, efectivo y retención.')
     }
     // Clave repetida: ya hay un cobro con este id. Pasa cuando el INSERT anterior
     // entró pero se perdió la respuesta (mala señal) y el vendedor tocó GUARDAR de
@@ -122,14 +127,15 @@ function normalizarCobranza(fila: Record<string, unknown>): Cobranza {
     total: Number(fila.total) || 0,
     cheque: Number(fila.cheque) || 0,
     efectivo: Number(fila.efectivo) || 0,
+    retenciones: Number(fila.retenciones) || 0,
   }
 }
 
 /**
  * Corrige un cobro ya cargado: tipo de comprobante, montos y comentario.
  *
- * El total no se manda: lo recalcula el servidor como cheque + efectivo, igual
- * que al cargarlo. La RPC rechaza si el cobro ya se imprimió (una vez en papel
+ * El total no se manda: lo recalcula el servidor como cheque + efectivo +
+ * retenciones, igual que al cargarlo. La RPC rechaza si el cobro ya se imprimió (una vez en papel
  * la cifra no se toca) o si no es del vendedor que llama.
  */
 export async function editarCobranza(datos: {
@@ -137,6 +143,9 @@ export async function editarCobranza(datos: {
   tipoComprobante: 'factura' | 'presupuesto'
   cheque: number
   efectivo: number
+  // Requerido: el único caller (ModalCobranza) siempre lo manda. Si se omitiera,
+  // el RPC lo recibe NULL y PRESERVA la retención del cobro (no la pisa con 0).
+  retenciones: number
   comentarios?: string | null
 }): Promise<Cobranza> {
   const { data, error } = await supabase.rpc('editar_cobranza', {
@@ -144,6 +153,7 @@ export async function editarCobranza(datos: {
     p_tipo: datos.tipoComprobante,
     p_cheque: redondear(datos.cheque),
     p_efectivo: redondear(datos.efectivo),
+    p_retenciones: redondear(datos.retenciones),
     p_comentarios: (datos.comentarios ?? '').trim() || null,
   })
 

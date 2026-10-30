@@ -217,9 +217,11 @@ export function rolImprimibleDesdeFilas(
    */
   resumenesCompletos?: Map<string, RenglonParaResumen[]>,
   /**
-   * Lo que hay que entregar ese día por parada (`entregasDePedidoPorParada`).
-   * Opcional: lo pasa el panel; el teléfono todavía no, así que su impreso no
-   * cambia.
+   * Lo que hay que entregar ese día por parada (`entregasDePedidoPorParada`): el
+   * bloque "Entregué:" que cuelga del resultado. Lo pasan el panel, la cola de
+   * impresión de la oficina y el teléfono —tanto el rol suelto como el que sale
+   * pegado a las notas de pedido—. Opcional: sin esto el impreso sale sin ese
+   * bloque.
    */
   extras?: {
     entregasPorParada?: Map<string, { numero: number | null; detalle: string; entregada: boolean }[]>

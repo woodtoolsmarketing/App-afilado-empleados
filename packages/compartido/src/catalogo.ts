@@ -348,3 +348,34 @@ export function aplicarSinCargo<T extends FilaDeCatalogo>(filas: T[]): T[] {
     }
   })
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Semáforo de stock de la venta
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * El umbral de "poco stock" para la vista del vendedor: con esta cantidad o
+ * menos, el buscador de la venta avisa en amarillo. Es el corte para MOSTRAR, no
+ * el de reposición del panel (ese es configurable y vive en el stock).
+ */
+export const STOCK_BAJO = 5
+
+export type NivelStock = 'ok' | 'bajo' | 'agotado'
+
+/**
+ * Clasifica el stock de un producto para el semáforo del buscador de la venta.
+ * Lo usan el móvil Y el panel con la misma lógica, así el corte nunca se
+ * desincroniza entre los dos:
+ *
+ *   · 'ok'      → hay de sobra (más de STOCK_BAJO), o la oficina no lo trackea
+ *                 (stock null): se ofrece como siempre, en verde.
+ *   · 'bajo'    → quedan pocas (de 1 a STOCK_BAJO): se avisa en amarillo.
+ *   · 'agotado' → no queda ninguna (0 o menos): se pinta en rojo y opaco, y NO
+ *                 se puede elegir —no se vende lo que no hay—.
+ */
+export function nivelDeStock(stock: number | null | undefined): NivelStock {
+  if (stock == null) return 'ok'
+  if (stock <= 0) return 'agotado'
+  if (stock <= STOCK_BAJO) return 'bajo'
+  return 'ok'
+}

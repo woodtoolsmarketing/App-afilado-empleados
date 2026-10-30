@@ -18,6 +18,8 @@ export interface RenglonCobranza {
   total: string
   cheque: string
   efectivo: string
+  /** Importe retenido, ya escrito. Vacío cuando es 0 (misma regla que cheque/efectivo). */
+  retenciones: string
   comentarios: string
 }
 
@@ -36,6 +38,16 @@ export interface PlanillaCobranzasParaImprimir {
   cobros: RenglonCobranza[]
   /** La suma, ya escrita. */
   total_general: string
+  /**
+   * El subtotal de cada columna de plata, ya escrito, para el renglón del pie
+   * debajo de su columna. Vacío cuando es 0 —misma regla que por fila: una
+   * columna de ceros se lee como si hubiera pasado algo—, así que si un día no
+   * tuvo cheques (o efectivo, o retenciones) esa casilla del total queda en
+   * blanco, igual que toda su columna.
+   */
+  total_cheque: string
+  total_efectivo: string
+  total_retenciones: string
 }
 
 function escapar(v: unknown): string {
@@ -59,6 +71,7 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
       <td class="num">${escapar(c.total)}</td>
       <td class="num">${escapar(c.cheque)}</td>
       <td class="num">${escapar(c.efectivo)}</td>
+      <td class="num">${escapar(c.retenciones)}</td>
       <td>${escapar(c.comentarios)}</td>
     </tr>`,
     )
@@ -81,6 +94,7 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
         <th class="w-tot">TOTAL</th>
         <th class="w-che">CHEQUE</th>
         <th class="w-efe">EFECTIVO</th>
+        <th class="w-ret">RETENC.</th>
         <th class="w-com">COMENTARIOS</th>
       </tr>
     </thead>
@@ -90,8 +104,9 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
         <td></td>
         <td>TOTAL GENERAL</td>
         <td class="num">${escapar(planilla.total_general)}</td>
-        <td></td>
-        <td></td>
+        <td class="num">${escapar(planilla.total_cheque)}</td>
+        <td class="num">${escapar(planilla.total_efectivo)}</td>
+        <td class="num">${escapar(planilla.total_retenciones)}</td>
         <td></td>
       </tr>
     </tfoot>
@@ -227,7 +242,10 @@ export const ESTILOS_PLANILLA_COBRANZAS = `
 
 .cob-total td { font-weight: bold; background: #ececec; height: 8mm; }
 
-.w-cod { width: 10%; } .w-cli { width: 30%; }
+/* Entró la columna RETENC.: se le hace lugar achicando CODIGO (10→8) y
+   COMENTARIOS (22→13). Siguen sumando 100, que es lo que table-layout:fixed
+   necesita para no repartir la sobra a su criterio. */
+.w-cod { width: 8%; } .w-cli { width: 30%; }
 .w-tot { width: 14%; } .w-che { width: 12%; } .w-efe { width: 12%; }
-.w-com { width: 22%; }
+.w-ret { width: 11%; } .w-com { width: 13%; }
 `
