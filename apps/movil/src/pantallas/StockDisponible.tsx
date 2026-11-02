@@ -32,8 +32,9 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Es el MISMO semáforo del buscador de la venta (verde con de sobra, amarillo
  * con pocas, rojo si está agotado) y la MISMA lógica de carga —precarga la
  * familia entera y filtra en el teléfono; sin familia consulta el servidor por
- * texto— pero de sólo lectura: nada de precios y la fila no se toca. Además de
- * los tres colores muestra la CANTIDAD, que para esto es lo que se viene a ver.
+ * texto— pero de sólo lectura: nada de precios y la fila no se toca. La cantidad
+ * exacta se muestra SÓLO cuando quedan pocas (amarillo): en verde alcanza con
+ * saber que hay, sin dar el número.
  *
  * El stock que la oficina no trackea (sin fila cargada) sale como "—": en la
  * venta eso iría verde (se ofrece igual), pero acá, donde la pregunta es
@@ -274,11 +275,11 @@ function FilaStock({ articulo, prefijo }: { articulo: ArticuloCatalogo; prefijo:
   const codigoCorto =
     prefijo && articulo.codigo.startsWith(prefijo) ? articulo.codigo.slice(prefijo.length) : articulo.codigo
 
-  // El mismo semáforo de la venta (`nivelDeStock`), pero mostrando la cantidad.
-  // Lo que la oficina no trackea (stock null) no tiene nivel: sale como "—" en
-  // gris, que acá —donde la pregunta es cuánto hay— dice "no hay dato" sin
-  // mentir que hay de sobra. El color sale del tema, no de un hex fijo, para que
-  // el modo oscuro use su propia paleta igual que el semáforo de la venta.
+  // Mismo semáforo de la venta (`nivelDeStock`), pero la cantidad EXACTA se
+  // muestra sólo cuando quedan pocas (amarillo); en verde alcanza con saber que
+  // hay, sin el número. Lo no trackeado (stock null) no tiene nivel: sale como
+  // "—" gris —ni verde ni dato inventado—. El color sale del tema, no de un hex
+  // fijo, para que el modo oscuro use su propia paleta igual que la venta.
   const nivel = articulo.stock == null ? 'neutro' : nivelDeStock(articulo.stock)
   const agotado = nivel === 'agotado'
   const estiloColor =
@@ -296,7 +297,7 @@ function FilaStock({ articulo, prefijo }: { articulo: ArticuloCatalogo; prefijo:
         ? 'SIN STOCK'
         : nivel === 'bajo'
           ? `Quedan ${articulo.stock}`
-          : `Hay ${articulo.stock}`
+          : 'Hay'
 
   return (
     <View style={[estilos.fila, agotado && estilos.filaAgotada]}>
