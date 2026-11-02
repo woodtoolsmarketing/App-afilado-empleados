@@ -6,16 +6,58 @@ import { supabase } from '../nucleo/supabase'
 
 type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
 
+// La ficha trae más columnas que el tipo base; acá se usan las del flujo de
+// confirmación/rechazo. El id de perfil es el mismo uuid que guardan vendedor_id,
+// creado_por, confirmado_por y rechazado_por.
+type ClienteHistorial = Cliente & {
+  creado_por: string | null
+  confirmado_en: string | null
+  confirmado_por: string | null
+  rechazado_en: string | null
+  rechazado_por: string | null
+  motivo_rechazo: string | null
+}
+
+type Perfilito = Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>
+type Pestania = 'pendientes' | 'confirmados' | 'rechazados'
+
 /**
- * "Clientes a confirmar"
+ * Cuántas filas se traen por pestaña de historial. Es también el tope que corta
+ * PostgREST, así que si alguna vez se llega se avisa en vez de recortar en
+ * silencio. Hoy son un puñado; falta muchísimo para esto.
+ */
+const LIMITE = 1000
+
+function fechaHora(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/** Busca en código, razón social y nombre de fantasía, sin distinguir mayúsculas. */
+function coincide(c: ClienteHistorial, termino: string): boolean {
+  const t = termino.trim().toLowerCase()
+  if (!t) return true
+  return [c.codigo, c.razon_social, c.nombre_fantasia]
+    .filter(Boolean)
+    .some((s) => (s as string).toLowerCase().includes(t))
+}
+
+/**
+ * "Clientes a confirmar" — con su historial.
  *
  * Los clientes que un vendedor carga desde la calle nacen provisorios: existen
  * con un código automático `P-000123` pero NO aparecen en el buscador del
- * vendedor hasta que la oficina los confirma. Acá la oficina ve TODO lo que
- * cargó el vendedor y le asigna el código definitivo; al confirmarlo, el cliente
- * se da de alta de verdad y las notas que lo estaban esperando reciben su número.
+ * vendedor hasta que la oficina los confirma. La pestaña **A confirmar** es esa
+ * cola: la oficina ve lo que cargó el vendedor, le asigna el código definitivo y
+ * confirma (o rechaza con un motivo). Las pestañas **Confirmados** y **Rechazados**
+ * son el historial de lo ya resuelto, cada una con su buscador.
+ *
+ * `soloLectura` (todos menos administración/admin) sólo mira: no puede confirmar
+ * ni rechazar. El historial lo ve igual.
  */
 export function PaginaClientesAConfirmar({ soloLectura }: { soloLectura: boolean }) {
+  const [pestania, setPestania] = useState<Pestania>('pendientes')
+
   const { data: provisorios, isLoading } = useQuery({
     queryKey: ['clientes-a-confirmar'],
     queryFn: async () => {
@@ -32,7 +74,8 @@ export function PaginaClientesAConfirmar({ soloLectura }: { soloLectura: boolean
     },
   })
 
-  const { data: vendedores } = useQuery({
+  // Todos los perfiles, para poner el nombre de quién cargó / confirmó / rechazó.
+  const { data: perfiles } = useQuery({
     queryKey: ['vendedores'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -40,7 +83,7 @@ export function PaginaClientesAConfirmar({ soloLectura }: { soloLectura: boolean
         .select('id, nombre_completo, codigo_vendedor')
         .order('nombre_completo')
       if (error) throw error
-      return data as Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
+      return data as Perfilito[]
     },
   })
 
@@ -59,9 +102,42 @@ export function PaginaClientesAConfirmar({ soloLectura }: { soloLectura: boolean
     },
   })
 
+  const { data: confirmados } = useQuery({
+    queryKey: ['historial-clientes', 'confirmados'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*')
+        .not('confirmado_en', 'is', null)
+        .order('confirmado_en', { ascending: false })
+        .limit(LIMITE)
+      if (error) throw error
+      return data as ClienteHistorial[]
+    },
+  })
+
+  const { data: rechazados } = useQuery({
+    queryKey: ['historial-clientes', 'rechazados'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*')
+        .not('rechazado_en', 'is', null)
+        // Si después de un rechazo el cliente se reactivó y se confirmó, su estado
+        // final es "confirmado": va en esa pestaña, no acá. Así las dos no se pisan.
+        .is('confirmado_en', null)
+        .order('rechazado_en', { ascending: false })
+        .limit(LIMITE)
+      if (error) throw error
+      return data as ClienteHistorial[]
+    },
+  })
+
   function notasDe(clienteId: string): string[] {
     return (notasEsperando ?? []).filter((n) => n.cliente_id === clienteId).map((n) => n.id)
   }
+  const nombreDe = (id: string | null): string =>
+    (id && perfiles?.find((p) => p.id === id)?.nombre_completo) || '—'
 
   return (
     <div>
@@ -69,32 +145,58 @@ export function PaginaClientesAConfirmar({ soloLectura }: { soloLectura: boolean
         <div>
           <h1>Clientes a confirmar</h1>
           <p className="subtitulo">
-            Clientes que cargaron los vendedores desde la calle. Revisá los datos, asigná el código
-            definitivo y confirmá: recién ahí el cliente se da de alta y aparece en el sistema.
+            Clientes que cargaron los vendedores desde la calle. Revisá los datos y confirmá (con el
+            código definitivo) o rechazá. En <strong>Confirmados</strong> y <strong>Rechazados</strong>{' '}
+            queda el historial de lo ya resuelto, con su buscador.
           </p>
         </div>
       </header>
 
-      {isLoading ? (
-        <section className="tarjeta">
-          <p>Cargando…</p>
-        </section>
-      ) : !provisorios || provisorios.length === 0 ? (
-        <section className="tarjeta">
-          <p className="vacio">No hay clientes esperando confirmación. 🎉</p>
-        </section>
+      <div className="tarjeta" style={{ display: 'flex', gap: 8, padding: 10, flexWrap: 'wrap' }}>
+        <button
+          className={pestania === 'pendientes' ? 'primario' : ''}
+          onClick={() => setPestania('pendientes')}
+        >
+          A confirmar{provisorios ? ` (${provisorios.length})` : ''}
+        </button>
+        <button
+          className={pestania === 'confirmados' ? 'primario' : ''}
+          onClick={() => setPestania('confirmados')}
+        >
+          ✓ Confirmados{confirmados ? ` (${confirmados.length})` : ''}
+        </button>
+        <button
+          className={pestania === 'rechazados' ? 'primario' : ''}
+          onClick={() => setPestania('rechazados')}
+        >
+          ✕ Rechazados{rechazados ? ` (${rechazados.length})` : ''}
+        </button>
+      </div>
+
+      {pestania === 'pendientes' ? (
+        isLoading ? (
+          <section className="tarjeta">
+            <p>Cargando…</p>
+          </section>
+        ) : !provisorios || provisorios.length === 0 ? (
+          <section className="tarjeta">
+            <p className="vacio">No hay clientes esperando confirmación. 🎉</p>
+          </section>
+        ) : (
+          provisorios.map((c) => (
+            <TarjetaProvisorio
+              key={c.id}
+              cliente={c}
+              vendedor={perfiles?.find((p) => p.id === c.vendedor_id)?.nombre_completo ?? 'Sin asignar'}
+              notasPendientes={notasDe(c.id)}
+              soloLectura={soloLectura}
+            />
+          ))
+        )
+      ) : pestania === 'confirmados' ? (
+        <TablaConfirmados clientes={confirmados ?? []} cargando={!confirmados} nombreDe={nombreDe} />
       ) : (
-        provisorios.map((c) => (
-          <TarjetaProvisorio
-            key={c.id}
-            cliente={c}
-            vendedor={
-              vendedores?.find((v) => v.id === c.vendedor_id)?.nombre_completo ?? 'Sin asignar'
-            }
-            notasPendientes={notasDe(c.id)}
-            soloLectura={soloLectura}
-          />
-        ))
+        <TablaRechazados clientes={rechazados ?? []} cargando={!rechazados} nombreDe={nombreDe} />
       )}
     </div>
   )
@@ -367,5 +469,167 @@ function Dato({ rotulo, valor }: { rotulo: string; valor: ReactNode }) {
       <dt>{rotulo}</dt>
       <dd>{valor}</dd>
     </div>
+  )
+}
+
+// ── Historial ────────────────────────────────────────────────────────────────
+
+/** Celda de razón social con el nombre de fantasía debajo, como en Clientes. */
+function RazonSocial({ cliente }: { cliente: ClienteHistorial }) {
+  return (
+    <>
+      {cliente.razon_social}
+      {cliente.nombre_fantasia && (
+        <>
+          <br />
+          <small style={{ color: 'var(--tinta-tenue)' }}>{cliente.nombre_fantasia}</small>
+        </>
+      )}
+    </>
+  )
+}
+
+function Buscador({
+  valor,
+  alCambiar,
+  que,
+}: {
+  valor: string
+  alCambiar: (v: string) => void
+  que: string
+}) {
+  return (
+    <div className="tarjeta">
+      <input
+        placeholder={`Buscar ${que} por código o razón social…`}
+        value={valor}
+        onChange={(e) => alCambiar(e.target.value)}
+        aria-label={`Buscar clientes ${que}`}
+      />
+    </div>
+  )
+}
+
+function TablaConfirmados({
+  clientes,
+  cargando,
+  nombreDe,
+}: {
+  clientes: ClienteHistorial[]
+  cargando: boolean
+  nombreDe: (id: string | null) => string
+}) {
+  const [busqueda, setBusqueda] = useState('')
+  const filtrados = clientes.filter((c) => coincide(c, busqueda))
+
+  return (
+    <>
+      <Buscador valor={busqueda} alCambiar={setBusqueda} que="confirmados" />
+      <section className="tarjeta">
+        {cargando ? (
+          <p>Cargando…</p>
+        ) : filtrados.length === 0 ? (
+          <p className="vacio">
+            {busqueda ? 'No hay confirmados que coincidan.' : 'Todavía no hay clientes confirmados.'}
+          </p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente Nº</th>
+                <th>Razón social</th>
+                <th>Lo cargó</th>
+                <th>Confirmado</th>
+                <th>Confirmó</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <code>{c.codigo}</code>
+                  </td>
+                  <td>
+                    <RazonSocial cliente={c} />
+                  </td>
+                  <td>{nombreDe(c.creado_por ?? c.vendedor_id)}</td>
+                  <td>{fechaHora(c.confirmado_en)}</td>
+                  <td>{nombreDe(c.confirmado_por)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      {clientes.length >= LIMITE && (
+        <p className="aviso atencion" style={{ marginTop: 8 }}>
+          Mostrando los {LIMITE} más recientes; hay más en el historial.
+        </p>
+      )}
+    </>
+  )
+}
+
+function TablaRechazados({
+  clientes,
+  cargando,
+  nombreDe,
+}: {
+  clientes: ClienteHistorial[]
+  cargando: boolean
+  nombreDe: (id: string | null) => string
+}) {
+  const [busqueda, setBusqueda] = useState('')
+  const filtrados = clientes.filter((c) => coincide(c, busqueda))
+
+  return (
+    <>
+      <Buscador valor={busqueda} alCambiar={setBusqueda} que="rechazados" />
+      <section className="tarjeta">
+        {cargando ? (
+          <p>Cargando…</p>
+        ) : filtrados.length === 0 ? (
+          <p className="vacio">
+            {busqueda ? 'No hay rechazados que coincidan.' : 'Todavía no hay clientes rechazados.'}
+          </p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Código prov.</th>
+                <th>Razón social</th>
+                <th>Lo cargó</th>
+                <th>Motivo del rechazo</th>
+                <th>Rechazado</th>
+                <th>Rechazó</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <code>{c.codigo}</code>
+                  </td>
+                  <td>
+                    <RazonSocial cliente={c} />
+                  </td>
+                  <td>{nombreDe(c.creado_por ?? c.vendedor_id)}</td>
+                  <td>
+                    <span className="pastilla ambar">{c.motivo_rechazo ?? '—'}</span>
+                  </td>
+                  <td>{fechaHora(c.rechazado_en)}</td>
+                  <td>{nombreDe(c.rechazado_por)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      {clientes.length >= LIMITE && (
+        <p className="aviso atencion" style={{ marginTop: 8 }}>
+          Mostrando los {LIMITE} más recientes; hay más en el historial.
+        </p>
+      )}
+    </>
   )
 }

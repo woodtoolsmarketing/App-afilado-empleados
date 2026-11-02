@@ -92,7 +92,6 @@ export type ClaveFuncionPanel =
   | 'panel_rol_maestro'
   | 'panel_clientes'
   | 'panel_clientes_a_confirmar'
-  | 'panel_clientes_historial'
   | 'panel_modificaciones'
   | 'panel_cambios_direccion'
   | 'panel_usuarios'

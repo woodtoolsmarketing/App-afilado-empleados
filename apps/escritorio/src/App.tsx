@@ -19,7 +19,6 @@ import { PaginaClientes } from './paginas/Clientes'
 import { PaginaClientesAConfirmar } from './paginas/ClientesAConfirmar'
 import { PaginaCobranzasVendedores } from './paginas/CobranzasVendedores'
 import { PaginaColaImpresion } from './paginas/ColaImpresion'
-import { PaginaHistorialClientes } from './paginas/HistorialClientes'
 import { PaginaIngreso } from './paginas/Ingreso'
 import { PaginaLugaresEntregaACargar } from './paginas/LugaresEntregaACargar'
 import { PaginaMapaClientes } from './paginas/MapaClientes'
@@ -111,10 +110,6 @@ export function App() {
           <Route
             path="/clientes-a-confirmar"
             element={gate('panel_clientes_a_confirmar', <PaginaClientesAConfirmar soloLectura={!sesion.esAdministracion} />)}
-          />
-          <Route
-            path="/clientes-historial"
-            element={gate('panel_clientes_historial', <PaginaHistorialClientes />)}
           />
           <Route
             path="/modificaciones"
@@ -406,7 +401,6 @@ function BarraLateral({
     { a: '/clientes', icono: '☰', texto: 'Clientes', permiso: 'panel_clientes' },
     { a: '/permisos-edicion', icono: '🔑', texto: 'Ediciones de clientes', globo: edicionesPend, soloAdmin: true },
     { a: '/clientes-a-confirmar', icono: '🆕', texto: 'Clientes a confirmar', globo: clientesAConfirmar, permiso: 'panel_clientes_a_confirmar' },
-    { a: '/clientes-historial', icono: '🗂', texto: 'Historial de clientes', permiso: 'panel_clientes_historial' },
     { a: '/modificaciones', icono: '✎', texto: 'Modificaciones', permiso: 'panel_modificaciones' },
     { a: '/cambios-direccion', icono: '📍', texto: 'Cambios de dirección', globo: cambiosDir, permiso: 'panel_cambios_direccion' },
     { a: '/lugares-entrega', icono: '📦', texto: 'Lugares de entrega a cargar', globo: lugaresCrudo, permiso: 'panel_lugares_entrega_cargar' },
