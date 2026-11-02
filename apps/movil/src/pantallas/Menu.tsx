@@ -94,6 +94,16 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
           />
         ) : null}
 
+        {/* Cuarta opción del menú (pedido). Por ahora sin gatear por la matriz de
+            permisos: la pantalla es de sólo lectura (stock sin precios). Al
+            productizarla se suma `puedeVer('stock_disponible')` y su fila en
+            `funciones`, como el resto. */}
+        <BotonMenu
+          titulo="STOCK DISPONIBLE"
+          subtitulo="Qué hay en stock, con el semáforo de la venta — sin precios"
+          alTocar={() => navigation.navigate('StockDisponible')}
+        />
+
         {puedeVer('lista_semanal') ? (
           <BotonMenu
             titulo="LISTA SEMANAL"
@@ -170,16 +180,6 @@ export function PantallaMenu({ navigation }: PropsPantalla<'Menu'>) {
             alTocar={() => navigation.navigate('ComunicacionInterna')}
           />
         ) : null}
-
-        {/* Por ahora sin gatear por la matriz de permisos: es un APK de prueba
-            para el teléfono 27 y la pantalla es de sólo lectura (stock sin
-            precios). Al productizarla se suma `puedeVer('stock_disponible')` y su
-            fila en `funciones`, como el resto de las opciones. */}
-        <BotonMenu
-          titulo="STOCK DISPONIBLE"
-          subtitulo="Qué hay en stock, con el semáforo de la venta — sin precios"
-          alTocar={() => navigation.navigate('StockDisponible')}
-        />
 
         <BotonMenu
           titulo="CONFIGURACIÓN"
