@@ -12,7 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native'
 
-import { Aviso } from '../componentes/Estado'
+import { Aviso, Cargando } from '../componentes/Estado'
 import { Campo } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
@@ -52,6 +52,13 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
   const [baseFamilia, setBaseFamilia] = useState<ArticuloCatalogo[] | null>(null)
   /** Resultados del servidor cuando se busca en TODO el catálogo (sin familia). */
   const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
+  /**
+   * El texto para el que `resultados` es la respuesta DEFINITIVA del servidor;
+   * `null` mientras hay una búsqueda pendiente o en vuelo. Es lo que evita que el
+   * cartel de "no hay nada" aparezca entre que se teclea y que la búsqueda
+   * realmente responde para ESE texto.
+   */
+  const [consultaResuelta, setConsultaResuelta] = useState<string | null>(null)
   const [buscando, setBuscando] = useState(false)
   const [fallo, setFallo] = useState<string | null>(null)
   const [reintento, setReintento] = useState(0)
@@ -95,22 +102,34 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
   useEffect(() => {
     if (familia !== null) {
       setResultados([])
+      setConsultaResuelta(null)
       return
     }
     if (temporizador.current) clearTimeout(temporizador.current)
     if (!hayTextoSuelto) {
       setResultados([])
       setFallo(null)
+      // Apagar el spinner también acá: si venía un fetch en vuelo, su cleanup ya
+      // lo canceló y el `finally` (que mira `!cancelado`) no lo va a apagar. Sin
+      // esto, achicar el texto a menos de dos letras deja el spinner girando solo.
+      setBuscando(false)
+      setConsultaResuelta(null)
       return
     }
+    // Se marca "buscando" YA, al programar el debounce (no recién dentro del
+    // setTimeout), y se invalida la respuesta anterior (consultaResuelta = null):
+    // así durante esos 300 ms se ve el spinner y `sinResultados` no pinta el
+    // cartel de "no hay nada" antes de que la búsqueda responda para ESTE texto.
     let cancelado = false
+    setBuscando(true)
+    setFallo(null)
+    setConsultaResuelta(null)
     temporizador.current = setTimeout(async () => {
-      setBuscando(true)
-      setFallo(null)
       try {
         const encontrados = await buscarArticulos(texto, null)
         if (cancelado) return
         setResultados(encontrados)
+        setConsultaResuelta(texto)
       } catch (e) {
         if (cancelado) return
         setResultados([])
@@ -131,7 +150,7 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
     !buscando &&
     !fallo &&
     lista.length === 0 &&
-    (familia !== null ? baseFamilia !== null : hayTextoSuelto)
+    (familia !== null ? baseFamilia !== null : hayTextoSuelto && consultaResuelta === texto)
   const pedirBusqueda = familia === null && !hayTextoSuelto
 
   return (
@@ -183,6 +202,12 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
             </View>
           ) : null}
 
+          {/* Mientras carga (precarga de una familia o búsqueda en vuelo) y todavía
+              no hay nada que mostrar, el feedback va ACÁ, en el cuerpo, que es donde
+              mira el vendedor —sobre todo cuando el gesto fue tocar un chip de abajo
+              y el spinner chico del campo de arriba le queda fuera de la vista. */}
+          {buscando && lista.length === 0 ? <Cargando texto="Buscando…" /> : null}
+
           {familia === null && resultados.length >= LISTA_SUELTA ? (
             <Text style={estilos.nota}>
               {`Hay más de ${LISTA_SUELTA} que coinciden y se muestran los primeros. Escribí un poco más, o elegí una herramienta arriba.`}
@@ -230,6 +255,7 @@ function Chip({ texto, activo, alTocar }: { texto: string; activo: boolean; alTo
       onPress={alTocar}
       accessibilityRole="button"
       accessibilityState={{ selected: activo }}
+      hitSlop={{ top: 8, bottom: 8 }}
       style={({ pressed }) => [estilos.chip, activo && estilos.chipActivo, pressed && estilos.tocada]}
     >
       <Text style={[estilos.chipTexto, activo && estilos.chipTextoActivo]}>{texto}</Text>
@@ -340,7 +366,9 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   chips: { gap: espaciado.xs, paddingVertical: 2 },
   chip: {
-    minHeight: 40,
+    // 44 de alto + hitSlop en el Pressable para acercarse al piso táctil propio
+    // del sistema de diseño (TOQUE_MINIMO = 56), sin agrandar visualmente la pastilla.
+    minHeight: 44,
     paddingHorizontal: espaciado.md,
     borderRadius: radios.pastilla,
     borderWidth: 1.5,
