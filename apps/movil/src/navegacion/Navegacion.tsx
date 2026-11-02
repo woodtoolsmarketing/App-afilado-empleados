@@ -39,6 +39,7 @@ import { PantallaMenu } from '../pantallas/Menu'
 import { PantallaRecorrido } from '../pantallas/Recorrido'
 import { PantallaMisImpresiones } from '../pantallas/MisImpresiones'
 import { PantallaRolDeVisita } from '../pantallas/RolDeVisita'
+import { PantallaStockDisponible } from '../pantallas/StockDisponible'
 import { PantallaClientes } from '../pantallas/admin/Clientes'
 import { PantallaModificaciones } from '../pantallas/admin/Modificaciones'
 import { PantallaUsuarios } from '../pantallas/admin/Usuarios'
@@ -262,6 +263,7 @@ export function Navegacion() {
             ) : null}
             <Pila.Screen name="RolDeVisita" component={PantallaRolDeVisita} />
             <Pila.Screen name="MisImpresiones" component={PantallaMisImpresiones} />
+            <Pila.Screen name="StockDisponible" component={PantallaStockDisponible} />
             {esAdmin ? (
               <>
                 <Pila.Screen name="AdminUsuarios" component={PantallaUsuarios} />

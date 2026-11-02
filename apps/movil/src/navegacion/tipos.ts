@@ -95,6 +95,12 @@ export type ParametrosApp = {
   RolDeVisita: { imprimirAlEntrar?: number } | undefined
   /** Lo que el vendedor mandó a imprimir a la oficina, con su posición en la cola. */
   MisImpresiones: undefined
+  /**
+   * Consulta de stock disponible, de sólo lectura: el mismo semáforo del
+   * buscador de la venta (verde / amarillo / rojo) pero sin precios, con filtro
+   * por herramienta y búsqueda por código o nombre. No arma ninguna nota.
+   */
+  StockDisponible: undefined
   // ── Administración (sólo rol admin; el menú las esconde para el resto) ──────
   /** Altas de usuarios, habilitación de teléfonos y resets de contraseña. */
   AdminUsuarios: undefined
