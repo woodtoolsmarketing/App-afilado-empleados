@@ -29,23 +29,43 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * no se toca. La cantidad exacta se muestra SÓLO cuando quedan pocas (amarillo):
  * en verde alcanza con saber que hay, sin dar el número.
  *
- * Al entrar (chip TODAS) se precargan TODAS las familias de herramienta juntas
- * y se muestran de una: el vendedor abre la pantalla y ve el stock, sin tener
- * que buscar ni elegir nada. Elegir un chip la acota a esa familia. El buscador
- * filtra en el teléfono sobre lo ya bajado, así que responde al instante. Como
- * el catálogo entero se corta en 1000 y una familia (sierra sin fin) quedaría
- * afuera de ese corte, se baja una consulta POR FAMILIA (cada una entra
- * completa) en vez de una sola "sin familia".
+ * ─── Cómo carga ──────────────────────────────────────────────────────────────
+ * Al entrar se bajan de una TODAS las familias con stock y se muestran: el
+ * vendedor abre la pantalla y ve el stock, sin buscar ni elegir nada. Los chips
+ * y el buscador después filtran en el TELÉFONO sobre eso ya bajado, así que
+ * responden al instante y cambiar de chip no vuelve a consultar.
+ *
+ * Se baja una consulta POR familia (no una sola "sin familia", que la RPC corta
+ * en 1000 y dejaría afuera familias enteras) y con `Promise.allSettled`, NO
+ * `all`: en la calle la señal se va, y que una sola familia corte no puede dejar
+ * la pantalla vacía —que es justo lo que se vino a arreglar—; se muestra lo que
+ * SÍ llegó y se avisa que falta completar.
+ *
+ * Las familias son las de la venta (las de los chips) MÁS las que la oficina
+ * trackea sin chip propio (varios, diamante, muela): así nada con stock queda
+ * invisible (p. ej. un resinol archivado en 'varios').
  *
  * El stock que la oficina no trackea (sin fila cargada) sale como "—": en la
  * venta eso iría verde (se ofrece igual), pero acá, donde la pregunta es
  * "¿cuánto hay?", decir "no hay dato" es más honesto que pintarlo de verde.
  *
- * La lista va en un FlatList (no un ScrollView con `.map`): con TODAS son ~1000
- * filas y renderizarlas todas de golpe congelaría el teléfono; el FlatList
- * dibuja sólo las que se ven.
+ * La lista va en un FlatList (no un ScrollView con `.map`): son ~1300 filas y
+ * dibujarlas todas de golpe congelaría el teléfono; el FlatList dibuja sólo las
+ * que se ven.
  */
 const HERRAMIENTAS: Herramienta[] = HERRAMIENTAS_POR_SERVICIO.venta
+
+/**
+ * Todas las familias con stock cargado: las 6 de la venta (las de los chips) +
+ * las que la oficina trackea sin chip propio. Si algún día la oficina trackea
+ * stock en una familia nueva, sumala acá para que no quede invisible.
+ */
+const FAMILIAS_STOCK: string[] = [
+  ...HERRAMIENTAS.map((h) => FAMILIA_PRODUCTO[h]),
+  'varios',
+  'diamante',
+  'muela',
+]
 
 export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisponible'>) {
   const { colores } = usarTema()
@@ -54,43 +74,47 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
   /** La herramienta elegida en los chips; `null` = TODAS. */
   const [herramienta, setHerramienta] = useState<Herramienta | null>(null)
   const [consulta, setConsulta] = useState('')
-  /**
-   * Lo que se bajó para el chip activo: una familia, o TODAS las familias
-   * juntas. `null` mientras no llegó. El buscador filtra sobre esto en el
-   * teléfono.
-   */
+  /** Todo el stock (todas las familias), bajado UNA vez. `null` mientras no llegó. */
   const [base, setBase] = useState<ArticuloCatalogo[] | null>(null)
   const [cargando, setCargando] = useState(false)
+  /**
+   * Aviso NO bloqueante: si alguna familia no se pudo traer (señal), se muestra
+   * lo que SÍ llegó y se avisa, en vez de blanquear todo. `null` = vino todo.
+   */
+  const [avisoParcial, setAvisoParcial] = useState<string | null>(null)
+  /** Fallo total (no llegó NINGUNA familia): ahí sí la pantalla no tiene qué mostrar. */
   const [fallo, setFallo] = useState<string | null>(null)
   const [reintento, setReintento] = useState(0)
 
   const familia = herramienta ? FAMILIA_PRODUCTO[herramienta] : null
   const texto = consulta.trim()
 
-  // ── Precarga (una vez por chip): la familia elegida, o TODAS juntas ──────────
-  // Con un chip, su familia. Con TODAS, una consulta POR familia en paralelo y se
-  // concatenan: así entra cada familia completa (la "sin familia" se corta en
-  // 1000 y dejaría afuera a sierra sin fin). Se baja una vez y el resto filtra
-  // local.
+  // ── Precarga de TODO el stock, una sola vez (y al reintentar) ────────────────
+  // Una consulta por familia, en paralelo, con allSettled: se arma `base` con las
+  // que llegaron y, si faltó alguna, se avisa sin blanquear. NO depende del chip:
+  // cambiar de chip filtra `base` en el teléfono, no vuelve a consultar.
   useEffect(() => {
     let cancelado = false
     setBase(null)
     setCargando(true)
     setFallo(null)
-    const promesa =
-      familia !== null
-        ? buscarArticulos('', familia, FAMILIA_COMPLETA)
-        : Promise.all(
-            HERRAMIENTAS.map((h) => buscarArticulos('', FAMILIA_PRODUCTO[h], FAMILIA_COMPLETA)),
-          ).then((porFamilia) => porFamilia.flat())
-    promesa
-      .then((todos) => {
-        if (!cancelado) setBase(todos)
-      })
-      .catch((e) => {
-        if (!cancelado) {
+    setAvisoParcial(null)
+    Promise.allSettled(FAMILIAS_STOCK.map((f) => buscarArticulos('', f, FAMILIA_COMPLETA)))
+      .then((res) => {
+        if (cancelado) return
+        const traidas = res.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+        const fallaron = res.filter((r) => r.status === 'rejected').length
+        if (fallaron === res.length) {
+          // No llegó NINGUNA: es un fallo de verdad (sin señal), no un parcial.
           setBase([])
-          setFallo((e as Error).message)
+          setFallo('No pudimos consultar el stock. Revisá la señal y tocá Reintentar.')
+        } else {
+          setBase(traidas)
+          setAvisoParcial(
+            fallaron > 0
+              ? `Faltan ${fallaron} de ${res.length} familias (se cortó la señal). Puede faltar algo de stock — tocá Reintentar para completar.`
+              : null,
+          )
         }
       })
       .finally(() => {
@@ -99,13 +123,17 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
     return () => {
       cancelado = true
     }
-  }, [familia, reintento])
+  }, [reintento])
 
-  const lista = filtrarFamilia(base ?? [], texto)
+  // El chip y el texto filtran `base` en el teléfono (instantáneo). Un chip acota
+  // a su familia; TODAS deja todo.
+  const deFamilia =
+    familia === null ? base ?? [] : (base ?? []).filter((a) => a.familia === familia)
+  const lista = filtrarFamilia(deFamilia, texto)
   const prefijo = prefijoComun(lista.map((a) => a.codigo))
-  // Cargó y no hay nada: sólo cuando el filtro de texto no encontró nada (con
-  // texto vacío la base nunca es vacía). Mientras `base` es null (bajando) o
-  // `cargando`, no se afirma "no hay".
+  // Cargó y el filtro de texto no encontró nada (con texto vacío `base` nunca es
+  // vacío). Mientras baja (`base` null / `cargando`) o hubo fallo total, no se
+  // afirma "no hay".
   const sinResultados = !cargando && !fallo && base !== null && lista.length === 0
 
   return (
@@ -143,9 +171,9 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
           </ScrollView>
         </View>
 
-        {/* La lista en un FlatList (virtualizado): con TODAS son ~1000 filas y un
-            ScrollView las dibujaría todas de golpe. La "caja" con borde la envuelve
-            y el FlatList scrollea adentro. */}
+        {/* La lista en un FlatList (virtualizado): son ~1300 filas y un ScrollView
+            las dibujaría todas de golpe. La "caja" con borde la envuelve y el
+            FlatList (flex:1) scrollea adentro. */}
         <View style={estilos.listaCaja}>
           <FlatList
             data={lista}
@@ -155,6 +183,20 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={lista.length === 0 ? estilos.cuerpoVacio : undefined}
+            ListHeaderComponent={
+              avisoParcial && lista.length > 0 ? (
+                <View style={estilos.avisoHeader}>
+                  <Aviso tono="atencion">{avisoParcial}</Aviso>
+                  <Pressable
+                    onPress={() => setReintento((n) => n + 1)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+                  >
+                    <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
+                  </Pressable>
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               cargando ? (
                 <Cargando texto="Buscando…" />
@@ -162,7 +204,6 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
                 <>
                   <Aviso tono="atencion" titulo="No pudimos consultar el stock">
                     {fallo}
-                    {'\n\n'}Revisá la señal y tocá Reintentar.
                   </Aviso>
                   <Pressable
                     onPress={() => setReintento((n) => n + 1)}
@@ -340,12 +381,19 @@ const usarEstilos = hojaDeTema((t) => ({
     backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
-  // Cuando la lista está vacía (cargando / sin resultados / error), el contenido
-  // del FlatList necesita su propio padding, que las filas ya traen.
   // El FlatList tiene que llenar la caja (flex:1) para tener altura acotada y
   // poder scrollear; sin esto se recorta al contenido.
   flat: { flex: 1 },
+  // Cuando la lista está vacía (cargando / sin resultados / error), el contenido
+  // del FlatList necesita su propio padding, que las filas ya traen.
   cuerpoVacio: { padding: espaciado.base, gap: espaciado.sm },
+  // El aviso de carga parcial, arriba de la lista, separado con una línea.
+  avisoHeader: {
+    padding: espaciado.sm,
+    gap: espaciado.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colores.panelOscuro,
+  },
 
   fila: {
     paddingHorizontal: espaciado.md,
