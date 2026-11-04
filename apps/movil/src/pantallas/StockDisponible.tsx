@@ -149,6 +149,7 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
         <View style={estilos.listaCaja}>
           <FlatList
             data={lista}
+            style={estilos.flat}
             keyExtractor={(a) => `${a.codigo}|${a.descripcion}`}
             renderItem={({ item }) => <FilaStock articulo={item} prefijo={prefijo} />}
             keyboardShouldPersistTaps="handled"
@@ -341,6 +342,9 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   // Cuando la lista está vacía (cargando / sin resultados / error), el contenido
   // del FlatList necesita su propio padding, que las filas ya traen.
+  // El FlatList tiene que llenar la caja (flex:1) para tener altura acotada y
+  // poder scrollear; sin esto se recorta al contenido.
+  flat: { flex: 1 },
   cuerpoVacio: { padding: espaciado.base, gap: espaciado.sm },
 
   fila: {
