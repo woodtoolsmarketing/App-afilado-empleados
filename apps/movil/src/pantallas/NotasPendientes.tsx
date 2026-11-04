@@ -19,6 +19,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import {
   anularNota,
+  encolarImpresion,
   marcarImpresas,
   notasPendientes,
   sePuedeCorregir,
@@ -216,6 +217,76 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
     },
   })
 
+  /**
+   * Mandar las notas seleccionadas (o todas las pendientes) a la COLA de la
+   * oficina, en vez de imprimirlas directo por IPP.
+   *
+   * Es la salida para cuando el teléfono no está en el wifi de la oficina —en la
+   * calle, casi siempre—: la PC de la oficina las imprime sola. No se marca nada
+   * acá; cada nota se sella cuando la oficina confirma el papel, así que después
+   * del envío siguen figurando como pendientes (no es un error).
+   *
+   * Va SÓLO la nota, igual que el botón del detalle. A propósito NO arrastra el
+   * rol ni los cobros aunque sus casillas estén tildadas (ésas son para el
+   * IMPRIMIR directo): mandar los cobros desde acá los cerraría —`impreso_en`—
+   * sin querer, mientras el vendedor todavía los edita en la calle. El rol y los
+   * cobros se mandan a la oficina desde sus propias pantallas, donde cerrarlos es
+   * una decisión explícita.
+   */
+  const aLaOficina = useMutation<
+    { nuevas: number; repetidas: number; problemas: string[] },
+    Error,
+    void
+  >({
+    mutationFn: async () => {
+      // Se congela el objetivo ACÁ, como en `imprimir`: entre el toque y el
+      // refresco de la lista el vendedor pudo tocar la selección.
+      const notas = objetivo
+      if (notas.length === 0) throw new Error('No hay notas para mandar.')
+
+      let nuevas = 0
+      let repetidas = 0
+      const problemas: string[] = []
+      for (const nf of notas) {
+        const r = await encolarImpresion(nf.id)
+        if (r.encolada) {
+          nuevas++
+        } else if (r.motivo === 'Esta nota ya está en la cola de la oficina.') {
+          repetidas++
+        } else if (r.motivo && !problemas.includes(r.motivo)) {
+          // No se encoló y NO estaba en la cola: anulada por Administración, o
+          // sin sesión. Se junta el motivo para avisarlo (no es una "repetida").
+          problemas.push(r.motivo)
+        }
+      }
+      return { nuevas, repetidas, problemas }
+    },
+    onSuccess: ({ nuevas, repetidas, problemas }) => {
+      void cliente.invalidateQueries({ queryKey: ['notas-pendientes'] })
+      const notaRepetidas =
+        repetidas > 0
+          ? ` (${repetidas} ya ${repetidas === 1 ? 'estaba pedida' : 'estaban pedidas'}.)`
+          : ''
+      const notaProblemas =
+        problemas.length > 0 ? `\n\nNo se pudieron mandar: ${problemas.join(' ')}` : ''
+      if (nuevas > 0) {
+        Alert.alert(
+          'Van a la oficina',
+          `${nuevas} nota${nuevas === 1 ? '' : 's'} ${nuevas === 1 ? 'quedó' : 'quedaron'} en la cola. Las imprime la PC de la oficina y recién ahí quedan marcadas como impresas.${notaRepetidas}${notaProblemas}`,
+        )
+      } else if (problemas.length > 0) {
+        Alert.alert('No se mandó ninguna', `No se pudieron mandar: ${problemas.join(' ')}${notaRepetidas}`)
+      } else {
+        Alert.alert('Ya estaban pedidas', 'Esas notas ya estaban en la cola de la oficina.')
+      }
+    },
+    onError: (e: Error) =>
+      Alert.alert('No pudimos mandarlas', e.message, [
+        { text: 'Reintentar', onPress: () => aLaOficina.mutate() },
+        { text: 'Cancelar', style: 'cancel' },
+      ]),
+  })
+
   return (
     <Pantalla>
       <Encabezado />
@@ -367,6 +438,32 @@ export function PantallaNotasPendientes({ navigation }: PropsPantalla<'NotasPend
               }}
               cargando={imprimir.isPending}
             />
+
+            {/* La salida para cuando el teléfono NO está en el wifi de la
+                oficina —en la calle, casi siempre—: en vez de imprimir directo,
+                las notas van a la cola y la PC de la oficina las imprime sola. Va
+                sólo la nota (como el botón del detalle); el rol y los cobros se
+                mandan desde sus propias pantallas. No se deshabilita: si no hay
+                ninguna para mandar, guía en vez de quedar gris y mudo —como hace
+                el IMPRIMIR directo con su subtítulo—. */}
+            <BotonSecundario
+              titulo="🖨  Mandar a imprimir a la oficina"
+              cargando={aLaOficina.isPending}
+              alTocar={() => {
+                if (!hayParaImprimir) {
+                  Alert.alert(
+                    'No hay notas para mandar',
+                    'Ya salieron todas. Tocá una nota de la lista para volver a mandarla a la oficina.',
+                  )
+                  return
+                }
+                aLaOficina.mutate()
+              }}
+            />
+            <Text style={estilos.colaAyuda}>
+              Manda las notas a la cola; las imprime la PC de la oficina. Sirve aunque no estés en su
+              wifi; cada nota se marca como impresa cuando allá sale el papel.
+            </Text>
           </>
         )}
       </Panel>
@@ -499,6 +596,13 @@ function FilaNota({
 
 const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.sm },
+
+  colaAyuda: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.micro,
+    color: t.colores.tintaTenue,
+    textAlign: 'center',
+  },
 
   fila: {
     flexDirection: 'row',
