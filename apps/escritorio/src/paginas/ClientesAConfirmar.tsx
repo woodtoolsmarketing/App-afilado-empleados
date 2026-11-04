@@ -2,7 +2,7 @@ import { type Cliente, type Direccion, type Perfil } from '@woodtools/compartido
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 type ClienteConDirecciones = Cliente & { direcciones: Direccion[] }
 
@@ -27,6 +27,29 @@ type Pestania = 'pendientes' | 'confirmados' | 'rechazados'
  * silencio. Hoy son un puñado; falta muchísimo para esto.
  */
 const LIMITE = 1000
+
+/**
+ * Aviso push al teléfono del vendedor (best-effort), con el mismo patrón que
+ * "agregar destino" (RolesDeVisita): Authorization explícito con tokenDeSesion,
+ * y si el vendedor no tiene token o falla el envío NO frena la confirmación ni
+ * el rechazo. `vendedorId` nulo = no se avisa (enviar-push igual lo toleraría).
+ */
+async function avisarAlVendedor(
+  vendedorId: string | null | undefined,
+  titulo: string,
+  cuerpo: string,
+  datos: Record<string, unknown>,
+): Promise<void> {
+  if (!vendedorId) return
+  try {
+    await supabase.functions.invoke('enviar-push', {
+      headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
+      body: { vendedorId, titulo, cuerpo, datos },
+    })
+  } catch {
+    // best-effort: si no tiene token o falla el envío, no frena nada
+  }
+}
 
 function fechaHora(iso: string | null): string {
   if (!iso) return '—'
@@ -254,9 +277,19 @@ function TarjetaProvisorio({
         })
         if (errNota) throw errNota
       }
+
+      return cod
     },
-    onSuccess: async () => {
+    onSuccess: async (cod) => {
       await query.invalidateQueries()
+      // Aviso al vendedor que lo cargó: su cliente quedó dado de alta, con el
+      // código nuevo. Best-effort (ver avisarAlVendedor).
+      void avisarAlVendedor(
+        cliente.vendedor_id,
+        'Cliente dado de alta',
+        `La oficina confirmó a ${cliente.razon_social}. Código ${cod}.`,
+        { tipo: 'cliente_confirmado', clienteId: cliente.id, codigo: cod },
+      )
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -274,6 +307,15 @@ function TarjetaProvisorio({
     onSuccess: async () => {
       setRechazando(false)
       await query.invalidateQueries()
+      // Aviso al vendedor con el MOTIVO, para que sepa por qué y lo rehaga.
+      const etiqueta = motivo === 'cliente_ya_existe' ? 'El cliente ya existe' : 'Datos erróneos'
+      const texto = detalle.trim() ? `${etiqueta} — ${detalle.trim()}` : etiqueta
+      void avisarAlVendedor(
+        cliente.vendedor_id,
+        'Cliente rechazado',
+        `${cliente.razon_social}: ${texto}`,
+        { tipo: 'cliente_rechazado', clienteId: cliente.id },
+      )
     },
     onError: (e: Error) => setErrorRechazo(e.message),
   })
