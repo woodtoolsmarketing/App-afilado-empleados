@@ -11,11 +11,16 @@ import { Alert, KeyboardAvoidingView, Platform } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
+import { ModalDuplicados } from '../componentes/ModalDuplicados'
 import { MensajeError } from '../componentes/Formulario'
 import { Aviso } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { crearClienteProvisorio } from '../servicios/clientes'
+import {
+  buscarPosiblesDuplicados,
+  crearClienteProvisorio,
+  type PosibleDuplicado,
+} from '../servicios/clientes'
 import { agregarClienteAlRecorrido } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema } from '../nucleo/tema'
@@ -47,6 +52,8 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
   })
   const [errores, setErrores] = useState<Partial<Record<CampoClienteNuevo, string>>>({})
   const [intentado, setIntentado] = useState(false)
+  const [duplicados, setDuplicados] = useState<PosibleDuplicado[] | null>(null)
+  const [verificando, setVerificando] = useState(false)
 
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
     setForm((previo) => {
@@ -95,12 +102,28 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
     onError: (e: Error) => Alert.alert('No pudimos crear el cliente', e.message),
   })
 
-  function alGenerar() {
-    if (guardar.isPending || guardar.isSuccess) return
+  async function alGenerar() {
+    if (guardar.isPending || guardar.isSuccess || verificando) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
-    if (valido) guardar.mutate()
+    if (!valido) return
+    // Antes de crear: ¿ya existe un cliente con estos datos? Si hay match fuerte
+    // el cartel bloquea; si sólo se parece el nombre, avisa y deja crear igual.
+    setVerificando(true)
+    try {
+      const posibles = await buscarPosiblesDuplicados(form)
+      if (posibles.length) {
+        setDuplicados(posibles)
+        return
+      }
+      guardar.mutate()
+    } catch {
+      // Sin señal no podemos consultar duplicados: no trabamos el alta por eso.
+      guardar.mutate()
+    } finally {
+      setVerificando(false)
+    }
   }
 
   return (
@@ -132,10 +155,19 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
           <BotonMenu
             titulo={'GENERAR\nNUEVO CLIENTE'}
             alTocar={alGenerar}
-            cargando={guardar.isPending}
+            cargando={guardar.isPending || verificando}
           />
         </Panel>
       </KeyboardAvoidingView>
+
+      <ModalDuplicados
+        candidatos={duplicados}
+        alCerrar={() => setDuplicados(null)}
+        alContinuar={() => {
+          setDuplicados(null)
+          guardar.mutate()
+        }}
+      />
     </Pantalla>
   )
 }

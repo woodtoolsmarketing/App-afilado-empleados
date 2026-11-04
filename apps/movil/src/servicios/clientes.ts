@@ -398,3 +398,39 @@ export async function crearClienteProvisorio(
 
   return data as Cliente
 }
+
+/** Un cliente que podría ser el mismo que se está por crear. */
+export type PosibleDuplicado = {
+  codigo: string
+  razon_social: string
+  nombre_fantasia: string | null
+  localidad: string
+  provisorio: boolean
+  /** 'fuerte' bloquea el alta; 'parecido' sólo avisa. */
+  fuerza: 'fuerte' | 'parecido'
+  motivo: string
+}
+
+/**
+ * Busca clientes posiblemente repetidos ANTES de dar de alta uno nuevo.
+ *
+ * Server-side (RPC `clientes_posibles_duplicados`, SECURITY DEFINER): compara
+ * contra TODO el padrón —incluye provisorios y clientes no habilitados que el
+ * buscador del vendedor no ve—, así no se crea un duplicado contra una ficha que
+ * el vendedor no puede encontrar. Criterio "coincidencia fuerte": 'fuerte' =
+ * mismo CUIT/DNI, email, o teléfono + nombre parecido (bloquean); 'parecido' =
+ * sólo el nombre se parece (avisa, deja crear).
+ */
+export async function buscarPosiblesDuplicados(
+  form: FormularioClienteNuevo,
+): Promise<PosibleDuplicado[]> {
+  const telefonos = form.telefonos.map((t) => t.trim()).filter(Boolean)
+  const { data, error } = await supabase.rpc('clientes_posibles_duplicados', {
+    p_razon_social: form.razon_social.trim(),
+    p_documento: form.documento.trim() || null,
+    p_email: form.email.trim() || null,
+    p_telefonos: telefonos.length ? telefonos : null,
+  })
+  if (error) throw error
+  return (data ?? []) as PosibleDuplicado[]
+}

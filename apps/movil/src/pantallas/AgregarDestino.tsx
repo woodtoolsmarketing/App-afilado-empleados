@@ -41,6 +41,7 @@ import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
+import { ModalDuplicados } from '../componentes/ModalDuplicados'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
@@ -55,10 +56,12 @@ import {
 import {
   agregarDestinoExistente,
   buscarClientes,
+  buscarPosiblesDuplicados,
   crearClienteProvisorio,
   direccionesDeCliente,
   ESPERA_TECLEO,
   LIMITE_CLIENTES,
+  type PosibleDuplicado,
   ubicarCliente,
 } from '../servicios/clientes'
 import { proponerCambioDireccion } from '../servicios/cambiosDireccion'
@@ -1321,6 +1324,8 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   })
   const [errores, setErrores] = useState<Partial<Record<CampoClienteNuevo, string>>>({})
   const [intentado, setIntentado] = useState(false)
+  const [duplicados, setDuplicados] = useState<PosibleDuplicado[] | null>(null)
+  const [verificando, setVerificando] = useState(false)
 
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
     setForm((previo) => {
@@ -1373,14 +1378,31 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
     },
   })
 
-  function alAgregar() {
+  async function alAgregar() {
     // Ya se agregó: un segundo toque (volviendo con Atrás a esta pantalla, que
     // queda montada) crearía un destino/cliente duplicado.
-    if (guardar.isPending || guardar.isSuccess) return
+    if (guardar.isPending || guardar.isSuccess || verificando) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
-    if (valido) guardar.mutate()
+    if (!valido) return
+    // Antes de crear: ¿ya existe un cliente con estos datos? Va ANTES de tocar la
+    // jornada, así un duplicado no reabre una jornada ni pregunta nada. Match
+    // fuerte bloquea; nombre sólo parecido avisa y deja crear igual.
+    setVerificando(true)
+    try {
+      const posibles = await buscarPosiblesDuplicados(form)
+      if (posibles.length) {
+        setDuplicados(posibles)
+        return
+      }
+      guardar.mutate()
+    } catch {
+      // Sin señal no podemos consultar duplicados: no trabamos el alta por eso.
+      guardar.mutate()
+    } finally {
+      setVerificando(false)
+    }
   }
 
   return (
@@ -1426,11 +1448,20 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
           <BotonMenu
             titulo={'AGREGAR AL\nRECORRIDO'}
             alTocar={alAgregar}
-            cargando={guardar.isPending}
+            cargando={guardar.isPending || verificando}
             deshabilitado={guardar.isSuccess}
           />
         </Panel>
       </KeyboardAvoidingView>
+
+      <ModalDuplicados
+        candidatos={duplicados}
+        alCerrar={() => setDuplicados(null)}
+        alContinuar={() => {
+          setDuplicados(null)
+          guardar.mutate()
+        }}
+      />
     </Pantalla>
   )
 }
