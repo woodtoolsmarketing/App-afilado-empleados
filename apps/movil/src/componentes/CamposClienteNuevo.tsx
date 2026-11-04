@@ -262,7 +262,6 @@ export function CamposClienteNuevo({
 
       <Campo
         etiqueta="CÓDIGO POSTAL"
-        obligatorio
         value={form.codigo_postal}
         onChangeText={(t) => actualizar({ codigo_postal: t })}
         placeholder="1704"
@@ -270,7 +269,13 @@ export function CamposClienteNuevo({
         maxLength={8}
         contenedorStyle={estilos.corto}
         error={errores.codigo_postal}
-        ayuda={form.lat !== null ? 'Lo completó Google. Podés corregirlo.' : undefined}
+        ayuda={
+          form.lat !== null
+            ? form.codigo_postal
+              ? 'Lo completó Google. Podés corregirlo.'
+              : 'Google no lo trajo. Podés dejarlo en blanco.'
+            : 'Opcional.'
+        }
       />
 
       <Campo

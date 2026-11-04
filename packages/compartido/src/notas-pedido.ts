@@ -1213,9 +1213,11 @@ export function validarClienteNuevo(
     errores.direccion = 'Elegí una dirección de la lista de sugerencias'
   }
 
-  if (!form.codigo_postal.trim()) {
-    errores.codigo_postal = 'Falta el código postal'
-  } else if (!CODIGO_POSTAL.test(form.codigo_postal.trim())) {
+  // El código postal es OPCIONAL: Google no siempre lo devuelve al geolocalizar
+  // y no tenerlo no impide el alta (la base lo guarda null). Si vino algo
+  // —autocompletado o tipeado— se valida el formato; vacío, se deja pasar.
+  const cp = form.codigo_postal.trim()
+  if (cp && !CODIGO_POSTAL.test(cp)) {
     errores.codigo_postal = 'El código postal no parece válido (ej. 1704 o B1704ARQ)'
   }
 
