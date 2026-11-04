@@ -9,19 +9,14 @@ import {
   type CaracteristicasArticulo,
   type Herramienta,
 } from '@woodtools/compartido'
-import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View } from 'react-native'
 
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Campo } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
-import {
-  buscarArticulos,
-  FAMILIA_COMPLETA,
-  LISTA_SUELTA,
-  type ArticuloCatalogo,
-} from '../servicios/notasPedido'
+import { buscarArticulos, FAMILIA_COMPLETA, type ArticuloCatalogo } from '../servicios/notasPedido'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 import type { PropsPantalla } from '../navegacion/tipos'
 
@@ -30,15 +25,25 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * armar una nota ni ver precios.
  *
  * Es el MISMO semáforo del buscador de la venta (verde con de sobra, amarillo
- * con pocas, rojo si está agotado) y la MISMA lógica de carga —precarga la
- * familia entera y filtra en el teléfono; sin familia consulta el servidor por
- * texto— pero de sólo lectura: nada de precios y la fila no se toca. La cantidad
- * exacta se muestra SÓLO cuando quedan pocas (amarillo): en verde alcanza con
- * saber que hay, sin dar el número.
+ * con pocas, rojo si está agotado), de sólo lectura: nada de precios y la fila
+ * no se toca. La cantidad exacta se muestra SÓLO cuando quedan pocas (amarillo):
+ * en verde alcanza con saber que hay, sin dar el número.
+ *
+ * Al entrar (chip TODAS) se precargan TODAS las familias de herramienta juntas
+ * y se muestran de una: el vendedor abre la pantalla y ve el stock, sin tener
+ * que buscar ni elegir nada. Elegir un chip la acota a esa familia. El buscador
+ * filtra en el teléfono sobre lo ya bajado, así que responde al instante. Como
+ * el catálogo entero se corta en 1000 y una familia (sierra sin fin) quedaría
+ * afuera de ese corte, se baja una consulta POR FAMILIA (cada una entra
+ * completa) en vez de una sola "sin familia".
  *
  * El stock que la oficina no trackea (sin fila cargada) sale como "—": en la
  * venta eso iría verde (se ofrece igual), pero acá, donde la pregunta es
  * "¿cuánto hay?", decir "no hay dato" es más honesto que pintarlo de verde.
+ *
+ * La lista va en un FlatList (no un ScrollView con `.map`): con TODAS son ~1000
+ * filas y renderizarlas todas de golpe congelaría el teléfono; el FlatList
+ * dibuja sólo las que se ven.
  */
 const HERRAMIENTAS: Herramienta[] = HERRAMIENTAS_POR_SERVICIO.venta
 
@@ -46,113 +51,62 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
   const { colores } = usarTema()
   const estilos = usarEstilos()
 
-  /** La herramienta elegida en los chips; `null` = todas (busca por texto). */
+  /** La herramienta elegida en los chips; `null` = TODAS. */
   const [herramienta, setHerramienta] = useState<Herramienta | null>(null)
   const [consulta, setConsulta] = useState('')
-  /** La familia entera, bajada UNA vez; `null` mientras no llegó. */
-  const [baseFamilia, setBaseFamilia] = useState<ArticuloCatalogo[] | null>(null)
-  /** Resultados del servidor cuando se busca en TODO el catálogo (sin familia). */
-  const [resultados, setResultados] = useState<ArticuloCatalogo[]>([])
   /**
-   * El texto para el que `resultados` es la respuesta DEFINITIVA del servidor;
-   * `null` mientras hay una búsqueda pendiente o en vuelo. Es lo que evita que el
-   * cartel de "no hay nada" aparezca entre que se teclea y que la búsqueda
-   * realmente responde para ESE texto.
+   * Lo que se bajó para el chip activo: una familia, o TODAS las familias
+   * juntas. `null` mientras no llegó. El buscador filtra sobre esto en el
+   * teléfono.
    */
-  const [consultaResuelta, setConsultaResuelta] = useState<string | null>(null)
-  const [buscando, setBuscando] = useState(false)
+  const [base, setBase] = useState<ArticuloCatalogo[] | null>(null)
+  const [cargando, setCargando] = useState(false)
   const [fallo, setFallo] = useState<string | null>(null)
   const [reintento, setReintento] = useState(0)
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const familia = herramienta ? FAMILIA_PRODUCTO[herramienta] : null
   const texto = consulta.trim()
-  // Sin familia hacen falta dos letras: si no, la consulta es el catálogo entero.
-  const hayTextoSuelto = texto.length >= 2
 
-  // ── Precarga de la familia entera (una sola consulta; el resto filtra local) ──
+  // ── Precarga (una vez por chip): la familia elegida, o TODAS juntas ──────────
+  // Con un chip, su familia. Con TODAS, una consulta POR familia en paralelo y se
+  // concatenan: así entra cada familia completa (la "sin familia" se corta en
+  // 1000 y dejaría afuera a sierra sin fin). Se baja una vez y el resto filtra
+  // local.
   useEffect(() => {
-    if (familia === null) {
-      setBaseFamilia(null)
-      setBuscando(false)
-      return
-    }
     let cancelado = false
-    setBaseFamilia(null)
-    setBuscando(true)
+    setBase(null)
+    setCargando(true)
     setFallo(null)
-    buscarArticulos('', familia, FAMILIA_COMPLETA)
+    const promesa =
+      familia !== null
+        ? buscarArticulos('', familia, FAMILIA_COMPLETA)
+        : Promise.all(
+            HERRAMIENTAS.map((h) => buscarArticulos('', FAMILIA_PRODUCTO[h], FAMILIA_COMPLETA)),
+          ).then((porFamilia) => porFamilia.flat())
+    promesa
       .then((todos) => {
-        if (!cancelado) setBaseFamilia(todos)
+        if (!cancelado) setBase(todos)
       })
       .catch((e) => {
         if (!cancelado) {
-          setBaseFamilia([])
+          setBase([])
           setFallo((e as Error).message)
         }
       })
       .finally(() => {
-        if (!cancelado) setBuscando(false)
+        if (!cancelado) setCargando(false)
       })
     return () => {
       cancelado = true
     }
   }, [familia, reintento])
 
-  // ── Búsqueda en TODO el catálogo (sin familia): consulta el servidor ─────────
-  useEffect(() => {
-    if (familia !== null) {
-      setResultados([])
-      setConsultaResuelta(null)
-      return
-    }
-    if (temporizador.current) clearTimeout(temporizador.current)
-    if (!hayTextoSuelto) {
-      setResultados([])
-      setFallo(null)
-      // Apagar el spinner también acá: si venía un fetch en vuelo, su cleanup ya
-      // lo canceló y el `finally` (que mira `!cancelado`) no lo va a apagar. Sin
-      // esto, achicar el texto a menos de dos letras deja el spinner girando solo.
-      setBuscando(false)
-      setConsultaResuelta(null)
-      return
-    }
-    // Se marca "buscando" YA, al programar el debounce (no recién dentro del
-    // setTimeout), y se invalida la respuesta anterior (consultaResuelta = null):
-    // así durante esos 300 ms se ve el spinner y `sinResultados` no pinta el
-    // cartel de "no hay nada" antes de que la búsqueda responda para ESTE texto.
-    let cancelado = false
-    setBuscando(true)
-    setFallo(null)
-    setConsultaResuelta(null)
-    temporizador.current = setTimeout(async () => {
-      try {
-        const encontrados = await buscarArticulos(texto, null)
-        if (cancelado) return
-        setResultados(encontrados)
-        setConsultaResuelta(texto)
-      } catch (e) {
-        if (cancelado) return
-        setResultados([])
-        setFallo((e as Error).message)
-      } finally {
-        if (!cancelado) setBuscando(false)
-      }
-    }, 300)
-    return () => {
-      cancelado = true
-      if (temporizador.current) clearTimeout(temporizador.current)
-    }
-  }, [texto, familia, hayTextoSuelto, reintento])
-
-  const lista = familia !== null ? filtrarFamilia(baseFamilia ?? [], texto) : resultados
+  const lista = filtrarFamilia(base ?? [], texto)
   const prefijo = prefijoComun(lista.map((a) => a.codigo))
-  const sinResultados =
-    !buscando &&
-    !fallo &&
-    lista.length === 0 &&
-    (familia !== null ? baseFamilia !== null : hayTextoSuelto && consultaResuelta === texto)
-  const pedirBusqueda = familia === null && !hayTextoSuelto
+  // Cargó y no hay nada: sólo cuando el filtro de texto no encontró nada (con
+  // texto vacío la base nunca es vacía). Mientras `base` es null (bajando) o
+  // `cargando`, no se afirma "no hay".
+  const sinResultados = !cargando && !fallo && base !== null && lista.length === 0
 
   return (
     <Pantalla>
@@ -167,7 +121,7 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
             onChangeText={setConsulta}
             placeholder={familia ? 'Achicá la lista — ej. 250 o LU3F' : 'Código o nombre — ej. sierra, LG2B'}
             autoCapitalize="characters"
-            accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
+            accesorio={cargando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
           />
 
           {/* Filtro por herramienta: TODAS + una por familia de producto. */}
@@ -189,60 +143,43 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
           </ScrollView>
         </View>
 
-        <ScrollView
-          style={estilos.listaScroll}
-          contentContainerStyle={estilos.listaContenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {lista.length > 0 ? (
-            <View style={estilos.lista}>
-              {lista.map((a) => (
-                <FilaStock key={`${a.codigo}|${a.descripcion}`} articulo={a} prefijo={prefijo} />
-              ))}
-            </View>
-          ) : null}
-
-          {/* Mientras carga (precarga de una familia o búsqueda en vuelo) y todavía
-              no hay nada que mostrar, el feedback va ACÁ, en el cuerpo, que es donde
-              mira el vendedor —sobre todo cuando el gesto fue tocar un chip de abajo
-              y el spinner chico del campo de arriba le queda fuera de la vista. */}
-          {buscando && lista.length === 0 ? <Cargando texto="Buscando…" /> : null}
-
-          {familia === null && resultados.length >= LISTA_SUELTA ? (
-            <Text style={estilos.nota}>
-              {`Hay más de ${LISTA_SUELTA} que coinciden y se muestran los primeros. Escribí un poco más, o elegí una herramienta arriba.`}
-            </Text>
-          ) : null}
-
-          {pedirBusqueda ? (
-            <Aviso tono="info">
-              Elegí una herramienta arriba para ver todo su stock, o buscá por código o nombre.
-            </Aviso>
-          ) : null}
-
-          {fallo && !buscando ? (
-            <>
-              <Aviso tono="atencion" titulo="No pudimos consultar el stock">
-                {fallo}
-                {'\n\n'}Revisá la señal y tocá Reintentar.
-              </Aviso>
-              <Pressable
-                onPress={() => setReintento((n) => n + 1)}
-                accessibilityRole="button"
-                style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
-              >
-                <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
-              </Pressable>
-            </>
-          ) : null}
-
-          {sinResultados ? (
-            <Aviso tono="atencion">
-              No hay ninguna herramienta con eso. Probá con menos letras, o con parte del nombre en vez del código.
-            </Aviso>
-          ) : null}
-        </ScrollView>
+        {/* La lista en un FlatList (virtualizado): con TODAS son ~1000 filas y un
+            ScrollView las dibujaría todas de golpe. La "caja" con borde la envuelve
+            y el FlatList scrollea adentro. */}
+        <View style={estilos.listaCaja}>
+          <FlatList
+            data={lista}
+            keyExtractor={(a) => `${a.codigo}|${a.descripcion}`}
+            renderItem={({ item }) => <FilaStock articulo={item} prefijo={prefijo} />}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={lista.length === 0 ? estilos.cuerpoVacio : undefined}
+            ListEmptyComponent={
+              cargando ? (
+                <Cargando texto="Buscando…" />
+              ) : fallo ? (
+                <>
+                  <Aviso tono="atencion" titulo="No pudimos consultar el stock">
+                    {fallo}
+                    {'\n\n'}Revisá la señal y tocá Reintentar.
+                  </Aviso>
+                  <Pressable
+                    onPress={() => setReintento((n) => n + 1)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+                  >
+                    <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
+                  </Pressable>
+                </>
+              ) : sinResultados ? (
+                <Aviso tono="atencion">
+                  No hay ninguna herramienta con eso. Probá con menos letras, o con parte del nombre
+                  en vez del código.
+                </Aviso>
+              ) : null
+            }
+          />
+        </View>
       </Panel>
     </Pantalla>
   )
@@ -329,7 +266,7 @@ function resumenCompacto(c: CaracteristicasArticulo): string {
     .join(' ')
 }
 
-/** Filtra la familia ya bajada por el texto tecleado, en el teléfono. */
+/** Filtra lo ya bajado por el texto tecleado, en el teléfono. */
 function filtrarFamilia(base: ArticuloCatalogo[], texto: string): ArticuloCatalogo[] {
   const t = texto.trim().toLowerCase()
   if (!t) return base
@@ -390,19 +327,22 @@ const usarEstilos = hojaDeTema((t) => ({
   chipTextoActivo: { color: t.colores.blanco },
   tocada: { opacity: 0.7 },
 
-  // Sin fondo propio: el área de la lista muestra el gris del panel, y la lista
-  // (campoBlanco) flota encima. Con el rojo de la marca (`fondo`) quedaría un
-  // rectángulo rojo adentro del panel.
-  listaScroll: { flex: 1 },
-  listaContenido: { padding: espaciado.base, gap: espaciado.sm },
-
-  lista: {
+  // La caja con borde que envuelve la lista: ocupa el alto que queda (flex:1) y
+  // el FlatList scrollea adentro. El margen la separa de los controles y del pie.
+  // Sin fondo rojo de marca: la lista (campoBlanco) flota sobre el gris del panel.
+  listaCaja: {
+    flex: 1,
+    margin: espaciado.base,
     borderWidth: 2,
     borderColor: t.colores.borde,
     borderRadius: radios.sm,
     backgroundColor: t.colores.campoBlanco,
     overflow: 'hidden',
   },
+  // Cuando la lista está vacía (cargando / sin resultados / error), el contenido
+  // del FlatList necesita su propio padding, que las filas ya traen.
+  cuerpoVacio: { padding: espaciado.base, gap: espaciado.sm },
+
   fila: {
     paddingHorizontal: espaciado.md,
     paddingVertical: espaciado.sm,
@@ -444,11 +384,6 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tintaSuave,
   },
 
-  nota: {
-    fontFamily: t.tipografia.familia.liviana,
-    fontSize: t.tipografia.tamano.micro,
-    color: t.colores.tintaSuave,
-  },
   salida: {
     alignSelf: 'flex-start',
     paddingVertical: espaciado.xs,
