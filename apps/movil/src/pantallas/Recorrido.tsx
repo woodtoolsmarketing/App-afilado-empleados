@@ -857,6 +857,9 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 <Text style={estilos.proximaDireccion}>
                   {domicilioDeLaProxima ?? 'Sin domicilio cargado'}
                 </Text>
+                {contactoDe(proxima) ? (
+                  <Text style={estilos.proximaContacto}>👤 {contactoDe(proxima)}</Text>
+                ) : null}
 
                 {/* La misma pastilla que en la lista, a propósito: el vendedor
                     aprende un solo símbolo y lo reconoce donde le aparezca. */}
@@ -1343,6 +1346,11 @@ function FilaParada({
         <Text style={estilos.filaDireccion} numberOfLines={2}>
           {domicilioDe(parada) ?? 'Sin domicilio cargado'}
         </Text>
+        {contactoDe(parada) ? (
+          <Text style={estilos.filaContacto} numberOfLines={1}>
+            👤 {contactoDe(parada)}
+          </Text>
+        ) : null}
 
         <View style={estilos.filaPastillas}>
           <Pastilla
@@ -1418,6 +1426,12 @@ function FilaParada({
  */
 function domicilioDe(parada: ParadaCompleta): string | null {
   return parada.direccion?.direccion_formateada ?? parada.direccion_snapshot ?? null
+}
+
+/** El nombre del contacto del cliente ("con quién hablar"), si está cargado. */
+function contactoDe(parada: ParadaCompleta): string | null {
+  const c = parada.cliente?.contacto_nombre?.trim()
+  return c ? c : null
 }
 
 /**
@@ -1511,6 +1525,11 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
   },
+  proximaContacto: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
+  },
   proximaPastillas: {
     flexDirection: 'row',
     gap: espaciado.xs,
@@ -1574,6 +1593,11 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.xs,
     color: t.colores.tintaSuave,
+  },
+  filaContacto: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tinta,
   },
   filaPastillas: {
     flexDirection: 'row',

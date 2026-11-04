@@ -651,6 +651,11 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 {parada.cliente?.codigo ? (
                   <Text style={estilos.fichaCodigo}>Cliente Nº {parada.cliente.codigo}</Text>
                 ) : null}
+                {parada.cliente?.contacto_nombre?.trim() ? (
+                  <Text style={estilos.fichaCodigo}>
+                    👤 Preguntar por {parada.cliente.contacto_nombre.trim()}
+                  </Text>
+                ) : null}
                 {/* La misma pastilla roja de todo el resto de la app: un solo
                     símbolo para "este destino no está en el mapa todavía". */}
                 {sinUbicar ? (
