@@ -76,7 +76,9 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
   const [consulta, setConsulta] = useState('')
   /** Todo el stock (todas las familias), bajado UNA vez. `null` mientras no llegó. */
   const [base, setBase] = useState<ArticuloCatalogo[] | null>(null)
-  const [cargando, setCargando] = useState(false)
+  // Arranca en TRUE: la precarga corre sí o sí al montar, así el primer frame ya
+  // muestra "Buscando…" en vez de una caja vacía por un instante.
+  const [cargando, setCargando] = useState(true)
   /**
    * Aviso NO bloqueante: si alguna familia no se pudo traer (señal), se muestra
    * lo que SÍ llegó y se avisa, en vez de blanquear todo. `null` = vino todo.
@@ -99,7 +101,9 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
     setCargando(true)
     setFallo(null)
     setAvisoParcial(null)
-    Promise.allSettled(FAMILIAS_STOCK.map((f) => buscarArticulos('', f, FAMILIA_COMPLETA)))
+    Promise.allSettled(
+      FAMILIAS_STOCK.map((f) => conLimite(buscarArticulos('', f, FAMILIA_COMPLETA), 12_000)),
+    )
       .then((res) => {
         if (cancelado) return
         const traidas = res.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
@@ -174,7 +178,22 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
         {/* La lista en un FlatList (virtualizado): son ~1300 filas y un ScrollView
             las dibujaría todas de golpe. La "caja" con borde la envuelve y el
             FlatList (flex:1) scrollea adentro. */}
+        {/* El aviso de carga PARCIAL va FIJO arriba de la lista (no en el header
+            del FlatList): así no desaparece al filtrar a vacío ni se va al
+            scrollear, y el Reintentar queda siempre a mano. */}
         <View style={estilos.listaCaja}>
+          {avisoParcial ? (
+            <View style={estilos.avisoHeader}>
+              <Aviso tono="atencion">{avisoParcial}</Aviso>
+              <Pressable
+                onPress={() => setReintento((n) => n + 1)}
+                accessibilityRole="button"
+                style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+              >
+                <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
+              </Pressable>
+            </View>
+          ) : null}
           <FlatList
             data={lista}
             style={estilos.flat}
@@ -183,20 +202,6 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={lista.length === 0 ? estilos.cuerpoVacio : undefined}
-            ListHeaderComponent={
-              avisoParcial && lista.length > 0 ? (
-                <View style={estilos.avisoHeader}>
-                  <Aviso tono="atencion">{avisoParcial}</Aviso>
-                  <Pressable
-                    onPress={() => setReintento((n) => n + 1)}
-                    accessibilityRole="button"
-                    style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
-                  >
-                    <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
-                  </Pressable>
-                </View>
-              ) : null
-            }
             ListEmptyComponent={
               cargando ? (
                 <Cargando texto="Buscando…" />
@@ -213,6 +218,14 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
                     <Text style={estilos.salidaTexto}>↻ REINTENTAR</Text>
                   </Pressable>
                 </>
+              ) : avisoParcial ? (
+                // Carga parcial + el filtro no encontró nada: puede estar en la
+                // familia que no se bajó. Nada de "no hay": el aviso + Reintentar
+                // de arriba ya explican qué pasó.
+                <Aviso tono="atencion">
+                  No lo encontramos en lo que se pudo bajar; puede estar en una familia que faltó
+                  (tocá Reintentar arriba).
+                </Aviso>
               ) : sinResultados ? (
                 <Aviso tono="atencion">
                   No hay ninguna herramienta con eso. Probá con menos letras, o con parte del nombre
@@ -306,6 +319,22 @@ function resumenCompacto(c: CaracteristicasArticulo): string {
   ]
     .filter(Boolean)
     .join(' ')
+}
+
+/**
+ * Un tope de tiempo para una consulta: si no contesta en `ms`, se la da por
+ * fallada (rechaza) en vez de dejarla colgada. En la calle un socket a medio
+ * abrir no resuelve NI rechaza y, sin esto, `allSettled` no se asienta nunca y la
+ * pantalla queda clavada en "Buscando…". Mismo criterio que `fetchConLimite`
+ * (ipp.ts) para la impresión.
+ */
+function conLimite<T>(promesa: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promesa,
+    new Promise<T>((_, rechazar) =>
+      setTimeout(() => rechazar(new Error('La consulta tardó demasiado.')), ms),
+    ),
+  ])
 }
 
 /** Filtra lo ya bajado por el texto tecleado, en el teléfono. */
