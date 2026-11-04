@@ -297,19 +297,25 @@ function TarjetaProvisorio({
   const rechazar = useMutation({
     mutationFn: async () => {
       if (!motivo) throw new Error('Elegí un motivo de rechazo.')
+      // Se fijan ACÁ los valores usados: si la oficina cambia el motivo/detalle
+      // mientras el RPC está en vuelo, el aviso tiene que decir lo que se grabó,
+      // no lo que quedó en pantalla (onSuccess lee este return, no el state).
+      const motivoUsado = motivo
+      const detalleUsado = detalle.trim()
       const { error: errRech } = await supabase.rpc('rechazar_cliente_provisorio', {
         p_cliente_id: cliente.id,
-        p_motivo: motivo,
-        p_detalle: detalle.trim() || null,
+        p_motivo: motivoUsado,
+        p_detalle: detalleUsado || null,
       })
       if (errRech) throw new Error(errRech.message)
+      return { motivo: motivoUsado, detalle: detalleUsado }
     },
-    onSuccess: async () => {
+    onSuccess: async ({ motivo: motivoUsado, detalle: detalleUsado }) => {
       setRechazando(false)
       await query.invalidateQueries()
       // Aviso al vendedor con el MOTIVO, para que sepa por qué y lo rehaga.
-      const etiqueta = motivo === 'cliente_ya_existe' ? 'El cliente ya existe' : 'Datos erróneos'
-      const texto = detalle.trim() ? `${etiqueta} — ${detalle.trim()}` : etiqueta
+      const etiqueta = motivoUsado === 'cliente_ya_existe' ? 'El cliente ya existe' : 'Datos erróneos'
+      const texto = detalleUsado ? `${etiqueta} — ${detalleUsado}` : etiqueta
       void avisarAlVendedor(
         cliente.vendedor_id,
         'Cliente rechazado',
