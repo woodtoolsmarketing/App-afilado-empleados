@@ -6,7 +6,7 @@ import {
   type FormularioClienteNuevo,
 } from '@woodtools/compartido'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Alert, KeyboardAvoidingView, Platform } from 'react-native'
 
 import { BotonMenu } from '../componentes/Botones'
@@ -54,6 +54,7 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
   const [intentado, setIntentado] = useState(false)
   const [duplicados, setDuplicados] = useState<PosibleDuplicado[] | null>(null)
   const [verificando, setVerificando] = useState(false)
+  const enviando = useRef(false)
 
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
     setForm((previo) => {
@@ -100,10 +101,22 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
       )
     },
     onError: (e: Error) => Alert.alert('No pudimos crear el cliente', e.message),
+    onSettled: () => {
+      enviando.current = false
+    },
   })
 
+  // Un useRef síncrono cierra el doble-submit que el estado (isPending) deja
+  // pasar: dos toques en el mismo tick —o uno durante el slide-out del cartel—
+  // crearían dos provisorios. Se libera en onSettled.
+  function crear() {
+    if (enviando.current) return
+    enviando.current = true
+    guardar.mutate()
+  }
+
   async function alGenerar() {
-    if (guardar.isPending || guardar.isSuccess || verificando) return
+    if (guardar.isPending || guardar.isSuccess || verificando || enviando.current) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
@@ -117,10 +130,10 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
         setDuplicados(posibles)
         return
       }
-      guardar.mutate()
+      crear()
     } catch {
       // Sin señal no podemos consultar duplicados: no trabamos el alta por eso.
-      guardar.mutate()
+      crear()
     } finally {
       setVerificando(false)
     }
@@ -162,10 +175,11 @@ export function PantallaNuevoCliente({ navigation, route }: PropsPantalla<'Nuevo
 
       <ModalDuplicados
         candidatos={duplicados}
+        ocupado={guardar.isPending}
         alCerrar={() => setDuplicados(null)}
         alContinuar={() => {
           setDuplicados(null)
-          guardar.mutate()
+          crear()
         }}
       />
     </Pantalla>

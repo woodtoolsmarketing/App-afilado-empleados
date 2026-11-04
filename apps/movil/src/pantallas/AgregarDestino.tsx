@@ -1326,6 +1326,7 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
   const [intentado, setIntentado] = useState(false)
   const [duplicados, setDuplicados] = useState<PosibleDuplicado[] | null>(null)
   const [verificando, setVerificando] = useState(false)
+  const enviando = useRef(false)
 
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
     setForm((previo) => {
@@ -1376,12 +1377,23 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       if (e instanceof ReaperturaCancelada) return
       Alert.alert('No pudimos crear el cliente', e.message)
     },
+    onSettled: () => {
+      enviando.current = false
+    },
   })
+
+  // Ref síncrono: cierra el doble-submit (mismo tick / durante el slide-out del
+  // cartel) que el estado isPending deja pasar. Se libera en onSettled.
+  function crear() {
+    if (enviando.current) return
+    enviando.current = true
+    guardar.mutate()
+  }
 
   async function alAgregar() {
     // Ya se agregó: un segundo toque (volviendo con Atrás a esta pantalla, que
     // queda montada) crearía un destino/cliente duplicado.
-    if (guardar.isPending || guardar.isSuccess || verificando) return
+    if (guardar.isPending || guardar.isSuccess || verificando || enviando.current) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
@@ -1396,10 +1408,10 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
         setDuplicados(posibles)
         return
       }
-      guardar.mutate()
+      crear()
     } catch {
       // Sin señal no podemos consultar duplicados: no trabamos el alta por eso.
-      guardar.mutate()
+      crear()
     } finally {
       setVerificando(false)
     }
@@ -1456,10 +1468,11 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
 
       <ModalDuplicados
         candidatos={duplicados}
+        ocupado={guardar.isPending}
         alCerrar={() => setDuplicados(null)}
         alContinuar={() => {
           setDuplicados(null)
-          guardar.mutate()
+          crear()
         }}
       />
     </Pantalla>

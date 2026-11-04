@@ -26,11 +26,14 @@ export function ModalDuplicados({
   candidatos,
   alCerrar,
   alContinuar,
+  ocupado,
 }: {
   candidatos: PosibleDuplicado[] | null
   alCerrar: () => void
   /** Crear igual. Sólo se ofrece cuando NO hay ningún candidato 'fuerte'. */
   alContinuar: () => void
+  /** Mientras se crea: deshabilita "crear igual" para no generar duplicados. */
+  ocupado?: boolean
 }) {
   const estilos = usarEstilos()
   const [copiado, setCopiado] = useState<string | null>(null)
@@ -91,7 +94,11 @@ export function ModalDuplicados({
               <BotonPrincipal titulo="Entendido" alTocar={alCerrar} />
             ) : (
               <>
-                <BotonSecundario titulo="Es otro, crear igual" alTocar={alContinuar} />
+                <BotonSecundario
+                  titulo="Es otro, crear igual"
+                  alTocar={alContinuar}
+                  deshabilitado={ocupado}
+                />
                 <BotonPrincipal titulo="Volver" alTocar={alCerrar} />
               </>
             )}
