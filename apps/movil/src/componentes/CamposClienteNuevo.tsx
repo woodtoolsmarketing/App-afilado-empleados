@@ -12,6 +12,7 @@ import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 import { BotonMenu } from './Botones'
 import { Campo } from './Formulario'
 import { Aviso } from './Estado'
+import { AvisoDuplicadosInline } from './AvisoDuplicadosInline'
 import {
   detallarDireccion,
   sugerirDirecciones,
@@ -20,6 +21,7 @@ import {
   type SugerenciaDireccion,
 } from '../servicios/mapas'
 import { permisoDeUbicacionPuntual, ubicacionActual } from '../servicios/ubicacion'
+import { buscarPosiblesDuplicados, type PosibleDuplicado } from '../servicios/clientes'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
 /**
@@ -72,6 +74,9 @@ export function CamposClienteNuevo({
 
   const sesion = useRef(Crypto.randomUUID())
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ultimaFirma = useRef('')
+  const [candidatos, setCandidatos] = useState<PosibleDuplicado[] | null>(null)
+  const [chequeando, setChequeando] = useState(false)
 
   useEffect(() => {
     if (elegida) return
@@ -162,6 +167,31 @@ export function CamposClienteNuevo({
     actualizar({ telefonos: form.telefonos.filter((_, i) => i !== indice) })
   }
 
+  // Corroboración incremental: apenas el vendedor sale de un campo clave (CUIT,
+  // email, teléfono o nombre), se chequea contra el padrón para avisar TEMPRANO
+  // si ya existe, y no perder el tiempo de cargar todo un cliente que ya está.
+  // Best-effort: sin señal no pasa nada (el chequeo al guardar es la red de
+  // seguridad). La firma evita repetir la consulta si no cambió ningún dato.
+  async function chequear() {
+    const dig = form.documento.replace(/\D/g, '')
+    const hayDato =
+      form.razon_social.trim().length >= 3 ||
+      dig.length >= 7 ||
+      form.email.trim().length > 0 ||
+      form.telefonos.some((t) => t.trim())
+    const firma = [form.razon_social, dig, form.email, form.telefonos.join('|')].join('~')
+    if (!hayDato || firma === ultimaFirma.current) return
+    ultimaFirma.current = firma
+    setChequeando(true)
+    try {
+      setCandidatos(await buscarPosiblesDuplicados(form))
+    } catch {
+      // Sin señal: no avisamos nada (no trabamos el alta por eso).
+    } finally {
+      setChequeando(false)
+    }
+  }
+
   return (
     <>
       <Campo
@@ -169,6 +199,7 @@ export function CamposClienteNuevo({
         obligatorio
         value={form.razon_social}
         onChangeText={(t) => actualizar({ razon_social: t })}
+        onBlur={() => void chequear()}
         placeholder="Como figura o como lo conocen"
         autoCapitalize="words"
         error={errores.razon_social}
@@ -197,7 +228,12 @@ export function CamposClienteNuevo({
         keyboardType="numbers-and-punctuation"
         contenedorStyle={estilos.medio}
         error={errores.documento}
+        onBlur={() => void chequear()}
       />
+
+      {/* Aviso TEMPRANO de duplicado: aparece apenas se completa el nombre o el
+          CUIT (el CUIT exacto da el aviso fuerte), para no cargar de gusto. */}
+      <AvisoDuplicadosInline candidatos={candidatos} chequeando={chequeando} />
 
       <Campo
         etiqueta="DIRECCIÓN DE ENTREGA"
@@ -305,6 +341,7 @@ export function CamposClienteNuevo({
             <Campo
               value={tel}
               onChangeText={(t) => cambiarTelefono(i, t)}
+              onBlur={() => void chequear()}
               placeholder="11 4444 5555"
               keyboardType="phone-pad"
               contenedorStyle={estilos.flex}
@@ -343,6 +380,7 @@ export function CamposClienteNuevo({
         obligatorio
         value={form.email}
         onChangeText={(t) => actualizar({ email: t })}
+        onBlur={() => void chequear()}
         placeholder="cliente@correo.com"
         keyboardType="email-address"
         autoCapitalize="none"
