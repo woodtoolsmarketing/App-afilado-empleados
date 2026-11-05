@@ -351,9 +351,6 @@ const trozos = (s) =>
     .map((p) => p.trim())
     .filter(Boolean)
 
-/** Las tiradas de cinco dígitos o más, que es lo que identifica un teléfono. */
-const numeros = (s) => texto(s).match(/\d{5,}/g) ?? []
-
 /**
  * Qué queda en un campo cuando el cliente ya existe.
  *
@@ -410,25 +407,37 @@ function fusionar(campo, viejo, nuevo) {
 
   // El teléfono es el único campo donde el listado sistemáticamente SUMA: trae
   // números que la ficha no tenía. Pero también reescribe el formato —saca el 0
-  // de la característica, junta con guiones— así que la cadena vieja nunca está
-  // adentro de la nueva y la regla de abajo lo rechazaría siempre.
+  // de la característica y el 15 del celular, junta con guiones— así que la
+  // cadena vieja nunca está adentro de la nueva y la regla de abajo lo
+  // rechazaría siempre.
   //
   // Se acepta cuando se puede demostrar que no pierde: que la ficha no tenga
   // letras —ahí hay anotaciones como "FAX", "casa", un nombre, que el listado
-  // no trae— y que cada tirada de números de la ficha esté en la nueva.
+  // no trae— y que CADA GRUPO de dígitos del viejo sobreviva en el nuevo.
+  //
+  // Las dos vueltas de antes —`numeros` a cinco dígitos y la de cuatro— dejaban
+  // SIN CONTROLAR los grupos de tres, que es donde va el código de área. Un
+  // teléfono escrito por grupos cortos —"220-573-2959"— no tenía ninguna tirada
+  // de cinco, así que `every` daba true por vacío, y el de cuatro sólo miraba
+  // "2959": el listado podía cambiar el área ("221-573-2959", que es OTRA
+  // localidad) y pasaba como "suma un número", pisando el teléfono viejo. Caso
+  // real medido: código 15947, 220→221. Ahora se controla cada grupo de ≥3
+  // dígitos (el área incluida), tolerando el 0 de discado que el listado saca y
+  // los prefijos que desaparecen enteros (0, 15 ya quedan en grupos de ≤2; 011,
+  // 015, 549 van acá). Un grupo que cambia de verdad —un área distinta— ya no
+  // pasa: queda el viejo y el cambio sale en el CSV para mirarlo a mano.
   if (campo === 'telefono') {
     const sinLetras = !/[a-záéíóúñü]/i.test(v)
-    const estanTodos = numeros(v).every((t) => digitos(n).includes(t))
-    // `numeros` pide cinco dígitos seguidos, y hay fichas donde ningún número
-    // llega a eso porque están escritos con guiones cada cuatro —"4635-4247"—.
-    // Ahí el `every` no comprueba NADA y da true por vacío: medido, 59 de las
-    // 127 aceptaciones pasaban así, y en 2 de ellas el listado se comía un
-    // teléfono entero. Esta segunda vuelta mira tiradas de cuatro, y le tolera
-    // el 0 de la característica, que el listado saca a propósito.
-    const sinPerder = (texto(v).match(/\d{4,}/g) ?? []).every(
-      (t) => digitos(n).includes(t) || (t[0] === '0' && digitos(n).includes(t.replace(/^0+/, ''))),
-    )
-    if (sinLetras && estanTodos && sinPerder) {
+    const dn = digitos(n)
+    const removibles = new Set(['011', '015', '549'])
+    const gruposOk = (texto(v).match(/\d+/g) ?? []).every((g) => {
+      if (g.length < 3) return true // 0, 15, 9, 11, 54: prefijos de discado
+      if (dn.includes(g)) return true
+      const sinCero = g.replace(/^0+/, '')
+      if (sinCero && dn.includes(sinCero)) return true // el listado saca el 0
+      return removibles.has(g)
+    })
+    if (sinLetras && gruposOk) {
       return { valor: n, motivo: 'el listado suma un número' }
     }
     return { valor: v, motivo: 'el listado pierde un número o una anotación' }
