@@ -75,6 +75,7 @@ export function CamposClienteNuevo({
   const sesion = useRef(Crypto.randomUUID())
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ultimaFirma = useRef('')
+  const vigente = useRef(0)
   const [candidatos, setCandidatos] = useState<PosibleDuplicado[] | null>(null)
   const [chequeando, setChequeando] = useState(false)
 
@@ -182,15 +183,33 @@ export function CamposClienteNuevo({
     const firma = [form.razon_social, dig, form.email, form.telefonos.join('|')].join('~')
     if (!hayDato || firma === ultimaFirma.current) return
     ultimaFirma.current = firma
+    // Con señal lenta las respuestas vuelven en cualquier orden: numeramos cada
+    // consulta y sólo dejamos valer la más nueva, para que una respuesta vieja
+    // (p. ej. sólo del nombre) no pise el aviso fuerte del CUIT.
+    const mia = ++vigente.current
     setChequeando(true)
     try {
-      setCandidatos(await buscarPosiblesDuplicados(form))
+      const encontrados = await buscarPosiblesDuplicados(form)
+      if (mia !== vigente.current) return
+      setCandidatos(encontrados)
     } catch {
-      // Sin señal: no avisamos nada (no trabamos el alta por eso).
+      // Sin señal: no avisamos nada (el chequeo al guardar es la red de
+      // seguridad). Olvidamos la firma para reintentar apenas vuelva la señal.
+      if (mia === vigente.current) ultimaFirma.current = ''
     } finally {
-      setChequeando(false)
+      if (mia === vigente.current) setChequeando(false)
     }
   }
+
+  // Si el vendedor empieza a cambiar un dato clave, el cartel anterior ya no
+  // corresponde a lo que tiene en pantalla: lo bajamos hasta el próximo chequeo
+  // (que corre al salir del campo), para no afirmar "ya existe" sobre un dato
+  // que justo está corrigiendo.
+  useEffect(() => {
+    const dig = form.documento.replace(/\D/g, '')
+    const firma = [form.razon_social, dig, form.email, form.telefonos.join('|')].join('~')
+    if (candidatos && firma !== ultimaFirma.current) setCandidatos(null)
+  }, [candidatos, form.razon_social, form.documento, form.email, form.telefonos])
 
   return (
     <>
