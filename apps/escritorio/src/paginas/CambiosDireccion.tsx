@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet'
 
 import { supabase } from '../nucleo/supabase'
+import { ubicacionComoDireccion } from '../servicios/geocodificar'
 
 /**
  * Cambios de dirección propuestos por los vendedores.
@@ -102,6 +103,218 @@ function MapaCambio({
   )
 }
 
+/**
+ * ¿Es un texto que la oficina no puede ubicar de un vistazo? Un plus code de
+ * Google ("XCC7+W7 Puerto Esperanza, Misiones, Argentina") o coordenadas crudas
+ * ("-26.0276, -54.5868"). Son los que conviene resolver a un nombre de calle.
+ *
+ * El plus code arranca siempre con un bloque de caracteres, un '+' y otro
+ * bloque: una dirección de calle de verdad nunca empieza así.
+ */
+function pareceDireccionCriptica(texto: string | null | undefined): boolean {
+  const t = (texto ?? '').trim()
+  if (!t) return false
+  if (/^[A-Z0-9]{2,}\+[A-Z0-9]{2,}\b/i.test(t)) return true
+  if (/^-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}$/.test(t)) return true
+  return false
+}
+
+/**
+ * Si la dirección propuesta es un plus code (o coordenadas) y hay un pin,
+ * resuelve el nombre de calle legible desde esas coordenadas, reutilizando el
+ * reverse-geocode del panel (que ahora, con `preferirCalle`, prefiere la calle
+ * al plus code). Así la oficina ve "Ruta Nacional 12, Puerto Esperanza" en vez
+ * de "XCC7+W7 …".
+ *
+ * Es best-effort: si Google falla o vuelve a contestar un plus code, devuelve
+ * `null` y la vista cae al texto original sin romperse. `staleTime: Infinity`
+ * porque la calle de un punto no cambia: se resuelve una vez por coordenada.
+ */
+function useDireccionLegible(c: CambioDireccion): { resuelta: string | null; cargando: boolean } {
+  const tienePin = c.lat_propuesta != null && c.lng_propuesta != null
+  // Sólo resolvemos las PENDIENTES: las resueltas/rechazadas son historia y no
+  // vale gastar llamadas a Google en ellas (al aplicar ya quedó escrita la
+  // dirección buena en el cliente). Importa porque "Ver resueltos" trae hasta 100.
+  const habilitado =
+    pareceDireccionCriptica(c.direccion_propuesta) && tienePin && c.estado === 'pendiente'
+  const consulta = useQuery({
+    queryKey: ['direccion-legible', c.lat_propuesta, c.lng_propuesta],
+    enabled: habilitado,
+    staleTime: Infinity,
+    retry: false,
+    queryFn: async () => {
+      const d = await ubicacionComoDireccion(
+        { lat: c.lat_propuesta as number, lng: c.lng_propuesta as number },
+        { preferirCalle: true },
+      )
+      return d.direccion_formateada?.trim() || null
+    },
+  })
+  // `habilitado` también acá: una tarjeta deshabilitada que comparta coordenada
+  // con otra podría leer la dirección ya cacheada de esa otra (react-query
+  // devuelve el dato por clave aunque el observador esté `enabled: false`). No
+  // queremos mostrar —ni, al aplicar, guardar— la calle resuelta de un vecino.
+  const resuelta =
+    habilitado && consulta.data && !pareceDireccionCriptica(consulta.data) ? consulta.data : null
+  return { resuelta, cargando: habilitado && consulta.isLoading }
+}
+
+/**
+ * Una tarjeta de cambio: dirección vieja tachada + la nueva propuesta (resuelta
+ * a calle legible si venía como plus code) + nota del vendedor + mapa + los
+ * botones de aplicar/rechazar. Es un componente aparte porque cada tarjeta
+ * resuelve su propia dirección con un hook, y los hooks no pueden ir dentro de
+ * un `.map`.
+ */
+function TarjetaCambio({
+  c,
+  soloLectura,
+  trabajando,
+  enModoRechazo,
+  motivo,
+  onMotivoChange,
+  onIniciarRechazo,
+  onCancelarRechazo,
+  onAplicar,
+  onRechazar,
+}: {
+  c: CambioDireccion
+  soloLectura: boolean
+  trabajando: boolean
+  enModoRechazo: boolean
+  motivo: string
+  onMotivoChange: (v: string) => void
+  onIniciarRechazo: () => void
+  onCancelarRechazo: () => void
+  onAplicar: (direccion: string | null) => void
+  onRechazar: (motivo: string) => void
+}) {
+  const { resuelta, cargando } = useDireccionLegible(c)
+  const actual: [number, number] | null =
+    c.direccion?.lat != null && c.direccion?.lng != null ? [c.direccion.lat, c.direccion.lng] : null
+  const nueva: [number, number] | null =
+    c.lat_propuesta != null && c.lng_propuesta != null ? [c.lat_propuesta, c.lng_propuesta] : null
+  const pendiente = c.estado === 'pendiente'
+
+  return (
+    <div
+      className="tarjeta"
+      style={{
+        padding: 16,
+        borderRadius: 10,
+        // Los pendientes saltan a la vista: borde rojo a la izquierda.
+        borderLeft: pendiente ? '5px solid #B30F0F' : undefined,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 15 }}>
+          {c.cliente?.razon_social ?? 'Cliente'}
+          {c.cliente?.codigo ? <span style={{ color: 'var(--tinta-suave)' }}> · {c.cliente.codigo}</span> : null}
+        </strong>
+        <span style={{ fontSize: 12, color: 'var(--tinta-suave)' }}>
+          {c.vendedor?.nombre_completo ?? 'Vendedor'}
+          {c.vendedor?.codigo_vendedor ? ` (#${c.vendedor.codigo_vendedor})` : ''} ·{' '}
+          {new Date(c.creado_en).toLocaleString('es-AR')}
+          {!pendiente ? ` · ${c.estado.toUpperCase()}` : ''}
+        </span>
+      </div>
+
+      {/*
+        El cambio, de un vistazo: la dirección vieja tachada y en gris, y la
+        NUEVA —lo que de verdad hay que mirar— en un recuadro rojo, grande y en
+        negrita. Si la propuesta venía como plus code ("XCC7+W7 …") y pudimos
+        resolver el nombre de calle, mostramos la calle grande y el plus code
+        chiquito debajo (para cruzarlo con Google Maps si hace falta).
+      */}
+      <div style={{ marginTop: 12, fontSize: 14 }}>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--tinta-suave)' }}>
+          Dirección actual
+        </div>
+        <div
+          style={{
+            color: 'var(--tinta-suave)',
+            textDecoration: pendiente && c.direccion?.direccion_formateada ? 'line-through' : 'none',
+          }}
+        >
+          {c.direccion?.direccion_formateada ?? '— (el cliente no tenía dirección cargada)'}
+        </div>
+
+        <div
+          style={{
+            marginTop: 8,
+            background: 'rgba(179,15,15,0.08)',
+            border: '2px solid #B30F0F',
+            borderRadius: 8,
+            padding: '10px 12px',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#B30F0F' }}>
+            📍 {pendiente ? 'Dirección nueva propuesta' : 'Dirección propuesta'}
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{resuelta ?? c.direccion_propuesta}</div>
+          {resuelta ? (
+            <div style={{ fontSize: 12, color: 'var(--tinta-suave)', marginTop: 2 }}>{c.direccion_propuesta}</div>
+          ) : cargando ? (
+            <div style={{ fontSize: 12, color: 'var(--tinta-suave)', marginTop: 2, fontStyle: 'italic' }}>
+              Buscando el nombre de la calle…
+            </div>
+          ) : null}
+        </div>
+
+        {c.motivo ? (
+          <div style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--tinta-suave)' }}>“{c.motivo}”</div>
+        ) : null}
+        {!nueva ? (
+          <div className="aviso atencion" style={{ marginTop: 8, fontSize: 13 }}>
+            El vendedor no marcó el punto en el mapa. Al aplicar, la dirección cambia pero la
+            coordenada queda como estaba: ajustala a mano en Clientes si hace falta.
+          </div>
+        ) : null}
+      </div>
+
+      <MapaCambio actual={actual} nueva={nueva} />
+
+      {!pendiente ? (
+        <div style={{ fontSize: 13, color: 'var(--tinta-suave)' }}>
+          {c.estado === 'aplicado' ? 'Aplicado' : 'Rechazado'}
+          {c.resuelto_en ? ` el ${new Date(c.resuelto_en).toLocaleString('es-AR')}` : ''}
+          {c.motivo_rechazo ? ` — ${c.motivo_rechazo}` : ''}
+        </div>
+      ) : soloLectura ? (
+        <div style={{ fontSize: 13, color: 'var(--tinta-suave)' }}>
+          Sólo un administrador puede aplicar o rechazar.
+        </div>
+      ) : enModoRechazo ? (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            type="text"
+            placeholder="Motivo del rechazo (opcional)"
+            value={motivo}
+            onChange={(e) => onMotivoChange(e.target.value)}
+            style={{ flex: 1, minWidth: 220 }}
+          />
+          <button className="primario" disabled={trabajando} onClick={() => onRechazar(motivo)}>
+            Confirmar rechazo
+          </button>
+          <button className="chico" disabled={trabajando} onClick={onCancelarRechazo}>
+            Volver
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* Al aplicar guardamos la calle resuelta (si la hay), no el plus code. */}
+          <button className="primario" disabled={trabajando} onClick={() => onAplicar(resuelta)}>
+            ✓ Aplicar a la base
+          </button>
+          <button className="chico" disabled={trabajando} onClick={onIniciarRechazo}>
+            Rechazar
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }) {
   const cliente = useQueryClient()
   const [verResueltos, setVerResueltos] = useState(false)
@@ -158,8 +371,14 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
   }
 
   const aplicar = useMutation({
-    mutationFn: async (id: string) => {
-      const { error: err } = await supabase.rpc('aplicar_cambio_direccion', { p_id: id })
+    mutationFn: async (p: { id: string; direccion: string | null }) => {
+      // Mandamos `p_direccion` SÓLO cuando hay una calle resuelta. Así el caso
+      // normal (sin resolver) sigue llamando con `{ p_id }` a secas y funciona
+      // aunque en la base todavía esté el RPC viejo sin `p_direccion` —PostgREST
+      // elige la sobrecarga por el juego de argumentos del body—. Con calle
+      // resuelta se guarda ESA como dirección oficial, no el plus code.
+      const args = p.direccion ? { p_id: p.id, p_direccion: p.direccion } : { p_id: p.id }
+      const { error: err } = await supabase.rpc('aplicar_cambio_direccion', args)
       if (err) throw err
     },
     onSuccess: () => {
@@ -297,127 +516,21 @@ export function PaginaCambiosDireccion({ soloLectura }: { soloLectura: boolean }
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {cambios.map((c) => {
-            const actual: [number, number] | null =
-              c.direccion?.lat != null && c.direccion?.lng != null ? [c.direccion.lat, c.direccion.lng] : null
-            const nueva: [number, number] | null =
-              c.lat_propuesta != null && c.lng_propuesta != null ? [c.lat_propuesta, c.lng_propuesta] : null
-            const pendiente = c.estado === 'pendiente'
-
-            return (
-              <div
-                key={c.id}
-                className="tarjeta"
-                style={{
-                  padding: 16,
-                  borderRadius: 10,
-                  // Los pendientes saltan a la vista: borde rojo a la izquierda.
-                  borderLeft: pendiente ? '5px solid #B30F0F' : undefined,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <strong style={{ fontSize: 15 }}>
-                    {c.cliente?.razon_social ?? 'Cliente'}
-                    {c.cliente?.codigo ? <span style={{ color: 'var(--tinta-suave)' }}> · {c.cliente.codigo}</span> : null}
-                  </strong>
-                  <span style={{ fontSize: 12, color: 'var(--tinta-suave)' }}>
-                    {c.vendedor?.nombre_completo ?? 'Vendedor'}
-                    {c.vendedor?.codigo_vendedor ? ` (#${c.vendedor.codigo_vendedor})` : ''} ·{' '}
-                    {new Date(c.creado_en).toLocaleString('es-AR')}
-                    {!pendiente ? ` · ${c.estado.toUpperCase()}` : ''}
-                  </span>
-                </div>
-
-                {/*
-                  El cambio, de un vistazo: la dirección vieja tachada y en gris,
-                  y la NUEVA —lo que de verdad hay que mirar— en un recuadro rojo,
-                  grande y en negrita. Antes eran dos renglones de texto iguales y
-                  el cambio pasaba desapercibido.
-                */}
-                <div style={{ marginTop: 12, fontSize: 14 }}>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--tinta-suave)' }}>
-                    Dirección actual
-                  </div>
-                  <div
-                    style={{
-                      color: 'var(--tinta-suave)',
-                      textDecoration: pendiente && c.direccion?.direccion_formateada ? 'line-through' : 'none',
-                    }}
-                  >
-                    {c.direccion?.direccion_formateada ?? '— (el cliente no tenía dirección cargada)'}
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                      background: 'rgba(179,15,15,0.08)',
-                      border: '2px solid #B30F0F',
-                      borderRadius: 8,
-                      padding: '10px 12px',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#B30F0F' }}>
-                      📍 {pendiente ? 'Dirección nueva propuesta' : 'Dirección propuesta'}
-                    </div>
-                    <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{c.direccion_propuesta}</div>
-                  </div>
-
-                  {c.motivo ? (
-                    <div style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--tinta-suave)' }}>“{c.motivo}”</div>
-                  ) : null}
-                  {!nueva ? (
-                    <div className="aviso atencion" style={{ marginTop: 8, fontSize: 13 }}>
-                      El vendedor no marcó el punto en el mapa. Al aplicar, la dirección cambia pero la
-                      coordenada queda como estaba: ajustala a mano en Clientes si hace falta.
-                    </div>
-                  ) : null}
-                </div>
-
-                <MapaCambio actual={actual} nueva={nueva} />
-
-                {!pendiente ? (
-                  <div style={{ fontSize: 13, color: 'var(--tinta-suave)' }}>
-                    {c.estado === 'aplicado' ? 'Aplicado' : 'Rechazado'}
-                    {c.resuelto_en ? ` el ${new Date(c.resuelto_en).toLocaleString('es-AR')}` : ''}
-                    {c.motivo_rechazo ? ` — ${c.motivo_rechazo}` : ''}
-                  </div>
-                ) : soloLectura ? (
-                  <div style={{ fontSize: 13, color: 'var(--tinta-suave)' }}>
-                    Sólo un administrador puede aplicar o rechazar.
-                  </div>
-                ) : rechazando === c.id ? (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      placeholder="Motivo del rechazo (opcional)"
-                      value={motivos[c.id] ?? ''}
-                      onChange={(e) => setMotivos((m) => ({ ...m, [c.id]: e.target.value }))}
-                      style={{ flex: 1, minWidth: 220 }}
-                    />
-                    <button
-                      className="primario"
-                      disabled={trabajando}
-                      onClick={() => rechazar.mutate({ id: c.id, motivo: motivos[c.id] ?? '' })}
-                    >
-                      Confirmar rechazo
-                    </button>
-                    <button className="chico" disabled={trabajando} onClick={() => setRechazando(null)}>
-                      Volver
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="primario" disabled={trabajando} onClick={() => aplicar.mutate(c.id)}>
-                      ✓ Aplicar a la base
-                    </button>
-                    <button className="chico" disabled={trabajando} onClick={() => setRechazando(c.id)}>
-                      Rechazar
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {cambios.map((c) => (
+            <TarjetaCambio
+              key={c.id}
+              c={c}
+              soloLectura={soloLectura}
+              trabajando={trabajando}
+              enModoRechazo={rechazando === c.id}
+              motivo={motivos[c.id] ?? ''}
+              onMotivoChange={(v) => setMotivos((m) => ({ ...m, [c.id]: v }))}
+              onIniciarRechazo={() => setRechazando(c.id)}
+              onCancelarRechazo={() => setRechazando(null)}
+              onAplicar={(direccion) => aplicar.mutate({ id: c.id, direccion })}
+              onRechazar={(mot) => rechazar.mutate({ id: c.id, motivo: mot })}
+            />
+          ))}
         </div>
       )}
 

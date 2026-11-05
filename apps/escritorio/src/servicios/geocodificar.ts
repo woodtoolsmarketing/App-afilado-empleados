@@ -55,15 +55,24 @@ async function invocar<T>(nombre: string, cuerpo: Record<string, unknown>): Prom
   throw motivo ? new Error(motivo) : (error as Error)
 }
 
-/** El domicilio en la coordenada elegida, para que el que carga lo confirme. */
-export async function ubicacionComoDireccion(coords: {
-  lat: number
-  lng: number
-}): Promise<DireccionResuelta> {
+/**
+ * El domicilio en la coordenada elegida, para que el que carga lo confirme.
+ *
+ * `preferirCalle` le pide al servidor que, si el punto cae en el campo y Google
+ * contesta con un plus code ilegible ("XCC7+W7 …"), busque entre los resultados
+ * uno con nombre de calle ("Ruta Nacional 12, Puerto Esperanza") antes de
+ * rendirse. Sin la opción, se comporta como siempre (el primer resultado de
+ * Google): así el pin que se arrastra en la ficha no cambia de comportamiento.
+ */
+export async function ubicacionComoDireccion(
+  coords: { lat: number; lng: number },
+  opciones: { preferirCalle?: boolean } = {},
+): Promise<DireccionResuelta> {
   const data = await invocar<{ direccion?: DireccionResuelta }>('geocodificar', {
     operacion: 'reversa',
     lat: coords.lat,
     lng: coords.lng,
+    ...(opciones.preferirCalle ? { preferir_calle: true } : {}),
   })
   if (!data?.direccion?.lat) {
     throw new Error('Google no devolvió una dirección para ese punto. Movelo un poco y probá de nuevo.')

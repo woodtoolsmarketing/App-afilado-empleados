@@ -79,6 +79,50 @@ async function errorDeGoogle(operacion: string, respuesta: Response): Promise<Re
   )
 }
 
+/**
+ * ¿`texto` arranca con un plus code de Google (Open Location Code)?
+ *
+ * Google devuelve la dirección formateada como plus code —"XCC7+W7 Puerto
+ * Esperanza, Misiones, Argentina"— cuando el punto no cae sobre una calle con
+ * numeración (campos, rutas). Para la oficina eso es ilegible. El patrón: un
+ * bloque de dos o más caracteres, un '+', dos o más caracteres, al principio
+ * del texto (una dirección de calle nunca empieza así).
+ */
+function esPlusCode(texto: string): boolean {
+  return /^[A-Z0-9]{2,}\+[A-Z0-9]{2,}\b/i.test((texto ?? '').trim())
+}
+
+interface ResultadoGeo {
+  types?: string[]
+  formatted_address?: string
+  address_components?: { types: string[]; long_name: string }[]
+  place_id?: string
+  geometry?: { location_type?: string }
+}
+
+/**
+ * De los resultados del reverse-geocode, el más legible para una persona.
+ *
+ * Google ordena del más específico al menos, pero en el campo el "más
+ * específico" suele ser un plus code (sin calle). Preferimos, en orden: una
+ * dirección con número de calle; si no, una con calle (ej. "Ruta Nacional 12,
+ * Puerto Esperanza"); si no, el primero que no sea un plus code (una
+ * localidad). Como último recurso devolvemos el primero tal cual —aunque sea
+ * el plus code—: siempre es mejor eso que dejar a la oficina sin nada.
+ */
+function elegirLugarLegible(results: ResultadoGeo[]): ResultadoGeo {
+  const tiene = (r: ResultadoGeo, tipo: string) =>
+    (r.address_components ?? []).some((c) => c.types?.includes(tipo))
+  const esPlus = (r: ResultadoGeo) =>
+    (r.types ?? []).includes('plus_code') || esPlusCode(r.formatted_address ?? '')
+  return (
+    results.find((r) => !esPlus(r) && tiene(r, 'street_number')) ??
+    results.find((r) => !esPlus(r) && tiene(r, 'route')) ??
+    results.find((r) => !esPlus(r)) ??
+    results[0]
+  )
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -94,7 +138,7 @@ Deno.serve(async (req) => {
     const clave = Deno.env.get('GOOGLE_MAPS_SERVER_KEY')
     if (!clave) throw new RespuestaError('Falta configurar GOOGLE_MAPS_SERVER_KEY', 500)
 
-    const { operacion, texto, place_id, sesion, lat, lng } = await req.json()
+    const { operacion, texto, place_id, sesion, lat, lng, preferir_calle } = await req.json()
 
     /**
      * "USAR MI UBICACIÓN ACTUAL": del GPS a una dirección escrita.
@@ -160,7 +204,15 @@ Deno.serve(async (req) => {
         )
       }
 
-      const lugar = datos.results[0]
+      // Normalmente la dirección exacta es el primer resultado. Pero en el campo
+      // (rutas sin numeración) Google devuelve primero un PLUS CODE —"XCC7+W7
+      // Puerto Esperanza…"—, ilegible para la oficina. Con `preferir_calle`
+      // salteamos esos y nos quedamos con el primer resultado con calle (ej.
+      // "Ruta Nacional 12, Puerto Esperanza"); si no hay mejor, cae al primero
+      // igual que antes. Sin la bandera —como lo llama la app del vendedor— el
+      // comportamiento NO cambia: sigue siendo results[0].
+      const lugar =
+        preferir_calle === true ? elegirLugarLegible(datos.results) : datos.results[0]
       const trozo = (tipo: string) =>
         (lugar.address_components ?? []).find((c: { types: string[] }) => c.types.includes(tipo))
           ?.long_name ?? null
