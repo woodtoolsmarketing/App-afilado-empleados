@@ -290,7 +290,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
             {totalesPorMoneda.map(([moneda, monto]) => (
               <View key={moneda} style={estilos.totalFila}>
                 <Text style={estilos.totalRotulo}>
-                  {totalesPorMoneda.length > 1 ? `TOTAL ${moneda === 'USD' ? 'US$' : '$'}` : 'TOTAL'}
+                  {totalesPorMoneda.length > 1 ? `TOTAL ${moneda === 'USD' ? 'U$S' : '$'}` : 'TOTAL'}
                 </Text>
                 <Text style={estilos.totalMonto}>{formatearMoneda(monto, moneda)}</Text>
               </View>

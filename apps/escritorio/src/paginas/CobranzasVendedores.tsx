@@ -2,7 +2,6 @@ import {
   fechaLocalISO,
   formatearFechaCorta,
   formatearMoneda,
-  formatearPesos,
   generarDocumentoPlanillasCobranzas,
   type PlanillaCobranzasParaImprimir,
   type RenglonCobranza,
