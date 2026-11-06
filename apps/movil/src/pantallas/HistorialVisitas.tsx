@@ -64,7 +64,7 @@ export function PantallaHistorial({ navigation }: PropsPantalla<'Historial'>) {
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
 
-        <TituloPanel>{'HISTORIAL\nDE VISITAS'}</TituloPanel>
+        <TituloPanel unaLinea>HISTORIAL DE VISITAS</TituloPanel>
 
         <Desplegable<PeriodoHistorial>
           etiqueta="PERIODO"

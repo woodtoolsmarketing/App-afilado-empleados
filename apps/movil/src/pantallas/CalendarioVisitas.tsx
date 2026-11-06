@@ -328,7 +328,7 @@ export function PantallaCalendarioVisitas({ navigation, route }: PropsPantalla<'
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>{'CALENDARIO\nDE VISITAS'}</TituloPanel>
+        <TituloPanel unaLinea>CALENDARIO DE VISITAS</TituloPanel>
 
         {/* ── La semana ────────────────────────────────────────────────── */}
         <View style={estilos.semana}>

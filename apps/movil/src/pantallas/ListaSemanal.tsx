@@ -220,7 +220,7 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
         */}
         <Panel desplazable={false} contentStyle={estilos.marco}>
           <BarraPanel alVolver={() => navigation.goBack()} />
-          <TituloPanel>{'LISTA\nSEMANAL'}</TituloPanel>
+          <TituloPanel unaLinea>LISTA SEMANAL</TituloPanel>
 
           {/* ── El día (fijo) ───────────────────────────────────────────── */}
           {/*

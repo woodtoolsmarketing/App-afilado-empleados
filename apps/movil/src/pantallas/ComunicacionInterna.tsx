@@ -70,7 +70,7 @@ export function PantallaComunicacionInterna({
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>{'COMUNICACIÓN\nINTERNA'}</TituloPanel>
+        <TituloPanel unaLinea>COMUNICACIÓN INTERNA</TituloPanel>
 
         <View style={estilos.lista}>
           {CONTACTOS_INTERNOS.map((c) => (

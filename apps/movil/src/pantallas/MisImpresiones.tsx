@@ -39,7 +39,7 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
       <Encabezado />
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>{'MIS\nIMPRESIONES'}</TituloPanel>
+        <TituloPanel unaLinea>MIS IMPRESIONES</TituloPanel>
 
         <Text style={estilos.ayuda}>
           Lo que mandaste a imprimir a la oficina. La PC de la oficina lo saca en orden de llegada;
