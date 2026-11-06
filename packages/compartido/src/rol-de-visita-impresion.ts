@@ -394,6 +394,14 @@ export const ESTILOS_ROL_DE_VISITA = `
 .rol-tabla .tick { text-align: center; font-weight: bold; }
 .rol-tabla .resultado { font-size: 7pt; line-height: 1.15; }
 
+/* Cuando un rol ocupa más de una hoja, el encabezado de la tabla —las dos filas
+   de títulos— se repite arriba de CADA hoja en vez de salir sólo en la primera.
+   El display table-header-group es lo que hace que el navegador lo reimprima al
+   cortar la página; sin esto la segunda hoja arranca con columnas sin rótulo. Y
+   una fila no se parte entre dos hojas. */
+.rol-tabla thead { display: table-header-group; }
+.rol-tabla tr { break-inside: avoid; page-break-inside: avoid; }
+
 /* El bloque "Entregué" que cuelga del resultado: lo que hay que entregarle al
    cliente ese día. Chiquito y con su rótulo, para que se distinga del texto de
    la observación sin robarle lugar. */
