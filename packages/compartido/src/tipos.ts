@@ -456,7 +456,13 @@ export interface Parada {
 export interface ParadaCompleta extends Parada {
   cliente: Pick<
     Cliente,
-    'id' | 'codigo' | 'razon_social' | 'contacto_nombre' | 'telefono' | 'localidad'
+    | 'id'
+    | 'codigo'
+    | 'razon_social'
+    | 'contacto_nombre'
+    | 'telefono'
+    | 'localidad'
+    | 'provisorio'
   > | null
   /**
    * `null` = parada SIN UBICAR: entró al recorrido sin punto en el mapa.

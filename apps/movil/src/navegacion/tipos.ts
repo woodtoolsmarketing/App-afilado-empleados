@@ -61,6 +61,12 @@ export type ParametrosApp = {
      */
     abrirUbicador?: boolean
   }
+  /**
+   * Editar un cliente PROVISORIO recién cargado, desde el recorrido. Sólo
+   * mientras la ficha sigue provisoria: apenas la oficina le pone el código real
+   * la base cierra la edición. `clienteId` es el provisorio a corregir.
+   */
+  EditarProspecto: { clienteId: string }
   /** La agenda: qué hay comprometido para los próximos días. */
   CalendarioEnvios: undefined
   /**

@@ -962,6 +962,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   // registrar la visita de verdad (volvió, o le corrigió la dirección).
                   !finalizada && p.estado === 'no_visitada' ? () => pedirReactivar(p) : undefined
                 }
+                alEditar={
+                  // El prospecto (cliente provisorio) se puede corregir mientras
+                  // la oficina no le haya puesto el código real.
+                  p.cliente?.provisorio
+                    ? () => navigation.navigate('EditarProspecto', { clienteId: p.cliente!.id })
+                    : undefined
+                }
               />
             ))}
 
@@ -1306,6 +1313,7 @@ function FilaParada({
   alTocar,
   alOpciones,
   alReactivar,
+  alEditar,
 }: {
   parada: ParadaCompleta
   alTocar?: () => void
@@ -1313,6 +1321,8 @@ function FilaParada({
   alOpciones?: () => void
   /** Reabre una parada "no visitada" para volver a visitarla. */
   alReactivar?: () => void
+  /** Editar los datos de un prospecto (cliente provisorio sin código aún). */
+  alEditar?: () => void
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -1393,36 +1403,52 @@ function FilaParada({
         ) : null}
       </View>
 
-      {visitada ? (
-        <Text style={estilos.tildeFila}>✓</Text>
-      ) : alReactivar ? (
-        // "No visitada": cruz roja de "no se pudo". Tocarla reabre la parada
-        // para volver a visitarla. Es su propio Pressable para no disparar el
-        // toque de la fila.
-        <Pressable
-          onPress={alReactivar}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`No visitada. Tocá para volver a visitar el destino ${parada.orden}`}
-          style={({ pressed }) => [estilos.cruzToque, pressed && estilos.asaTocada]}
-        >
-          <Text style={estilos.cruzNoVisitada}>✗</Text>
-        </Pressable>
-      ) : alOpciones ? (
-        // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
-        // mover/quitar y no dispara el toque de la fila (que lleva a cargar la
-        // visita).
-        <Pressable
-          onPress={alOpciones}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`Opciones del destino ${parada.orden}`}
-          style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
-        >
-          <Text style={estilos.asaIcono}>⋯</Text>
-          <Text style={estilos.asaTexto}>Opciones</Text>
-        </Pressable>
-      ) : null}
+      {/* Acciones a la derecha. El prospecto (cliente provisorio) suma un lápiz
+          para corregir sus datos mientras la oficina no le puso el código. */}
+      <View style={estilos.filaAcciones}>
+        {alEditar ? (
+          <Pressable
+            onPress={alEditar}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Editar los datos de ${parada.cliente?.razon_social ?? 'el prospecto'}`}
+            style={({ pressed }) => [estilos.asaChica, pressed && estilos.asaTocada]}
+          >
+            <Text style={estilos.asaIconoChico}>✏️</Text>
+          </Pressable>
+        ) : null}
+
+        {visitada ? (
+          <Text style={estilos.tildeFila}>✓</Text>
+        ) : alReactivar ? (
+          // "No visitada": cruz roja de "no se pudo". Tocarla reabre la parada
+          // para volver a visitarla. Es su propio Pressable para no disparar el
+          // toque de la fila.
+          <Pressable
+            onPress={alReactivar}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`No visitada. Tocá para volver a visitar el destino ${parada.orden}`}
+            style={({ pressed }) => [estilos.cruzToque, pressed && estilos.asaTocada]}
+          >
+            <Text style={estilos.cruzNoVisitada}>✗</Text>
+          </Pressable>
+        ) : alOpciones ? (
+          // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
+          // mover/quitar y no dispara el toque de la fila (que lleva a cargar la
+          // visita).
+          <Pressable
+            onPress={alOpciones}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Opciones del destino ${parada.orden}`}
+            style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
+          >
+            <Text style={estilos.asaIcono}>⋯</Text>
+            <Text style={estilos.asaTexto}>Opciones</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </Pressable>
   )
 }
@@ -1717,6 +1743,25 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.micro,
     color: t.colores.tintaSuave,
   },
+  // Columna de acciones de la derecha: el lápiz del prospecto arriba y el
+  // indicador (✓ / ✗ / ⋯) debajo.
+  filaAcciones: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: espaciado.xs,
+  },
+  // Asa compacta sólo-ícono, para el lápiz de editar el prospecto.
+  asaChica: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 40,
+    minHeight: 40,
+    borderRadius: radios.sm,
+    borderWidth: 1.5,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  asaIconoChico: { fontSize: 18 },
 
   // ── Ventana "¿cómo querés hacer el recorrido?" ─────────────────────────────
   velo: {

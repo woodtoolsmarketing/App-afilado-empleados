@@ -399,6 +399,116 @@ export async function crearClienteProvisorio(
   return data as Cliente
 }
 
+/** Los datos de un provisorio para precargar el formulario de edición. */
+export interface FichaProvisorioEditable {
+  razon_social: string
+  nombre_fantasia: string | null
+  documento: string | null
+  email: string | null
+  telefono: string | null
+  contacto_nombre: string | null
+  direccion_fiscal: string | null
+  direccion_id: string | null
+  direccion_formateada: string | null
+  codigo_postal: string | null
+  localidad: string | null
+  provincia: string | null
+  lat: number | null
+  lng: number | null
+  google_place_id: string | null
+}
+
+/**
+ * Trae los datos de un cliente PROVISORIO para editarlos desde el recorrido.
+ *
+ * Va por RPC (SECURITY DEFINER): el vendedor no hace SELECT directo de
+ * `clientes`. La base sólo la devuelve si el cliente sigue provisorio y lo cargó
+ * este mismo vendedor; si no, vuelve vacía (y la pantalla avisa que ya no se
+ * puede editar).
+ */
+export async function fichaProvisorioParaEditar(
+  clienteId: string,
+): Promise<FichaProvisorioEditable | null> {
+  const { data, error } = await supabase.rpc('ficha_cliente_provisorio', {
+    p_cliente_id: clienteId,
+  })
+  if (error) throw error
+  const filas = (data ?? []) as FichaProvisorioEditable[]
+  return filas[0] ?? null
+}
+
+/**
+ * Convierte la ficha del provisorio en el formulario de cliente nuevo, para
+ * precargarlo. Los teléfonos vuelven del texto único ("a / b") al arreglo que
+ * usa el formulario.
+ */
+export function formularioDesdeFichaProvisorio(
+  ficha: FichaProvisorioEditable,
+): FormularioClienteNuevo {
+  const telefonos = (ficha.telefono ?? '')
+    .split('/')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  return {
+    razon_social: ficha.razon_social ?? '',
+    documento: ficha.documento ?? '',
+    direccion: ficha.direccion_formateada ?? '',
+    codigo_postal: ficha.codigo_postal ?? '',
+    contacto_nombre: ficha.contacto_nombre ?? '',
+    telefonos: telefonos.length > 0 ? telefonos : [''],
+    email: ficha.email ?? '',
+    nombre_fantasia: ficha.nombre_fantasia ?? '',
+    direccion_fiscal: ficha.direccion_fiscal ?? '',
+    lat: ficha.lat,
+    lng: ficha.lng,
+    google_place_id: ficha.google_place_id,
+    localidad: ficha.localidad,
+    provincia: ficha.provincia,
+  }
+}
+
+/**
+ * Guarda los cambios de un cliente provisorio (ficha + dirección de entrega).
+ *
+ * Sólo anda mientras la ficha sigue provisoria: apenas la oficina le pone el
+ * código, la base rechaza la edición (42501) y la pantalla lo informa.
+ */
+export async function editarClienteProvisorio(
+  clienteId: string,
+  form: FormularioClienteNuevo,
+): Promise<void> {
+  const telefonos = form.telefonos
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(' / ')
+
+  const { error } = await supabase.rpc('editar_cliente_provisorio', {
+    p_cliente_id: clienteId,
+    p_razon_social: form.razon_social.trim(),
+    p_documento: form.documento.trim() || null,
+    p_direccion_formateada: form.direccion.trim() || null,
+    p_codigo_postal: form.codigo_postal.trim() || null,
+    p_lat: form.lat,
+    p_lng: form.lng,
+    p_telefonos: telefonos || null,
+    p_email: form.email.trim() || null,
+    p_nombre_fantasia: form.nombre_fantasia.trim() || null,
+    p_google_place_id: form.google_place_id,
+    p_localidad: form.localidad,
+    p_provincia: form.provincia,
+    p_contacto: form.contacto_nombre.trim() || null,
+    p_direccion_fiscal: form.direccion_fiscal.trim() || null,
+  })
+
+  if (error) {
+    if (['23514', '42501', 'P0002'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+
+  // Cambió la ficha: lo que el buscador tenga guardado quedó viejo.
+  olvidarBusquedasDeClientes()
+}
+
 /** Un cliente que podría ser el mismo que se está por crear. */
 export type PosibleDuplicado = {
   codigo: string

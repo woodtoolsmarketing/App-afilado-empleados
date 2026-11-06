@@ -149,7 +149,7 @@ export async function obtenerParadas(rolVisitaId: string): Promise<ParadaComplet
     .from('paradas')
     .select(
       `*,
-       cliente:clientes ( id, codigo, razon_social, contacto_nombre, telefono, localidad ),
+       cliente:clientes ( id, codigo, razon_social, contacto_nombre, telefono, localidad, provisorio ),
        direccion:direcciones ( * ),
        visita:visitas ( * )`,
     )
@@ -171,7 +171,7 @@ export async function obtenerDetalleParada(paradaId: string): Promise<ParadaComp
     .from('paradas')
     .select(
       `*,
-       cliente:clientes ( id, codigo, razon_social, contacto_nombre, telefono, localidad ),
+       cliente:clientes ( id, codigo, razon_social, contacto_nombre, telefono, localidad, provisorio ),
        direccion:direcciones ( * ),
        visita:visitas ( * )`,
     )

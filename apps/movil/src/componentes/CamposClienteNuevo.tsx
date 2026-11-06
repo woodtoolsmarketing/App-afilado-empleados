@@ -59,10 +59,17 @@ export function CamposClienteNuevo({
   form,
   actualizar,
   errores,
+  chequearDuplicados = true,
 }: {
   form: FormularioClienteNuevo
   actualizar: (cambios: Partial<FormularioClienteNuevo>) => void
   errores: Partial<Record<CampoClienteNuevo, string>>
+  /**
+   * Chequear contra el padrón si el cliente ya existe (el aviso temprano). Se
+   * apaga al EDITAR un provisorio ya cargado: ahí el cliente está en el padrón
+   * y el chequeo se encontraría a sí mismo.
+   */
+  chequearDuplicados?: boolean
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -174,6 +181,7 @@ export function CamposClienteNuevo({
   // Best-effort: sin señal no pasa nada (el chequeo al guardar es la red de
   // seguridad). La firma evita repetir la consulta si no cambió ningún dato.
   async function chequear() {
+    if (!chequearDuplicados) return
     const dig = form.documento.replace(/\D/g, '')
     const hayDato =
       form.razon_social.trim().length >= 3 ||
