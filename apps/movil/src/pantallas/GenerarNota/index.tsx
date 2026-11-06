@@ -2465,6 +2465,10 @@ function FormularioVenta({
   // pero va SIEMPRE sin cargo: no lleva precio, ni descuento, ni cae en la nota
   // de venta en dólares.
   const esReclamo = item.servicio === 'reclamo'
+  // La sierra sin fin se vende POR METRO: las unidades son metros y el precio es
+  // por metro (lo pone el vendedor, va "a confirmar"). Sólo cambian las etiquetas;
+  // el afilado se carga aparte, como siempre.
+  const esSierraSinFin = item.herramienta === 'sierra_sin_fin'
 
   // La descripción sale de la herramienta —"SC nueva" en venta, "S.C." en un
   // servicio o reclamo— igual que en los renglones de servicio. Lo que el
@@ -2668,7 +2672,7 @@ function FormularioVenta({
       ) : null}
 
       <Campo
-        etiqueta="UNIDADES"
+        etiqueta={esSierraSinFin ? 'METROS' : 'UNIDADES'}
         obligatorio
         value={item.unidades}
         onChangeText={(t) => alCambiar({ unidades: soloNumeros(t) })}
@@ -2692,7 +2696,15 @@ function FormularioVenta({
           {/* Es el precio de UNA unidad, en la moneda de la lista. Antes se
               guardaba como total y tres unidades a $100 se facturaban $100. */}
           <Campo
-            etiqueta={item.moneda === 'USD' ? 'PRECIO UNITARIO (US$)' : 'PRECIO UNITARIO'}
+            etiqueta={
+              esSierraSinFin
+                ? item.moneda === 'USD'
+                  ? 'PRECIO POR METRO (US$)'
+                  : 'PRECIO POR METRO'
+                : item.moneda === 'USD'
+                  ? 'PRECIO UNITARIO (US$)'
+                  : 'PRECIO UNITARIO'
+            }
             obligatorio
             value={item.precio}
             onChangeText={(t) => alCambiar({ precio: soloNumeros(t) })}
