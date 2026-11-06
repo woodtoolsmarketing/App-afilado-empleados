@@ -103,6 +103,24 @@ async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?:
   }
 }
 
+/** Cómo se ve el estado de una orden de impresión de rol en el historial. */
+function estadoDeOrden(estado: string, motivo: string | null): { texto: string; color: string } {
+  switch (estado) {
+    case 'pendiente':
+      return { texto: 'En la cola', color: 'var(--tinta-suave)' }
+    case 'imprimiendo':
+      return { texto: 'Imprimiéndose', color: 'var(--ambar)' }
+    case 'impresa':
+      return { texto: '✓ Impreso', color: 'var(--verde-oscuro)' }
+    case 'fallida':
+      return { texto: `✗ Falló${motivo ? ` · ${motivo}` : ''}`, color: 'var(--rojo)' }
+    case 'cancelada':
+      return { texto: 'Cancelado', color: 'var(--tinta-tenue)' }
+    default:
+      return { texto: estado, color: 'var(--tinta-suave)' }
+  }
+}
+
 /**
  * Armado e impresión del Rol de Visita.
  *
@@ -151,6 +169,65 @@ export function PaginaRolesDeVisita({
       return data as Pick<Perfil, 'id' | 'nombre_completo' | 'codigo_vendedor'>[]
     },
   })
+
+  /** Índice id→vendedor, para ponerle nombre a cada orden del historial. */
+  const vendedoresPorId = useMemo(
+    () => new Map((vendedores ?? []).map((v) => [v.id, v])),
+    [vendedores],
+  )
+
+  /**
+   * Historial de impresión de roles (#8).
+   *
+   * Los roles que los vendedores mandaron a la cola de la oficina, pendientes y
+   * resueltos. La RLS deja a la oficina ver todas las órdenes; filtramos a los
+   * vendedores que ESTA cuenta puede ver —al supervisor se le ocultan los
+   * admins— que de paso es de donde sale el nombre. Reimprimir es abrir el rol de
+   * esa fecha y usar el botón "Imprimir" de arriba (impresión directa de la
+   * oficina, igual que para cualquier rol cargado).
+   */
+  const { data: historialRoles = [] } = useQuery({
+    queryKey: ['historial-impresion-roles'],
+    queryFn: async () => {
+      const { data, error: err } = await supabase
+        .from('ordenes_impresion')
+        .select('id, pedida_por, estado, creado_en, resuelta_en, motivo_fallo, parametros')
+        .eq('tipo', 'rol')
+        .order('creado_en', { ascending: false })
+        .limit(100)
+      if (err) throw err
+      return (data ?? []) as Array<{
+        id: string
+        pedida_por: string
+        estado: string
+        creado_en: string
+        resuelta_en: string | null
+        motivo_fallo: string | null
+        parametros: { fecha?: string } | null
+      }>
+    },
+  })
+
+  const historialParaMostrar = useMemo(
+    () =>
+      historialRoles
+        .map((o) => {
+          const v = vendedoresPorId.get(o.pedida_por)
+          const fecha = o.parametros?.fecha ?? ''
+          return v && fecha
+            ? {
+                id: o.id,
+                vendedorId: o.pedida_por,
+                vendedor: v,
+                fecha,
+                estado: o.estado,
+                motivo_fallo: o.motivo_fallo,
+              }
+            : null
+        })
+        .filter((o): o is NonNullable<typeof o> => o !== null),
+    [historialRoles, vendedoresPorId],
+  )
 
   const { data: jornada, isLoading } = useQuery({
     queryKey: ['rol-visita', vendedorId, fecha],
@@ -655,6 +732,62 @@ export function PaginaRolesDeVisita({
           </div>
         </div>
       </div>
+
+      {/* ── Historial de impresión de roles (#8) ─────────────────────────── */}
+      {historialParaMostrar.length > 0 ? (
+        <section className="tarjeta no-imprimir">
+          <h2 style={{ marginTop: 0 }}>Impresión de roles</h2>
+          <p style={{ color: 'var(--tinta-suave)', fontSize: 13, marginTop: -6 }}>
+            Roles que los vendedores mandaron a imprimir, pendientes y ya resueltos. Abrí uno para
+            verlo y volver a imprimirlo con el botón «Imprimir» de arriba.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 90 }}>Fecha</th>
+                <th>Vendedor</th>
+                <th style={{ width: 190 }}>Estado</th>
+                <th style={{ width: 80 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {historialParaMostrar.slice(0, 15).map((o) => {
+                const est = estadoDeOrden(o.estado, o.motivo_fallo)
+                const seleccionada = o.vendedorId === vendedorId && o.fecha === fecha
+                return (
+                  <tr key={o.id}>
+                    <td>{new Date(`${o.fecha}T12:00:00`).toLocaleDateString('es-AR')}</td>
+                    <td>
+                      {o.vendedor.codigo_vendedor ? `#${o.vendedor.codigo_vendedor} · ` : ''}
+                      {o.vendedor.nombre_completo}
+                    </td>
+                    <td style={{ color: est.color }}>{est.texto}</td>
+                    <td>
+                      <button
+                        className="chico"
+                        disabled={seleccionada}
+                        title={seleccionada ? 'Ya estás viendo este rol' : 'Abrir este rol'}
+                        onClick={() => {
+                          setVendedorId(o.vendedorId)
+                          setFecha(o.fecha)
+                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                        }}
+                      >
+                        {seleccionada ? 'Abierto' : 'Ver'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {historialParaMostrar.length > 15 ? (
+            <p style={{ color: 'var(--tinta-suave)', fontSize: 13 }}>
+              Se muestran los 15 más recientes.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       {!vendedorId ? (
         <div className="tarjeta">

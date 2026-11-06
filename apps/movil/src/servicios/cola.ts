@@ -72,3 +72,51 @@ export async function miColaDeImpresion(): Promise<OrdenEnMiCola[]> {
   if (error) throw error
   return (data ?? []) as unknown as OrdenEnMiCola[]
 }
+
+/** Un rol que este vendedor ya mandó a imprimir y que la oficina resolvió. */
+export interface RolImpreso {
+  id: string
+  /** Fecha del rol (YYYY-MM-DD), de `parametros.fecha`. */
+  fecha: string
+  estado: 'impresa' | 'fallida' | 'cancelada'
+  creado_en: string
+  resuelta_en: string | null
+  motivo_fallo: string | null
+}
+
+/**
+ * El historial de roles que este vendedor mandó a la oficina (#8).
+ *
+ * Sólo los YA resueltos: los que siguen en la cola (pendiente/imprimiendo) salen
+ * en "Mis impresiones" con su puesto, así que no se repiten acá. La RLS de
+ * `ordenes_impresion` ya acota a las propias (`pedida_por = auth.uid()`), así que
+ * no hace falta ninguna función con privilegios. Reimprimir es volver a encolar
+ * el rol de esa fecha (`encolarRol`), que vuelve a la cola de la oficina.
+ */
+export async function historialDeRolesPropio(): Promise<RolImpreso[]> {
+  const { data, error } = await supabase
+    .from('ordenes_impresion')
+    .select('id, estado, creado_en, resuelta_en, motivo_fallo, parametros')
+    .eq('tipo', 'rol')
+    .in('estado', ['impresa', 'fallida', 'cancelada'])
+    .order('creado_en', { ascending: false })
+    .limit(30)
+  if (error) throw error
+  return (
+    (data ?? []) as Array<{
+      id: string
+      estado: RolImpreso['estado']
+      creado_en: string
+      resuelta_en: string | null
+      motivo_fallo: string | null
+      parametros: { fecha?: string } | null
+    }>
+  ).map((o) => ({
+    id: o.id,
+    estado: o.estado,
+    creado_en: o.creado_en,
+    resuelta_en: o.resuelta_en,
+    motivo_fallo: o.motivo_fallo,
+    fecha: o.parametros?.fecha ?? '',
+  }))
+}

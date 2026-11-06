@@ -1,14 +1,20 @@
-import { espaciado, radios } from '@woodtools/compartido'
+import { espaciado, formatearFechaCorta, radios, TOQUE_MINIMO } from '@woodtools/compartido'
 import { useIsFocused } from '@react-navigation/native'
-import { useQuery } from '@tanstack/react-query'
-import { Text, View } from 'react-native'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
-import { miColaDeImpresion, type OrdenEnMiCola } from '../servicios/cola'
-import { hojaDeTema } from '../nucleo/tema'
+import {
+  encolarRol,
+  historialDeRolesPropio,
+  miColaDeImpresion,
+  type OrdenEnMiCola,
+  type RolImpreso,
+} from '../servicios/cola'
+import { hojaDeTema, usarTema } from '../nucleo/tema'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -17,9 +23,14 @@ import type { PropsPantalla } from '../navegacion/tipos'
  * Lo que el vendedor mandó a imprimir a la oficina (notas, rol, cobranzas) con su
  * POSICIÓN en la cola: "2º de 5", "la próxima", "imprimiéndose". La oficina las
  * saca en orden de llegada; esto refresca solo para que el puesto baje en vivo.
+ *
+ * Abajo, el HISTORIAL de roles (#8): los roles que ya se imprimieron (o fallaron),
+ * para volver a mandarlos a la oficina de un toque. Los que todavía están en la
+ * cola salen arriba con su puesto, así que acá no se repiten.
  */
 export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresiones'>) {
   const estilos = usarEstilos()
+  const cola = useQueryClient()
 
   // Sólo sondea mientras el vendedor está MIRANDO esta pantalla: si se va a otra
   // (por el menú), deja de pegarle al servidor cada 8s —son dos count por orden
@@ -32,7 +43,28 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
     refetchInterval: enfocado ? 8_000 : false,
   })
 
+  const { data: historial = [] } = useQuery({
+    queryKey: ['historial-roles-propio'],
+    queryFn: historialDeRolesPropio,
+  })
+
+  const reimprimir = useMutation({
+    mutationFn: (fecha: string) => encolarRol(fecha),
+    onSuccess: (r) => {
+      // Vuelve a la cola de arriba: refrescamos para que aparezca con su puesto.
+      void cola.invalidateQueries({ queryKey: ['mi-cola-impresion'] })
+      Alert.alert(
+        r.encolada ? 'Va a la oficina' : 'Ya estaba pedido',
+        r.encolada
+          ? 'El rol volvió a la cola. Lo imprimen en la oficina; mirá tu lugar acá arriba.'
+          : (r.motivo ?? 'Ya hay un pedido de ese rol esperando en la oficina.'),
+      )
+    },
+    onError: (e: Error) => Alert.alert('No pudimos mandarlo a la oficina', e.message),
+  })
+
   const ordenes = data ?? []
+  const hayHistorial = historial.length > 0
 
   return (
     <Pantalla>
@@ -72,6 +104,10 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
             </Aviso>
             <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
           </>
+        ) : hayHistorial ? (
+          // Si no hay nada en la cola pero sí hay historial de roles, no tapamos
+          // la pantalla con el vacío grande: una línea y abajo el historial.
+          <Text style={estilos.colaVacia}>No tenés nada esperando en la cola.</Text>
         ) : (
           <Vacio
             titulo="No tenés nada esperando"
@@ -79,6 +115,24 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
             icono="🖨️"
           />
         )}
+
+        {/* ── Historial de roles (#8) ─────────────────────────────────────── */}
+        {hayHistorial ? (
+          <View style={estilos.historial}>
+            <Text style={estilos.historialTitulo}>HISTORIAL DE ROLES</Text>
+            <Text style={estilos.ayuda}>
+              Roles que ya mandaste a imprimir. Podés volver a mandarlos a la oficina.
+            </Text>
+            {historial.map((r) => (
+              <FilaHistorial
+                key={r.id}
+                rol={r}
+                reencolando={reimprimir.isPending}
+                alReimprimir={() => reimprimir.mutate(r.fecha)}
+              />
+            ))}
+          </View>
+        ) : null}
       </Panel>
     </Pantalla>
   )
@@ -111,11 +165,66 @@ function Fila({ orden }: { orden: OrdenEnMiCola }) {
   )
 }
 
+/**
+ * Una línea del historial de roles: la fecha del rol, cómo terminó, y un botón
+ * para volver a mandarlo a la oficina.
+ */
+function FilaHistorial({
+  rol,
+  reencolando,
+  alReimprimir,
+}: {
+  rol: RolImpreso
+  reencolando: boolean
+  alReimprimir: () => void
+}) {
+  const estilos = usarEstilos()
+  const { colores } = usarTema()
+
+  const fecha = rol.fecha ? formatearFechaCorta(`${rol.fecha}T12:00:00`) : 'Sin fecha'
+  const { texto, color } =
+    rol.estado === 'impresa'
+      ? { texto: '✓ Impreso', color: colores.estadoVisitada }
+      : rol.estado === 'fallida'
+        ? {
+            texto: `✗ No se pudo imprimir${rol.motivo_fallo ? ` · ${rol.motivo_fallo}` : ''}`,
+            color: colores.rojoAccion,
+          }
+        : { texto: 'Cancelado', color: colores.tintaSuave }
+
+  return (
+    <View style={estilos.histFila}>
+      <View style={estilos.datos}>
+        <Text style={estilos.desc}>Rol del {fecha}</Text>
+        <Text style={[estilos.estado, { color }]}>{texto}</Text>
+      </View>
+      <Pressable
+        onPress={alReimprimir}
+        disabled={reencolando}
+        accessibilityRole="button"
+        accessibilityLabel={`Reimprimir el rol del ${fecha}`}
+        style={({ pressed }) => [
+          estilos.reimprimir,
+          pressed && estilos.reimprimirTocado,
+          reencolando && estilos.reimprimirInerte,
+        ]}
+      >
+        <Text style={estilos.reimprimirTexto}>Reimprimir</Text>
+      </Pressable>
+    </View>
+  )
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
   ayuda: {
     fontFamily: t.tipografia.familia.liviana,
     fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  colaVacia: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.tintaSuave,
   },
   lista: { gap: espaciado.sm },
@@ -157,4 +266,42 @@ const usarEstilos = hojaDeTema((t) => ({
     color: t.colores.tintaSuave,
   },
   estadoImprimiendo: { color: t.colores.verdeOscuro, fontFamily: t.tipografia.familia.fuerte },
+
+  // Historial de roles
+  historial: {
+    gap: espaciado.sm,
+    marginTop: espaciado.sm,
+    borderTopWidth: 1.5,
+    borderTopColor: t.colores.borde,
+    paddingTop: espaciado.md,
+  },
+  historialTitulo: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  histFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    backgroundColor: t.colores.panelClaro,
+    borderRadius: radios.sm,
+    padding: espaciado.md,
+  },
+  reimprimir: {
+    minHeight: TOQUE_MINIMO,
+    paddingHorizontal: espaciado.md,
+    justifyContent: 'center',
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  reimprimirTocado: { opacity: 0.6 },
+  reimprimirInerte: { opacity: 0.4 },
+  reimprimirTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
 }))
