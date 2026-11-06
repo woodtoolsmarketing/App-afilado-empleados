@@ -1502,12 +1502,15 @@ function localidadDe(parada: ParadaCompleta): string | null {
  *
  * Google devuelve la dirección con el CPA pegado antes de la localidad
  * ("Av. Mitre 4470, B1882 Ezpeleta, …"); en la tarjeta el CP no aporta —el
- * vendedor ubica por calle y localidad— y come lugar. Se saca sólo el token que
- * va entre una coma y la palabra siguiente, para no tocar la altura de la calle
- * ("Mitre 4470"), que no viene después de una coma.
+ * vendedor ubica por calle y localidad— y come lugar. Se saca SÓLO el CPA, que
+ * siempre arranca con la letra de la provincia ("B1882", "B1882ABC"). Exigir esa
+ * letra es a propósito: el domicilio de texto del Gestión (lo que se muestra en
+ * los clientes sin ubicar) puede traer un número de barrio o de altura después
+ * de una coma ("…, 1500 Viviendas"), que NO es un código postal y no hay que
+ * tocar.
  */
 function sinCodigoPostal(domicilio: string): string {
-  return domicilio.replace(/,\s*[A-Z]{0,2}\d{4}[A-Z]{0,3}\s+/g, ', ')
+  return domicilio.replace(/,\s*[A-Z]\d{4}[A-Z]{0,3}\s+/g, ', ')
 }
 
 /**

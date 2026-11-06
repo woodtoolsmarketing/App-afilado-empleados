@@ -1,5 +1,4 @@
 import {
-  CLIENTE_NUEVO_VACIO,
   espaciado,
   validarClienteNuevo,
   type CampoClienteNuevo,
@@ -32,13 +31,18 @@ import { hojaDeTema } from '../nucleo/tema'
  *
  * El chequeo de duplicados del formulario se apaga a propósito: el cliente ya
  * está en el padrón (es provisorio) y, prendido, se encontraría a sí mismo.
+ *
+ * El `form` arranca en `null` y `CamposClienteNuevo` se monta RECIÉN cuando ya
+ * está precargado: ese componente siembra su estado interno (el texto de la
+ * dirección) una sola vez al montarse, así que montarlo con el form vacío
+ * dejaba el campo de dirección en blanco aunque el cliente la tuviera.
  */
 export function PantallaEditarProspecto({ route, navigation }: PropsPantalla<'EditarProspecto'>) {
   const estilos = usarEstilos()
   const clienteQuery = useQueryClient()
   const clienteId = route.params.clienteId
 
-  const [form, setForm] = useState<FormularioClienteNuevo>(CLIENTE_NUEVO_VACIO)
+  const [form, setForm] = useState<FormularioClienteNuevo | null>(null)
   const [errores, setErrores] = useState<Partial<Record<CampoClienteNuevo, string>>>({})
   const [intentado, setIntentado] = useState(false)
 
@@ -47,33 +51,34 @@ export function PantallaEditarProspecto({ route, navigation }: PropsPantalla<'Ed
     queryFn: () => fichaProvisorioParaEditar(clienteId),
   })
 
-  // Apenas llega la ficha, precargar el formulario con lo que ya hay cargado.
+  // Apenas llega la ficha, precargar el formulario con lo que ya hay cargado
+  // (una sola vez: después manda lo que el vendedor va editando).
   useEffect(() => {
-    if (ficha.data) setForm(formularioDesdeFichaProvisorio(ficha.data))
-  }, [ficha.data])
+    if (ficha.data && form === null) setForm(formularioDesdeFichaProvisorio(ficha.data))
+  }, [ficha.data, form])
 
   const guardar = useMutation({
-    mutationFn: () => editarClienteProvisorio(clienteId, form),
-    onSuccess: async () => {
+    mutationFn: (datos: FormularioClienteNuevo) => editarClienteProvisorio(clienteId, datos),
+    onSuccess: async (_resultado, datos) => {
       // Cambió la ficha del cliente: el recorrido (y lo que dependa de él) tiene
       // que volver a leerla para mostrar los datos corregidos.
       await clienteQuery.invalidateQueries()
-      Alert.alert('Datos corregidos', `Se guardaron los cambios de ${form.razon_social}.`)
+      Alert.alert('Datos corregidos', `Se guardaron los cambios de ${datos.razon_social}.`)
       navigation.goBack()
     },
     onError: (e: Error) => Alert.alert('No pudimos guardar los cambios', e.message),
   })
 
   function actualizar(cambios: Partial<FormularioClienteNuevo>) {
-    setForm((f) => ({ ...f, ...cambios }))
+    setForm((f) => (f ? { ...f, ...cambios } : f))
   }
 
   function alGuardar() {
-    if (guardar.isPending) return
+    if (guardar.isPending || !form) return
     setIntentado(true)
     const { valido, errores: nuevos } = validarClienteNuevo(form)
     setErrores(nuevos)
-    if (valido) guardar.mutate()
+    if (valido) guardar.mutate(form)
   }
 
   return (
@@ -84,17 +89,17 @@ export function PantallaEditarProspecto({ route, navigation }: PropsPantalla<'Ed
         <BarraPanel alVolver={() => navigation.goBack()} />
         <TituloPanel unaLinea>EDITAR PROSPECTO</TituloPanel>
 
-        {ficha.isLoading ? (
-          <Cargando />
-        ) : ficha.isError ? (
+        {ficha.isError ? (
           <Aviso tono="atencion" titulo="No pudimos cargar la ficha">
             Revisá la señal y volvé a intentar.
           </Aviso>
-        ) : !ficha.data ? (
+        ) : !ficha.isLoading && !ficha.data ? (
           <Aviso tono="atencion" titulo="No se puede editar">
             Este cliente ya fue confirmado por la oficina (o no lo cargaste vos), así que sus datos
             ya no se editan desde la app.
           </Aviso>
+        ) : form === null ? (
+          <Cargando />
         ) : (
           <>
             {/* Lo único que se desplaza: el formulario. El botón de guardar queda

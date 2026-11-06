@@ -445,8 +445,11 @@ export async function fichaProvisorioParaEditar(
 export function formularioDesdeFichaProvisorio(
   ficha: FichaProvisorioEditable,
 ): FormularioClienteNuevo {
+  // Se parte por el MISMO separador con el que se juntan al guardar (" / "), no
+  // por "/" suelto: así un teléfono que ya trae una barra ("4292-1234/68") no se
+  // desdobla en dos al reabrir la edición.
   const telefonos = (ficha.telefono ?? '')
-    .split('/')
+    .split(' / ')
     .map((t) => t.trim())
     .filter(Boolean)
   return {
