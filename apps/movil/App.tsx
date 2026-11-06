@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
 import { AppState } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { DescargaDeApk } from './src/componentes/DescargaDeApk'
@@ -102,16 +103,21 @@ export default function App() {
   if (!fuentesResueltas || !temaListo) return null
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={clienteConsultas}>
-        {/* Clara en los dos temas: abajo hay rojo intenso o casi negro. */}
-        <StatusBar style="light" backgroundColor={tema.colores.fondo} />
-        <Navegacion />
-        {/* El modal de "bajando la actualización", global: la descarga puede
-            arrancar desde cualquier pantalla (ofrecerApk) y el progreso se sigue
-            viendo aunque el vendedor navegue. */}
-        <DescargaDeApk />
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    // GestureHandlerRootView envuelve todo: react-native-gesture-handler lo exige
+    // como raíz para que anden los gestos (el arrastre para reordenar el
+    // recorrido, #4). Sin él los gestos no disparan.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={clienteConsultas}>
+          {/* Clara en los dos temas: abajo hay rojo intenso o casi negro. */}
+          <StatusBar style="light" backgroundColor={tema.colores.fondo} />
+          <Navegacion />
+          {/* El modal de "bajando la actualización", global: la descarga puede
+              arrancar desde cualquier pantalla (ofrecerApk) y el progreso se sigue
+              viendo aunque el vendedor navegue. */}
+          <DescargaDeApk />
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }

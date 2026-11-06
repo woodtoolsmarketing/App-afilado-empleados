@@ -17,6 +17,11 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AppState, Modal, Pressable, Text, View } from 'react-native'
+import DraggableFlatList, {
+  ScaleDecorator,
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -75,6 +80,9 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const [eligiendoModo, setEligiendoModo] = useState(false)
   // El id de la parada cuya hoja de "mover" está abierta, o null.
   const [moviendo, setMoviendo] = useState<string | null>(null)
+  // Abre la hoja de "reordenar arrastrando" (#4): la lista de abiertas en una
+  // pantalla propia, para arrastrar los destinos a su lugar.
+  const [reordenando, setReordenando] = useState(false)
   const debeIniciar = route.params?.iniciar === true
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -937,7 +945,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
             ) : null}
             {!finalizada && abiertas.length >= 1 ? (
               <Text style={estilos.hintReordenar}>
-                Tocá ⋯ en un destino para moverlo o quitarlo del recorrido.
+                Tocá ⋯ en un destino para reordenar arrastrando, quitarlo o viajar.
               </Text>
             ) : null}
 
@@ -1043,6 +1051,17 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
         total={abiertas.length}
         ocupado={mover.isPending || quitar.isPending}
         alMover={moverA}
+        // "Viajar": abre la ruta completa en Google Maps (lo mismo que VER
+        // RECORRIDO EN GOOGLE MAPS). Se cierra la hoja antes de saltar afuera.
+        alViajar={() => {
+          setMoviendo(null)
+          abrirMaps.mutate()
+        }}
+        // "Reordenar arrastrando": cierra la hoja y abre la pantalla de arrastre.
+        alReordenar={() => {
+          setMoviendo(null)
+          setReordenando(true)
+        }}
         // Se cierra la hoja y recién ahí se pregunta: un Alert encima de un Modal
         // en Android puede quedar tapado.
         alQuitar={() => {
@@ -1051,6 +1070,14 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
           if (p) pedirQuitar(p)
         }}
         alCerrar={() => setMoviendo(null)}
+      />
+
+      <ModalReordenar
+        visible={reordenando}
+        paradas={abiertas}
+        ocupado={mover.isPending}
+        alReordenar={(orden) => mover.mutate(orden)}
+        alCerrar={() => setReordenando(false)}
       />
     </Pantalla>
   )
@@ -1133,6 +1160,8 @@ function ModalMoverDestino({
   total,
   ocupado,
   alMover,
+  alViajar,
+  alReordenar,
   alQuitar,
   alCerrar,
 }: {
@@ -1141,6 +1170,10 @@ function ModalMoverDestino({
   total: number
   ocupado: boolean
   alMover: (hasta: number) => void
+  /** Abre la ruta completa en Google Maps. */
+  alViajar: () => void
+  /** Abre la pantalla de arrastre para reordenar. */
+  alReordenar: () => void
   alQuitar: () => void
   alCerrar: () => void
 }) {
@@ -1159,11 +1192,22 @@ function ModalMoverDestino({
             {nombre} — Nº {posicion + 1} de {total}
           </Text>
 
+          {/* Viajar: la ruta entera en Google Maps, la vía alternativa a la
+              navegación de la app. */}
           <AccionMover
-            etiqueta="⤒  Poner primero"
-            detalle="Lo manda al principio del recorrido"
-            deshabilitado={esPrimero || ocupado}
-            alTocar={() => alMover(0)}
+            etiqueta="🗺  Viajar"
+            detalle="Abre la ruta del recorrido en Google Maps"
+            deshabilitado={ocupado}
+            alTocar={alViajar}
+          />
+
+          {/* Reordenar arrastrando: la forma principal de mover: mantener
+              apretado y deslizar. Subir/bajar quedan abajo como atajo rápido. */}
+          <AccionMover
+            etiqueta="✥  Reordenar arrastrando"
+            detalle="Mantené apretado un destino y deslizalo a su lugar"
+            deshabilitado={total < 2 || ocupado}
+            alTocar={alReordenar}
           />
           <AccionMover
             etiqueta="↑  Subir uno"
@@ -1177,15 +1221,9 @@ function ModalMoverDestino({
             deshabilitado={esUltimo || ocupado}
             alTocar={() => alMover(posicion + 1)}
           />
-          <AccionMover
-            etiqueta="⤓  Poner último"
-            detalle="Lo manda al final de la cola"
-            deshabilitado={esUltimo || ocupado}
-            alTocar={() => alMover(total - 1)}
-          />
 
-          {/* Quitar del recorrido. Destructiva y separada de las de mover, para
-              que no se toque de paso. Sale de la lista de hoy (queda 'omitida'). */}
+          {/* Quitar del recorrido. Destructiva y separada de las demás, para que
+              no se toque de paso. Sale de la lista de hoy (queda 'omitida'). */}
           <AccionMover
             etiqueta="🗑  Quitar del recorrido"
             detalle="Lo saca del día; no lo vas a visitar"
@@ -1203,6 +1241,105 @@ function ModalMoverDestino({
           </Pressable>
         </Pressable>
       </Pressable>
+    </Modal>
+  )
+}
+
+/**
+ * "REORDENAR": la lista de destinos abiertos, para arrastrarlos a su lugar (#4).
+ *
+ * Es una pantalla propia (Modal a pantalla completa) y no el arrastre sobre la
+ * lista del recorrido: ahí arriba hay un mapa y botones, y un arrastre metido
+ * entre todo eso pelea con el scroll. Acá la lista es lo único que hay, así que
+ * el gesto es limpio. Va envuelta en su propio GestureHandlerRootView porque un
+ * Modal de React Native se dibuja en otra ventana, fuera del root de la app.
+ *
+ * El orden se guarda al soltar (update optimista, igual que subir/bajar): no hay
+ * un "guardar" aparte, LISTO sólo cierra.
+ */
+function ModalReordenar({
+  visible,
+  paradas,
+  ocupado,
+  alReordenar,
+  alCerrar,
+}: {
+  visible: boolean
+  paradas: ParadaCompleta[]
+  ocupado: boolean
+  alReordenar: (nuevoOrden: string[]) => void
+  alCerrar: () => void
+}) {
+  const estilos = usarEstilos()
+  const { colores } = usarTema()
+  const [datos, setDatos] = useState<ParadaCompleta[]>(paradas)
+
+  // Se siembra al abrir, con el orden actual del recorrido. No se re-siembra con
+  // cada cambio de `paradas` mientras está abierto: el arrastre ya actualizó
+  // `datos`, y volver a copiar la lista de afuera (que llega por el update
+  // optimista) pelearía con lo que el dedo está haciendo.
+  useEffect(() => {
+    if (visible) setDatos(paradas)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible])
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={alCerrar}>
+      <GestureHandlerRootView style={estilos.reordenarRaiz}>
+        <Pantalla>
+          <Panel desplazable={false} contentStyle={estilos.reordenarMarco}>
+            <BarraPanel alVolver={alCerrar} />
+            <TituloPanel unaLinea>REORDENAR</TituloPanel>
+            <Text style={estilos.reordenarAyuda}>
+              Mantené apretado un destino y arrastralo a su lugar. El orden se guarda solo.
+            </Text>
+
+            <View style={estilos.reordenarLista}>
+              <DraggableFlatList
+                data={datos}
+                keyExtractor={(p) => p.id}
+                onDragEnd={({ data }) => {
+                  setDatos(data)
+                  alReordenar(data.map((p) => p.id))
+                }}
+                contentContainerStyle={estilos.reordenarContenido}
+                renderItem={({ item, drag, isActive, getIndex }: RenderItemParams<ParadaCompleta>) => (
+                  <ScaleDecorator>
+                    <Pressable
+                      onLongPress={drag}
+                      disabled={ocupado}
+                      delayLongPress={150}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Mantené apretado para mover ${
+                        item.cliente?.razon_social ?? 'el destino'
+                      }`}
+                      style={[estilos.reordenarFila, isActive && estilos.reordenarFilaActiva]}
+                    >
+                      {/* El número es la POSICIÓN en la lista (1..N), no el `orden`
+                          guardado: así se mantiene 1,2,3… en orden mientras se
+                          arrastra, en vez de quedar salteado. */}
+                      <View
+                        style={[
+                          estilos.numero,
+                          { backgroundColor: colorDeEstado(item.estado, colores) },
+                        ]}
+                      >
+                        <Text style={estilos.numeroTexto}>{(getIndex() ?? 0) + 1}</Text>
+                      </View>
+                      <Text style={estilos.reordenarNombre} numberOfLines={1}>
+                        {item.cliente?.razon_social ?? item.razon_social_snapshot ?? 'Destino sin cliente'}
+                      </Text>
+                      <Text style={estilos.reordenarAsa}>≡</Text>
+                    </Pressable>
+                  </ScaleDecorator>
+                )}
+              />
+            </View>
+
+            <BotonMenu titulo="LISTO" alTocar={alCerrar} />
+          </Panel>
+        </Pantalla>
+      </GestureHandlerRootView>
     </Modal>
   )
 }
@@ -1835,5 +1972,52 @@ const usarEstilos = hojaDeTema((t) => ({
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.tintaSuave,
     letterSpacing: 1,
+  },
+
+  // ── Pantalla de reordenar arrastrando (#4) ──────────────────────────────────
+  reordenarRaiz: { flex: 1 },
+  reordenarMarco: {
+    flex: 1,
+    paddingHorizontal: espaciado.base,
+    paddingTop: espaciado.md,
+    paddingBottom: espaciado.md,
+    gap: espaciado.md,
+  },
+  reordenarAyuda: {
+    fontFamily: t.tipografia.familia.liviana,
+    fontSize: t.tipografia.tamano.xs,
+    color: t.colores.tintaSuave,
+  },
+  reordenarLista: { flex: 1 },
+  reordenarContenido: { gap: espaciado.sm, paddingVertical: espaciado.sm },
+  reordenarFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.md,
+    backgroundColor: t.colores.panelClaro,
+    borderWidth: 1.5,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    padding: espaciado.sm,
+    minHeight: 60,
+  },
+  // Mientras se arrastra: se levanta (borde marcado, fondo claro y sombra), para
+  // que se vea cuál se está moviendo.
+  reordenarFilaActiva: {
+    borderColor: t.colores.tinta,
+    backgroundColor: t.colores.campoBlanco,
+    elevation: 6,
+  },
+  reordenarNombre: {
+    flex: 1,
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  reordenarAsa: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.tintaSuave,
+    paddingHorizontal: espaciado.xs,
   },
 }))
