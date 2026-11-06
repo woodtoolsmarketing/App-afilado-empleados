@@ -332,6 +332,32 @@ function VentanaBusqueda({
     })
   }
 
+  /**
+   * Carga un código TIPEADO A MANO que no está en la lista (o que el vendedor
+   * prefiere forzar). Entra sin precio —"a confirmar"—, para que el vendedor le
+   * ponga el importe, y sin stock (null = disponible). Útil cuando el código
+   * existe pero no aparece en la búsqueda, o la lista todavía no lo tiene.
+   */
+  function usarCodigoAMano() {
+    const cod = consulta.trim().toUpperCase()
+    if (!cod) return
+    elegir({
+      codigo: cod,
+      descripcion: '',
+      medida: null,
+      precio: 0,
+      moneda: 'ARS',
+      precio_pesos: null,
+      familia: null,
+      sin_precio: true,
+      diametro_exterior: null,
+      ancho_corte: null,
+      diametro_interior: null,
+      dientes: null,
+      stock: null,
+    })
+  }
+
   // ── Filtros por característica sobre lo ya traído ──────────────────────────
   // El vendedor achica una familia larga por Ø exterior, ancho de corte o
   // cantidad de dientes en vez de leer código por código.
@@ -519,6 +545,24 @@ function VentanaBusqueda({
               ? `No hay ninguna ${loQueSeLista} con eso. Probá con menos letras, o mirá toda la lista con el botón de abajo: hay cosas que se venden y están en otro rubro.`
               : 'No hay ningún artículo con eso. Probá con menos letras, o con parte de la descripción en vez del código.'}
           </Aviso>
+        ) : null}
+
+        {/* Cargar un código A MANO: cuando el que busca no está en la lista (o
+            quiere forzar uno puntual), lo escribe en el buscador y lo usa igual.
+            Entra "a confirmar" para que le ponga el precio. Aparece mientras lo
+            tipeado no coincida exactamente con un código ya listado. */}
+        {consulta.trim().length > 0 &&
+        !visibles.some((a) => a.codigo.toUpperCase() === consulta.trim().toUpperCase()) ? (
+          <Pressable
+            onPress={usarCodigoAMano}
+            accessibilityRole="button"
+            accessibilityLabel={`Usar el código ${consulta.trim().toUpperCase()} a mano`}
+            style={({ pressed }) => [estilos.salida, pressed && estilos.tocada]}
+          >
+            <Text style={estilos.salidaTexto}>
+              {`✚ USAR EL CÓDIGO «${consulta.trim().toUpperCase()}» A MANO`}
+            </Text>
+          </Pressable>
         ) : null}
 
         {/* La salida del filtro, siempre visible cuando el filtro está puesto. */}
