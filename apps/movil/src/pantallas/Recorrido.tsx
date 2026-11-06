@@ -1343,52 +1343,70 @@ function FilaParada({
         <Text style={estilos.filaCliente} numberOfLines={1}>
           {parada.cliente?.razon_social ?? parada.razon_social_snapshot ?? 'Destino sin cliente'}
         </Text>
-        <Text style={estilos.filaDireccion} numberOfLines={2}>
-          {domicilioDe(parada) ?? 'Sin domicilio cargado'}
-        </Text>
+
+        {/* Código de cliente + localidad: los dos datos con los que el vendedor
+            reconoce y ubica al cliente de un vistazo, destacados juntos. */}
+        {codigoDe(parada) || localidadDe(parada) ? (
+          <View style={estilos.filaMeta}>
+            {codigoDe(parada) ? (
+              <Text style={estilos.filaCodigo}>Cód. {codigoDe(parada)}</Text>
+            ) : null}
+            {localidadDe(parada) ? (
+              <Text style={estilos.filaLocalidad} numberOfLines={1}>
+                📍 {localidadDe(parada)}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* El domicilio va de apoyo —gris, una sola línea, sin el código
+            postal—: el dato principal es el nombre, el código y la localidad de
+            arriba. */}
+        {domicilioDe(parada) ? (
+          <Text style={estilos.filaDireccion} numberOfLines={1}>
+            {sinCodigoPostal(domicilioDe(parada)!)}
+          </Text>
+        ) : null}
+
         {contactoDe(parada) ? (
           <Text style={estilos.filaContacto} numberOfLines={1}>
             👤 {contactoDe(parada)}
           </Text>
         ) : null}
 
-        <View style={estilos.filaPastillas}>
-          <Pastilla
-            texto={ETIQUETA_ESTADO_PARADA[parada.estado]}
-            color={colorDeEstado(parada.estado, colores)}
-          />
-          {/* Primero de las opcionales: es el dato que le cambia lo que va a
-              hacer al llegar (guardar la ubicación), y en una fila angosta las
-              pastillas se van cayendo al renglón de abajo por orden. */}
-          {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
-          {parada.prioridad !== 'baja' ? (
-            <Pastilla
-              texto={ETIQUETA_PRIORIDAD[parada.prioridad]}
-              color={
-                parada.prioridad === 'alta' ? colores.prioridadAlta : colores.prioridadMedia
-              }
-            />
-          ) : null}
-          {parada.origen === 'agregada_en_ruta' ? (
-            <Pastilla texto="AGREGADO" color={colores.tintaSuave} />
-          ) : null}
-        </View>
+        {/* Sólo las pastillas que cambian lo que el vendedor va a hacer al
+            llegar. El estado (pendiente / visitada / no visitada) ya se lee en
+            el color del número y en el ✓/✗ de la derecha, así que su pastilla
+            —y la de "AGREGADO"— salen, para una tarjeta más limpia. */}
+        {sinUbicar || parada.prioridad !== 'baja' ? (
+          <View style={estilos.filaPastillas}>
+            {sinUbicar ? <Pastilla texto="SIN UBICAR" color={colores.rojoAccion} /> : null}
+            {parada.prioridad !== 'baja' ? (
+              <Pastilla
+                texto={ETIQUETA_PRIORIDAD[parada.prioridad]}
+                color={
+                  parada.prioridad === 'alta' ? colores.prioridadAlta : colores.prioridadMedia
+                }
+              />
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {visitada ? (
         <Text style={estilos.tildeFila}>✓</Text>
       ) : alReactivar ? (
-        // "No visitada": asa para volver a visitarla (reabre la parada). Es su
-        // propio Pressable para no disparar el toque de la fila.
+        // "No visitada": cruz roja de "no se pudo". Tocarla reabre la parada
+        // para volver a visitarla. Es su propio Pressable para no disparar el
+        // toque de la fila.
         <Pressable
           onPress={alReactivar}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={`Volver a visitar el destino ${parada.orden}`}
-          style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
+          accessibilityLabel={`No visitada. Tocá para volver a visitar el destino ${parada.orden}`}
+          style={({ pressed }) => [estilos.cruzToque, pressed && estilos.asaTocada]}
         >
-          <Text style={estilos.asaIcono}>↻</Text>
-          <Text style={estilos.asaTexto}>Volver a{'\n'}visitar</Text>
+          <Text style={estilos.cruzNoVisitada}>✗</Text>
         </Pressable>
       ) : alOpciones ? (
         // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
@@ -1432,6 +1450,38 @@ function domicilioDe(parada: ParadaCompleta): string | null {
 function contactoDe(parada: ParadaCompleta): string | null {
   const c = parada.cliente?.contacto_nombre?.trim()
   return c ? c : null
+}
+
+/** El código de cliente del Gestión, si el destino es un cliente del padrón. */
+function codigoDe(parada: ParadaCompleta): string | null {
+  const c = parada.cliente?.codigo?.trim()
+  return c ? c : null
+}
+
+/**
+ * La localidad del cliente, para mostrarla destacada en la tarjeta.
+ *
+ * Sale de la dirección ubicada si la hay —la que coincide con el pin del mapa—
+ * y, si el cliente todavía no está ubicado, del padrón del Gestión, que trae la
+ * localidad en texto en la ficha del cliente. Así la localidad aparece también
+ * en los miles de clientes sin ubicar.
+ */
+function localidadDe(parada: ParadaCompleta): string | null {
+  const l = (parada.direccion?.localidad ?? parada.cliente?.localidad)?.trim()
+  return l ? l : null
+}
+
+/**
+ * El domicilio sin el código postal.
+ *
+ * Google devuelve la dirección con el CPA pegado antes de la localidad
+ * ("Av. Mitre 4470, B1882 Ezpeleta, …"); en la tarjeta el CP no aporta —el
+ * vendedor ubica por calle y localidad— y come lugar. Se saca sólo el token que
+ * va entre una coma y la palabra siguiente, para no tocar la altura de la calle
+ * ("Mitre 4470"), que no viene después de una coma.
+ */
+function sinCodigoPostal(domicilio: string): string {
+  return domicilio.replace(/,\s*[A-Z]{0,2}\d{4}[A-Z]{0,3}\s+/g, ', ')
 }
 
 /**
@@ -1560,19 +1610,21 @@ const usarEstilos = hojaDeTema((t) => ({
   fila: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: espaciado.md,
+    gap: espaciado.sm,
     backgroundColor: t.colores.panelClaro,
     borderWidth: 1.5,
     borderColor: t.colores.borde,
     borderRadius: radios.sm,
     padding: espaciado.sm,
-    minHeight: 76,
+    // Más baja que antes (76) para que entren más destinos por pantalla y haya
+    // menos scroll; con tres renglones de texto sigue entrando cómoda.
+    minHeight: 60,
   },
   filaPresionada: { opacity: 0.7 },
   numero: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -1580,14 +1632,34 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   numeroTexto: {
     fontFamily: t.tipografia.familia.titulo,
-    fontSize: t.tipografia.tamano.base,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.blanco,
   },
-  filaTextos: { flex: 1, gap: 2 },
+  filaTextos: { flex: 1, gap: 1 },
   filaCliente: {
     fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+  },
+  // Renglón destacado con el código y la localidad, los dos datos que el
+  // vendedor usa para reconocer y ubicar al cliente de un vistazo.
+  filaMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    flexWrap: 'wrap',
+  },
+  filaCodigo: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojo,
+    letterSpacing: 0.3,
+  },
+  filaLocalidad: {
+    fontFamily: t.tipografia.familia.subtitulo,
     fontSize: t.tipografia.tamano.sm,
     color: t.colores.tinta,
+    flexShrink: 1,
   },
   filaDireccion: {
     fontFamily: t.tipografia.familia.liviana,
@@ -1596,7 +1668,7 @@ const usarEstilos = hojaDeTema((t) => ({
   },
   filaContacto: {
     fontFamily: t.tipografia.familia.cuerpo,
-    fontSize: t.tipografia.tamano.xs,
+    fontSize: t.tipografia.tamano.sm,
     color: t.colores.tinta,
   },
   filaPastillas: {
@@ -1609,6 +1681,19 @@ const usarEstilos = hojaDeTema((t) => ({
     fontFamily: t.tipografia.familia.titulo,
     fontSize: 22,
     color: t.colores.verdeOscuro,
+  },
+  // La cruz roja de "no visitada": tocar reabre la parada. Mismo lugar que el ✓
+  // de la visitada, con un área de toque cómoda.
+  cruzToque: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
+  },
+  cruzNoVisitada: {
+    fontFamily: t.tipografia.familia.titulo,
+    fontSize: 24,
+    color: t.colores.rojoAccion,
   },
   asa: {
     alignItems: 'center',

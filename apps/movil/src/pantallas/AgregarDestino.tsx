@@ -36,7 +36,7 @@ import {
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
-import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
+import { Campo, DensidadFormulario, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
@@ -72,11 +72,7 @@ import {
   type DireccionResuelta,
   type SugerenciaDireccion,
 } from '../servicios/mapas'
-import {
-  permisoDeUbicacionPuntual,
-  prioridadPorCercania,
-  ubicacionActual,
-} from '../servicios/ubicacion'
+import { permisoDeUbicacionPuntual, ubicacionActual } from '../servicios/ubicacion'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
@@ -523,15 +519,14 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       }
 
       /*
-       * La prioridad la decide la distancia, y para medirla hacen falta las dos
-       * coordenadas del cliente. Sin ellas no hay contra qué medir: entra
-       * 'baja'. Agendando para otro día tampoco sirve la cercanía de ahora, que
-       * no dice nada del orden de una jornada que todavía no empezó.
+       * El cliente que el vendedor acaba de agregar es el que quiere visitar
+       * ahora: entra como PRÓXIMO destino —prioridad 'alta', que la base pone al
+       * principio del recorrido—. Agendando para otro día, o si el cliente no
+       * tiene punto en el mapa, va 'baja': ahí "próximo" no aplica, y una parada
+       * sin ubicar la base la manda al final igual.
        */
       const prioridad: PrioridadParada =
-        esOtroDia || elegido.lat === null || elegido.lng === null
-          ? 'baja'
-          : await prioridadPorCercania(elegido.lat, elegido.lng)
+        esOtroDia || elegido.lat === null || elegido.lng === null ? 'baja' : 'alta'
 
       // El camino de siempre: el cliente ya tiene su punto en el mapa.
       if (elegido.direccion_id) {
@@ -577,7 +572,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       const mensaje = sinUbicar
         ? `${form.razon_social} entró al recorrido en la posición Nº ${parada.orden}, al final.\n\nComo todavía no está marcado en el mapa va último. Cuando llegues, guardás la ubicación desde la parada y queda cargada para siempre.`
         : parada.prioridad === 'alta' && !esOtroDia
-          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}): estás cerca.`
+          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}).`
           : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`
 
       Alert.alert(
@@ -657,34 +652,41 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
             fecha={fechaAgenda ? new Date(`${fechaAgenda}T12:00:00`) : undefined}
           />
 
-          <TituloPanel>{'CLIENTE\nEXISTENTE'}</TituloPanel>
+          <TituloPanel unaLinea>CLIENTE EXISTENTE</TituloPanel>
 
-          <Campo
-            etiqueta="CÓDIGO DE CLIENTE"
-            value={form.codigo}
-            onChangeText={(t) => alTipear('codigo', t)}
-            placeholder="Ej. 1003"
-            autoCapitalize="characters"
-            contenedorStyle={estilos.campoCorto}
-            returnKeyType="search"
-            blurOnSubmit={false}
-            onSubmitEditing={buscarYa}
-            accesorio={buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined}
-          />
-
-          <Text style={estilos.separadorO}>— o —</Text>
-
-          <Campo
-            etiqueta="NOMBRE O RAZÓN SOCIAL"
-            value={form.razon_social}
-            onChangeText={(t) => alTipear('razon_social', t)}
-            placeholder="Ej. Maderera del Oeste"
-            autoCapitalize="words"
-            returnKeyType="search"
-            blurOnSubmit={false}
-            onSubmitEditing={buscarYa}
-            error={errores.cliente}
-          />
+          {/* Código y nombre lado a lado y compactos: ocupan un solo renglón en
+              vez de dos campos altos apilados, y le dejan la pantalla a la ficha
+              del cliente, que es lo que el vendedor quiere ver. */}
+          <DensidadFormulario.Provider value="compacta">
+            <View style={estilos.filaBusqueda}>
+              <Campo
+                etiqueta="CÓDIGO"
+                value={form.codigo}
+                onChangeText={(t) => alTipear('codigo', t)}
+                placeholder="Ej. 1003"
+                autoCapitalize="characters"
+                contenedorStyle={estilos.campoCodigo}
+                returnKeyType="search"
+                blurOnSubmit={false}
+                onSubmitEditing={buscarYa}
+                accesorio={
+                  buscando ? <ActivityIndicator size="small" color={colores.rojo} /> : undefined
+                }
+              />
+              <Campo
+                etiqueta="NOMBRE O RAZÓN SOCIAL"
+                value={form.razon_social}
+                onChangeText={(t) => alTipear('razon_social', t)}
+                placeholder="Ej. Maderera del Oeste"
+                autoCapitalize="words"
+                contenedorStyle={estilos.flex}
+                returnKeyType="search"
+                blurOnSubmit={false}
+                onSubmitEditing={buscarYa}
+                error={errores.cliente}
+              />
+            </View>
+          </DensidadFormulario.Provider>
 
           {/* Lo único que se desplaza: resultados, avisos, ficha del cliente y
               el ubicador. Los dos buscadores quedan fijos arriba. */}
@@ -1354,12 +1356,10 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       ) {
         throw new ReaperturaCancelada()
       }
-      // El cliente nuevo se acaba de ubicar, así que hay contra qué medir: si el
-      // vendedor está encima, el destino se clava adelante. Para otro día no vale
-      // la cercanía de ahora: entra 'baja'.
-      const prioridad: PrioridadParada = esOtroDia
-        ? 'baja'
-        : await prioridadPorCercania(form.lat!, form.lng!)
+      // El cliente nuevo que se acaba de cargar es el próximo a visitar: entra al
+      // principio del recorrido (prioridad 'alta'). Para otro día va 'baja', que
+      // ahí "próximo" no significa nada.
+      const prioridad: PrioridadParada = esOtroDia ? 'baja' : 'alta'
       // Mismo alta que "GENERAR NUEVO CLIENTE", pero con rol de visita: la RPC
       // crea el cliente, su dirección y la parada en una sola transacción.
       return crearClienteProvisorio(form, { rolVisitaId: jornada.id, prioridad })
@@ -1435,7 +1435,7 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
             fecha={fechaAgenda ? new Date(`${fechaAgenda}T12:00:00`) : undefined}
           />
 
-          <TituloPanel>{'CLIENTE\nNUEVO'}</TituloPanel>
+          <TituloPanel unaLinea>CLIENTE NUEVO</TituloPanel>
 
           <ScrollView
             style={estilos.zona}
@@ -1770,6 +1770,10 @@ const usarEstilos = hojaDeTema((t) => ({
   flex: { flex: 1 },
   contenido: { gap: espaciado.md },
   campoCorto: { maxWidth: 220 },
+  // Los dos buscadores de CLIENTE EXISTENTE en un solo renglón: código angosto
+  // a la izquierda, nombre tomando el resto.
+  filaBusqueda: { flexDirection: 'row', gap: espaciado.sm, alignItems: 'flex-start' },
+  campoCodigo: { width: 116 },
 
   // Arma el panel en columna cuando NO se desplaza entero (ver LISTA SEMANAL):
   // header fijo arriba, la `zona` desplazable en el medio (flex: 1), y el botón

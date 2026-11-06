@@ -166,15 +166,29 @@ export function TituloPanel({
   children,
   destacado,
   style,
+  unaLinea = false,
 }: {
   children: ReactNode
   /** Se pinta en rojo, como el "13" del mockup. */
   destacado?: ReactNode
   style?: StyleProp<TextStyle>
+  /**
+   * Fuerza el título a UNA sola línea, achicando la letra si no entra.
+   *
+   * Para los títulos cortos (dos palabras, como "CLIENTE EXISTENTE") que no
+   * tienen por qué partirse en dos renglones. Los títulos largos —"TUS VISITAS
+   * DE HOY SON"— no lo usan: ahí el salto de línea es correcto.
+   */
+  unaLinea?: boolean
 }) {
   const estilos = usarEstilos()
   return (
-    <Text style={[estilos.titulo, style]}>
+    <Text
+      style={[estilos.titulo, style]}
+      numberOfLines={unaLinea ? 1 : undefined}
+      adjustsFontSizeToFit={unaLinea}
+      minimumFontScale={0.6}
+    >
       {children}
       {destacado !== undefined ? <Text style={estilos.tituloDestacado}> {destacado}</Text> : null}
     </Text>

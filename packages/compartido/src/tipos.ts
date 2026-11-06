@@ -454,7 +454,10 @@ export interface Parada {
 
 /** Parada con el cliente y la dirección ya resueltos: lo que consume la UI. */
 export interface ParadaCompleta extends Parada {
-  cliente: Pick<Cliente, 'id' | 'codigo' | 'razon_social' | 'contacto_nombre' | 'telefono'> | null
+  cliente: Pick<
+    Cliente,
+    'id' | 'codigo' | 'razon_social' | 'contacto_nombre' | 'telefono' | 'localidad'
+  > | null
   /**
    * `null` = parada SIN UBICAR: entró al recorrido sin punto en el mapa.
    *
