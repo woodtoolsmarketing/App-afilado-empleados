@@ -1,4 +1,4 @@
-import { aNumero, espaciado, formatearPesos, radios, soloNumeros } from '@woodtools/compartido'
+import { aNumero, espaciado, formatearMoneda, radios, soloNumeros } from '@woodtools/compartido'
 import { useMutation } from '@tanstack/react-query'
 import * as Crypto from 'expo-crypto'
 import { useEffect, useRef, useState } from 'react'
@@ -54,6 +54,7 @@ export interface CobranzaEnEdicion {
   efectivo: number
   retenciones: number
   comentarios: string | null
+  moneda: 'ARS' | 'USD'
 }
 
 export function ModalCobranza({
@@ -95,6 +96,9 @@ export function ModalCobranza({
   const [efectivo, setEfectivo] = useState('')
   const [retenciones, setRetenciones] = useState('')
   const [comentarios, setComentarios] = useState('')
+  // La moneda del cobro: casi siempre pesos; dólares cuando el cliente paga en
+  // US$. Los montos (cheque/efectivo/retención) van en esa moneda.
+  const [moneda, setMoneda] = useState<'ARS' | 'USD'>('ARS')
 
   // El id del cobro se genera en el teléfono, no en la base. Así, si se guarda
   // con mala señal y el INSERT entra pero se pierde la respuesta, tocar GUARDAR de
@@ -115,6 +119,7 @@ export function ModalCobranza({
       setEfectivo(aEntrada(editando.efectivo))
       setRetenciones(aEntrada(editando.retenciones))
       setComentarios(editando.comentarios ?? '')
+      setMoneda(editando.moneda)
       return
     }
     idCobro.current = Crypto.randomUUID()
@@ -123,6 +128,7 @@ export function ModalCobranza({
     setEfectivo('')
     setRetenciones('')
     setComentarios('')
+    setMoneda('ARS')
   }, [visible, tipoSugerido, editando])
 
   const total = aPesos(cheque) + aPesos(efectivo) + aPesos(retenciones)
@@ -137,6 +143,7 @@ export function ModalCobranza({
             efectivo: aPesos(efectivo),
             retenciones: aPesos(retenciones),
             comentarios,
+            moneda,
           })
         : registrarCobranza({
             id: idCobro.current,
@@ -149,6 +156,7 @@ export function ModalCobranza({
             efectivo: aPesos(efectivo),
             retenciones: aPesos(retenciones),
             comentarios,
+            moneda,
             fecha,
           }),
     onSuccess: () => alGuardar(),
@@ -189,6 +197,17 @@ export function ModalCobranza({
               alCambiar={setTipo}
             />
 
+            <Desplegable<'ARS' | 'USD'>
+              etiqueta="MONEDA DEL COBRO"
+              obligatorio
+              valor={moneda}
+              items={[
+                { valor: 'ARS', etiqueta: 'PESOS ($)' },
+                { valor: 'USD', etiqueta: 'DÓLARES (US$)' },
+              ]}
+              alCambiar={setMoneda}
+            />
+
             <View style={estilos.par}>
               <View style={estilos.mitad}>
                 <Campo
@@ -223,7 +242,7 @@ export function ModalCobranza({
 
             {total > 0 ? (
               <Aviso tono="exito" titulo="Total">
-                {formatearPesos(total)}
+                {formatearMoneda(total, moneda)}
               </Aviso>
             ) : null}
 

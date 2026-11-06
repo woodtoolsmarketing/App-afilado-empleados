@@ -162,6 +162,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
             efectivo: editando.efectivo,
             retenciones: editando.retenciones,
             comentarios: editando.comentarios,
+            moneda: editando.moneda,
           }
         : null,
     [editando],

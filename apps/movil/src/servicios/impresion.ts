@@ -4,7 +4,7 @@ import {
   ESTILOS_NOTA_PEDIDO,
   fechaLocalISO,
   formatearFechaCorta,
-  formatearPesos,
+  formatearMoneda,
   generarDocumentoImpresion,
   notaImprimibleDesdeFila,
   entregasDePedidoPorParada,
@@ -343,16 +343,18 @@ async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImpr
 function armarPlanillaCobros(
   cobros: Cobranza[],
   esPresupuesto: boolean,
+  moneda: 'ARS' | 'USD',
   fecha: string,
   vendedorNumero: string,
 ): PlanillaCobranzasParaImprimir {
+  const monto = (n: number) => (n > 0 ? formatearMoneda(n, moneda) : '')
   const renglones: RenglonCobranza[] = cobros.map((c) => ({
     cliente_codigo: c.cliente_codigo ?? '',
     cliente_nombre: c.cliente_nombre,
-    total: formatearPesos(c.total),
-    cheque: c.cheque > 0 ? formatearPesos(c.cheque) : '',
-    efectivo: c.efectivo > 0 ? formatearPesos(c.efectivo) : '',
-    retenciones: c.retenciones > 0 ? formatearPesos(c.retenciones) : '',
+    total: formatearMoneda(c.total, moneda),
+    cheque: monto(c.cheque),
+    efectivo: monto(c.efectivo),
+    retenciones: monto(c.retenciones),
     comentarios: c.comentarios ?? '',
   }))
   // Subtotales por columna para el pie: la suma de cheque, de efectivo y de
@@ -363,12 +365,13 @@ function armarPlanillaCobros(
   return {
     vendedor_numero: vendedorNumero,
     esPresupuesto,
+    moneda,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
-    total_general: formatearPesos(cobros.reduce((suma, c) => suma + c.total, 0)),
-    total_cheque: sumaCheque > 0 ? formatearPesos(sumaCheque) : '',
-    total_efectivo: sumaEfectivo > 0 ? formatearPesos(sumaEfectivo) : '',
-    total_retenciones: sumaRetenciones > 0 ? formatearPesos(sumaRetenciones) : '',
+    total_general: formatearMoneda(cobros.reduce((suma, c) => suma + c.total, 0), moneda),
+    total_cheque: sumaCheque > 0 ? formatearMoneda(sumaCheque, moneda) : '',
+    total_efectivo: sumaEfectivo > 0 ? formatearMoneda(sumaEfectivo, moneda) : '',
+    total_retenciones: sumaRetenciones > 0 ? formatearMoneda(sumaRetenciones, moneda) : '',
   }
 }
 
@@ -387,13 +390,18 @@ async function planillasDeCobranzasDe(
   const planillas: PlanillaCobranzasParaImprimir[] = []
   for (const dia of dias) {
     const cobros = await cobranzasDelDia(dia)
-    const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
-    const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
-    if (facturas.length > 0) {
-      planillas.push(armarPlanillaCobros(facturas, false, dia, vendedorNumero))
-    }
-    if (presupuestos.length > 0) {
-      planillas.push(armarPlanillaCobros(presupuestos, true, dia, vendedorNumero))
+    // Una planilla por (comprobante, moneda): factura/presupuesto × pesos/dólares,
+    // sólo las que tienen cobros (la moneda que no se cobró no genera hoja).
+    for (const [esPres, tipo] of [
+      [false, 'factura'],
+      [true, 'presupuesto'],
+    ] as const) {
+      for (const moneda of ['ARS', 'USD'] as const) {
+        const grupo = cobros.filter((c) => c.tipo_comprobante === tipo && c.moneda === moneda)
+        if (grupo.length > 0) {
+          planillas.push(armarPlanillaCobros(grupo, esPres, moneda, dia, vendedorNumero))
+        }
+      }
     }
   }
   return planillas

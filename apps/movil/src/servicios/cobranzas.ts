@@ -27,6 +27,8 @@ export interface Cobranza {
   comentarios: string | null
   /** Cuándo salió en papel. Null = todavía se puede corregir. */
   impreso_en: string | null
+  /** Moneda del cobro: pesos (ARS) o dólares (USD). Los montos están en ella. */
+  moneda: 'ARS' | 'USD'
 }
 
 export interface DatosCobranza {
@@ -42,6 +44,8 @@ export interface DatosCobranza {
   /** Importe retenido (certificado de retención). Suma al total. Default 0. */
   retenciones?: number
   comentarios?: string | null
+  /** Moneda del cobro: pesos (ARS) o dólares (USD). Default ARS. */
+  moneda?: 'ARS' | 'USD'
   /**
    * El día del cobro. Sin esto la base pone hoy —lo normal, porque se cobra en la
    * visita del día—. Lo manda sólo el alta suelta ("AGREGAR COBRANZA"), para
@@ -82,6 +86,7 @@ export async function registrarCobranza(datos: DatosCobranza): Promise<Cobranza>
       cheque,
       efectivo,
       retenciones,
+      moneda: datos.moneda ?? 'ARS',
       comentarios: (datos.comentarios ?? '').trim() || null,
     })
     .select()
@@ -147,6 +152,7 @@ export async function editarCobranza(datos: {
   // el RPC lo recibe NULL y PRESERVA la retención del cobro (no la pisa con 0).
   retenciones: number
   comentarios?: string | null
+  moneda: 'ARS' | 'USD'
 }): Promise<Cobranza> {
   const { data, error } = await supabase.rpc('editar_cobranza', {
     p_id: datos.id,
@@ -155,6 +161,7 @@ export async function editarCobranza(datos: {
     p_efectivo: redondear(datos.efectivo),
     p_retenciones: redondear(datos.retenciones),
     p_comentarios: (datos.comentarios ?? '').trim() || null,
+    p_moneda: datos.moneda,
   })
 
   if (error) {

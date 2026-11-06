@@ -1,7 +1,7 @@
 import {
   fechaLocalISO,
   formatearFechaCorta,
-  formatearPesos,
+  formatearMoneda,
   generarDocumentoImpresion,
   generarDocumentoPlanillasCobranzas,
   notaImprimibleDesdeFila,
@@ -209,6 +209,7 @@ interface CobranzaFila {
   efectivo: number | string
   retenciones: number | string
   comentarios: string | null
+  moneda: string
   perfiles: { codigo_vendedor: string | null } | null
 }
 
@@ -222,16 +223,18 @@ const n = (v: number | string | null | undefined): number => {
 function armarPlanilla(
   cobros: CobranzaFila[],
   esPresupuesto: boolean,
+  moneda: 'ARS' | 'USD',
   fecha: string,
 ): PlanillaCobranzasParaImprimir {
+  const monto = (x: number) => (x > 0 ? formatearMoneda(x, moneda) : '')
   const renglones: RenglonCobranza[] = cobros.map((c) => ({
     cliente_codigo: c.cliente_codigo ?? '',
     cliente_nombre: c.cliente_nombre,
-    total: formatearPesos(n(c.total)),
+    total: formatearMoneda(n(c.total), moneda),
     // Un cero se deja en blanco: una columna de ceros se lee como si hubiera pasado algo.
-    cheque: n(c.cheque) > 0 ? formatearPesos(n(c.cheque)) : '',
-    efectivo: n(c.efectivo) > 0 ? formatearPesos(n(c.efectivo)) : '',
-    retenciones: n(c.retenciones) > 0 ? formatearPesos(n(c.retenciones)) : '',
+    cheque: monto(n(c.cheque)),
+    efectivo: monto(n(c.efectivo)),
+    retenciones: monto(n(c.retenciones)),
     comentarios: c.comentarios ?? '',
   }))
   // Subtotales por columna para el pie. En blanco cuando dan 0, igual que por fila.
@@ -241,12 +244,13 @@ function armarPlanilla(
   return {
     vendedor_numero: cobros[0]?.perfiles?.codigo_vendedor ?? '',
     esPresupuesto,
+    moneda,
     fecha: formatearFechaCorta(`${fecha}T12:00:00`),
     cobros: renglones,
-    total_general: formatearPesos(cobros.reduce((s, c) => s + n(c.total), 0)),
-    total_cheque: sumaCheque > 0 ? formatearPesos(sumaCheque) : '',
-    total_efectivo: sumaEfectivo > 0 ? formatearPesos(sumaEfectivo) : '',
-    total_retenciones: sumaRetenciones > 0 ? formatearPesos(sumaRetenciones) : '',
+    total_general: formatearMoneda(cobros.reduce((s, c) => s + n(c.total), 0), moneda),
+    total_cheque: sumaCheque > 0 ? formatearMoneda(sumaCheque, moneda) : '',
+    total_efectivo: sumaEfectivo > 0 ? formatearMoneda(sumaEfectivo, moneda) : '',
+    total_retenciones: sumaRetenciones > 0 ? formatearMoneda(sumaRetenciones, moneda) : '',
   }
 }
 
@@ -257,7 +261,7 @@ async function renderizarCobranzas(orden: OrdenImpresion): Promise<DocumentoARen
   const { data, error } = await supabase
     .from('cobranzas')
     .select(
-      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, retenciones, comentarios,' +
+      'cliente_codigo, cliente_nombre, tipo_comprobante, total, cheque, efectivo, retenciones, comentarios, moneda,' +
         ' perfiles:vendedor_id ( codigo_vendedor )',
     )
     .eq('vendedor_id', orden.pedida_por)
@@ -268,11 +272,17 @@ async function renderizarCobranzas(orden: OrdenImpresion): Promise<DocumentoARen
   const cobros = (data ?? []) as unknown as CobranzaFila[]
   if (cobros.length === 0) return null
 
-  const facturas = cobros.filter((c) => c.tipo_comprobante === 'factura')
-  const presupuestos = cobros.filter((c) => c.tipo_comprobante === 'presupuesto')
+  // Una planilla por (comprobante, moneda): sólo las que tienen cobros.
   const planillas: PlanillaCobranzasParaImprimir[] = []
-  if (facturas.length > 0) planillas.push(armarPlanilla(facturas, false, fecha))
-  if (presupuestos.length > 0) planillas.push(armarPlanilla(presupuestos, true, fecha))
+  for (const [esPres, tipo] of [
+    [false, 'factura'],
+    [true, 'presupuesto'],
+  ] as const) {
+    for (const moneda of ['ARS', 'USD'] as const) {
+      const grupo = cobros.filter((c) => c.tipo_comprobante === tipo && c.moneda === moneda)
+      if (grupo.length > 0) planillas.push(armarPlanilla(grupo, esPres, moneda, fecha))
+    }
+  }
   if (planillas.length === 0) return null
 
   return { html: generarDocumentoPlanillasCobranzas(planillas), tamano: 'A4' }
