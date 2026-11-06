@@ -81,6 +81,36 @@ export async function obtenerJornadaDe(
 }
 
 /**
+ * Para cada parada (por su id), si la visita de ese día dejó algo para
+ * entregar: vendió, retiró un afilado o entregó. Lo usa el filtro de "importar
+ * visitas de otro día" para volver sólo a los clientes a los que les quedó una
+ * entrega pendiente, o al revés, a los que no tenían nada para dejar.
+ *
+ * Una parada sin fila en `visitas` (no se cargó el parte) queda en `false`: no
+ * hay registro de que haya quedado algo.
+ */
+export async function resultadosDeVisitasDeDia(
+  paradaIds: string[],
+): Promise<Record<string, boolean>> {
+  if (paradaIds.length === 0) return {}
+  const { data, error } = await supabase
+    .from('visitas')
+    .select('parada_id, vendio, retiro_afilado, entrego')
+    .in('parada_id', paradaIds)
+  if (error) throw conMensajeDeSenal(error)
+  const conEntrega: Record<string, boolean> = {}
+  for (const v of (data ?? []) as Array<{
+    parada_id: string
+    vendio: boolean | null
+    retiro_afilado: boolean | null
+    entrego: boolean | null
+  }>) {
+    conEntrega[v.parada_id] = !!(v.vendio || v.retiro_afilado || v.entrego)
+  }
+  return conEntrega
+}
+
+/**
  * Se lanza cuando el vendedor agrega un cliente que YA está en su recorrido de
  * hoy. No es un error: es la señal de que hay que preguntarle "¿es otra
  * sucursal?" antes de agregarlo igual.

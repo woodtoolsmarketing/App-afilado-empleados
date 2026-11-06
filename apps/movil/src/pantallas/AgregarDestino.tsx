@@ -51,6 +51,7 @@ import {
   clienteYaEnRecorrido,
   importarVisitasDeDia,
   obtenerJornadaDe,
+  resultadosDeVisitasDeDia,
   SucursalDuplicadaError,
 } from '../servicios/jornada'
 import {
@@ -1539,6 +1540,9 @@ const ETIQUETA_ESTADO: Record<EstadoParada, string> = {
  * el resultado de la visita vieja quedan en ese día. `importarVisitasDeDia` no
  * duplica a los que ya están en el recorrido de hoy.
  */
+/** Con qué clientes de ese día me quedo: los que dejaron entrega, los que no, o todos. */
+type FiltroImportar = 'todos' | 'con_entregas' | 'sin_dejar'
+
 function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
@@ -1549,6 +1553,7 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
   const [fecha, setFecha] = useState(() => new Date(Date.now() - 86_400_000))
   const [calendario, setCalendario] = useState(false)
   const [elegidos, setElegidos] = useState<Set<string>>(new Set())
+  const [filtro, setFiltro] = useState<FiltroImportar>('todos')
 
   const fechaISO = fechaLocalISO(fecha)
 
@@ -1561,8 +1566,26 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
   // Sólo las paradas con cliente real: una parada vieja sin cliente (una razón
   // social suelta) no se puede reagendar porque no hay a quién volver a visitar.
   const importables = (data?.paradas ?? []).filter((p) => !!p.cliente_id)
+
+  // Si la visita de cada parada dejó algo para entregar (vendió/retiró/entregó),
+  // para el filtro. Best-effort: sin señal queda vacío y el filtro cae en "todos".
+  const { data: conEntregaPorParada } = useQuery({
+    queryKey: ['resultados-visitas', fechaISO],
+    queryFn: () => resultadosDeVisitasDeDia(importables.map((p) => p.id)),
+    enabled: importables.length > 0,
+    staleTime: 60_000,
+  })
+  const tieneEntrega = (p: ParadaCompleta) => conEntregaPorParada?.[p.id] ?? false
+
+  // Lo que se ve según el filtro. La selección (elegidos) se mantiene al cambiar
+  // de filtro; el botón IMPORTAR cuenta todo lo tildado.
+  const visibles =
+    filtro === 'todos'
+      ? importables
+      : importables.filter((p) => (filtro === 'con_entregas' ? tieneEntrega(p) : !tieneEntrega(p)))
+
   const seleccionadas = importables.filter((p) => elegidos.has(p.id))
-  const todosElegidos = importables.length > 0 && importables.every((p) => elegidos.has(p.id))
+  const todosVisiblesElegidos = visibles.length > 0 && visibles.every((p) => elegidos.has(p.id))
 
   function alternar(id: string) {
     setElegidos((previos) => {
@@ -1576,8 +1599,8 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
   function alternarTodos() {
     setElegidos((previos) => {
       const nuevos = new Set(previos)
-      if (todosElegidos) importables.forEach((p) => nuevos.delete(p.id))
-      else importables.forEach((p) => nuevos.add(p.id))
+      if (todosVisiblesElegidos) visibles.forEach((p) => nuevos.delete(p.id))
+      else visibles.forEach((p) => nuevos.add(p.id))
       return nuevos
     })
   }
@@ -1711,24 +1734,75 @@ function FormularioImportar({ navigation }: PropsPantalla<'AgregarDestino'>) {
             />
           ) : (
             <>
-              <Pressable
-                onPress={alternarTodos}
-                accessibilityRole="button"
-                style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
-              >
-                <Text style={estilos.atajoTexto}>{todosElegidos ? 'Ninguno' : 'Tildar todos'}</Text>
-              </Pressable>
-
-              <View style={estilos.listaImp}>
-                {importables.map((p) => (
-                  <FilaImportar
-                    key={p.id}
-                    parada={p}
-                    elegido={elegidos.has(p.id)}
-                    alTocar={() => alternar(p.id)}
-                  />
+              {/* Con qué clientes de ese día me quedo: los que dejaron algo para
+                  entregar (vendió/retiró/entregó), los que no, o todos. */}
+              <View style={estilos.filtroImp}>
+                {(
+                  [
+                    ['todos', 'Todos'],
+                    ['con_entregas', 'Con entrega'],
+                    ['sin_dejar', 'Sin dejar'],
+                  ] as const
+                ).map(([valor, texto]) => (
+                  <Pressable
+                    key={valor}
+                    onPress={() => setFiltro(valor)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: filtro === valor }}
+                    style={({ pressed }) => [
+                      estilos.filtroImpOpcion,
+                      filtro === valor && estilos.filtroImpOpcionActiva,
+                      pressed && estilos.atajoTocado,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        estilos.filtroImpTexto,
+                        filtro === valor && estilos.filtroImpTextoActivo,
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                    >
+                      {texto}
+                    </Text>
+                  </Pressable>
                 ))}
               </View>
+
+              {visibles.length === 0 ? (
+                <Vacio
+                  titulo={
+                    filtro === 'con_entregas'
+                      ? 'Ninguno con entrega ese día'
+                      : 'Ninguno sin dejar ese día'
+                  }
+                  detalle="Cambiá el filtro o el día."
+                  icono="🔎"
+                />
+              ) : (
+                <>
+                  <Pressable
+                    onPress={alternarTodos}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [estilos.atajo, pressed && estilos.atajoTocado]}
+                  >
+                    <Text style={estilos.atajoTexto}>
+                      {todosVisiblesElegidos ? 'Ninguno' : 'Tildar todos'}
+                    </Text>
+                  </Pressable>
+
+                  <View style={estilos.listaImp}>
+                    {visibles.map((p) => (
+                      <FilaImportar
+                        key={p.id}
+                        parada={p}
+                        elegido={elegidos.has(p.id)}
+                        alTocar={() => alternar(p.id)}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
             </>
           )}
         </ScrollView>
@@ -1860,6 +1934,26 @@ const usarEstilos = hojaDeTema((t) => ({
     textDecorationLine: 'underline',
   },
   listaImp: { gap: espaciado.xs },
+  // Filtro segmentado del importador (Todos / Con entrega / Sin dejar).
+  filtroImp: { flexDirection: 'row', gap: espaciado.xs, marginBottom: espaciado.xs },
+  filtroImpOpcion: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: espaciado.xs,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  filtroImpOpcionActiva: { backgroundColor: t.colores.rojoSolido },
+  filtroImpTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+  },
+  filtroImpTextoActivo: { color: t.colores.blanco },
   filaImp: {
     flexDirection: 'row',
     alignItems: 'center',
