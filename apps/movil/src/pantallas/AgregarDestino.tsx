@@ -61,6 +61,7 @@ import {
   direccionesDeCliente,
   ESPERA_TECLEO,
   LIMITE_CLIENTES,
+  marcarDireccionPrincipal,
   type PosibleDuplicado,
   ubicarCliente,
 } from '../servicios/clientes'
@@ -421,6 +422,23 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
     queryFn: () => direccionesDeCliente(elegido!.cliente_id),
     enabled: !!elegido?.cliente_id && !sinUbicar,
     staleTime: 60_000,
+  })
+
+  /** La sucursal a la que va este pedido (de las varias que tiene el cliente). */
+  const sucursalElegida = sucursales.find((s) => s.id === elegido?.direccion_id)
+
+  /**
+   * Deja la sucursal elegida como la dirección de entrega POR DEFECTO del
+   * cliente (la principal). El vendedor acaba de elegirla para este pedido y
+   * puede querer que quede fija para las próximas visitas.
+   */
+  const ponerPrincipal = useMutation({
+    mutationFn: () => marcarDireccionPrincipal(elegido!.direccion_id!),
+    onSuccess: async () => {
+      await cliente.invalidateQueries({ queryKey: ['sucursales', elegido?.cliente_id] })
+      Alert.alert('Listo', 'Esta sucursal quedó como la entrega por defecto del cliente.')
+    },
+    onError: (e: Error) => Alert.alert('No pudimos cambiarla', e.message),
   })
 
   /** Apunta el destino a otra sucursal: le pisa la dirección al cliente elegido. */
@@ -844,6 +862,24 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                 if (s) elegirSucursal(s)
               }}
             />
+          ) : null}
+
+          {/* Dejar la sucursal elegida como la entrega por defecto del cliente:
+              aparece sólo cuando se eligió una que NO es la principal. */}
+          {sucursalElegida && !sucursalElegida.principal ? (
+            <Pressable
+              onPress={() => ponerPrincipal.mutate()}
+              disabled={ponerPrincipal.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Dejar esta sucursal como la entrega por defecto del cliente"
+              style={({ pressed }) => [estilos.ponerPrincipal, pressed && estilos.atajoTocado]}
+            >
+              <Text style={estilos.ponerPrincipalTexto}>
+                {ponerPrincipal.isPending
+                  ? 'Guardando…'
+                  : '📌 Dejar esta sucursal como entrega por defecto'}
+              </Text>
+            </Pressable>
           ) : null}
 
           {/* La ubicación se completa sola desde la ficha del cliente. */}
@@ -1800,6 +1836,23 @@ const usarEstilos = hojaDeTema((t) => ({
     paddingHorizontal: espaciado.xs,
   },
   atajoTocado: { opacity: 0.6 },
+  ponerPrincipal: {
+    minHeight: TOQUE_MINIMO,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: espaciado.base,
+    paddingVertical: espaciado.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.panelClaro,
+  },
+  ponerPrincipalTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.tinta,
+    textAlign: 'center',
+  },
   atajoTexto: {
     fontFamily: t.tipografia.familia.fuerte,
     fontSize: t.tipografia.tamano.sm,

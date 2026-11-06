@@ -512,6 +512,25 @@ export async function editarClienteProvisorio(
   olvidarBusquedasDeClientes()
 }
 
+/**
+ * Deja una dirección del cliente como la PRINCIPAL (la de entrega por defecto).
+ *
+ * La usa el botón "dejar como entrega por defecto" cuando el vendedor elige una
+ * sucursal distinta de la principal. Sólo reordena entre las direcciones que el
+ * cliente ya tiene; la base la gatea por cuenta habilitada.
+ */
+export async function marcarDireccionPrincipal(direccionId: string): Promise<void> {
+  const { error } = await supabase.rpc('marcar_direccion_de_entrega_principal', {
+    p_direccion_id: direccionId,
+  })
+  if (error) {
+    if (['42501', 'P0002'].includes(error.code ?? '')) throw new Error(error.message)
+    throw error
+  }
+  // Cambió cuál es la principal: lo que el buscador tenga guardado quedó viejo.
+  olvidarBusquedasDeClientes()
+}
+
 /** Un cliente que podría ser el mismo que se está por crear. */
 export type PosibleDuplicado = {
   codigo: string
