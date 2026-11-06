@@ -158,16 +158,28 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     enabled: !!perfil,
   })
 
-  // El parte YA cargado, para REABRIRLO y corregirlo: sólo si no hay un borrador
-  // local (lo que el vendedor dejó a medias manda sobre lo guardado). La base lo
-  // deja corregir mientras el día esté abierto (ventana de 18 h).
+  const parada = data?.paradas.find((p) => p.id === paradaId)
+
+  // #10: la parada ya estaba cerrada como 'visitada', así que reabrirla es
+  // CORREGIR el parte, no una visita nueva. De esto dependen tres cosas: se
+  // precarga el parte guardado (abajo), no se vuelve a pedir el GPS al guardar, y
+  // la base conserva la posición/hora que se capturaron en la visita real (una
+  // corrección puede hacerse después, desde otro lado).
+  const esCorreccion = parada?.estado === 'visitada'
+
+  // El parte YA cargado, para REABRIRLO y corregirlo: SÓLO cuando es una
+  // corrección (la parada ya está 'visitada') y no hay un borrador local a medias
+  // (lo que el vendedor dejó a medias manda sobre lo guardado). Gatear por
+  // esCorreccion —y no sólo por !recuperado— importa: una parada DIFERIDA
+  // ('visitar más tarde') vuelve a 'pendiente' pero CONSERVA su fila de `visitas`
+  // (visitado=false); sin este gate, al revisitarla se repondría ese "no visité"
+  // y se congelaría la observación autoescrita. La base deja corregir mientras el
+  // día esté abierto (ventana de 18 h).
   const { data: visitaGuardada } = useQuery({
     queryKey: ['visita-parada', paradaId],
     queryFn: () => visitaDeParada(paradaId),
-    enabled: !recuperado,
+    enabled: !recuperado && esCorreccion,
   })
-
-  const parada = data?.paradas.find((p) => p.id === paradaId)
 
   /**
    * La misma parada, pero sólo si tiene punto en el mapa.
@@ -184,13 +196,6 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const ubicada = parada && estaUbicada(parada) ? parada : null
   const sinUbicar = !!parada && ubicada === null
   const clienteId = parada?.cliente?.id ?? null
-
-  // #10: la parada ya estaba cerrada como visitada, así que esto es una
-  // corrección del parte, no una visita nueva. No se vuelve a pedir el GPS: la
-  // base conserva la posición y la hora que se capturaron en la visita real
-  // (una corrección puede hacerse después, desde otro lado), y hacer esperar al
-  // vendedor por un fix de GPS para arreglar un tilde no tiene sentido.
-  const esCorreccion = parada?.estado === 'visitada'
 
   /** El domicilio de texto que vino del sistema de gestión, si lo hay. */
   const domicilioEscrito = (parada?.direccion_snapshot ?? '').trim()
@@ -283,11 +288,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   // la autoescritura de abajo no la pise.
   const precargado = useRef(false)
   useEffect(() => {
-    if (recuperado || precargado.current || !visitaGuardada) return
+    // `!esCorreccion` además de gatear la query: con `enabled:false` react-query
+    // igual devuelve lo que tenga cacheado de un montaje anterior, así que una
+    // parada que ahora está 'pendiente' (p. ej. recién diferida) no debe
+    // precargar aunque quede una `visitaGuardada` vieja en la caché.
+    if (recuperado || precargado.current || !visitaGuardada || !esCorreccion) return
     precargado.current = true
     setForm(visitaGuardada)
     if (visitaGuardada.observacion.trim()) escritaAMano.current = true
-  }, [recuperado, visitaGuardada])
+  }, [recuperado, visitaGuardada, esCorreccion])
 
   /**
    * La observación se escribe sola con lo que el vendedor marcó.

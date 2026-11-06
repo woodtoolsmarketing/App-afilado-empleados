@@ -3,7 +3,7 @@ import {
   espaciado,
   fechaLocalISO,
   formatearFechaCorta,
-  formatearPesos,
+  formatearMoneda,
   radios,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -137,7 +137,18 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
     },
   })
 
-  const total = (cobros ?? []).reduce((s, c) => s + Number(c.total), 0)
+  // Totales POR MONEDA: no se pueden sumar pesos con dólares. Casi siempre hay
+  // una sola (pesos) y se ve una línea; si el día tiene cobros en US$, aparece
+  // su total aparte. (La planilla impresa ya sale partida por moneda, #13.)
+  const totalesPorMoneda = useMemo(() => {
+    const acc: Record<string, number> = {}
+    for (const c of cobros ?? []) acc[c.moneda] = (acc[c.moneda] ?? 0) + Number(c.total)
+    // Pesos primero, después dólares; cualquier otra al final por las dudas.
+    const orden = (m: string) => (m === 'ARS' ? 0 : m === 'USD' ? 1 : 2)
+    return Object.entries(acc).sort(([a], [b]) => orden(a) - orden(b)) as Array<
+      ['ARS' | 'USD', number]
+    >
+  }, [cobros])
 
   function cambiarDia(delta: number) {
     const d = new Date(`${fecha}T12:00:00`)
@@ -234,7 +245,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
                   onPress={() => (impreso ? undefined : setEditando(c))}
                   disabled={impreso}
                   accessibilityRole="button"
-                  accessibilityLabel={`${c.cliente_nombre}, ${formatearPesos(c.total)}${impreso ? ', impreso' : ', tocá para corregir'}`}
+                  accessibilityLabel={`${c.cliente_nombre}, ${formatearMoneda(c.total, c.moneda)}${impreso ? ', impreso' : ', tocá para corregir'}`}
                   style={({ pressed }) => [estilos.fila, pressed && !impreso && estilos.filaTocada]}
                 >
                   <View style={estilos.filaIzquierda}>
@@ -248,17 +259,20 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
                         color={colores.tintaSuave}
                       />
                       {c.cheque > 0 ? (
-                        <Pastilla texto={`CHEQUE ${formatearPesos(c.cheque)}`} color={colores.azul} />
+                        <Pastilla
+                          texto={`CHEQUE ${formatearMoneda(c.cheque, c.moneda)}`}
+                          color={colores.azul}
+                        />
                       ) : null}
                       {c.efectivo > 0 ? (
                         <Pastilla
-                          texto={`EFECTIVO ${formatearPesos(c.efectivo)}`}
+                          texto={`EFECTIVO ${formatearMoneda(c.efectivo, c.moneda)}`}
                           color={colores.verdeOscuro}
                         />
                       ) : null}
                       {c.retenciones > 0 ? (
                         <Pastilla
-                          texto={`RETENCIÓN ${formatearPesos(c.retenciones)}`}
+                          texto={`RETENCIÓN ${formatearMoneda(c.retenciones, c.moneda)}`}
                           color={colores.ambar}
                         />
                       ) : null}
@@ -268,15 +282,19 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
                     </View>
                     {c.comentarios ? <Text style={estilos.comentario}>{c.comentarios}</Text> : null}
                   </View>
-                  <Text style={estilos.monto}>{formatearPesos(c.total)}</Text>
+                  <Text style={estilos.monto}>{formatearMoneda(c.total, c.moneda)}</Text>
                 </Pressable>
               )
             })}
 
-            <View style={estilos.totalFila}>
-              <Text style={estilos.totalRotulo}>TOTAL</Text>
-              <Text style={estilos.totalMonto}>{formatearPesos(total)}</Text>
-            </View>
+            {totalesPorMoneda.map(([moneda, monto]) => (
+              <View key={moneda} style={estilos.totalFila}>
+                <Text style={estilos.totalRotulo}>
+                  {totalesPorMoneda.length > 1 ? `TOTAL ${moneda === 'USD' ? 'US$' : '$'}` : 'TOTAL'}
+                </Text>
+                <Text style={estilos.totalMonto}>{formatearMoneda(monto, moneda)}</Text>
+              </View>
+            ))}
           </View>
         )}
       </Panel>

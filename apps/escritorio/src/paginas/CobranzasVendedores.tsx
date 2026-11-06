@@ -48,12 +48,6 @@ const n = (v: number | string | null | undefined): number => {
   return Number.isFinite(x) ? x : 0
 }
 
-const pesos = new Intl.NumberFormat('es-AR', {
-  style: 'currency',
-  currency: 'ARS',
-  minimumFractionDigits: 2,
-})
-
 /** "jueves 8 de octubre" a partir de un `date` de Postgres (al mediodía, sin corrimiento de huso). */
 function diaLargo(fecha: string): string {
   return new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', {
@@ -152,6 +146,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
   }, [])
   const [desde, setDesde] = useState(hace30)
   const [hasta, setHasta] = useState(hoy)
+  const [moneda, setMoneda] = useState<'ARS' | 'USD'>('ARS')
   const [exportando, setExportando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -173,10 +168,39 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
     },
   })
 
-  /** fecha → (vendedor_id → cobros), respetando el orden que trae la consulta. */
+  const fmt = (x: number) => formatearMoneda(x, moneda)
+
+  // #13: pesos y dólares no se suman. Se muestra UNA moneda por vez (pesos por
+  // defecto): así el resumen, los totales del día y el Excel quedan siempre en
+  // una sola moneda —única forma de que un total tenga sentido—. Si el período
+  // tiene cobros en la otra moneda, un aviso lo dice y deja cambiar.
+  const cobranzasMoneda = useMemo(
+    () => (cobranzas ?? []).filter((c) => c.moneda === moneda),
+    [cobranzas, moneda],
+  )
+  const cobrosOtraMoneda = useMemo(
+    () => (cobranzas ?? []).filter((c) => c.moneda !== moneda).length,
+    [cobranzas, moneda],
+  )
+
+  // Para IMPRIMIR se usan TODOS los cobros del día+vendedor (las dos monedas): la
+  // impresión arma una planilla por (comprobante, moneda) y el sellado marca el
+  // día entero, así que debe cubrir lo que haya y no sólo la moneda que se mira.
+  const gruposCompletos = useMemo(() => {
+    const m = new Map<string, CobranzaFila[]>()
+    for (const c of cobranzas ?? []) {
+      const k = `${c.fecha}|${c.vendedor_id}`
+      const lista = m.get(k) ?? []
+      lista.push(c)
+      m.set(k, lista)
+    }
+    return m
+  }, [cobranzas])
+
+  /** fecha → (vendedor_id → cobros) de la moneda elegida, en el orden de la consulta. */
   const porDia = useMemo(() => {
     const dias = new Map<string, Map<string, CobranzaFila[]>>()
-    for (const c of cobranzas ?? []) {
+    for (const c of cobranzasMoneda) {
       const porVend = dias.get(c.fecha) ?? new Map<string, CobranzaFila[]>()
       const lista = porVend.get(c.vendedor_id) ?? []
       lista.push(c)
@@ -184,12 +208,12 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       dias.set(c.fecha, porVend)
     }
     return dias
-  }, [cobranzas])
+  }, [cobranzasMoneda])
 
-  /** Total del período por vendedor, para el resumen de arriba. */
+  /** Total del período por vendedor (moneda elegida), para el resumen de arriba. */
   const resumenVendedores = useMemo(() => {
     const porVend = new Map<string, { nombre: string; tot: Totales }>()
-    for (const c of cobranzas ?? []) {
+    for (const c of cobranzasMoneda) {
       const prev = porVend.get(c.vendedor_id)
       const tot = prev?.tot ?? { total: 0, cheque: 0, efectivo: 0, retenciones: 0 }
       porVend.set(c.vendedor_id, {
@@ -203,9 +227,9 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       })
     }
     return [...porVend.values()].sort((a, b) => b.tot.total - a.tot.total)
-  }, [cobranzas])
+  }, [cobranzasMoneda])
 
-  const totalPeriodo = useMemo(() => sumar(cobranzas ?? []), [cobranzas])
+  const totalPeriodo = useMemo(() => sumar(cobranzasMoneda), [cobranzasMoneda])
 
   /**
    * Imprimir las planillas de un vendedor en un día: la de FACTURA y la de
@@ -265,7 +289,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
    * no hay un endpoint aparte que haga falta cerrar.
    */
   async function descargar() {
-    if (!cobranzas || cobranzas.length === 0) return
+    if (cobranzasMoneda.length === 0) return
     setExportando(true)
     try {
       const libro = new ExcelJS.Workbook()
@@ -284,7 +308,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         { header: 'Retenciones', key: 'retenciones', width: 14 },
         { header: 'Comentarios', key: 'comentarios', width: 30 },
       ]
-      for (const c of cobranzas) {
+      for (const c of cobranzasMoneda) {
         hoja.addRow({
           fecha: c.fecha,
           vendedor: nombreVendedor(c),
@@ -326,11 +350,12 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       })
       totalRow.font = { bold: true }
 
-      // Formato de moneda y encabezados en negrita en las dos hojas.
+      // Formato de moneda (la elegida) y encabezados en negrita en las dos hojas.
+      const numFmtMoneda = moneda === 'USD' ? '"US$ "#,##0.00' : '"$"#,##0.00'
       for (const h of [hoja, resumen]) {
         h.getRow(1).font = { bold: true }
         for (const k of ['total', 'cheque', 'efectivo', 'retenciones']) {
-          h.getColumn(k).numFmt = '"$"#,##0.00'
+          h.getColumn(k).numFmt = numFmtMoneda
         }
       }
 
@@ -341,7 +366,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       const url = URL.createObjectURL(blob)
       const enlace = document.createElement('a')
       enlace.href = url
-      enlace.download = `cobranzas-${desde}-a-${hasta}.xlsx`
+      enlace.download = `cobranzas-${moneda === 'USD' ? 'dolares' : 'pesos'}-${desde}-a-${hasta}.xlsx`
       enlace.click()
       URL.revokeObjectURL(url)
     } finally {
@@ -358,6 +383,23 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         </div>
         <div className="acciones" style={{ gap: 10, alignItems: 'flex-end' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
+            <span style={{ color: 'var(--tinta-suave)' }}>Moneda</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                className={moneda === 'ARS' ? 'chico primario' : 'chico'}
+                onClick={() => setMoneda('ARS')}
+              >
+                $ Pesos
+              </button>
+              <button
+                className={moneda === 'USD' ? 'chico primario' : 'chico'}
+                onClick={() => setMoneda('USD')}
+              >
+                US$ Dólares
+              </button>
+            </div>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
             <span style={{ color: 'var(--tinta-suave)' }}>Desde</span>
             <input type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} />
           </label>
@@ -371,7 +413,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
           {esAdmin && (
             <button
               className="primario"
-              disabled={exportando || (cobranzas?.length ?? 0) === 0}
+              disabled={exportando || cobranzasMoneda.length === 0}
               onClick={() => void descargar()}
             >
               {exportando ? 'Generando…' : '⬇ Descargar Excel'}
@@ -386,6 +428,19 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
         </div>
       )}
 
+      {/* Aviso de cobros en la OTRA moneda: la página muestra una sola moneda por
+          vez para que los totales sean válidos; esto evita que pasen inadvertidos. */}
+      {cobrosOtraMoneda > 0 && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          Hay {cobrosOtraMoneda} cobro{cobrosOtraMoneda === 1 ? '' : 's'} en{' '}
+          {moneda === 'ARS' ? 'dólares (US$)' : 'pesos ($)'} en este período, que no entra
+          {cobrosOtraMoneda === 1 ? '' : 'n'} en estos totales.{' '}
+          <button className="chico" onClick={() => setMoneda(moneda === 'ARS' ? 'USD' : 'ARS')}>
+            Ver en {moneda === 'ARS' ? 'US$' : '$'}
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="tarjeta">
           <p>Cargando…</p>
@@ -393,6 +448,12 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
       ) : (cobranzas?.length ?? 0) === 0 ? (
         <div className="tarjeta">
           <p className="vacio">No hay cobranzas registradas en ese período.</p>
+        </div>
+      ) : cobranzasMoneda.length === 0 ? (
+        <div className="tarjeta">
+          <p className="vacio">
+            No hay cobros en {moneda === 'USD' ? 'dólares (US$)' : 'pesos ($)'} en este período.
+          </p>
         </div>
       ) : (
         <>
@@ -414,16 +475,16 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                   <tr key={v.nombre}>
                     <td>{v.nombre}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {pesos.format(v.tot.total)}
+                      {fmt(v.tot.total)}
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {v.tot.cheque > 0 ? pesos.format(v.tot.cheque) : '—'}
+                      {v.tot.cheque > 0 ? fmt(v.tot.cheque) : '—'}
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {v.tot.efectivo > 0 ? pesos.format(v.tot.efectivo) : '—'}
+                      {v.tot.efectivo > 0 ? fmt(v.tot.efectivo) : '—'}
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {v.tot.retenciones > 0 ? pesos.format(v.tot.retenciones) : '—'}
+                      {v.tot.retenciones > 0 ? fmt(v.tot.retenciones) : '—'}
                     </td>
                   </tr>
                 ))}
@@ -434,16 +495,16 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                     <strong>Total general</strong>
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    <strong>{pesos.format(totalPeriodo.total)}</strong>
+                    <strong>{fmt(totalPeriodo.total)}</strong>
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {totalPeriodo.cheque > 0 ? pesos.format(totalPeriodo.cheque) : '—'}
+                    {totalPeriodo.cheque > 0 ? fmt(totalPeriodo.cheque) : '—'}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {totalPeriodo.efectivo > 0 ? pesos.format(totalPeriodo.efectivo) : '—'}
+                    {totalPeriodo.efectivo > 0 ? fmt(totalPeriodo.efectivo) : '—'}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {totalPeriodo.retenciones > 0 ? pesos.format(totalPeriodo.retenciones) : '—'}
+                    {totalPeriodo.retenciones > 0 ? fmt(totalPeriodo.retenciones) : '—'}
                   </td>
                 </tr>
               </tfoot>
@@ -467,7 +528,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                 >
                   <h2 style={{ textTransform: 'capitalize', margin: 0 }}>{diaLargo(fecha)}</h2>
                   <span style={{ color: 'var(--tinta-suave)', fontSize: 14 }}>
-                    Total del día: <strong>{pesos.format(totDia.total)}</strong>
+                    Total del día: <strong>{fmt(totDia.total)}</strong>
                   </span>
                 </div>
 
@@ -495,7 +556,7 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                             }}
                           >
                             {cobros.length} {cobros.length === 1 ? 'cobro' : 'cobros'} ·{' '}
-                            {pesos.format(tot.total)}
+                            {fmt(tot.total)}
                           </span>
                         </h3>
                         {/* Imprimir las planillas (factura/presupuesto, A5) es SÓLO de
@@ -504,7 +565,15 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                           <button
                             className="chico"
                             disabled={imprimir.isPending}
-                            onClick={() => imprimir.mutate({ cobros, fecha })}
+                            // Imprime TODAS las monedas del día+vendedor, no sólo la
+                            // que se está viendo (el sellado marca el día entero).
+                            onClick={() =>
+                              imprimir.mutate({
+                                cobros:
+                                  gruposCompletos.get(`${fecha}|${cobros[0].vendedor_id}`) ?? cobros,
+                                fecha,
+                              })
+                            }
                           >
                             {imprimir.isPending ? 'Imprimiendo…' : '🖨 Imprimir planillas'}
                           </button>
@@ -536,16 +605,16 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                                 </small>
                               </td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                {pesos.format(n(c.total))}
+                                {fmt(n(c.total))}
                               </td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                {n(c.cheque) > 0 ? pesos.format(n(c.cheque)) : '—'}
+                                {n(c.cheque) > 0 ? fmt(n(c.cheque)) : '—'}
                               </td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                {n(c.efectivo) > 0 ? pesos.format(n(c.efectivo)) : '—'}
+                                {n(c.efectivo) > 0 ? fmt(n(c.efectivo)) : '—'}
                               </td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                {n(c.retenciones) > 0 ? pesos.format(n(c.retenciones)) : '—'}
+                                {n(c.retenciones) > 0 ? fmt(n(c.retenciones)) : '—'}
                               </td>
                               <td style={{ color: 'var(--tinta-suave)' }}>{c.comentarios ?? ''}</td>
                             </tr>
@@ -558,16 +627,16 @@ export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {
                               <strong>Subtotal</strong>
                             </td>
                             <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                              <strong>{pesos.format(tot.total)}</strong>
+                              <strong>{fmt(tot.total)}</strong>
                             </td>
                             <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                              {tot.cheque > 0 ? pesos.format(tot.cheque) : '—'}
+                              {tot.cheque > 0 ? fmt(tot.cheque) : '—'}
                             </td>
                             <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                              {tot.efectivo > 0 ? pesos.format(tot.efectivo) : '—'}
+                              {tot.efectivo > 0 ? fmt(tot.efectivo) : '—'}
                             </td>
                             <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                              {tot.retenciones > 0 ? pesos.format(tot.retenciones) : '—'}
+                              {tot.retenciones > 0 ? fmt(tot.retenciones) : '—'}
                             </td>
                             <td />
                           </tr>

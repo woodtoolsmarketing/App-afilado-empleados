@@ -175,24 +175,29 @@ export function PaginaRolesDeVisita({
     () => new Map((vendedores ?? []).map((v) => [v.id, v])),
     [vendedores],
   )
+  /** Los ids de los vendedores que ESTA cuenta puede ver (al supervisor no los admins). */
+  const idsVisibles = useMemo(() => (vendedores ?? []).map((v) => v.id), [vendedores])
 
   /**
    * Historial de impresión de roles (#8).
    *
    * Los roles que los vendedores mandaron a la cola de la oficina, pendientes y
-   * resueltos. La RLS deja a la oficina ver todas las órdenes; filtramos a los
-   * vendedores que ESTA cuenta puede ver —al supervisor se le ocultan los
-   * admins— que de paso es de donde sale el nombre. Reimprimir es abrir el rol de
-   * esa fecha y usar el botón "Imprimir" de arriba (impresión directa de la
-   * oficina, igual que para cualquier rol cargado).
+   * resueltos. La RLS de `ordenes_impresion` deja a la oficina (incluido el
+   * supervisor) ver TODAS las órdenes, así que el filtro NO puede ser sólo del
+   * cliente: se acota en la consulta con `.in('pedida_por', idsVisibles)` a los
+   * vendedores que esta cuenta puede ver —al supervisor se le ocultan los admins,
+   * igual que en roles_visita— para que las de un admin ni viajen por la red.
+   * Reimprimir es abrir el rol de esa fecha y usar el botón "Imprimir" de arriba.
    */
   const { data: historialRoles = [] } = useQuery({
-    queryKey: ['historial-impresion-roles'],
+    queryKey: ['historial-impresion-roles', idsVisibles],
+    enabled: idsVisibles.length > 0,
     queryFn: async () => {
       const { data, error: err } = await supabase
         .from('ordenes_impresion')
         .select('id, pedida_por, estado, creado_en, resuelta_en, motivo_fallo, parametros')
         .eq('tipo', 'rol')
+        .in('pedida_por', idsVisibles)
         .order('creado_en', { ascending: false })
         .limit(100)
       if (err) throw err
