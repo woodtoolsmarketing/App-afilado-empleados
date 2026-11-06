@@ -946,7 +946,10 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 key={p.id}
                 parada={p}
                 alTocar={() => {
-                  if (p.estado !== 'pendiente' && p.estado !== 'en_camino') return
+                  // Pendiente / en camino: cargar la visita. VISITADA: reabrir el
+                  // parte para corregirlo (la base lo deja mientras el día esté
+                  // abierto). No visitada / omitida no se tocan por acá.
+                  if (!['pendiente', 'en_camino', 'visitada'].includes(p.estado)) return
                   yaPreguntado.current = p.id
                   navigation.navigate('DestinoVisitado', { paradaId: p.id })
                 }}

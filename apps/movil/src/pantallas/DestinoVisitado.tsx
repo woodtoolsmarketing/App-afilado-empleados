@@ -39,6 +39,7 @@ import {
   finalizarRecorrido,
   obtenerJornadaDeHoy,
   registrarVisita,
+  visitaDeParada,
   ubicarParada,
 } from '../servicios/jornada'
 import {
@@ -157,6 +158,15 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     enabled: !!perfil,
   })
 
+  // El parte YA cargado, para REABRIRLO y corregirlo: sólo si no hay un borrador
+  // local (lo que el vendedor dejó a medias manda sobre lo guardado). La base lo
+  // deja corregir mientras el día esté abierto (ventana de 18 h).
+  const { data: visitaGuardada } = useQuery({
+    queryKey: ['visita-parada', paradaId],
+    queryFn: () => visitaDeParada(paradaId),
+    enabled: !recuperado,
+  })
+
   const parada = data?.paradas.find((p) => p.id === paradaId)
 
   /**
@@ -174,6 +184,13 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const ubicada = parada && estaUbicada(parada) ? parada : null
   const sinUbicar = !!parada && ubicada === null
   const clienteId = parada?.cliente?.id ?? null
+
+  // #10: la parada ya estaba cerrada como visitada, así que esto es una
+  // corrección del parte, no una visita nueva. No se vuelve a pedir el GPS: la
+  // base conserva la posición y la hora que se capturaron en la visita real
+  // (una corrección puede hacerse después, desde otro lado), y hacer esperar al
+  // vendedor por un fix de GPS para arreglar un tilde no tiene sentido.
+  const esCorreccion = parada?.estado === 'visitada'
 
   /** El domicilio de texto que vino del sistema de gestión, si lo hay. */
   const domicilioEscrito = (parada?.direccion_snapshot ?? '').trim()
@@ -261,6 +278,17 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
    */
   const escritaAMano = useRef(recuperado?.escritaAMano ?? false)
 
+  // Precarga del parte guardado para corregirlo (#10): una sola vez, si no hay
+  // borrador local. Con observación cargada se marca "escrita a mano", para que
+  // la autoescritura de abajo no la pise.
+  const precargado = useRef(false)
+  useEffect(() => {
+    if (recuperado || precargado.current || !visitaGuardada) return
+    precargado.current = true
+    setForm(visitaGuardada)
+    if (visitaGuardada.observacion.trim()) escritaAMano.current = true
+  }, [recuperado, visitaGuardada])
+
   /**
    * La observación se escribe sola con lo que el vendedor marcó.
    *
@@ -343,10 +371,12 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   const guardar = useMutation({
     mutationFn: async () => {
       let posicion: { lat: number; lng: number; precision: number | null } | null = null
-      try {
-        posicion = await ubicacionActual()
-      } catch {
-        // Sin GPS igual se registra el parte; queda sin coordenadas.
+      if (!esCorreccion) {
+        try {
+          posicion = await ubicacionActual()
+        } catch {
+          // Sin GPS igual se registra el parte; queda sin coordenadas.
+        }
       }
 
       await registrarVisita({

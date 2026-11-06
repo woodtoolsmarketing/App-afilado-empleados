@@ -89,6 +89,54 @@ export async function obtenerJornadaDe(
  * Una parada sin fila en `visitas` (no se cargó el parte) queda en `false`: no
  * hay registro de que haya quedado algo.
  */
+/**
+ * El parte YA cargado de una parada, como formulario, para volver a abrirlo y
+ * corregirlo. Devuelve `null` si todavía no se cargó ninguno.
+ *
+ * `volver_a_las` no se reconstruye: sólo aplica al "visitar más tarde" (una
+ * parada no visitada), que se reabre por otro camino (reactivar), no por éste.
+ */
+export async function visitaDeParada(paradaId: string): Promise<FormularioVisita | null> {
+  const { data, error } = await supabase
+    .from('visitas')
+    .select(
+      'visitado, vendio, cobro, retiro_afilado, entrego, sin_pedido, otras, otras_detalle, motivo_no_visita, contacto_nombre, observacion, observacion_origen',
+    )
+    .eq('parada_id', paradaId)
+    .maybeSingle()
+  if (error) throw conMensajeDeSenal(error)
+  if (!data) return null
+  const v = data as {
+    visitado: boolean | null
+    vendio: boolean | null
+    cobro: boolean | null
+    retiro_afilado: boolean | null
+    entrego: boolean | null
+    sin_pedido: boolean | null
+    otras: boolean | null
+    otras_detalle: string | null
+    motivo_no_visita: FormularioVisita['motivo_no_visita']
+    contacto_nombre: string | null
+    observacion: string | null
+    observacion_origen: FormularioVisita['observacion_origen'] | null
+  }
+  return {
+    visitado: v.visitado,
+    vendio: !!v.vendio,
+    cobro: !!v.cobro,
+    retiro_afilado: !!v.retiro_afilado,
+    entrego: !!v.entrego,
+    sin_pedido: !!v.sin_pedido,
+    otras: !!v.otras,
+    otras_detalle: v.otras_detalle ?? '',
+    motivo_no_visita: v.motivo_no_visita ?? null,
+    volver_a_las: '',
+    contacto_nombre: v.contacto_nombre ?? '',
+    observacion: v.observacion ?? '',
+    observacion_origen: v.observacion_origen ?? 'texto',
+  }
+}
+
 export async function resultadosDeVisitasDeDia(
   paradaIds: string[],
 ): Promise<Record<string, boolean>> {
