@@ -32,6 +32,7 @@ import { Campo, Casilla, Desplegable, MensajeError } from '../componentes/Formul
 import { Aviso, Cargando, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { ModalCobranza } from '../componentes/ModalCobranza'
+import { ModalCotizacion } from '../componentes/ModalCotizacion'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
@@ -121,6 +122,10 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   // El cobro se carga en un modal a pantalla completa que se abre al tildar
   // "COBRÓ". El tilde del parte queda puesto recién cuando se guarda un cobro.
   const [modalCobranza, setModalCobranza] = useState(false)
+  // "COTIZÓ": casilla local (no es un campo del parte) que abre el popup para
+  // anotar qué se cotizó; el texto armado va a la observación de la visita.
+  const [modalCotizacion, setModalCotizacion] = useState(false)
+  const [cotizo, setCotizo] = useState(false)
 
   /**
    * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
@@ -845,6 +850,22 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                   actualizar(v ? { otras: true } : { otras: false, otras_detalle: '' })
                 }
               />
+              <Casilla
+                etiqueta="COTIZÓ"
+                valor={cotizo}
+                alCambiar={(v) => {
+                  // Tildar abre el popup para anotar qué se cotizó; destildar sólo
+                  // baja la marca (lo ya anotado queda en la observación).
+                  if (v) setModalCotizacion(true)
+                  else setCotizo(false)
+                }}
+              />
+              {cotizo ? (
+                <BotonSecundario
+                  titulo="＋ AGREGAR OTRA COTIZACIÓN"
+                  alTocar={() => setModalCotizacion(true)}
+                />
+              ) : null}
 
               <MensajeError>{errores.tipo_visita}</MensajeError>
 
@@ -885,6 +906,26 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 alGuardar={() => {
                   setModalCobranza(false)
                   actualizar({ cobro: true })
+                }}
+              />
+
+              {/* "COTIZÓ": la lista de herramienta + cantidad se arma como texto y
+                  se SUMA a la observación de la visita (que sale en el rol), así la
+                  oficina ve qué se cotizó aunque no termine en una nota. */}
+              <ModalCotizacion
+                visible={modalCotizacion}
+                alCerrar={() => setModalCotizacion(false)}
+                alConfirmar={(texto) => {
+                  setCotizo(true)
+                  setModalCotizacion(false)
+                  escritaAMano.current = true
+                  setForm((previo) => {
+                    const sep = previo.observacion.trim() ? '\n' : ''
+                    return {
+                      ...previo,
+                      observacion: `${previo.observacion.trim()}${sep}Cotizó: ${texto}`,
+                    }
+                  })
                 }}
               />
             </View>
