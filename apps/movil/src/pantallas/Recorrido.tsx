@@ -21,7 +21,6 @@ import DraggableFlatList, {
   ScaleDecorator,
   type RenderItemParams,
 } from 'react-native-draggable-flatlist'
-import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
@@ -79,10 +78,6 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   // La ventana que pregunta CÓMO arrancar: con Google Maps o guiado por la app.
   const [eligiendoModo, setEligiendoModo] = useState(false)
   // El id de la parada cuya hoja de "mover" está abierta, o null.
-  const [moviendo, setMoviendo] = useState<string | null>(null)
-  // Abre la hoja de "reordenar arrastrando" (#4): la lista de abiertas en una
-  // pantalla propia, para arrastrar los destinos a su lugar.
-  const [reordenando, setReordenando] = useState(false)
   const debeIniciar = route.params?.iniciar === true
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -541,24 +536,13 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   })
 
   /**
-   * La hoja de opciones de un destino: mover a mano y quitar del recorrido.
+   * Reordenar los destinos ARRASTRÁNDOLOS en la propia lista del recorrido (#4).
    *
-   * Mover opera sólo sobre las abiertas —las resueltas no se mueven— y se ofrece
-   * tanto antes de arrancar como en curso: a diferencia de "Ordenar por cercanía"
-   * (automático, por eso se esconde en curso), esto es una decisión explícita del
-   * vendedor, así que mover la próxima parada es justamente lo que quiso hacer.
-   * Con un solo destino abierto las acciones de mover quedan deshabilitadas, pero
-   * quitar sigue disponible.
+   * Opera sólo sobre las abiertas —las resueltas no se mueven, no se arrastran—.
+   * Se puede antes de arrancar y también en curso: a diferencia de "Ordenar por
+   * cercanía" (automático), es una decisión explícita del vendedor. El orden se
+   * guarda solo al soltar (update optimista).
    */
-  const idxMoviendo = moviendo ? abiertas.findIndex((p) => p.id === moviendo) : -1
-  const paradaMoviendo = idxMoviendo >= 0 ? abiertas[idxMoviendo] : null
-
-  // Si la parada que se estaba moviendo dejó de estar abierta (se cerró en otra
-  // pantalla, o se finalizó la jornada), la hoja se cierra sola.
-  useEffect(() => {
-    if (moviendo && idxMoviendo < 0) setMoviendo(null)
-  }, [moviendo, idxMoviendo])
-
   const mover = useMutation({
     mutationFn: (nuevoOrden: string[]) => {
       if (!jornada) throw new Error('Todavía no cargó la jornada')
@@ -581,15 +565,45 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     onSettled: () => cliente.invalidateQueries({ queryKey: ['jornada-hoy', perfil?.id] }),
   })
 
-  const moverA = useCallback(
-    (hasta: number) => {
-      if (idxMoviendo < 0) return
-      const destino = Math.max(0, Math.min(abiertas.length - 1, hasta))
-      if (destino === idxMoviendo) return
-      mover.mutate(conMovimiento(abiertas.map((p) => p.id), idxMoviendo, destino))
+  /**
+   * Al soltar el arrastre: toma el nuevo orden de las ABIERTAS y lo guarda. El
+   * `data` que da draggable-flatlist es la lista entera reordenada; de ahí se
+   * filtran las abiertas en su orden nuevo. Si no cambió nada (se soltó en el
+   * mismo lugar) no se dispara ninguna escritura.
+   */
+  const reordenarPorArrastre = useCallback(
+    ({ data }: { data: ParadaCompleta[] }) => {
+      const nuevo = data
+        .filter((p) => p.estado === 'pendiente' || p.estado === 'en_camino')
+        .map((p) => p.id)
+      const actual = abiertas.map((p) => p.id)
+      const cambio =
+        nuevo.length !== actual.length || nuevo.some((id, i) => id !== actual[i])
+      if (cambio) mover.mutate(nuevo)
     },
-    [abiertas, idxMoviendo, mover],
+    [abiertas, mover],
   )
+
+  /**
+   * "Viajar" a ESTE destino: abre Google Maps navegando directo a ese cliente.
+   * Con punto, navegación paso a paso; sin punto pero con domicilio escrito, se
+   * busca ese domicilio en Maps; sin ninguno de los dos, se avisa.
+   */
+  const viajarA = useCallback((p: ParadaCompleta) => {
+    if (estaUbicada(p)) {
+      void navegarHacia({ lat: p.direccion.lat, lng: p.direccion.lng }).catch(() => undefined)
+      return
+    }
+    const domicilio = (p.direccion_snapshot ?? '').trim()
+    if (domicilio) {
+      void buscarEnMapsPorTexto(domicilio).catch(() => undefined)
+      return
+    }
+    Alert.alert(
+      'Ese destino todavía no está en el mapa',
+      'No tenemos ni el punto ni el domicilio escrito, así que no hay a dónde llevarte. Cuando llegues, cargá la visita y tocá ESTOY ACÁ para guardar dónde queda.',
+    )
+  }, [])
 
   /**
    * Quitar un destino del recorrido del día.
@@ -612,7 +626,6 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
         // que las que quedan arranquen en 1 sin esperar a la relectura.
         cliente.setQueryData(['jornada-hoy', perfil?.id], quitarEnCache(previo, paradaId))
       }
-      setMoviendo(null)
       return { previo }
     },
     onError: (e: Error, _id, ctx) => {
@@ -747,41 +760,63 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
     <Pantalla>
       <Encabezado />
 
-      <Panel contentStyle={estilos.contenido}>
-        <BarraPanel alVolver={() => navigation.goBack()} />
+      {isLoading || error || !jornada ? (
+        // Estados simples (sin lista que arrastrar): un panel con scroll normal.
+        <Panel contentStyle={estilos.contenido}>
+          <BarraPanel alVolver={() => navigation.goBack()} />
 
-        {isLoading ? (
-          <Cargando texto="Armando tu recorrido…" />
-        ) : error ? (
-          /* No es lo mismo "no hay recorrido" que "no pude preguntarlo". Con la
-             misma rama para los dos, un vendedor sin señal veía desaparecer sus
-             destinos y creía que la oficina se los había borrado. */
-          <>
-            <Vacio
-              titulo="No pudimos traer tu recorrido"
-              detalle="Revisá la señal. Tus destinos están guardados: esto es sólo que no pudimos consultarlos."
-              icono="📡"
-            />
-            <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
-          </>
-        ) : !jornada ? (
-          <>
-            <Vacio
-              titulo="No hay recorrido para hoy"
-              detalle="La oficina todavía no cargó tus destinos. Podés agregar uno a mano."
-              icono="🗺️"
-            />
-            <BotonMenu
-              titulo={'AGREGAR\nNUEVO DESTINO'}
-              alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
-            />
-          </>
-        ) : (
-          <>
-            <TituloPanel>{'ESTE ES TU RECORRIDO\nDEL DÍA DE HOY'}</TituloPanel>
+          {isLoading ? (
+            <Cargando texto="Armando tu recorrido…" />
+          ) : error ? (
+            /* No es lo mismo "no hay recorrido" que "no pude preguntarlo". Con la
+               misma rama para los dos, un vendedor sin señal veía desaparecer sus
+               destinos y creía que la oficina se los había borrado. */
+            <>
+              <Vacio
+                titulo="No pudimos traer tu recorrido"
+                detalle="Revisá la señal. Tus destinos están guardados: esto es sólo que no pudimos consultarlos."
+                icono="📡"
+              />
+              <BotonSecundario titulo="↻  Reintentar" alTocar={() => void refetch()} />
+            </>
+          ) : (
+            <>
+              <Vacio
+                titulo="No hay recorrido para hoy"
+                detalle="La oficina todavía no cargó tus destinos. Podés agregar uno a mano."
+                icono="🗺️"
+              />
+              <BotonMenu
+                titulo={'AGREGAR\nNUEVO DESTINO'}
+                alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
+              />
+            </>
+          )}
+        </Panel>
+      ) : (
+        // Jornada cargada: la lista de destinos es arrastrable EN EL LUGAR. El
+        // mapa, los avisos y el próximo destino van de cabecera; los botones, de
+        // pie. El Panel no scrollea (`desplazable={false}`): el que scrollea es la
+        // DraggableFlatList, que necesita ser el único scroll para que el arrastre
+        // y el auto-scroll anden bien.
+        <Panel desplazable={false} contentStyle={estilos.marcoLista}>
+          <BarraPanel alVolver={() => navigation.goBack()} />
+          {/* La lista va en un View con altura acotada (flex:1): sin eso, la
+              FlatList no sabe cuánto mide y no dibuja ni scrollea. */}
+          <View style={estilos.marcoLista}>
+          <DraggableFlatList
+            data={paradas}
+            keyExtractor={(p) => p.id}
+            onDragEnd={reordenarPorArrastre}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={estilos.listaContenido}
+            ItemSeparatorComponent={Separador}
+            ListHeaderComponent={
+              <View style={estilos.cabecera}>
+                <TituloPanel>{'ESTE ES TU RECORRIDO\nDEL DÍA DE HOY'}</TituloPanel>
 
-            {avisoJornada ? <Aviso tono="atencion">{avisoJornada}</Aviso> : null}
-            {avisoMaps ? <Aviso tono="info">{avisoMaps}</Aviso> : null}
+                {avisoJornada ? <Aviso tono="atencion">{avisoJornada}</Aviso> : null}
+                {avisoMaps ? <Aviso tono="info">{avisoMaps}</Aviso> : null}
 
             {/*
               Sin paradas no se monta el mapa. Antes se montaba igual y caía al
@@ -940,144 +975,111 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
               />
             ) : null}
 
-            {paradas.length > 0 ? (
-              <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
-            ) : null}
-            {!finalizada && abiertas.length >= 1 ? (
-              <Text style={estilos.hintReordenar}>
-                Tocá ⋯ en un destino para reordenar arrastrando, quitarlo o viajar.
-              </Text>
-            ) : null}
+                {paradas.length > 0 ? (
+                  <Text style={estilos.subtitulo}>DESTINOS DEL DÍA</Text>
+                ) : null}
+                {!finalizada && abiertas.length >= 1 ? (
+                  <Text style={estilos.hintReordenar}>
+                    Mantené apretado un destino y arrastralo para moverlo. Tocalo para cargar la
+                    visita.
+                  </Text>
+                ) : null}
+              </View>
+            }
+            renderItem={({ item: p, drag, isActive }: RenderItemParams<ParadaCompleta>) => {
+              const abierta = p.estado === 'pendiente' || p.estado === 'en_camino'
+              return (
+                <ScaleDecorator>
+                  <FilaParada
+                    parada={p}
+                    drag={drag}
+                    isActive={isActive}
+                    arrastrable={!finalizada && abierta}
+                    alTocar={
+                      // Pendiente / en camino: cargar la visita. VISITADA: reabrir
+                      // el parte para corregirlo. No visitada / omitida: no por acá.
+                      ['pendiente', 'en_camino', 'visitada'].includes(p.estado)
+                        ? () => {
+                            yaPreguntado.current = p.id
+                            navigation.navigate('DestinoVisitado', { paradaId: p.id })
+                          }
+                        : undefined
+                    }
+                    alViajar={!finalizada && abierta ? () => viajarA(p) : undefined}
+                    alEliminar={!finalizada && abierta ? () => pedirQuitar(p) : undefined}
+                    alReactivar={
+                      !finalizada && p.estado === 'no_visitada' ? () => pedirReactivar(p) : undefined
+                    }
+                    alEditar={
+                      p.cliente?.provisorio
+                        ? () => navigation.navigate('EditarProspecto', { clienteId: p.cliente!.id })
+                        : undefined
+                    }
+                  />
+                </ScaleDecorator>
+              )
+            }}
 
-            {paradas.map((p) => (
-              <FilaParada
-                key={p.id}
-                parada={p}
-                alTocar={() => {
-                  // Pendiente / en camino: cargar la visita. VISITADA: reabrir el
-                  // parte para corregirlo (la base lo deja mientras el día esté
-                  // abierto). No visitada / omitida no se tocan por acá.
-                  if (!['pendiente', 'en_camino', 'visitada'].includes(p.estado)) return
-                  yaPreguntado.current = p.id
-                  navigation.navigate('DestinoVisitado', { paradaId: p.id })
-                }}
-                alOpciones={
-                  // Abierta y jornada no cerrada: se puede mover (si hay con qué)
-                  // y quitar. La hoja decide qué acciones habilitar.
-                  !finalizada && (p.estado === 'pendiente' || p.estado === 'en_camino')
-                    ? () => setMoviendo(p.id)
-                    : undefined
-                }
-                alReactivar={
-                  // "No visitada" con la jornada abierta: se puede reabrir para
-                  // registrar la visita de verdad (volvió, o le corrigió la dirección).
-                  !finalizada && p.estado === 'no_visitada' ? () => pedirReactivar(p) : undefined
-                }
-                alEditar={
-                  // El prospecto (cliente provisorio) se puede corregir mientras
-                  // la oficina no le haya puesto el código real.
-                  p.cliente?.provisorio
-                    ? () => navigation.navigate('EditarProspecto', { clienteId: p.cliente!.id })
-                    : undefined
-                }
-              />
-            ))}
+            ListFooterComponent={
+              <View style={estilos.pie}>
+                {/* "Ordenar por cercanía" se ofrece ANTES de arrancar, no en curso:
+                    ya iniciado, reordenar reasignaría en silencio el destino que se
+                    está manejando. */}
+                {!enCurso && !finalizada && abiertas.length >= 2 ? (
+                  <BotonSecundario
+                    titulo="🧭  Ordenar por cercanía"
+                    alTocar={() => ordenar.mutate()}
+                    cargando={ordenar.isPending}
+                    deshabilitado={arrancar.isPending}
+                  />
+                ) : null}
 
-            {/* "Ordenar por cercanía" se ofrece ANTES de arrancar, no en curso.
-                Ya iniciado, reordenar reasignaría en silencio el destino que se
-                está manejando —una prioridad alta lejana puede clavarse
-                adelante— y "PRÓXIMO DESTINO" pasaría a apuntar a otro cliente.
-                Se cuenta por paradas SIN resolver: con dos ya visitadas el
-                servidor no tendría nada que ordenar. */}
-            {!enCurso &&
-            !finalizada &&
-            paradas.filter((p) => p.estado === 'pendiente' || p.estado === 'en_camino').length >= 2 ? (
-              <BotonSecundario
-                titulo="🧭  Ordenar por cercanía"
-                alTocar={() => ordenar.mutate()}
-                cargando={ordenar.isPending}
-                deshabilitado={arrancar.isPending}
-              />
-            ) : null}
+                <BotonMenu
+                  titulo={'AGREGAR\nNUEVO DESTINO'}
+                  alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
+                />
 
-            <BotonMenu
-              titulo={'AGREGAR\nNUEVO DESTINO'}
-              alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
-            />
+                {!enCurso && !finalizada ? (
+                  <BotonPrincipal
+                    titulo="INICIAR RECORRIDO"
+                    alTocar={() => setEligiendoModo(true)}
+                    cargando={arrancar.isPending}
+                    deshabilitado={ordenar.isPending}
+                  />
+                ) : null}
 
-            {!enCurso && !finalizada ? (
-              <BotonPrincipal
-                titulo="INICIAR RECORRIDO"
-                alTocar={() => setEligiendoModo(true)}
-                cargando={arrancar.isPending}
-                deshabilitado={ordenar.isPending}
-              />
-            ) : null}
+                {enCurso ? (
+                  <BotonMenu
+                    titulo="FINALIZAR RECORRIDO"
+                    subtitulo="Se corta el seguimiento de ubicación"
+                    alTocar={() =>
+                      Alert.alert(
+                        'Finalizar recorrido',
+                        paradas.some((p) => p.estado === 'pendiente' || p.estado === 'en_camino')
+                          ? 'Todavía te quedan destinos sin visitar. Se van a marcar como "sin visitar". ¿Cerramos igual?'
+                          : '¿Cerramos la jornada de hoy?',
+                        [
+                          { text: 'Volver', style: 'cancel' },
+                          { text: 'Finalizar', style: 'destructive', onPress: () => cerrar.mutate() },
+                        ],
+                      )
+                    }
+                    cargando={cerrar.isPending}
+                  />
+                ) : null}
 
-            {enCurso ? (
-              <BotonMenu
-                titulo="FINALIZAR RECORRIDO"
-                subtitulo="Se corta el seguimiento de ubicación"
-                alTocar={() =>
-                  Alert.alert(
-                    'Finalizar recorrido',
-                    paradas.some((p) => p.estado === 'pendiente' || p.estado === 'en_camino')
-                      ? 'Todavía te quedan destinos sin visitar. Se van a marcar como "sin visitar". ¿Cerramos igual?'
-                      : '¿Cerramos la jornada de hoy?',
-                    [
-                      { text: 'Volver', style: 'cancel' },
-                      { text: 'Finalizar', style: 'destructive', onPress: () => cerrar.mutate() },
-                    ],
-                  )
-                }
-                cargando={cerrar.isPending}
-              />
-            ) : null}
-
-            <BotonSecundario titulo="Actualizar" alTocar={() => void refetch()} />
-          </>
-        )}
-      </Panel>
+                <BotonSecundario titulo="Actualizar" alTocar={() => void refetch()} />
+              </View>
+            }
+          />
+          </View>
+        </Panel>
+      )}
 
       <ModalInicioRecorrido
         visible={eligiendoModo}
         alElegir={elegirModo}
         alCerrar={() => setEligiendoModo(false)}
-      />
-
-      <ModalMoverDestino
-        parada={paradaMoviendo}
-        posicion={idxMoviendo}
-        total={abiertas.length}
-        ocupado={mover.isPending || quitar.isPending}
-        alMover={moverA}
-        // "Viajar": abre la ruta completa en Google Maps (lo mismo que VER
-        // RECORRIDO EN GOOGLE MAPS). Se cierra la hoja antes de saltar afuera.
-        alViajar={() => {
-          setMoviendo(null)
-          abrirMaps.mutate()
-        }}
-        // "Reordenar arrastrando": cierra la hoja y abre la pantalla de arrastre.
-        alReordenar={() => {
-          setMoviendo(null)
-          setReordenando(true)
-        }}
-        // Se cierra la hoja y recién ahí se pregunta: un Alert encima de un Modal
-        // en Android puede quedar tapado.
-        alQuitar={() => {
-          const p = paradaMoviendo
-          setMoviendo(null)
-          if (p) pedirQuitar(p)
-        }}
-        alCerrar={() => setMoviendo(null)}
-      />
-
-      <ModalReordenar
-        visible={reordenando}
-        paradas={abiertas}
-        ocupado={mover.isPending}
-        alReordenar={(orden) => mover.mutate(orden)}
-        alCerrar={() => setReordenando(false)}
       />
     </Pantalla>
   )
@@ -1145,250 +1147,6 @@ function ModalInicioRecorrido({
 }
 
 /**
- * "ESTE DESTINO"
- *
- * La hoja que sale al tocar ⋯ en un destino. Las cuatro acciones de mover
- * —primero, subir uno, bajar uno, último— cubren el "a gusto": para el medio se
- * sube o baja de a uno mirando cómo cambia el "Nº X de Y", que se recalcula solo
- * con cada toque porque la lista se reacomoda en el acto. Abajo, separada, la
- * acción de quitar del recorrido. Se queda abierta para encadenar movimientos;
- * se cierra con LISTO.
- */
-function ModalMoverDestino({
-  parada,
-  posicion,
-  total,
-  ocupado,
-  alMover,
-  alViajar,
-  alReordenar,
-  alQuitar,
-  alCerrar,
-}: {
-  parada: ParadaCompleta | null
-  posicion: number
-  total: number
-  ocupado: boolean
-  alMover: (hasta: number) => void
-  /** Abre la ruta completa en Google Maps. */
-  alViajar: () => void
-  /** Abre la pantalla de arrastre para reordenar. */
-  alReordenar: () => void
-  alQuitar: () => void
-  alCerrar: () => void
-}) {
-  const estilos = usarEstilos()
-  const esPrimero = posicion <= 0
-  const esUltimo = posicion >= total - 1
-  const nombre =
-    parada?.cliente?.razon_social ?? parada?.razon_social_snapshot ?? 'este destino'
-
-  return (
-    <Modal visible={!!parada} transparent animationType="fade" onRequestClose={alCerrar}>
-      <Pressable style={estilos.velo} onPress={alCerrar} accessibilityLabel="Cerrar">
-        <Pressable style={estilos.hoja} onPress={() => undefined}>
-          <Text style={estilos.hojaTitulo}>ESTE DESTINO</Text>
-          <Text style={estilos.hojaNota} numberOfLines={2}>
-            {nombre} — Nº {posicion + 1} de {total}
-          </Text>
-
-          {/* Viajar: la ruta entera en Google Maps, la vía alternativa a la
-              navegación de la app. */}
-          <AccionMover
-            etiqueta="🗺  Viajar"
-            detalle="Abre la ruta del recorrido en Google Maps"
-            deshabilitado={ocupado}
-            alTocar={alViajar}
-          />
-
-          {/* Reordenar arrastrando: la forma principal de mover: mantener
-              apretado y deslizar. Subir/bajar quedan abajo como atajo rápido. */}
-          <AccionMover
-            etiqueta="✥  Reordenar arrastrando"
-            detalle="Mantené apretado un destino y deslizalo a su lugar"
-            deshabilitado={total < 2 || ocupado}
-            alTocar={alReordenar}
-          />
-          <AccionMover
-            etiqueta="↑  Subir uno"
-            detalle="Un lugar más arriba"
-            deshabilitado={esPrimero || ocupado}
-            alTocar={() => alMover(posicion - 1)}
-          />
-          <AccionMover
-            etiqueta="↓  Bajar uno"
-            detalle="Un lugar más abajo"
-            deshabilitado={esUltimo || ocupado}
-            alTocar={() => alMover(posicion + 1)}
-          />
-
-          {/* Quitar del recorrido. Destructiva y separada de las demás, para que
-              no se toque de paso. Sale de la lista de hoy (queda 'omitida'). */}
-          <AccionMover
-            etiqueta="🗑  Quitar del recorrido"
-            detalle="Lo saca del día; no lo vas a visitar"
-            deshabilitado={ocupado}
-            destructiva
-            alTocar={alQuitar}
-          />
-
-          <Pressable
-            onPress={alCerrar}
-            accessibilityRole="button"
-            style={({ pressed }) => [estilos.cancelar, pressed && estilos.accionTocada]}
-          >
-            <Text style={estilos.cancelarTexto}>LISTO</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  )
-}
-
-/**
- * "REORDENAR": la lista de destinos abiertos, para arrastrarlos a su lugar (#4).
- *
- * Es una pantalla propia (Modal a pantalla completa) y no el arrastre sobre la
- * lista del recorrido: ahí arriba hay un mapa y botones, y un arrastre metido
- * entre todo eso pelea con el scroll. Acá la lista es lo único que hay, así que
- * el gesto es limpio. Va envuelta en su propio GestureHandlerRootView porque un
- * Modal de React Native se dibuja en otra ventana, fuera del root de la app.
- *
- * El orden se guarda al soltar (update optimista, igual que subir/bajar): no hay
- * un "guardar" aparte, LISTO sólo cierra.
- */
-function ModalReordenar({
-  visible,
-  paradas,
-  ocupado,
-  alReordenar,
-  alCerrar,
-}: {
-  visible: boolean
-  paradas: ParadaCompleta[]
-  ocupado: boolean
-  alReordenar: (nuevoOrden: string[]) => void
-  alCerrar: () => void
-}) {
-  const estilos = usarEstilos()
-  const { colores } = usarTema()
-  const [datos, setDatos] = useState<ParadaCompleta[]>(paradas)
-
-  // Se siembra al abrir, con el orden actual del recorrido. No se re-siembra con
-  // cada cambio de `paradas` mientras está abierto: el arrastre ya actualizó
-  // `datos`, y volver a copiar la lista de afuera (que llega por el update
-  // optimista) pelearía con lo que el dedo está haciendo.
-  useEffect(() => {
-    if (visible) setDatos(paradas)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible])
-
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={alCerrar}>
-      <GestureHandlerRootView style={estilos.reordenarRaiz}>
-        <Pantalla>
-          <Panel desplazable={false} contentStyle={estilos.reordenarMarco}>
-            <BarraPanel alVolver={alCerrar} />
-            <TituloPanel unaLinea>REORDENAR</TituloPanel>
-            <Text style={estilos.reordenarAyuda}>
-              Mantené apretado un destino y arrastralo a su lugar. El orden se guarda solo.
-            </Text>
-
-            <View style={estilos.reordenarLista}>
-              <DraggableFlatList
-                data={datos}
-                keyExtractor={(p) => p.id}
-                onDragEnd={({ data }) => {
-                  setDatos(data)
-                  alReordenar(data.map((p) => p.id))
-                }}
-                contentContainerStyle={estilos.reordenarContenido}
-                renderItem={({ item, drag, isActive, getIndex }: RenderItemParams<ParadaCompleta>) => (
-                  <ScaleDecorator>
-                    <Pressable
-                      onLongPress={drag}
-                      disabled={ocupado}
-                      delayLongPress={150}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Mantené apretado para mover ${
-                        item.cliente?.razon_social ?? 'el destino'
-                      }`}
-                      style={[estilos.reordenarFila, isActive && estilos.reordenarFilaActiva]}
-                    >
-                      {/* El número es la POSICIÓN en la lista (1..N), no el `orden`
-                          guardado: así se mantiene 1,2,3… en orden mientras se
-                          arrastra, en vez de quedar salteado. */}
-                      <View
-                        style={[
-                          estilos.numero,
-                          { backgroundColor: colorDeEstado(item.estado, colores) },
-                        ]}
-                      >
-                        <Text style={estilos.numeroTexto}>{(getIndex() ?? 0) + 1}</Text>
-                      </View>
-                      <Text style={estilos.reordenarNombre} numberOfLines={1}>
-                        {item.cliente?.razon_social ?? item.razon_social_snapshot ?? 'Destino sin cliente'}
-                      </Text>
-                      <Text style={estilos.reordenarAsa}>≡</Text>
-                    </Pressable>
-                  </ScaleDecorator>
-                )}
-              />
-            </View>
-
-            <BotonMenu titulo="LISTO" alTocar={alCerrar} />
-          </Panel>
-        </Pantalla>
-      </GestureHandlerRootView>
-    </Modal>
-  )
-}
-
-function AccionMover({
-  etiqueta,
-  detalle,
-  deshabilitado,
-  destructiva,
-  alTocar,
-}: {
-  etiqueta: string
-  detalle: string
-  deshabilitado?: boolean
-  /** La pinta de rojo: para quitar del recorrido, que no se deshace solo. */
-  destructiva?: boolean
-  alTocar: () => void
-}) {
-  const estilos = usarEstilos()
-  return (
-    <Pressable
-      onPress={alTocar}
-      disabled={deshabilitado}
-      accessibilityRole="button"
-      accessibilityLabel={etiqueta}
-      style={({ pressed }) => [
-        estilos.accion,
-        destructiva && estilos.accionDestructiva,
-        pressed && !deshabilitado && estilos.accionTocada,
-        deshabilitado && estilos.accionApagada,
-      ]}
-    >
-      <Text style={[estilos.accionTexto, destructiva && estilos.accionTextoDestructivo]}>
-        {etiqueta}
-      </Text>
-      <Text style={estilos.accionDetalle}>{detalle}</Text>
-    </Pressable>
-  )
-}
-
-/** Mueve el elemento de `desde` a `hasta` en una copia del arreglo. */
-function conMovimiento<T>(lista: T[], desde: number, hasta: number): T[] {
-  const copia = lista.slice()
-  const [x] = copia.splice(desde, 1)
-  copia.splice(hasta, 0, x)
-  return copia
-}
-
-/**
  * Aplica un reordenamiento de las abiertas sobre la jornada cacheada, para que la
  * lista se mueva en el acto (update optimista) antes de que conteste la base.
  *
@@ -1451,18 +1209,30 @@ function quitarEnCache(jc: JornadaCompleta, paradaId: string): JornadaCompleta {
 function FilaParada({
   parada,
   alTocar,
-  alOpciones,
+  alViajar,
+  alEliminar,
   alReactivar,
   alEditar,
+  drag,
+  arrastrable,
+  isActive,
 }: {
   parada: ParadaCompleta
   alTocar?: () => void
-  /** Abre la hoja de opciones (mover / quitar). Sólo en destinos abiertos. */
-  alOpciones?: () => void
+  /** Abre Google Maps navegando a ESTE destino. Sólo en destinos abiertos. */
+  alViajar?: () => void
+  /** Saca el destino del recorrido (lo marca 'omitida'). Sólo en abiertos. */
+  alEliminar?: () => void
   /** Reabre una parada "no visitada" para volver a visitarla. */
   alReactivar?: () => void
   /** Editar los datos de un prospecto (cliente provisorio sin código aún). */
   alEditar?: () => void
+  /** De react-native-draggable-flatlist: arranca el arrastre al mantener apretado. */
+  drag?: () => void
+  /** Si esta fila se puede arrastrar (destino abierto y jornada no cerrada). */
+  arrastrable?: boolean
+  /** Si esta fila es la que se está arrastrando ahora (la "levanta"). */
+  isActive?: boolean
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -1480,10 +1250,17 @@ function FilaParada({
   return (
     <Pressable
       onPress={alTocar}
-      disabled={!alTocar}
-      style={({ pressed }) => [estilos.fila, pressed && alTocar && estilos.filaPresionada]}
+      // Mantener apretado una fila abierta la levanta para arrastrarla y
+      // reordenar el recorrido. Un toque común sigue cargando la visita.
+      onLongPress={arrastrable ? drag : undefined}
+      delayLongPress={160}
+      style={({ pressed }) => [
+        estilos.fila,
+        pressed && alTocar && estilos.filaPresionada,
+        isActive && estilos.filaArrastrando,
+      ]}
       accessibilityRole={alTocar ? 'button' : 'text'}
-      accessibilityLabel={`Destino ${parada.orden}, ${parada.cliente?.razon_social ?? 'sin cliente'}, ${ETIQUETA_ESTADO_PARADA[parada.estado]}${sinUbicar ? ', sin ubicar' : ''}`}
+      accessibilityLabel={`Destino ${parada.orden}, ${parada.cliente?.razon_social ?? 'sin cliente'}, ${ETIQUETA_ESTADO_PARADA[parada.estado]}${sinUbicar ? ', sin ubicar' : ''}${arrastrable ? '. Mantené apretado para moverlo.' : ''}`}
     >
       <View style={[estilos.numero, { backgroundColor: colorDeEstado(parada.estado, colores) }]}>
         <Text style={estilos.numeroTexto}>{parada.orden}</Text>
@@ -1573,20 +1350,39 @@ function FilaParada({
           >
             <Text style={estilos.cruzNoVisitada}>✗</Text>
           </Pressable>
-        ) : alOpciones ? (
-          // Asa de opciones. Es su propio Pressable: tocarla abre la hoja de
-          // mover/quitar y no dispara el toque de la fila (que lleva a cargar la
-          // visita).
-          <Pressable
-            onPress={alOpciones}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Opciones del destino ${parada.orden}`}
-            style={({ pressed }) => [estilos.asa, pressed && estilos.asaTocada]}
-          >
-            <Text style={estilos.asaIcono}>⋯</Text>
-            <Text style={estilos.asaTexto}>Opciones</Text>
-          </Pressable>
+        ) : alViajar || alEliminar ? (
+          // Destino abierto: dos cajas directas —Viajar (ir a ESE cliente) y
+          // Eliminar—, cada una su propio Pressable para no disparar el toque de
+          // la fila (que carga la visita) ni el arrastre. Reordenar es arrastrando
+          // la fila, no un botón.
+          <View style={estilos.botonesFila}>
+            {alViajar ? (
+              <Pressable
+                onPress={alViajar}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Viajar a ${parada.cliente?.razon_social ?? 'este destino'}`}
+                style={({ pressed }) => [estilos.botonFila, pressed && estilos.asaTocada]}
+              >
+                <Text style={estilos.botonFilaIcono}>🗺</Text>
+              </Pressable>
+            ) : null}
+            {alEliminar ? (
+              <Pressable
+                onPress={alEliminar}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Quitar ${parada.cliente?.razon_social ?? 'este destino'} del recorrido`}
+                style={({ pressed }) => [
+                  estilos.botonFila,
+                  estilos.botonFilaBorrar,
+                  pressed && estilos.asaTocada,
+                ]}
+              >
+                <Text style={estilos.botonFilaIcono}>🗑</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
       </View>
     </Pressable>
@@ -1701,8 +1497,49 @@ function colorDeEstado(estado: EstadoParada, colores: Paleta): string {
   }
 }
 
+/** Separación vertical entre destinos de la lista del recorrido. */
+function Separador() {
+  const estilos = usarEstilos()
+  return <View style={estilos.separador} />
+}
+
 const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
+
+  // Lista del recorrido arrastrable EN EL LUGAR (#4): el Panel no scrollea, la
+  // que scrollea es la DraggableFlatList. La cabecera (mapa, avisos, próximo) y el
+  // pie (botones) llevan su propia separación; entre destinos va `separador`.
+  marcoLista: { flex: 1 },
+  listaContenido: {
+    paddingHorizontal: espaciado.base,
+    paddingTop: espaciado.md,
+    paddingBottom: espaciado.xl,
+  },
+  cabecera: { gap: espaciado.md, marginBottom: espaciado.md },
+  pie: { gap: espaciado.md, marginTop: espaciado.md },
+  separador: { height: espaciado.md },
+
+  // La fila que se está arrastrando se "levanta": borde marcado, fondo claro y
+  // sombra, para que se vea cuál se está moviendo.
+  filaArrastrando: {
+    borderColor: t.colores.tinta,
+    backgroundColor: t.colores.campoBlanco,
+    elevation: 6,
+  },
+  // Las dos cajas directas de un destino abierto: Viajar y Eliminar.
+  botonesFila: { flexDirection: 'row', gap: espaciado.xs, alignItems: 'center' },
+  botonFila: {
+    width: 44,
+    height: 44,
+    borderRadius: radios.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    backgroundColor: t.colores.campoBlanco,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  botonFilaBorrar: { borderColor: t.colores.rojoAccion },
+  botonFilaIcono: { fontSize: t.tipografia.tamano.base },
 
   marcoMapa: {
     height: 300,
