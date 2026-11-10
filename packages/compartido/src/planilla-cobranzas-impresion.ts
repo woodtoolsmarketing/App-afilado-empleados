@@ -34,6 +34,14 @@ export interface PlanillaCobranzasParaImprimir {
    * oficina las distingue de un vistazo, sin la palabra "FACTURA"/"PRESUPUESTO".
    */
   esPresupuesto: boolean
+  /**
+   * La moneda de ESTA planilla. Cada planilla es de una sola moneda: los cobros
+   * en pesos y los cobros en dólares salen en planillas separadas, así los
+   * subtotales de cada columna son válidos (no se suman pesos con dólares) y la
+   * moneda que no se cobró no genera hoja. Los importes ya vienen escritos con su
+   * símbolo ($ o US$); esto es para rotular la hoja.
+   */
+  moneda: 'ARS' | 'USD'
   fecha: string
   cobros: RenglonCobranza[]
   /** La suma, ya escrita. */
@@ -82,6 +90,7 @@ export function generarHtmlPlanillaCobranzas(planilla: PlanillaCobranzasParaImpr
   <div class="cob-cabecera">
     <div class="cob-vendedor">VENDEDOR Nº <u>${escapar(planilla.vendedor_numero || '—')}</u></div>
     <div class="cob-datos">
+      ${planilla.moneda === 'USD' ? '<span class="cob-usd">EN DÓLARES US$</span>' : ''}
       <span>FECHA: <u>${escapar(planilla.fecha)}</u></span>
     </div>
   </div>
@@ -211,6 +220,9 @@ export const ESTILOS_PLANILLA_COBRANZAS = `
   margin-bottom: 1mm;
 }
 .cob-vendedor { font-size: 9pt; }
+/* El cartel que marca la planilla de DÓLARES (la de pesos no lleva nada): para
+   que la oficina no confunda una columna de US$ con pesos de un vistazo. */
+.cob-usd { font-size: 10pt; font-weight: bold; }
 /* La marca que distingue la planilla de PRESUPUESTO de la de FACTURA: un
    asterisco en la esquina superior derecha, solo en la de presupuesto (la de
    factura no lleva nada). Va posicionado en la esquina, afuera del renglon del
