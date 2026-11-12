@@ -905,35 +905,45 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
   // visita con el resumen y engancha estas notas a esa parada, todo junto. Si el
   // cliente ya tenía una parada hoy, la reusa (la cierra como visitada si estaba sin
   // visitar; si ya estaba visitada de verdad, no la pisa).
+  //
+  // Va en SEGUNDO PLANO (no se awaitea), igual que la ubicación de abajo, y no es
+  // un detalle de estilo: `registrar_visita_fuera_de_rol` toma un advisory lock por
+  // rol y, si otra operación lo tiene, espera —se vieron esperas de minutos—.
+  // Awaitearlo dejaba la nota, que el servidor YA creó y numeró, con el botón CREAR
+  // girando todo ese rato ("la app colgada"); el vendedor, creyéndola fallada, la
+  // volvía a crear, y salían DOS comprobantes del mismo pedido. La nota se confirma
+  // apenas el servidor la acepta; el rol se completa cuando el lock se libera.
   if (!datos.paradaId && esClienteReal) {
-    try {
-      const renglones = datos.items.map((item, i) => filaDeItem(item, i + 1)) as RenglonParaResumen[]
-      const observacion = observacionSugerida(
-        {
-          visitado: true,
-          vendio: true,
-          cobro: false,
-          retiro_afilado: false,
-          entrego: false,
-          sin_pedido: false,
-          otras: false,
-          otras_detalle: '',
-          motivo_no_visita: null,
-          volver_a_las: '',
-          contacto_nombre: '',
-        },
-        resumenDeRenglonesDeVisita(renglones),
-      )
-      await supabase.rpc('registrar_visita_fuera_de_rol', {
-        p_cliente_id: enc.cliente_id,
-        p_direccion_id: enc.direccion_id ?? null,
-        p_observacion: observacion,
-        p_vendio: true,
-        p_nota_ids: filas.map((f) => f.nota_id),
-      })
-    } catch {
-      // El rol es un agregado: si no se pudo materializar, la nota queda como antes.
-    }
+    void (async () => {
+      try {
+        const renglones = datos.items.map((item, i) => filaDeItem(item, i + 1)) as RenglonParaResumen[]
+        const observacion = observacionSugerida(
+          {
+            visitado: true,
+            vendio: true,
+            cobro: false,
+            retiro_afilado: false,
+            entrego: false,
+            sin_pedido: false,
+            otras: false,
+            otras_detalle: '',
+            motivo_no_visita: null,
+            volver_a_las: '',
+            contacto_nombre: '',
+          },
+          resumenDeRenglonesDeVisita(renglones),
+        )
+        await supabase.rpc('registrar_visita_fuera_de_rol', {
+          p_cliente_id: enc.cliente_id,
+          p_direccion_id: enc.direccion_id ?? null,
+          p_observacion: observacion,
+          p_vendio: true,
+          p_nota_ids: filas.map((f) => f.nota_id),
+        })
+      } catch {
+        // El rol es un agregado: si no se pudo materializar, la nota queda como antes.
+      }
+    })()
   }
 
   /**
