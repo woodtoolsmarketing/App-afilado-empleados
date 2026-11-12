@@ -25,7 +25,8 @@ import {
   type TipoNotaPedido,
   type TipoServicio,
 } from './tipos'
-import type { MaterialMecha } from './afilado-mecha'
+import { ETIQUETA_AFILADO_MECHA, pideTipoAfiladoMecha } from './afilado-mecha'
+import type { AfiladoMecha, MaterialMecha } from './afilado-mecha'
 import { operacionMecanizado } from './mecanizado'
 import { etiquetaTipoDePieza, unaPieza } from './tipos-de-pieza'
 import { CODIGO_POSTAL } from './validaciones'
@@ -1512,6 +1513,15 @@ export interface FormularioItemNota {
    */
   mecha_material: MaterialMecha | null
   mecha_dientes: string
+  /**
+   * Qué se afila en una mecha integral: la punta, la hélice o las dos.
+   *
+   * Sólo cuenta en las integrales de metal duro (códigos 10101/10102/10103): es
+   * lo que el taller necesita saber para trabajar sobre el filo correcto. En el
+   * resto de las mechas no se pregunta y queda en `null`. Ver `AfiladoMecha` y
+   * `pideTipoAfiladoMecha`.
+   */
+  mecha_afilado: AfiladoMecha | null
   mano: ManoMecha | null
 
   // Si/No con "no" por defecto, como pidieron
@@ -1660,6 +1670,7 @@ export const ITEM_VACIO: FormularioItemNota = {
   tipo_mecha: null,
   mecha_material: null,
   mecha_dientes: '',
+  mecha_afilado: null,
   mano: null,
   dientes_rotos: false,
   afilado_reparacion: false,
@@ -1961,6 +1972,13 @@ export function validarItemNota(
         errores.codigos_computo =
           'Confirmá el código de cómputo para continuar: revisá que sea el correcto y tocá la casilla.'
       }
+      // En las integrales de metal duro (10101/10102/10103) falta decir QUÉ se
+      // afila: punta, hélice o las dos. El taller lo necesita para trabajar sobre
+      // el filo correcto, así que se exige igual que el código. En el resto de las
+      // mechas la pregunta no aparece y no se valida.
+      if (pideTipoAfiladoMecha(item.codigos_computo[0]) && !item.mecha_afilado) {
+        errores.mecha_afilado = 'Elegí qué se afila: punta, hélice o punta y hélice.'
+      }
       continue
     }
 
@@ -2127,6 +2145,11 @@ export function resumenRenglon(item: FormularioItemNota): string {
   const tipo = etiquetaTipoDePieza(item.herramienta, item.tipo_pieza)
   if (tipo) partes.push(tipo)
   if (item.tipo_mecha) partes.push(ETIQUETA_TIPO_MECHA[item.tipo_mecha])
+  // En las integrales de metal duro, qué filo se afila (punta / hélice / las dos).
+  // Atado a codigos_computo: si la herramienta cambió, ese arreglo se vació y un
+  // afilado que quedó pegado en el formulario ya no corresponde —no se muestra—.
+  if (item.mecha_afilado && pideTipoAfiladoMecha(item.codigos_computo[0]))
+    partes.push(ETIQUETA_AFILADO_MECHA[item.mecha_afilado])
 
   for (const campo of camposDelItem(item)) {
     const abreviatura = ABREVIATURA_MEDIDA[campo]
@@ -4444,6 +4467,12 @@ export function filaDeItem(i: FormularioItemNota, orden: number) {
         // puesto y sin que se vea de dónde salió.
         mecha_material: i.mecha_material,
         mecha_dientes: aNumero(i.mecha_dientes) || null,
+        // Qué se afila en una integral de metal duro: punta / hélice / las dos.
+        // Sólo si el renglón SIGUE siendo esa integral: su código vive en
+        // codigos_computo, y al cambiar de herramienta ese arreglo se vacía. Así un
+        // afilado que quedó pegado en el formulario no viaja al detalle ni termina
+        // impreso sobre una sierra. El filtro de abajo descarta el null resultante.
+        mecha_afilado: pideTipoAfiladoMecha(i.codigos_computo?.[0]) ? i.mecha_afilado : null,
         mano: i.mano,
         // Las tres respuestas que eligen el código de afilado de cuchilla. No
         // se imprimen: se guardan para que al volver a abrir la nota el
@@ -4624,6 +4653,9 @@ export function itemDeFila(fila: Record<string, unknown>): FormularioItemNota {
     tipo_mecha: (detalle.tipo_mecha as TipoMecha | null) ?? null,
     mecha_material: (detalle.mecha_material as MaterialMecha | null) ?? null,
     mecha_dientes: comoCadena(detalle.mecha_dientes),
+    // En las notas cargadas antes de que existiera la pregunta no está, y vuelve
+    // en null: nadie eligió el afilado todavía, que es lo honesto.
+    mecha_afilado: (detalle.mecha_afilado as AfiladoMecha | null) ?? null,
     mano: (detalle.mano as ManoMecha | null) ?? null,
 
     dientes_rotos: fila.dientes_rotos === true,

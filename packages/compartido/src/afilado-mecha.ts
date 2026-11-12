@@ -177,3 +177,37 @@ export function totalAfiladoMecha(precioPorMecha: number, unidades: number): num
   const cuantas = Number.isFinite(unidades) && unidades > 0 ? unidades : 1
   return Math.round(precioPorMecha * cuantas * 100) / 100
 }
+
+/**
+ * Qué se afila en una mecha integral: la PUNTA, la HÉLICE o las dos.
+ *
+ * Es la aclaración que el taller necesita para saber sobre qué filo trabajar.
+ * Sólo se pregunta en las integrales de metal duro —los códigos 10101, 10102 y
+ * 10103, Z=2/3/4— porque son las que se pueden afilar de una punta, de la
+ * hélice o de las dos; en el resto de las mechas no hay esa elección, así que no
+ * se pregunta (ver `pideTipoAfiladoMecha`).
+ */
+export type AfiladoMecha = 'punta' | 'helice' | 'punta_helice'
+
+/** Las tres opciones, en el orden en que se muestran. */
+export const AFILADOS_MECHA: AfiladoMecha[] = ['punta', 'helice', 'punta_helice']
+
+export const ETIQUETA_AFILADO_MECHA: Record<AfiladoMecha, string> = {
+  punta: 'Punta',
+  helice: 'Hélice',
+  punta_helice: 'Punta y Hélice',
+}
+
+/**
+ * Los códigos de afilado de mecha que además piden QUÉ se afila.
+ *
+ * Son las tres integrales de metal duro (Z=2/3/4), las mismas que devuelve
+ * `codigoAfiladoMecha` para ese caso. Para el resto de las mechas la pregunta no
+ * aplica.
+ */
+export const CODIGOS_AFILADO_MECHA_CON_TIPO = ['10101', '10102', '10103'] as const
+
+/** ¿Este código de afilado pide, además, elegir Punta / Hélice / Punta y Hélice? */
+export function pideTipoAfiladoMecha(codigo: string | null | undefined): boolean {
+  return !!codigo && (CODIGOS_AFILADO_MECHA_CON_TIPO as readonly string[]).includes(codigo)
+}

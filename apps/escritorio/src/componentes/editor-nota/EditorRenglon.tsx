@@ -24,6 +24,9 @@ import {
   ETIQUETA_HERRAMIENTA,
   herramientaEnLaDescripcion,
   ETIQUETA_MATERIAL_MECHA,
+  ETIQUETA_AFILADO_MECHA,
+  AFILADOS_MECHA,
+  pideTipoAfiladoMecha,
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
   formatearPesos,
@@ -51,6 +54,7 @@ import {
   type CuchillaMaterial,
   type CuchillaTipo,
   type CuchillaTrabajo,
+  type AfiladoMecha,
   type FormularioItemNota,
   type Herramienta,
   type ManoMecha,
@@ -1621,6 +1625,14 @@ function SelectorAfiladoMecha({
   const codigo = codigoAfiladoMecha(item.tipo_mecha, material, dientes)
   const elegida = codigo ? opciones.find((o) => o.codigo === codigo) : undefined
 
+  // El código integral que además pide elegir qué se afila (resuelto o puesto a
+  // mano). Espejo del móvil.
+  const codigoConTipoAfilado = pideTipoAfiladoMecha(codigo)
+    ? codigo
+    : pideTipoAfiladoMecha(item.codigos_computo[0])
+      ? item.codigos_computo[0]
+      : null
+
   const cotizadoAlMontar = useRef({ codigo: item.codigos_computo[0] ?? '', cantidad: item.cantidad })
 
   useEffect(() => {
@@ -1649,12 +1661,46 @@ function SelectorAfiladoMecha({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elegida?.codigo, elegida?.precio_pesos, item.cantidad])
 
-  if (cargando) return <p style={buscandoEstilo}>Cargando precios de afilado…</p>
+  // Si el código dejó de ser una integral con tipo de afilado, el "qué se afila"
+  // elegido ya no aplica y se suelta (espejo del móvil).
+  useEffect(() => {
+    if (!codigoConTipoAfilado && item.mecha_afilado) {
+      alCambiar({ mecha_afilado: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codigoConTipoAfilado, item.mecha_afilado])
+
+  // La pregunta "¿qué se afila?" no depende de los precios: se arma acá y se
+  // muestra también sin precios, así una integral reabierta sin conexión no queda
+  // trabada exigiendo (por validación) un campo que no está en pantalla. Espejo
+  // del móvil.
+  const preguntaQueSeAfila = codigoConTipoAfilado ? (
+    <Desplegable<AfiladoMecha>
+      etiqueta="¿QUÉ SE AFILA?"
+      obligatorio
+      marcador="Elegí punta, hélice o las dos"
+      valor={item.mecha_afilado}
+      items={AFILADOS_MECHA.map((a) => ({ valor: a, etiqueta: ETIQUETA_AFILADO_MECHA[a] }))}
+      onChange={(a) => alCambiar({ mecha_afilado: a })}
+    />
+  ) : null
+
+  if (cargando) {
+    return (
+      <div>
+        <p style={buscandoEstilo}>Cargando precios de afilado…</p>
+        {preguntaQueSeAfila}
+      </div>
+    )
+  }
   if (fallo || opciones.length === 0) {
     return (
-      <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
-        Revisá la conexión. Podés cargar el código y el precio total a mano.
-      </Aviso>
+      <div>
+        <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
+          Revisá la conexión. Podés cargar el código y el precio total a mano.
+        </Aviso>
+        {preguntaQueSeAfila}
+      </div>
     )
   }
 
@@ -1724,6 +1770,11 @@ function SelectorAfiladoMecha({
           código y el precio total a mano, o consultá con la oficina.
         </Aviso>
       ) : null}
+
+      {/* En las integrales de metal duro (10101/10102/10103), qué se afila:
+          punta, hélice o las dos. Espejo del móvil, debajo del código; se arma
+          arriba (`preguntaQueSeAfila`) para mostrarse también sin precios. */}
+      {preguntaQueSeAfila}
     </div>
   )
 }
