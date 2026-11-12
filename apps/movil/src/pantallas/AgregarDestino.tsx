@@ -35,6 +35,7 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
+import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
 import { Campo, DensidadFormulario, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -538,14 +539,19 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
       }
 
       /*
-       * El cliente que el vendedor acaba de agregar es el que quiere visitar
-       * ahora: entra como PRÓXIMO destino —prioridad 'alta', que la base pone al
-       * principio del recorrido—. Agendando para otro día, o si el cliente no
-       * tiene punto en el mapa, va 'baja': ahí "próximo" no aplica, y una parada
-       * sin ubicar la base la manda al final igual.
+       * El destino agregado va SIEMPRE al final del recorrido (prioridad
+       * 'baja'), nunca saltando arriba de todo. Agregar un cliente no es decir
+       * "a éste lo veo ahora": el vendedor lo suma a la ruta y sigue con lo que
+       * tenía. Antes entraba 'alta' —la base lo metía al principio, como próximo
+       * destino— y eso le desarmaba el orden del día. Con la jornada EN CURSO
+       * 'baja' lo apenda al final; con la jornada todavía SIN ARRANCAR, la base
+       * la reordena por cercanía junto con el resto. (Un cliente sin ubicar va al
+       * final igual: ahí la prioridad no cambia nada.)
+       *
+       * Si el vendedor SÍ quiere ir ahora a un cliente puntual, para eso está el
+       * botón "PRÓXIMO DESTINO" del mapa, que es explícito y además lo navega.
        */
-      const prioridad: PrioridadParada =
-        esOtroDia || elegido.lat === null || elegido.lng === null ? 'baja' : 'alta'
+      const prioridad: PrioridadParada = 'baja'
 
       // El camino de siempre: el cliente ya tiene su punto en el mapa.
       if (elegido.direccion_id) {
@@ -590,9 +596,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
        */
       const mensaje = sinUbicar
         ? `${form.razon_social} entró al recorrido en la posición Nº ${parada.orden}, al final.\n\nComo todavía no está marcado en el mapa va último. Cuando llegues, guardás la ubicación desde la parada y queda cargada para siempre.`
-        : parada.prioridad === 'alta' && !esOtroDia
-          ? `${form.razon_social} queda como próximo destino (Nº ${parada.orden}).`
-          : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`
+        : `${form.razon_social} se agregó al recorrido en la posición Nº ${parada.orden}.`
 
       Alert.alert(
         'Destino agregado',
@@ -839,6 +843,16 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                     buscarA: /^\d+$/.test(consulta.trim()) ? undefined : consulta.trim(),
                   })
                 }
+              />
+              {/* No es cliente nuevo y sin embargo no aparece: puede ser un
+                  problema de la app (padrón desactualizado, un cliente que
+                  debería estar). El botón abre el reporte con el código ya
+                  escrito, así la oficina lo ve con el dato puntual. */}
+              <BotonReportarProblema
+                pantalla="Buscar cliente"
+                motivo="cliente"
+                detalle={`No me aparece el cliente "${consulta.trim()}".`}
+                titulo="⚠ Avisar que no aparece este cliente"
               />
             </Aviso>
           ) : null}
@@ -1393,10 +1407,11 @@ function FormularioNuevo({ navigation, route }: PropsPantalla<'AgregarDestino'>)
       ) {
         throw new ReaperturaCancelada()
       }
-      // El cliente nuevo que se acaba de cargar es el próximo a visitar: entra al
-      // principio del recorrido (prioridad 'alta'). Para otro día va 'baja', que
-      // ahí "próximo" no significa nada.
-      const prioridad: PrioridadParada = esOtroDia ? 'baja' : 'alta'
+      // El cliente nuevo entra al final del recorrido (prioridad 'baja'), igual
+      // que un destino existente: cargarlo no es "lo veo ahora", así que no salta
+      // arriba de todo. En curso se apenda al final; sin arrancar, la base lo
+      // reordena por cercanía con el resto.
+      const prioridad: PrioridadParada = 'baja'
       // Mismo alta que "GENERAR NUEVO CLIENTE", pero con rol de visita: la RPC
       // crea el cliente, su dirección y la parada en una sola transacción.
       return crearClienteProvisorio(form, { rolVisitaId: jornada.id, prioridad })

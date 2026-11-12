@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonSecundario } from '../componentes/Botones'
+import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { Aviso, Cargando, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -133,6 +134,12 @@ export function PantallaMisImpresiones({ navigation }: PropsPantalla<'MisImpresi
             ))}
           </View>
         ) : null}
+
+        <BotonReportarProblema
+          pantalla="Mis impresiones"
+          motivo="impresion"
+          detalle={'Estaba en "Mis impresiones" (la cola de impresión).'}
+        />
       </Panel>
     </Pantalla>
   )

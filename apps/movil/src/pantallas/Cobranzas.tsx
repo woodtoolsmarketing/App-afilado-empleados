@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonPrincipal, BotonSecundario } from '../componentes/Botones'
+import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { BuscarClienteModal } from '../componentes/BuscarClienteModal'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
@@ -328,6 +329,12 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
         ) : null}
         {/* Buscar la impresora puede tardar unos segundos; se avisa qué pasa. */}
         {avance ? <Aviso tono="info">{avance}</Aviso> : null}
+
+        <BotonReportarProblema
+          pantalla="Cobranzas"
+          motivo="cobranzas"
+          detalle="Estaba en las cobranzas del día."
+        />
       </Panel>
 
       {/* Paso 1 del alta suelta: elegir a quién se le cobró. Arranca con los

@@ -53,7 +53,10 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
   const consultas = useQueryClient()
 
   const [motivo, setMotivo] = useState<string | null>(route.params?.motivo ?? null)
-  const [detalle, setDetalle] = useState('')
+  // El detalle puede venir ya escrito desde el botón contextual que abrió esta
+  // pantalla (el buscador que no encontró al cliente manda el código, etc.). El
+  // vendedor lo completa o lo corrige; no se le pide que lo escriba de cero.
+  const [detalle, setDetalle] = useState(route.params?.detalle ?? '')
   const [cuando, setCuando] = useState('')
   const [errorMotivo, setErrorMotivo] = useState<string | null>(null)
   const [errorDetalle, setErrorDetalle] = useState<string | null>(null)
