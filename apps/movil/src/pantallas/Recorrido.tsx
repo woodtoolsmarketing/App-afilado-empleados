@@ -24,7 +24,6 @@ import DraggableFlatList, {
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
-import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -1114,12 +1113,6 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 ) : null}
 
                 <BotonSecundario titulo="Actualizar" alTocar={() => void refetch()} />
-
-                <BotonReportarProblema
-                  pantalla="Recorrido"
-                  motivo="mapa"
-                  detalle="Estaba en el recorrido."
-                />
               </View>
             }
           />

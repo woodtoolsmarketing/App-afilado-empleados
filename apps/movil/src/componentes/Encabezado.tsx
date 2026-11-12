@@ -1,9 +1,13 @@
+import { useNavigation, useRoute } from '@react-navigation/native'
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { espaciado, radios } from '@woodtools/compartido'
 import { Image } from 'expo-image'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 import { MenuLateral } from './MenuLateral'
+import { contextoDeReporte } from '../navegacion/reporteContexto'
+import type { ParametrosApp } from '../navegacion/tipos'
 import { usarFotoDePerfil } from '../nucleo/foto'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
 import { hojaDeTema } from '../nucleo/tema'
@@ -25,6 +29,13 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu?: () => void }) {
   // La foto vive en un bucket privado: lo que hay guardado es la ruta, no una
   // dirección. Hasta que llega la URL firmada se muestran las iniciales.
   const foto = usarFotoDePerfil(perfil?.foto_url)
+
+  // El ícono "⚠" para reportar desde CUALQUIER pantalla: saca de la ruta actual
+  // de qué pantalla/motivo se trata, así el vendedor reporta de un toque desde
+  // donde se dio el problema, sin volver al menú. Ver `reporteContexto`.
+  const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
+  const ruta = useRoute()
+  const contexto = contextoDeReporte(ruta.name)
 
   return (
     <View style={estilos.contenedor}>
@@ -67,6 +78,25 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu?: () => void }) {
         </View>
       </View>
 
+      {/* Reportar un problema, en TODAS las pantallas. En la propia pantalla de
+          reporte no tiene sentido mostrarlo. */}
+      {ruta.name !== 'ReportarProblema' ? (
+        <Pressable
+          onPress={() =>
+            navegacion.navigate('ReportarProblema', {
+              pantalla: contexto.pantalla,
+              motivo: contexto.motivo,
+            })
+          }
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={`Reportar un problema en ${contexto.pantalla}`}
+          style={({ pressed }) => [estilos.reportar, pressed && estilos.presionado]}
+        >
+          <Text style={estilos.reportarIcono}>⚠</Text>
+        </Pressable>
+      ) : null}
+
       <Image
         source={require('../../assets/logo-woodtools.png')}
         style={estilos.logo}
@@ -108,6 +138,19 @@ const usarEstilos = hojaDeTema((t) => ({
     backgroundColor: t.colores.blanco,
   },
   presionado: { opacity: 0.6 },
+
+  reportar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    borderColor: t.colores.blanco,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportarIcono: {
+    fontSize: 19,
+  },
 
   identidad: {
     flex: 1,

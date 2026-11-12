@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
-import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
@@ -118,12 +117,6 @@ export function PantallaVisitas({ navigation }: PropsPantalla<'Visitas'>) {
               }
               alTocar={() => navigation.navigate('Recorrido', { iniciar: true })}
               deshabilitado={!resumen || resumen.total_paradas === 0 || finalizada}
-            />
-
-            <BotonReportarProblema
-              pantalla="Visitas del día"
-              motivo="visitas"
-              detalle="Estaba en las visitas del día."
             />
           </>
         )}
