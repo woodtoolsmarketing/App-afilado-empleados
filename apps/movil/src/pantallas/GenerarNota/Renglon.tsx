@@ -29,6 +29,9 @@ import {
   ETIQUETA_HERRAMIENTA,
   herramientaEnLaDescripcion,
   ETIQUETA_MATERIAL_MECHA,
+  ETIQUETA_AFILADO_MECHA,
+  AFILADOS_MECHA,
+  pideTipoAfiladoMecha,
   ETIQUETA_TIPO_MECHA,
   formatearMedida,
   formatearPesos,
@@ -53,6 +56,7 @@ import {
   totalAfiladoMecha,
   totalDeListaDelRenglon,
   unaPieza,
+  type AfiladoMecha,
   type CampoItem,
   type FormularioItemNota,
   type Herramienta,
@@ -1392,7 +1396,7 @@ export function PasoRenglon({
         cotiza nada.
       */}
       {item.herramienta === 'mecha' && item.tipo_mecha ? (
-        <SelectorAfiladoMecha item={item} alCambiar={alCambiar} />
+        <SelectorAfiladoMecha item={item} alCambiar={alCambiar} error={errores.mecha_afilado} />
       ) : null}
 
       {/*
@@ -2567,9 +2571,12 @@ function rotuloServicio(s: TipoServicio): string {
 function SelectorAfiladoMecha({
   item,
   alCambiar,
+  error,
 }: {
   item: FormularioItemNota
   alCambiar: (cambios: Partial<FormularioItemNota>) => void
+  /** El error de "falta elegir qué se afila", sólo en las integrales. */
+  error?: string
 }) {
   const { colores } = usarTema()
   const estilos = usarEstilos()
@@ -2629,6 +2636,18 @@ function SelectorAfiladoMecha({
   const elegida = codigo ? opciones.find((o) => o.codigo === codigo) : undefined
 
   /**
+   * El código integral que además pide elegir QUÉ se afila: el que resolvieron
+   * el material y los filos, o —si quedó puesto a mano desde la lista de códigos—
+   * el que ya tiene el renglón. Así la pregunta aparece siempre que el código la
+   * necesita, y nunca deja un renglón trabado pidiendo algo que no se ve.
+   */
+  const codigoConTipoAfilado = pideTipoAfiladoMecha(codigo)
+    ? codigo
+    : pideTipoAfiladoMecha(item.codigos_computo[0])
+      ? item.codigos_computo[0]
+      : null
+
+  /**
    * El código y el total salen solos de las respuestas.
    *
    * El precio de la lista es POR MECHA: afilar cuatro pasantes son cuatro veces
@@ -2677,19 +2696,56 @@ function SelectorAfiladoMecha({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elegida?.codigo, elegida?.precio_pesos, item.cantidad])
 
+  /**
+   * Si el código dejó de ser una integral con tipo de afilado —cambió el
+   * material a HSS, o el tipo a una pasante—, el "qué se afila" que había
+   * quedado elegido ya no aplica y se suelta. Si no, una integral que se
+   * corrige a otra mecha arrastraría un "punta y hélice" que no corresponde.
+   */
+  useEffect(() => {
+    if (!codigoConTipoAfilado && item.mecha_afilado) {
+      alCambiar({ mecha_afilado: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codigoConTipoAfilado, item.mecha_afilado])
+
+  /*
+   * La pregunta "¿qué se afila?" NO depende de los precios: punta, hélice o las
+   * dos se eligen igual sin señal. Por eso se arma acá y se muestra en los TRES
+   * caminos —cargando, sin precios y con precios—. Una integral reabierta sin
+   * señal la exige igual (la validación mira el código, no los precios); si sólo
+   * saliera en el camino con precios, el vendedor quedaba trabado: la nota no
+   * cerraba por un campo que no estaba en pantalla.
+   */
+  const preguntaQueSeAfila = codigoConTipoAfilado ? (
+    <Desplegable<AfiladoMecha>
+      etiqueta="¿QUÉ SE AFILA?"
+      obligatorio
+      marcador="Elegí punta, hélice o las dos"
+      valor={item.mecha_afilado}
+      items={AFILADOS_MECHA.map((a) => ({ valor: a, etiqueta: ETIQUETA_AFILADO_MECHA[a] }))}
+      alCambiar={(a) => alCambiar({ mecha_afilado: a })}
+      error={error}
+    />
+  ) : null
+
   if (cargando) {
     return (
       <View style={estilos.bloqueCodigos}>
         <ActivityIndicator size="small" color={colores.rojo} />
+        {preguntaQueSeAfila}
       </View>
     )
   }
 
   if (fallo || opciones.length === 0) {
     return (
-      <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
-        Revisá la señal. Podés cargar el código y el precio total a mano.
-      </Aviso>
+      <View style={estilos.bloqueCodigos}>
+        <Aviso tono="atencion" titulo="No pudimos traer los precios de afilado">
+          Revisá la señal. Podés cargar el código y el precio total a mano.
+        </Aviso>
+        {preguntaQueSeAfila}
+      </View>
     )
   }
 
@@ -2776,6 +2832,13 @@ function SelectorAfiladoMecha({
           duro. Cargá el código y el precio total a mano, o consultá con la oficina.
         </Aviso>
       ) : null}
+
+      {/*
+        En las integrales de metal duro (10101/10102/10103) falta una cosa más:
+        QUÉ se afila (punta / hélice / las dos). Va DEBAJO del código. Se arma
+        arriba (`preguntaQueSeAfila`) para poder mostrarse también sin precios.
+      */}
+      {preguntaQueSeAfila}
     </View>
   )
 }

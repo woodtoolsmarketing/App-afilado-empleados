@@ -8,7 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
-import { supabase } from '../nucleo/supabase'
+import { supabase, tokenDeSesion } from '../nucleo/supabase'
 
 /**
  * Los problemas que reportan los vendedores desde la app.
@@ -34,8 +34,25 @@ import { supabase } from '../nucleo/supabase'
  * contestó.
  */
 
+/** El brief tal como vuelve embebido en la consulta (ver `reportes_brief`). */
+type BriefEmbebido = {
+  brief_md: string
+  generado_en: string
+  incluye_fotos: boolean
+  modelo: string | null
+}
+
 interface ReporteConVendedor extends ReporteProblema {
   vendedor: { nombre_completo: string; codigo_vendedor: string | null } | null
+  // PostgREST lo devuelve como objeto (relación uno-a-uno) o, según versión, lista de uno.
+  brief: BriefEmbebido | BriefEmbebido[] | null
+}
+
+/** Normaliza el brief embebido a objeto (o null). */
+function briefDe(r: ReporteConVendedor): BriefEmbebido | null {
+  const b = r.brief
+  if (!b) return null
+  return Array.isArray(b) ? (b[0] ?? null) : b
 }
 
 const ESTADOS: EstadoReporte[] = ['nuevo', 'en_revision', 'resuelto', 'descartado']
@@ -51,7 +68,9 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
     queryFn: async () => {
       const { data, error: err } = await supabase
         .from('reportes_problema')
-        .select('*, vendedor:perfiles!reportes_problema_vendedor_id_fkey (nombre_completo, codigo_vendedor)')
+        .select(
+          '*, vendedor:perfiles!reportes_problema_vendedor_id_fkey (nombre_completo, codigo_vendedor), brief:reportes_brief (brief_md, generado_en, incluye_fotos, modelo)',
+        )
         .order('creado_en', { ascending: false })
         .limit(200)
       if (err) throw err
@@ -329,6 +348,10 @@ export function PaginaProblemas({ soloLectura }: { soloLectura: boolean }) {
                   </div>
                 </div>
               )}
+
+              {!soloLectura && (
+                <BriefDeReporte reporteId={r.id} brief={briefDe(r)} onError={setError} />
+              )}
             </article>
           ))}
         </div>
@@ -410,6 +433,133 @@ function AdjuntosDelReporte({ adjuntos }: { adjuntos: AdjuntoReporte[] }) {
         a.url ? (
           <audio key={i} controls preload="none" src={a.url} style={{ width: '100%', maxWidth: 360 }} />
         ) : null,
+      )}
+    </div>
+  )
+}
+
+/**
+ * El puente a Claude Code: arma el brief de un reporte y lo deja para copiar.
+ *
+ * "Preparar para Claude Code" llama a la Edge Function `triar-reporte`, que le
+ * pide a la API de Claude que convierta el reporte (motivo + detalle + audio +,
+ * opcionalmente, las fotos) en una orden de trabajo en markdown. El admin la
+ * copia y la pega en una sesión de Claude Code, que hace el fix en una rama/PR.
+ *
+ * Las fotos son OPT-IN: pueden arrastrar datos de clientes a la API externa, así
+ * que no se mandan salvo que se tilde la casilla.
+ */
+function BriefDeReporte({
+  reporteId,
+  brief,
+  onError,
+}: {
+  reporteId: string
+  brief: BriefEmbebido | null
+  onError: (mensaje: string) => void
+}) {
+  const cliente = useQueryClient()
+  const [incluirFotos, setIncluirFotos] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+
+  const generar = useMutation({
+    mutationFn: async (): Promise<string> => {
+      const { data, error: errFuncion } = await supabase.functions.invoke('triar-reporte', {
+        body: { reporteId, incluirFotos },
+        // Header explícito: `invoke` a veces sale sin Authorization (ver nucleo/supabase).
+        headers: { Authorization: `Bearer ${await tokenDeSesion()}` },
+      })
+      if (errFuncion) {
+        // El motivo real viaja en el body (context), no en el mensaje genérico de supabase-js.
+        let detalle = 'No pudimos preparar el brief ahora. Probá de nuevo en un rato.'
+        const contexto = (errFuncion as { context?: Response }).context
+        if (contexto && typeof contexto.json === 'function') {
+          try {
+            const cuerpo = await contexto.json()
+            if (typeof cuerpo?.error === 'string') detalle = cuerpo.error
+          } catch {
+            // El body no era JSON legible; queda el mensaje de arriba.
+          }
+        }
+        throw new Error(detalle)
+      }
+      const texto = ((data?.brief as string | undefined) ?? '').trim()
+      if (!texto) throw new Error('El modelo devolvió un brief vacío. Probá de nuevo.')
+      return texto
+    },
+    onSuccess: (texto) => {
+      onError('')
+      // Pintar el brief en el acto, sin esperar el refetch.
+      cliente.setQueryData<ReporteConVendedor[]>(['reportes-problema'], (prev) =>
+        prev?.map((r) =>
+          r.id === reporteId
+            ? {
+                ...r,
+                brief: {
+                  brief_md: texto,
+                  generado_en: new Date().toISOString(),
+                  incluye_fotos: incluirFotos,
+                  modelo: null,
+                },
+              }
+            : r,
+        ),
+      )
+      void cliente.invalidateQueries({ queryKey: ['reportes-problema'] })
+    },
+    onError: (e: Error) => onError(e.message),
+  })
+
+  return (
+    <div style={{ borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: 10, display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13 }}>🤖 Claude Code</strong>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={incluirFotos}
+            onChange={(e) => setIncluirFotos(e.target.checked)}
+          />
+          Incluir fotos (ojo: pueden tener datos de clientes)
+        </label>
+        <button className="chico" disabled={generar.isPending} onClick={() => generar.mutate()}>
+          {generar.isPending ? 'Preparando…' : brief ? '↻ Regenerar brief' : 'Preparar para Claude Code'}
+        </button>
+      </div>
+
+      {brief && (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, opacity: 0.7 }}>
+              Generado: {new Date(brief.generado_en).toLocaleString('es-AR')}
+              {brief.incluye_fotos ? ' · con fotos' : ''}
+            </span>
+            <button
+              className="chico"
+              onClick={() => {
+                void navigator.clipboard?.writeText(brief.brief_md)
+                setCopiado(true)
+                setTimeout(() => setCopiado(false), 1500)
+              }}
+            >
+              {copiado ? '¡Copiado!' : '📋 Copiar'}
+            </button>
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              maxHeight: 280,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              fontSize: 12,
+              background: 'rgba(0,0,0,0.04)',
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}
+          >
+            {brief.brief_md}
+          </pre>
+        </div>
       )}
     </div>
   )

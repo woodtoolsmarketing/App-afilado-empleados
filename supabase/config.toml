@@ -45,6 +45,13 @@ uri = "pg-functions://postgres/public/custom_access_token_hook"
 [functions.transcribir-audio]
 verify_jwt = true
 
+# Arma el "brief" para Claude Code a partir de un reporte. Llama a la API de
+# Claude con la ANTHROPIC_API_KEY (secreto del server, cargado con
+# `supabase secrets set`). verify_jwt + gate admin adentro de la función: sólo la
+# oficina puede dispararla, nunca el teléfono del vendedor.
+[functions.triar-reporte]
+verify_jwt = true
+
 [functions.optimizar-ruta]
 verify_jwt = true
 

@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
 import { usarConsola } from '../nucleo/consola'
-import { obtenerImpresora } from '../nucleo/impresora'
+import { obtenerImpresoraDeUsuario } from '../nucleo/impresora'
 import { supabase } from '../nucleo/supabase'
 import { EditorNota, type NotaParaEditar } from './EditorNota'
 
@@ -123,7 +123,7 @@ export function PaginaNotasPedido({
   const puedeImprimir = typeof window.woodtools?.imprimirDocumento === 'function'
 
   /**
-   * Reimprimir una nota desde el panel (sólo admin).
+   * Reimprimir una nota desde el panel (admin y administración).
    *
    * Camino DIRECTO, igual que el rol de visita: trae la nota completa, arma el
    * documento (original + duplicado, con logo si es factura) y lo manda por la
@@ -154,7 +154,9 @@ export function PaginaNotasPedido({
         { copia: 'duplicado', conLogo },
       ]
       const html = generarDocumentoImpresion(copias.map((o) => ({ nota: imprimible, opciones: o })))
-      const impresora = await obtenerImpresora()
+      // Reimpresión A PEDIDO: sale por la impresora propia del usuario si tiene una
+      // asignada (ej. Administración → su respaldo), no por la de la cola compartida.
+      const impresora = await obtenerImpresoraDeUsuario()
       return window.woodtools.imprimirDocumento(html, impresora)
     },
     onSuccess: (salida) => {
@@ -403,10 +405,12 @@ export function PaginaNotasPedido({
                           Dar Cod. Cliente
                         </button>
                       ) : null}
-                      {/* Imprimir (reimprimir) la nota: admin-only. Camino directo a
-                          la impresora de la oficina; no pasa por la cola ni cambia el
-                          estado de la nota (es una copia en papel). */}
-                      {esAdmin ? (
+                      {/* Imprimir (reimprimir) la nota: admin Y administración (todos
+                          los que NO son sólo-lectura; el supervisor no). Camino directo
+                          a la impresora de la oficina —a la propia del usuario si tiene
+                          una asignada (ver obtenerImpresoraDeUsuario)—; no pasa por la cola ni
+                          cambia el estado de la nota (es una copia en papel). */}
+                      {!soloLectura ? (
                         <button
                           className="chico"
                           disabled={!puedeImprimir || imprimir.isPending}

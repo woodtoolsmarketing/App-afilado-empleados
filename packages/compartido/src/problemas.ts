@@ -154,3 +154,24 @@ export interface ReporteProblema {
   /** Lo que Gemini sacó del audio adjunto, si hay. */
   transcripcion_audio: string | null
 }
+
+/**
+ * El brief que arma la API de Claude a partir de un reporte: la orden de trabajo
+ * en markdown que se pega en una sesión de Claude Code (que es la que tiene el
+ * repo y hace el fix).
+ *
+ * Vive en la tabla `reportes_brief`, APARTE del reporte y con RLS sólo-admin: es
+ * contenido técnico interno y no tiene por qué viajar al teléfono del vendedor.
+ */
+export interface BriefReporte {
+  reporte_id: string
+  /** La orden de trabajo en markdown, tal cual la devolvió el modelo. */
+  brief_md: string
+  /** Con qué modelo se generó (para auditar costo/calidad si se cambia). */
+  modelo: string | null
+  /** Si se le mandaron las fotos (visión) o sólo el texto. */
+  incluye_fotos: boolean
+  /** Quién apretó "Preparar para Claude Code". */
+  generado_por: string | null
+  generado_en: string
+}
