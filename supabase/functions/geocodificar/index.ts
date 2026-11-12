@@ -40,12 +40,59 @@ const REVERSA_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
  * Es un sesgo, no un filtro: los resultados de más lejos siguen apareciendo,
  * sólo que más abajo. Con centro en el Obelisco, 50 km llegan hasta La Plata,
  * Escobar y Cañuelas, que es el radio donde está la mayor parte del padrón.
+ *
+ * Es el sesgo POR DEFECTO: cuando el que llama manda `sesgo` (la ubicación del
+ * vendedor o del pueblo del cliente), se usa ESE centro en vez de éste — es lo
+ * que hace que "Bolívar 1630" en San Carlos de Bolívar (a 330 km del Obelisco,
+ * fuera de este círculo) caiga sobre la calle del pueblo y no sobre la ciudad
+ * ni el país homónimos.
  */
 const SESGO_ARGENTINA = {
   circle: {
     center: { latitude: -34.6037, longitude: -58.3816 },
     radius: 50_000.0,
   },
+}
+
+/** Radio del sesgo cuando viene un centro propio (pueblo/GPS): abarca el pueblo y el campo alrededor. */
+const RADIO_SESGO_LOCAL = 20_000.0
+
+/**
+ * Tipos de lugar de Google. Una sugerencia que es SÓLO un país / provincia /
+ * localidad (sin nada de calle) no es una dirección: es el error de cuando la
+ * calle se llama igual que la ciudad o el país ("Bolívar" → la ciudad Bolívar o
+ * el país Bolivia). Se descartan esas; ver `esSoloLugar`.
+ */
+const TIPOS_CALLE = [
+  'route',
+  'street_address',
+  'premise',
+  'subpremise',
+  'establishment',
+  'point_of_interest',
+  'intersection',
+]
+const TIPOS_LUGAR = [
+  'country',
+  'locality',
+  'administrative_area_level_1',
+  'administrative_area_level_2',
+  'administrative_area_level_3',
+  'postal_code',
+]
+
+/**
+ * ¿Esta sugerencia es SÓLO una ciudad / provincia / país (no una calle)?
+ *
+ * Defensivo a propósito: si Google no mandó `types` (array vacío) devuelve
+ * `false` → la sugerencia se conserva. Nunca se tira algo por falta de dato.
+ */
+function esSoloLugar(tipos: string[]): boolean {
+  return (
+    tipos.length > 0 &&
+    tipos.some((t) => TIPOS_LUGAR.includes(t)) &&
+    !tipos.some((t) => TIPOS_CALLE.includes(t))
+  )
 }
 
 /**
@@ -138,7 +185,14 @@ Deno.serve(async (req) => {
     const clave = Deno.env.get('GOOGLE_MAPS_SERVER_KEY')
     if (!clave) throw new RespuestaError('Falta configurar GOOGLE_MAPS_SERVER_KEY', 500)
 
-    const { operacion, texto, place_id, sesion, lat, lng, preferir_calle } = await req.json()
+    // `sesgo` (opcional): { lat, lng } con el centro al que sesgar el
+    // autocompletado — la ubicación del vendedor (GPS) o del pueblo del cliente.
+    // `localidad` (opcional): el pueblo del cliente, que se le agrega al texto
+    // para desambiguar cuando la calle se llama igual que la ciudad/país.
+    // Los dos son retrocompatibles: si no vienen, el comportamiento es el de
+    // siempre (sesgo AMBA, texto tal cual).
+    const { operacion, texto, place_id, sesion, lat, lng, preferir_calle, sesgo, localidad } =
+      await req.json()
 
     /**
      * "USAR MI UBICACIÓN ACTUAL": del GPS a una dirección escrita.
@@ -241,15 +295,35 @@ Deno.serve(async (req) => {
     if (operacion === 'sugerir') {
       if (!texto || texto.trim().length < 3) return responder({ sugerencias: [] })
 
+      // Desambiguar por pueblo: si viene `localidad` y el texto no la tiene ya,
+      // se la pegamos ("Bolívar 1630" → "Bolívar 1630, San Carlos de Bolivar").
+      // Así Google no confunde la CALLE con la CIUDAD/PAÍS homónimos.
+      const loc = typeof localidad === 'string' ? localidad.trim() : ''
+      const entrada =
+        loc && !texto.toLowerCase().includes(loc.toLowerCase()) ? `${texto}, ${loc}` : texto
+
+      // Sesgar al pueblo cuando viene un centro propio (GPS del vendedor o
+      // ubicación del cliente). Si no, el sesgo AMBA de siempre.
+      const sesgoValido =
+        sesgo && typeof sesgo.lat === 'number' && typeof sesgo.lng === 'number'
+      const locationBias = sesgoValido
+        ? {
+            circle: {
+              center: { latitude: sesgo.lat, longitude: sesgo.lng },
+              radius: RADIO_SESGO_LOCAL,
+            },
+          }
+        : SESGO_ARGENTINA
+
       const respuesta = await fetch(AUTOCOMPLETE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': clave },
         body: JSON.stringify({
-          input: texto,
+          input: entrada,
           languageCode: 'es-419',
           regionCode: 'AR',
           includedRegionCodes: ['ar'],
-          locationBias: SESGO_ARGENTINA,
+          locationBias,
           // El token de sesión agrupa el autocompletado con el detalle
           // posterior y hace que Google los cobre como una sola operación.
           sessionToken: sesion,
@@ -261,18 +335,41 @@ Deno.serve(async (req) => {
       }
 
       const datos = await respuesta.json()
-      const sugerencias = (datos.suggestions ?? [])
+      const predicciones = (datos.suggestions ?? [])
         .filter((s: { placePrediction?: unknown }) => s.placePrediction)
-        .map((s: { placePrediction: Record<string, never> }) => ({
-          place_id: (s.placePrediction as never as { placeId: string }).placeId,
-          texto: (s.placePrediction as never as { text: { text: string } }).text?.text ?? '',
-          principal:
-            (s.placePrediction as never as { structuredFormat?: { mainText?: { text: string } } })
-              .structuredFormat?.mainText?.text ?? '',
-          secundario:
-            (s.placePrediction as never as { structuredFormat?: { secondaryText?: { text: string } } })
-              .structuredFormat?.secondaryText?.text ?? '',
-        }))
+        .map((s: { placePrediction: Record<string, never> }) => {
+          const p = s.placePrediction as never as {
+            placeId: string
+            text?: { text: string }
+            types?: string[]
+            structuredFormat?: {
+              mainText?: { text: string }
+              secondaryText?: { text: string }
+            }
+          }
+          return {
+            place_id: p.placeId,
+            texto: p.text?.text ?? '',
+            principal: p.structuredFormat?.mainText?.text ?? '',
+            secundario: p.structuredFormat?.secondaryText?.text ?? '',
+            types: Array.isArray(p.types) ? p.types : [],
+          }
+        })
+
+      // Sacar las sugerencias que son SÓLO ciudad/provincia/país (el error de
+      // "Bolívar" → la ciudad o "Bolivia"). Si al filtrar no queda NADA —porque
+      // Google no mandó nada mejor—, devolvemos la lista original: mejor algo
+      // imperfecto que una pantalla vacía.
+      const calles = predicciones.filter((p) => !esSoloLugar(p.types))
+      const elegidas = calles.length > 0 ? calles : predicciones
+
+      // `types` era sólo para filtrar; no se devuelve.
+      const sugerencias = elegidas.map((p) => ({
+        place_id: p.place_id,
+        texto: p.texto,
+        principal: p.principal,
+        secundario: p.secundario,
+      }))
 
       return responder({ sugerencias })
     }

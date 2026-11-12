@@ -674,7 +674,12 @@ function FormularioCliente({
           Marcá el punto en el mapa (o usá tu ubicación actual): la calle y la altura aparecen solas
           para que las confirmes.
         </p>
-        <EditorDireccion valor={principalDir} alCambiar={setPrincipalDir} esPrincipal />
+        <EditorDireccion
+          valor={principalDir}
+          alCambiar={setPrincipalDir}
+          esPrincipal
+          localidad={cliente?.localidad}
+        />
 
         <h2 style={{ marginTop: 20 }}>Lugares de entrega</h2>
         <p style={{ fontSize: 13, color: 'var(--tinta-suave, #888)', marginTop: -6 }}>
@@ -688,6 +693,7 @@ function FormularioCliente({
             alCambiar={(v) => cambiarEntrega(i, v)}
             alQuitar={() => quitarEntrega(i)}
             esPrincipal={false}
+            localidad={cliente?.localidad}
           />
         ))}
         <button type="button" onClick={agregarEntrega}>

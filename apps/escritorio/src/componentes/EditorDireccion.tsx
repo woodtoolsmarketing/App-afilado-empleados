@@ -73,11 +73,18 @@ export function EditorDireccion({
   alCambiar,
   alQuitar,
   esPrincipal,
+  localidad,
 }: {
   valor: DireccionEditable
   alCambiar: (v: DireccionEditable) => void
   alQuitar?: () => void
   esPrincipal: boolean
+  /**
+   * Pueblo/localidad del cliente. Se le pasa al autocompletado para que, cuando
+   * la calle se llama igual que la ciudad/país ("Bolívar" en San Carlos de
+   * Bolívar), Google busque la calle DEL PUEBLO y no la ciudad homónima.
+   */
+  localidad?: string | null
 }) {
   const [buscando, setBuscando] = useState(false)
   const [sugerida, setSugerida] = useState<string | null>(null)
@@ -106,7 +113,13 @@ export function EditorDireccion({
     temporizador.current = setTimeout(async () => {
       setBuscandoSug(true)
       try {
-        setSugerencias(await sugerirDirecciones(t, sesionRef.current))
+        // Sesgar al punto que ya tiene (si lo tiene): aunque sea aproximado,
+        // cae en el mismo pueblo, que es lo que desambigua la calle homónima.
+        const sesgo =
+          valor.lat !== null && valor.lng !== null
+            ? { lat: valor.lat, lng: valor.lng }
+            : undefined
+        setSugerencias(await sugerirDirecciones(t, sesionRef.current, { localidad, sesgo }))
       } catch {
         setSugerencias([])
       } finally {

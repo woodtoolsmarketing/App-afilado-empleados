@@ -98,11 +98,18 @@ export interface SugerenciaDireccion {
 export async function sugerirDirecciones(
   texto: string,
   sesion: string,
+  opciones: { localidad?: string | null; sesgo?: { lat: number; lng: number } } = {},
 ): Promise<SugerenciaDireccion[]> {
   const data = await invocar<{ sugerencias?: SugerenciaDireccion[] }>('geocodificar', {
     operacion: 'sugerir',
     texto,
     sesion,
+    // Desambiguar por pueblo: cuando la calle se llama igual que la ciudad/país
+    // ("Bolívar" en San Carlos de Bolívar), el servidor sesga la búsqueda al
+    // pueblo del cliente en vez de al AMBA, y descarta las sugerencias que son
+    // sólo una ciudad/país. Ver la Edge Function `geocodificar`.
+    ...(opciones.localidad ? { localidad: opciones.localidad } : {}),
+    ...(opciones.sesgo ? { sesgo: opciones.sesgo } : {}),
   })
   return data?.sugerencias ?? []
 }
