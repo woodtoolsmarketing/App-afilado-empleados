@@ -77,6 +77,11 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const [avisoMaps, setAvisoMaps] = useState<string | null>(null)
   // La ventana que pregunta CÓMO arrancar: con Google Maps o guiado por la app.
   const [eligiendoModo, setEligiendoModo] = useState(false)
+  // Cuánto ocupa el mapa en pantalla. El vendedor lo AGRANDA para ver bien el
+  // trazado o lo ACHICA para llegar antes a la lista de destinos; arranca en el
+  // tamaño de siempre (índice 1). Es sólo de esta pantalla: no se guarda.
+  const ALTURAS_MAPA = [190, 300, 440, 580]
+  const [nivelMapa, setNivelMapa] = useState(1)
   // El id de la parada cuya hoja de "mover" está abierta, o null.
   const debeIniciar = route.params?.iniciar === true
 
@@ -843,7 +848,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 icono="📍"
               />
             ) : (
-            <View style={estilos.marcoMapa}>
+            <View style={[estilos.marcoMapa, { height: ALTURAS_MAPA[nivelMapa] }]}>
               <MapView
                 ref={mapa}
                 provider={PROVIDER_GOOGLE}
@@ -879,6 +884,41 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   />
                 ))}
               </MapView>
+
+              {/*
+                Agrandar / achicar el mapa. Dos toques grandes en la esquina —＋
+                para verlo más grande, － para achicarlo— en vez de hacerle pellizcar
+                con dos dedos, que con guantes o apurado no siempre sale. El pin de
+                "mi ubicación" de Google queda abajo a la derecha, así que esto va
+                arriba a la derecha para no taparlo.
+              */}
+              <View style={estilos.controlMapa} pointerEvents="box-none">
+                <Pressable
+                  onPress={() => setNivelMapa((n) => Math.min(ALTURAS_MAPA.length - 1, n + 1))}
+                  disabled={nivelMapa >= ALTURAS_MAPA.length - 1}
+                  hitSlop={8}
+                  accessibilityLabel="Agrandar el mapa"
+                  style={[
+                    estilos.controlMapaBoton,
+                    nivelMapa >= ALTURAS_MAPA.length - 1 && estilos.controlMapaBotonInerte,
+                  ]}
+                >
+                  <Text style={estilos.controlMapaIcono}>＋</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setNivelMapa((n) => Math.max(0, n - 1))}
+                  disabled={nivelMapa <= 0}
+                  hitSlop={8}
+                  accessibilityLabel="Achicar el mapa"
+                  style={[
+                    estilos.controlMapaBoton,
+                    estilos.controlMapaBotonAbajo,
+                    nivelMapa <= 0 && estilos.controlMapaBotonInerte,
+                  ]}
+                >
+                  <Text style={estilos.controlMapaIcono}>－</Text>
+                </Pressable>
+              </View>
             </View>
             )}
 
@@ -1549,6 +1589,33 @@ const usarEstilos = hojaDeTema((t) => ({
     overflow: 'hidden',
   },
   mapa: { flex: 1 },
+
+  // El control de agrandar/achicar, flotando arriba a la derecha del mapa. El
+  // blanco va fijo (no por tema): las teselas de Google son claras en los dos
+  // temas, así que un botón blanco con el ＋/－ oscuro se lee siempre.
+  controlMapa: {
+    position: 'absolute',
+    top: espaciado.sm,
+    right: espaciado.sm,
+  },
+  controlMapaBoton: {
+    width: 42,
+    height: 42,
+    borderRadius: radios.sm,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 1.5,
+    borderColor: t.colores.borde,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlMapaBotonAbajo: { marginTop: espaciado.xs },
+  controlMapaBotonInerte: { opacity: 0.4 },
+  controlMapaIcono: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: '800',
+    color: '#1b1b1b',
+  },
 
   resumenRuta: {
     fontFamily: t.tipografia.familia.cuerpo,

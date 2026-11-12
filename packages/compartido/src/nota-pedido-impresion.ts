@@ -35,6 +35,8 @@ import {
   VENDEDORES_CON_CERO,
   type DatosComputo,
 } from './notas-pedido'
+import { ETIQUETA_AFILADO_MECHA } from './afilado-mecha'
+import type { AfiladoMecha } from './afilado-mecha'
 import { operacionMecanizado } from './mecanizado'
 import {
   bloqueDePlanillasDelDia,
@@ -1635,11 +1637,20 @@ export function notaImprimibleDesdeFila(nota: Record<string, any>): NotaParaImpr
           sufijoMecanizado = op === 'buje' ? ` (buje a ${destino} mm)` : ` (agrandar a ${destino} mm)`
         }
       }
+      // En las mechas integrales de metal duro, QUÉ filo se afila (punta /
+      // hélice / las dos): va pegado a la descripción como el sufijo del reclamo
+      // y del mecanizado, para que el taller lo lea en la misma línea de la pieza.
+      const afiladoMecha = i.detalle?.mecha_afilado as AfiladoMecha | undefined
+      const sufijoAfiladoMecha =
+        afiladoMecha && ETIQUETA_AFILADO_MECHA[afiladoMecha]
+          ? ` (${ETIQUETA_AFILADO_MECHA[afiladoMecha]})`
+          : ''
       return {
         descripcion:
           (i.descripcion ?? i.codigo_herramienta ?? '') +
           (reclamado ? ` (${ETIQUETA_RECLAMO[reclamado] ?? reclamado})` : '') +
-          sufijoMecanizado,
+          sufijoMecanizado +
+          sufijoAfiladoMecha,
         afilado: trabajo(i.servicio === 'afilado', 'afilado'),
         rectificado: trabajo(i.servicio === 'rectificado', 'rectificado'),
         // También cuando se reparan los dientes rotos de una herramienta que
