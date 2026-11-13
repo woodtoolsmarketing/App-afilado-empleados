@@ -70,7 +70,6 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../../componentes/Botones'
-import { BotonReportarProblema } from '../../componentes/BotonReportarProblema'
 import {
   Campo,
   Casilla,
@@ -2266,20 +2265,6 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
               />
             </>
           ) : null}
-
-          {/* Reportar un problema con la nota, desde cualquier paso. Abre el
-              reporte con el cliente ya puesto y deja que el vendedor elija en el
-              desplegable qué fue (un precio o un código mal, que no guardó, la
-              impresión…). Va al fondo para no competir con CONTINUAR / CREAR. */}
-          <BotonReportarProblema
-            pantalla="Generar nota de pedido"
-            detalle={`Estaba cargando una nota de pedido${
-              encabezado.cliente_codigo
-                ? ` para el cliente ${encabezado.cliente_codigo} (${encabezado.cliente_nombre})`
-                : ''
-            }.`}
-            titulo="⚠ Reportar un problema con la nota"
-          />
           </DensidadFormulario.Provider>
         </Panel>
       </KeyboardAvoidingView>

@@ -15,7 +15,7 @@ import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View } from '
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Campo } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
-import { BarraPanel, Pantalla, Panel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo } from '../componentes/Pantalla'
 import { buscarArticulos, FAMILIA_COMPLETA, type ArticuloCatalogo } from '../servicios/notasPedido'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 import type { PropsPantalla } from '../navegacion/tipos'
@@ -174,6 +174,8 @@ export function PantallaStockDisponible({ navigation }: PropsPantalla<'StockDisp
             ))}
           </ScrollView>
         </View>
+
+        <ReporteEnElCuerpo />
 
         {/* La lista en un FlatList (virtualizado): son ~1300 filas y un ScrollView
             las dibujaría todas de golpe. La "caja" con borde la envuelve y el

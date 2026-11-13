@@ -35,7 +35,6 @@ import {
 } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
-import { BotonReportarProblema } from '../componentes/BotonReportarProblema'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
 import { Campo, DensidadFormulario, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -43,7 +42,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
 import { ModalDuplicados } from '../componentes/ModalDuplicados'
-import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
   agregarParada,
@@ -844,16 +843,6 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                   })
                 }
               />
-              {/* No es cliente nuevo y sin embargo no aparece: puede ser un
-                  problema de la app (padrón desactualizado, un cliente que
-                  debería estar). El botón abre el reporte con el código ya
-                  escrito, así la oficina lo ve con el dato puntual. */}
-              <BotonReportarProblema
-                pantalla="Buscar cliente"
-                motivo="cliente"
-                detalle={`No me aparece el cliente "${consulta.trim()}".`}
-                titulo="⚠ Avisar que no aparece este cliente"
-              />
             </Aviso>
           ) : null}
 
@@ -977,6 +966,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
               }
             />
           ) : null}
+
+          {/* "¿No encontrás al cliente?" + los 3 problemas de buscar cliente,
+              al pie del scroll (esta pantalla es footer-fijo, así que el botón
+              del Panel no sale solo). */}
+          <ReporteEnElCuerpo />
           </ScrollView>
 
           {/* AGREGAR fijo al pie, siempre a la vista. */}

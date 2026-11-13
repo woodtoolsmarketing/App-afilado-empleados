@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 import { MenuLateral } from './MenuLateral'
-import { contextoDeReporte } from '../navegacion/reporteContexto'
+import { problemaDePantalla } from '../navegacion/problemasPorPantalla'
 import type { ParametrosApp } from '../navegacion/tipos'
 import { usarFotoDePerfil } from '../nucleo/foto'
 import { etiquetaVendedor, usarSesion } from '../nucleo/sesion'
@@ -30,12 +30,13 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu?: () => void }) {
   // dirección. Hasta que llega la URL firmada se muestran las iniciales.
   const foto = usarFotoDePerfil(perfil?.foto_url)
 
-  // El ícono "⚠" para reportar desde CUALQUIER pantalla: saca de la ruta actual
-  // de qué pantalla/motivo se trata, así el vendedor reporta de un toque desde
-  // donde se dio el problema, sin volver al menú. Ver `reporteContexto`.
+  // El ícono "⚠" para reportar desde CUALQUIER pantalla: abre el reporte con la
+  // ruta actual como `origen`, así muestra los problemas de ESA pantalla (ver
+  // `problemasPorPantalla`) y el vendedor reporta de un toque, sin volver al menú.
   const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
   const ruta = useRoute()
-  const contexto = contextoDeReporte(ruta.name)
+  // Sólo para el rótulo accesible; el reporte en sí sale de `origen` = la ruta.
+  const ctx = problemaDePantalla(ruta.name)
 
   return (
     <View style={estilos.contenedor}>
@@ -82,15 +83,10 @@ export function Encabezado({ alAbrirMenu }: { alAbrirMenu?: () => void }) {
           reporte no tiene sentido mostrarlo. */}
       {ruta.name !== 'ReportarProblema' ? (
         <Pressable
-          onPress={() =>
-            navegacion.navigate('ReportarProblema', {
-              pantalla: contexto.pantalla,
-              motivo: contexto.motivo,
-            })
-          }
+          onPress={() => navegacion.navigate('ReportarProblema', { origen: ruta.name })}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel={`Reportar un problema en ${contexto.pantalla}`}
+          accessibilityLabel={ctx ? `Reportar un problema en ${ctx.pantalla}` : 'Reportar un problema'}
           style={({ pressed }) => [estilos.reportar, pressed && estilos.presionado]}
         >
           <Text style={estilos.reportarIcono}>⚠</Text>

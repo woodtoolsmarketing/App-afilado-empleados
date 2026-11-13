@@ -26,7 +26,7 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
-import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
   finalizarRecorrido,
@@ -1113,6 +1113,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                 ) : null}
 
                 <BotonSecundario titulo="Actualizar" alTocar={() => void refetch()} />
+                <ReporteEnElCuerpo />
               </View>
             }
           />

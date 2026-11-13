@@ -17,7 +17,7 @@ import { Alert, Pressable, Text, View } from 'react-native'
 import { BotonPrincipal } from '../componentes/Botones'
 import { Aviso, Pastilla } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
-import { Campo, CampoConOpciones, Desplegable } from '../componentes/Formulario'
+import { Campo, CampoConOpciones, Desplegable, MensajeError } from '../componentes/Formulario'
 import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 import {
@@ -27,6 +27,7 @@ import {
   usarGrabacionReporte,
 } from '../servicios/adjuntosReporte'
 import { cuandoSeDaFrecuente, misReportes, reportarProblema } from '../servicios/problemas'
+import { PROBLEMA_OTROS, problemaDePantalla } from '../navegacion/problemasPorPantalla'
 import type { PropsPantalla } from '../navegacion/tipos'
 
 /**
@@ -64,6 +65,15 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
   const [fotos, setFotos] = useState<string[]>([])
   const audio = usarGrabacionReporte()
 
+  // Si se entra desde una pantalla puntual (el botón del cuerpo o el ⚠ del
+  // encabezado mandan `origen` = la ruta), se muestran los 3 problemas de ESA
+  // pantalla + "Otros" en vez del desplegable genérico. Sin origen (el acceso
+  // del menú) queda el genérico de siempre. El detalle es obligatorio con
+  // "Otros" —tanto el nuevo PROBLEMA_OTROS como el viejo MOTIVO_OTRO—.
+  const origen = route.params?.origen ?? null
+  const contexto = origen ? problemaDePantalla(origen) : null
+  const detalleObligatorio = motivo === MOTIVO_OTRO || motivo === PROBLEMA_OTROS
+
   /*
    * Las respuestas que ya escribieron otros, para el segundo campo.
    *
@@ -90,7 +100,7 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
         motivo: motivo!,
         detalle: detalle,
         cuandoSeDa: cuando,
-        pantalla: route.params?.pantalla ?? 'Reportar un problema',
+        pantalla: contexto?.pantalla ?? route.params?.pantalla ?? 'Reportar un problema',
         fotos,
         audioUri: vars.audioUri,
       }),
@@ -145,7 +155,7 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
      * entiende— y exigirlo sería el paso de más que hace que el vendedor deje
      * de reportar.
      */
-    if (motivo === MOTIVO_OTRO && detalle.trim().length < 5) {
+    if (detalleObligatorio && detalle.trim().length < 5) {
       setErrorDetalle('Contá con tus palabras qué pasó.')
       return
     }
@@ -167,26 +177,63 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
 
         <Text style={estilos.senal}>⚠</Text>
 
-        <Desplegable
-          etiqueta="¿Cuál es el problema?"
-          obligatorio
-          marcador="Elegí una opción"
-          valor={motivo}
-          items={MOTIVOS_DE_PROBLEMA.map((m) => ({
-            valor: m.valor,
-            etiqueta: m.etiqueta,
-            descripcion: m.descripcion,
-          }))}
-          alCambiar={(v) => {
-            setMotivo(v)
-            setErrorMotivo(null)
-            // También el del detalle: pasando de "Otro" a cualquier otro motivo,
-            // el campo deja de ser obligatorio y su cartel rojo quedaba puesto
-            // sobre un campo que ya no lo pide.
-            setErrorDetalle(null)
-          }}
-          error={errorMotivo}
-        />
+        {contexto ? (
+          /*
+           * Modo contextual: la pregunta de la pantalla + sus 3 problemas
+           * puntuales + "Otros". El vendedor toca el que le pasó y listo; no
+           * tiene que buscar en una lista de trece ni adivinar la categoría.
+           */
+          <View style={estilos.opciones}>
+            <Text style={estilos.pregunta}>{contexto.pregunta}</Text>
+            {[...contexto.problemas, PROBLEMA_OTROS].map((p) => {
+              const elegido = motivo === p
+              return (
+                <Pressable
+                  key={p}
+                  onPress={() => {
+                    setMotivo(p)
+                    setErrorMotivo(null)
+                    setErrorDetalle(null)
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: elegido }}
+                  style={({ pressed }) => [
+                    estilos.opcion,
+                    elegido && estilos.opcionElegida,
+                    pressed && estilos.opcionTocada,
+                  ]}
+                >
+                  <View style={[estilos.radio, elegido && estilos.radioElegido]}>
+                    {elegido ? <View style={estilos.radioPunto} /> : null}
+                  </View>
+                  <Text style={[estilos.opcionTexto, elegido && estilos.opcionTextoElegido]}>{p}</Text>
+                </Pressable>
+              )
+            })}
+            {errorMotivo ? <MensajeError>{errorMotivo}</MensajeError> : null}
+          </View>
+        ) : (
+          <Desplegable
+            etiqueta="¿Cuál es el problema?"
+            obligatorio
+            marcador="Elegí una opción"
+            valor={motivo}
+            items={MOTIVOS_DE_PROBLEMA.map((m) => ({
+              valor: m.valor,
+              etiqueta: m.etiqueta,
+              descripcion: m.descripcion,
+            }))}
+            alCambiar={(v) => {
+              setMotivo(v)
+              setErrorMotivo(null)
+              // También el del detalle: pasando de "Otro" a cualquier otro motivo,
+              // el campo deja de ser obligatorio y su cartel rojo quedaba puesto
+              // sobre un campo que ya no lo pide.
+              setErrorDetalle(null)
+            }}
+            error={errorMotivo}
+          />
+        )}
 
         {/*
           El campo de escribir aparece SIEMPRE, no sólo con "Otro".
@@ -195,8 +242,8 @@ export function PantallaReportarProblema({ navigation, route }: PropsPantalla<'R
           qué código, qué decía el cartel.
         */}
         <Campo
-          etiqueta={motivo === MOTIVO_OTRO ? '¿Qué pasó?' : 'Contalo con tus palabras (opcional)'}
-          obligatorio={motivo === MOTIVO_OTRO}
+          etiqueta={detalleObligatorio ? '¿Qué pasó?' : 'Contalo con tus palabras (opcional)'}
+          obligatorio={detalleObligatorio}
           value={detalle}
           onChangeText={(texto) => {
             setDetalle(texto)
@@ -429,6 +476,55 @@ const usarEstilos = hojaDeTema((t) => ({
     textAlign: 'center',
     color: t.colores.ambarOscuro,
   },
+
+  // ── Opciones contextuales (3 problemas + Otros) ───────────────────────────
+  opciones: { gap: espaciado.sm },
+  pregunta: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+    marginBottom: espaciado.xs,
+  },
+  opcion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaciado.sm,
+    minHeight: TOQUE_MINIMO,
+    paddingHorizontal: espaciado.base,
+    paddingVertical: espaciado.sm,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.campoBlanco,
+  },
+  opcionElegida: {
+    borderColor: t.colores.rojoAccion,
+    backgroundColor: t.colores.panelClaro,
+  },
+  opcionTocada: { opacity: 0.7 },
+  radio: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioElegido: { borderColor: t.colores.rojoAccion },
+  radioPunto: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: t.colores.rojoAccion,
+  },
+  opcionTexto: {
+    flex: 1,
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+  },
+  opcionTextoElegido: { fontFamily: t.tipografia.familia.fuerte },
 
   adjuntos: { gap: espaciado.sm },
   adjuntosTitulo: {

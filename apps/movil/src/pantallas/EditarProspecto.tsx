@@ -12,7 +12,7 @@ import { BotonMenu } from '../componentes/Botones'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
 import { Aviso, Cargando } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
-import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo, TituloPanel } from '../componentes/Pantalla'
 import {
   editarClienteProvisorio,
   fichaProvisorioParaEditar,
@@ -116,6 +116,7 @@ export function PantallaEditarProspecto({ route, navigation }: PropsPantalla<'Ed
                 errores={intentado ? errores : {}}
                 chequearDuplicados={false}
               />
+              <ReporteEnElCuerpo />
             </ScrollView>
 
             <BotonMenu titulo="GUARDAR CAMBIOS" alTocar={alGuardar} cargando={guardar.isPending} />

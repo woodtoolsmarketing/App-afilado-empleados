@@ -140,7 +140,20 @@ export type ParametrosApp = {
    * contar lo que la app ya sabe — p. ej. el buscador que no encontró un
    * cliente ya manda el código buscado.
    */
-  ReportarProblema: { motivo?: string; pantalla?: string; detalle?: string } | undefined
+  ReportarProblema:
+    | {
+        motivo?: string
+        pantalla?: string
+        detalle?: string
+        /**
+         * La ruta DESDE la que se reporta. Con ella la pantalla de reporte
+         * busca en `problemasPorPantalla` los 3 problemas específicos de esa
+         * función + "Otros", en vez del desplegable genérico. Lo mandan el botón
+         * del cuerpo (Panel) y el ⚠ del encabezado.
+         */
+        origen?: string
+      }
+    | undefined
   EnPreparacion: { modulo: string }
 
   // ── Notas de pedido (Paso 2) ──────────────────────────────────────────────

@@ -302,7 +302,7 @@ export function PantallaHistorialCobranzas({ navigation }: PropsPantalla<'Cobran
       {/* Agregar un cobro que se olvidó, sin tener que inventar una visita. Entra
           en el día que se está mirando. Siempre visible —también con la lista
           vacía—, que es justo cuando hace falta. */}
-      <Panel>
+      <Panel sinReporte>
         <BotonPrincipal
           titulo={esHoy ? '＋ AGREGAR COBRANZA' : '＋ AGREGAR COBRANZA A ESTE DÍA'}
           alTocar={() => setBuscandoCliente(true)}
