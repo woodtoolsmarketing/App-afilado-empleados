@@ -441,7 +441,7 @@ function FormularioCliente({
   return (
     <Modal visible animationType="slide" onRequestClose={alCerrar}>
       <Pantalla>
-        <Panel contentStyle={estilos.contenido}>
+        <Panel sinReporte contentStyle={estilos.contenido}>
           <BarraPanel alVolver={alCerrar} />
           <TituloPanel>{cliente ? 'EDITAR CLIENTE' : 'NUEVO CLIENTE'}</TituloPanel>
 

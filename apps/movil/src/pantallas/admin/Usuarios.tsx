@@ -937,7 +937,7 @@ function ModalAlta({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={cerrar}>
       <Pantalla>
-        <Panel contentStyle={estilos.contenido}>
+        <Panel sinReporte contentStyle={estilos.contenido}>
           <BarraPanel alVolver={cerrar} />
           <TituloPanel>NUEVO USUARIO</TituloPanel>
 
