@@ -42,7 +42,7 @@ import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
 import { ModalDuplicados } from '../componentes/ModalDuplicados'
-import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo, TituloPanel } from '../componentes/Pantalla'
 import { usarSesion } from '../nucleo/sesion'
 import {
   agregarParada,
@@ -966,6 +966,11 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
               }
             />
           ) : null}
+
+          {/* "¿No encontrás al cliente?" + los 3 problemas de buscar cliente,
+              al pie del scroll (esta pantalla es footer-fijo, así que el botón
+              del Panel no sale solo). */}
+          <ReporteEnElCuerpo />
           </ScrollView>
 
           {/* AGREGAR fijo al pie, siempre a la vista. */}

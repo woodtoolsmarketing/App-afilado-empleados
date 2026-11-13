@@ -1,3 +1,5 @@
+import { useNavigation, useRoute } from '@react-navigation/native'
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { espaciado, radios, sombras } from '@woodtools/compartido'
 import { formatearFechaCorta } from '@woodtools/compartido'
 import { useEffect, useRef, type ReactNode } from 'react'
@@ -12,6 +14,8 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { problemaDePantalla } from '../navegacion/problemasPorPantalla'
+import type { ParametrosApp } from '../navegacion/tipos'
 import { hojaDeTema } from '../nucleo/tema'
 
 /**
@@ -47,11 +51,19 @@ export function Panel({
   style,
   contentStyle,
   subirAlTopeCuando,
+  sinReporte = false,
 }: {
   children: ReactNode
   desplazable?: boolean
   style?: StyleProp<ViewStyle>
   contentStyle?: StyleProp<ViewStyle>
+  /**
+   * Oculta el botón "Reportar un problema" que el panel pone al pie. Se usa en
+   * los paneles SECUNDARIOS de una pantalla (p. ej. el segundo panel de
+   * Cobranzas) para que el boton no salga dos veces; el panel principal lo deja
+   * salir.
+   */
+  sinReporte?: boolean
   /**
    * Cada vez que este valor cambia, el panel vuelve arriba de todo.
    *
@@ -119,8 +131,39 @@ export function Panel({
         showsVerticalScrollIndicator={false}
       >
         {children}
+        {sinReporte ? null : <ReporteEnElCuerpo />}
       </ScrollView>
     </View>
+  )
+}
+
+/**
+ * El botón "Reportar un problema" que va al PIE del contenido, en casi todas las
+ * pantallas (las que usan Panel desplazable).
+ *
+ * Saca de la ruta actual la pregunta y los 3 problemas de ESA pantalla (ver
+ * `problemasPorPantalla`) y abre el reporte ya con esas opciones. Asi el
+ * vendedor reporta el problema de lo que esta viendo, desde el cuerpo de la
+ * pantalla, sin volver al menu ni elegir a mano de que se trata. En una ruta
+ * sin mapear (o en la propia pantalla de reporte) no se muestra.
+ */
+export function ReporteEnElCuerpo() {
+  const estilos = usarEstilos()
+  const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
+  const ruta = useRoute()
+  const ctx = problemaDePantalla(ruta.name)
+  if (!ctx) return null
+
+  return (
+    <Pressable
+      onPress={() => navegacion.navigate('ReportarProblema', { origen: ruta.name })}
+      accessibilityRole="button"
+      accessibilityLabel={`${ctx.pregunta} Reportar un problema`}
+      style={({ pressed }) => [estilos.reporteCuerpo, pressed && estilos.reporteCuerpoTocado]}
+    >
+      <Text style={estilos.reportePregunta}>⚠ {ctx.pregunta}</Text>
+      <Text style={estilos.reporteAccion}>Reportá un problema ›</Text>
+    </Pressable>
   )
 }
 
@@ -220,6 +263,26 @@ const usarEstilos = hojaDeTema((t) => ({
     paddingTop: espaciado.md,
     paddingBottom: espaciado.xl,
     gap: espaciado.base,
+  },
+  reporteCuerpo: {
+    padding: espaciado.base,
+    borderWidth: 2,
+    borderColor: t.colores.borde,
+    borderStyle: 'dashed',
+    borderRadius: radios.sm,
+    backgroundColor: t.colores.panelClaro,
+    gap: 2,
+  },
+  reporteCuerpoTocado: { backgroundColor: t.colores.panelOscuro },
+  reportePregunta: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+  },
+  reporteAccion: {
+    fontFamily: t.tipografia.familia.cuerpo,
+    fontSize: t.tipografia.tamano.sm,
+    color: t.colores.rojoAccion,
   },
   barra: {
     flexDirection: 'row',

@@ -16,7 +16,7 @@ import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Campo } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
 import { Encabezado } from '../componentes/Encabezado'
-import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantalla'
+import { BarraPanel, Pantalla, Panel, ReporteEnElCuerpo, TituloPanel } from '../componentes/Pantalla'
 import { buscarClientes, ESPERA_TECLEO, LIMITE_CLIENTES } from '../servicios/clientes'
 import {
   DIAS_ISO,
@@ -401,6 +401,7 @@ export function PantallaListaSemanal({ navigation, route }: PropsPantalla<'Lista
                 llegás.
               </Aviso>
             ) : null}
+            <ReporteEnElCuerpo />
           </ScrollView>
 
           {/*

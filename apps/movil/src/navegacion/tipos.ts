@@ -132,8 +132,28 @@ export type ParametrosApp = {
    * `motivo` lo deja elegido de entrada: lo usa el enlace "¿No se te
    * actualizó?", donde el vendedor ya dijo cuál es el problema al tocarlo y
    * volver a preguntárselo sería no haberlo escuchado.
+   *
+   * `pantalla` deja asentado desde dónde se reportó, y `detalle` arranca el
+   * campo de texto ya escrito con el contexto puntual (qué cliente, qué código,
+   * qué estaba haciendo). Los ponen los botones "Reportar un problema" que
+   * aparecen en cada pantalla, para que el vendedor no tenga que volver a
+   * contar lo que la app ya sabe — p. ej. el buscador que no encontró un
+   * cliente ya manda el código buscado.
    */
-  ReportarProblema: { motivo?: string; pantalla?: string } | undefined
+  ReportarProblema:
+    | {
+        motivo?: string
+        pantalla?: string
+        detalle?: string
+        /**
+         * La ruta DESDE la que se reporta. Con ella la pantalla de reporte
+         * busca en `problemasPorPantalla` los 3 problemas específicos de esa
+         * función + "Otros", en vez del desplegable genérico. Lo mandan el botón
+         * del cuerpo (Panel) y el ⚠ del encabezado.
+         */
+        origen?: string
+      }
+    | undefined
   EnPreparacion: { modulo: string }
 
   // ── Notas de pedido (Paso 2) ──────────────────────────────────────────────

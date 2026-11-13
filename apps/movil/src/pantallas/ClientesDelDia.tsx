@@ -338,7 +338,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
       </Panel>
 
       {seleccionados.length > 0 ? (
-        <Panel>
+        <Panel sinReporte>
           <BotonMenu
             titulo={`ARMAR EL RECORRIDO\nCON ${seleccionados.length}`}
             alTocar={() => armar.mutate()}
@@ -347,7 +347,7 @@ export function PantallaClientesDelDia({ navigation }: PropsPantalla<'ClientesDe
         </Panel>
       ) : null}
 
-      <Panel>
+      <Panel sinReporte>
         <BotonSecundario
           titulo="🗺  Ver el recorrido de hoy en Google Maps"
           alTocar={() => verEnMaps.mutate()}
