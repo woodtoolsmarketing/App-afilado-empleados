@@ -1,8 +1,8 @@
-import { useNavigation, useRoute } from '@react-navigation/native'
+import { NavigationContext, NavigationRouteContext } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { espaciado, radios, sombras } from '@woodtools/compartido'
 import { formatearFechaCorta } from '@woodtools/compartido'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, type ReactNode } from 'react'
 import {
   Keyboard,
   Pressable,
@@ -149,8 +149,16 @@ export function Panel({
  */
 export function ReporteEnElCuerpo() {
   const estilos = usarEstilos()
-  const navegacion = useNavigation<NativeStackNavigationProp<ParametrosApp>>()
-  const ruta = useRoute()
+  // Se leen los contextos con `useContext` y NO con `useNavigation`/`useRoute`:
+  // esos hooks TIRAN si no hay un NavigationContainer arriba, y a este componente
+  // lo auto-inyecta CUALQUIER <Panel> — incluido el de la pantalla de desbloqueo
+  // del candado, que se dibuja FUERA del navegador. Sin navegador/ruta no hay nada
+  // que reportar: se devuelve null en vez de crashear la app al abrir.
+  const navegacion = useContext(NavigationContext) as
+    | NativeStackNavigationProp<ParametrosApp>
+    | undefined
+  const ruta = useContext(NavigationRouteContext)
+  if (!navegacion || !ruta) return null
   const ctx = problemaDePantalla(ruta.name)
   if (!ctx) return null
 
