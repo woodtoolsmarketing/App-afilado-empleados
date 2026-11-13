@@ -187,7 +187,7 @@ export function Navegacion() {
   if (candado.bloqueado) {
     return (
       <Pantalla>
-        <Panel>
+        <Panel sinReporte>
           <TituloPanel>WOODTOOLS</TituloPanel>
           <Aviso tono="info" titulo="Desbloqueá para entrar">
             Usá la huella, la cara o el PIN del teléfono. Es la misma llave con la que abrís el
