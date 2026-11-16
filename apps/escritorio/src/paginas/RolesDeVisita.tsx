@@ -19,6 +19,7 @@ import {
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
+import { obtenerImpresoraDeUsuario } from '../nucleo/impresora'
 
 import { supabase, tokenDeSesion } from '../nucleo/supabase'
 import { usarConsola } from '../nucleo/consola'
@@ -84,26 +85,14 @@ function reordenarEnCache(j: JornadaPanel, nuevoOrden: string[]): JornadaPanel {
 }
 
 /**
- * La impresora de la oficina (misma fila que lee el teléfono y la cola de
- * impresión: `configuracion.impresora_oficina`). Null si no hay ninguna cargada;
- * ahí `imprimirDocumento` cae al diálogo del sistema. No leer la IP no frena la
- * impresión.
+ * La impresora para imprimir el rol: la PROPIA del usuario que tiene el panel
+ * abierto (`perfiles.impresora_ip`, ej. Administración → su respaldo .230), con
+ * fallback a la de la oficina. Mismo criterio que el resto del panel
+ * (`obtenerImpresoraDeUsuario`). Null si no hay ninguna: `imprimirDocumento` cae
+ * al diálogo del sistema.
  */
 async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
-  try {
-    const { data, error } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'impresora_oficina')
-      .maybeSingle()
-    if (error) console.warn('[roles-visita] no pudimos leer la impresora de la oficina', error)
-    const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
-    if (!cfg?.ip) return null
-    return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
-  } catch (e) {
-    console.warn('[roles-visita] falló leer la impresora de la oficina', e)
-    return null
-  }
+  return obtenerImpresoraDeUsuario()
 }
 
 /** Cómo se ve el estado de una orden de impresión de rol en el historial. */

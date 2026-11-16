@@ -11,6 +11,7 @@ import ExcelJS from 'exceljs'
 import { useMemo, useState } from 'react'
 
 import { supabase } from '../nucleo/supabase'
+import { obtenerImpresoraDeUsuario } from '../nucleo/impresora'
 
 /**
  * Cobranzas de los vendedores.
@@ -115,23 +116,13 @@ function armarPlanilla(
 }
 
 /**
- * La impresora de la oficina, para mandarle la planilla directo por IPP. Misma
- * fila que leen la cola de impresión y el teléfono (`configuracion.impresora_oficina`);
- * sin IP cargada, `imprimirDocumento` cae al diálogo del sistema.
+ * La impresora para la planilla: la PROPIA del usuario que tiene el panel abierto
+ * (`perfiles.impresora_ip`, ej. Administración → su respaldo .230), con fallback a
+ * la de la oficina. Mismo criterio que el resto del panel
+ * (`obtenerImpresoraDeUsuario`); sin ninguna, `imprimirDocumento` cae al diálogo.
  */
 async function obtenerImpresora(): Promise<{ ip: string; puerto?: number; ruta?: string } | null> {
-  try {
-    const { data } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'impresora_oficina')
-      .maybeSingle()
-    const cfg = data?.valor as { ip?: string; puerto?: number; ruta?: string } | undefined
-    if (!cfg?.ip) return null
-    return { ip: cfg.ip, puerto: cfg.puerto, ruta: cfg.ruta }
-  } catch {
-    return null
-  }
+  return obtenerImpresoraDeUsuario()
 }
 
 export function PaginaCobranzasVendedores({ esAdmin }: { esAdmin: boolean }) {

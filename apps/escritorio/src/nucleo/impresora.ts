@@ -36,21 +36,18 @@ function comoImpresora(v: unknown): ImpresoraOficina | null {
   return { ip: o.ip, puerto: o.puerto, ruta: o.ruta }
 }
 
-/** La impresora activa de la oficina. La de la cola compartida. */
+/**
+ * Antes resolvía SÓLO la impresora de la oficina. Por pedido del dueño —el panel
+ * de Administración tiene que imprimir TODO (incluida la cola) por su propia
+ * impresora (su respaldo de emergencia .230)— ahora delega en
+ * `obtenerImpresoraDeUsuario`: la PROPIA del usuario que tiene el panel abierto,
+ * con fallback a la de la oficina para el que no tiene una asignada. La cola la
+ * imprime el panel que corre el agente (el de Administración), así que esa cola
+ * sale por su impresora; un panel sin impresora propia cae en la de la oficina,
+ * como antes.
+ */
 export async function obtenerImpresora(): Promise<ImpresoraOficina | null> {
-  try {
-    const { data, error } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'impresora_oficina')
-      .maybeSingle()
-
-    if (error) console.warn('[impresora] no pudimos leer la impresora de la oficina', error)
-    return comoImpresora(data?.valor)
-  } catch (e) {
-    console.warn('[impresora] falló leer la impresora de la oficina', e)
-    return null
-  }
+  return obtenerImpresoraDeUsuario()
 }
 
 /** La impresora propia del usuario para lo que imprime a pedido; si no, la global. */
