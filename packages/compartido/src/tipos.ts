@@ -528,6 +528,8 @@ export interface Visita {
   /** "Otras": se lo visitó y pasó otra cosa, escrita a mano en otras_detalle. */
   otras: boolean
   otras_detalle: string | null
+  /** "Cotizó": se lo visitó y se le pasó un precio, aunque no terminara en nota. */
+  cotizo: boolean
   motivo_no_visita: MotivoNoVisita | null
   contacto_nombre: string | null
   observacion: string

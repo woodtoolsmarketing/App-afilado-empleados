@@ -51,6 +51,7 @@ interface DatosParte {
   entrego: boolean
   sin_pedido: boolean
   otras: boolean
+  cotizo: boolean
   otras_detalle: string | null
   observacion: string
   contacto: string
@@ -633,6 +634,7 @@ export function PaginaRolesDeVisita({
         p_entrego: d.entrego,
         p_sin_pedido: d.sin_pedido,
         p_otras: d.otras,
+        p_cotizo: d.cotizo,
         p_otras_detalle: d.otras_detalle,
         p_observacion: d.observacion,
         p_contacto: d.contacto,
@@ -1263,11 +1265,12 @@ function ModalEditarParte({
   const [entrego, setEntrego] = useState(v.entrego)
   const [sinPedido, setSinPedido] = useState(v.sin_pedido)
   const [otras, setOtras] = useState(v.otras)
+  const [cotizo, setCotizo] = useState(v.cotizo)
   const [otrasDetalle, setOtrasDetalle] = useState(v.otras_detalle ?? '')
   const [observacion, setObservacion] = useState(v.observacion)
   const [contacto, setContacto] = useState(v.contacto_nombre ?? '')
 
-  const algunaAccion = vendio || cobro || retiro || entrego || sinPedido || otras
+  const algunaAccion = vendio || cobro || retiro || entrego || sinPedido || otras || cotizo
   const faltaDetalle = otras && otrasDetalle.trim() === ''
   // Misma regla que la base (y que el parte del teléfono): ≥12 caracteres y ≥3
   // palabras. Así el botón no habilita algo que la RPC va a rechazar.
@@ -1319,6 +1322,7 @@ function ModalEditarParte({
           <Casilla etiqueta="Entregó" valor={entrego} alCambiar={setEntrego} />
           <Casilla etiqueta="No tenía nada" valor={sinPedido} alCambiar={setSinPedido} />
           <Casilla etiqueta="Otras" valor={otras} alCambiar={setOtras} />
+          <Casilla etiqueta="Cotizó" valor={cotizo} alCambiar={setCotizo} />
         </div>
 
         {otras ? (
@@ -1368,6 +1372,7 @@ function ModalEditarParte({
                 entrego,
                 sin_pedido: sinPedido,
                 otras,
+                cotizo,
                 otras_detalle: otras ? otrasDetalle : null,
                 observacion,
                 contacto,
