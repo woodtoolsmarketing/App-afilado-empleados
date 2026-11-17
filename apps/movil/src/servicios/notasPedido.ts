@@ -918,6 +918,7 @@ export async function crearNotaPedido(datos: DatosNuevaNota): Promise<NotaCreada
           sin_pedido: false,
           otras: false,
           otras_detalle: '',
+          cotizo: false,
           motivo_no_visita: null,
           volver_a_las: '',
           contacto_nombre: '',

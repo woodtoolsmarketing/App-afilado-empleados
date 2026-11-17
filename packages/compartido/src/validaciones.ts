@@ -106,7 +106,7 @@ export const HORA_DEL_DIA = /^([01]\d|2[0-3]):[0-5]\d$/
 export function observacionSugerida(
   form: Pick<
     FormularioVisita,
-    'visitado' | 'vendio' | 'cobro' | 'retiro_afilado' | 'entrego' | 'sin_pedido' | 'otras' | 'otras_detalle' | 'motivo_no_visita' | 'volver_a_las' | 'contacto_nombre'
+    'visitado' | 'vendio' | 'cobro' | 'retiro_afilado' | 'entrego' | 'sin_pedido' | 'otras' | 'otras_detalle' | 'cotizo' | 'motivo_no_visita' | 'volver_a_las' | 'contacto_nombre'
   >,
   /** Qué se vendió o se mandó a taller, a grandes rasgos: "Venta de sierras". */
   resumenDeNotas: string[] = [],
@@ -153,6 +153,7 @@ export function observacionSugerida(
     if (form.retiro_afilado) hizo.push('retiró afilado')
     if (form.entrego) hizo.push('entregó')
     if (form.sin_pedido) hizo.push('no tenía nada para dejar')
+    if (form.cotizo) hizo.push('cotizó')
 
     partes.push(hizo.length > 0 ? `Se visitó al cliente: ${enumerarEs(hizo)}.` : 'Se visitó al cliente.')
 
@@ -200,7 +201,7 @@ export function validarFormularioVisita(
 
   if (form.visitado === true) {
     const algunTipo =
-      form.vendio || form.cobro || form.retiro_afilado || form.entrego || form.sin_pedido || form.otras
+      form.vendio || form.cobro || form.retiro_afilado || form.entrego || form.sin_pedido || form.otras || form.cotizo
     if (!algunTipo) {
       errores.tipo_visita = 'Marcá al menos un tipo de visita'
     }
