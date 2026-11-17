@@ -813,6 +813,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                       sin_pedido: false,
                       otras: false,
                       otras_detalle: '',
+                      cotizo: false,
                     }),
               })
             }
