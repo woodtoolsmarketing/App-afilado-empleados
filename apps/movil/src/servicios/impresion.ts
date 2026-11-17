@@ -22,7 +22,7 @@ import * as Print from 'expo-print'
 import { PixelRatio } from 'react-native'
 
 import { supabase } from '../nucleo/supabase'
-import { cobranzasDelDia, hoyLocal, marcarCobranzasImpresas, type Cobranza } from './cobranzas'
+import { cobranzasDelDia, marcarCobranzasImpresas, type Cobranza } from './cobranzas'
 import {
   buscarEnLaRed,
   contestaIpp,
@@ -321,11 +321,6 @@ async function notasDelDiaParaResumen(vendedorId: string, fecha: string): Promis
     .lt('creado_en', hasta.toISOString())
   if (error) throw error
   return (data ?? []) as unknown as NotaSuelta[]
-}
-
-/** El de hoy: lo usa la impresión del rol solo, desde ROL DE VISITA. */
-async function rolDeVisitaDeHoy(vendedorId: string): Promise<RolDeVisitaParaImprimir | null> {
-  return rolDeVisitaDe(vendedorId, fechaLocalISO(new Date()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -743,15 +738,18 @@ export { ESTILOS_NOTA_PEDIDO }
  * vacía, igual que la de cobranzas cuando no hay cobros.
  */
 export async function imprimirRolDeVisita(params?: {
+  /** El rol de qué día (YYYY-MM-DD); sin ella, el de hoy. */
+  fecha?: string
   alAvisar?: (mensaje: string) => void
 }): Promise<ResultadoImpresion> {
   const { data: sesionActual } = await supabase.auth.getSession()
   const vendedorId = sesionActual.session?.user.id
   if (!vendedorId) throw new Error('No hay sesión')
 
-  const rolDeVisita = await rolDeVisitaDeHoy(vendedorId)
+  const fecha = params?.fecha ?? fechaLocalISO(new Date())
+  const rolDeVisita = await rolDeVisitaDe(vendedorId, fecha)
   if (!rolDeVisita) {
-    throw new Error('Hoy no armaste recorrido, así que no hay planilla para imprimir.')
+    throw new Error('No armaste recorrido ese día, así que no hay planilla para imprimir.')
   }
 
   const html = generarDocumentoImpresion([], {
@@ -762,7 +760,7 @@ export async function imprimirRolDeVisita(params?: {
   return entregarDocumento(html, {
     queSalio: 'el rol de visita',
     plural: false,
-    nombreDelArchivo: `rol-de-visita-${hoyLocal()}`,
+    nombreDelArchivo: `rol-de-visita-${fecha}`,
     alAvisar: params?.alAvisar,
   })
 }

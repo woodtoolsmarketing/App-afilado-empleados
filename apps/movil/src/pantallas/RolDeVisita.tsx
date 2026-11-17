@@ -9,7 +9,7 @@ import {
 } from '@woodtools/compartido'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 
 import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
@@ -18,7 +18,7 @@ import { BarraPanel, Pantalla, Panel, TituloPanel } from '../componentes/Pantall
 import { usarSesion } from '../nucleo/sesion'
 import { encolarRol } from '../servicios/cola'
 import { imprimirRolDeVisita, type ResultadoImpresion } from '../servicios/impresion'
-import { obtenerJornadaDeHoy } from '../servicios/jornada'
+import { obtenerJornadaDe } from '../servicios/jornada'
 import type { PropsPantalla } from '../navegacion/tipos'
 import { hojaDeTema, usarTema } from '../nucleo/tema'
 
@@ -36,11 +36,27 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
 
+  // Antes era sólo el rol DE HOY. Ahora se puede retroceder de día (como en
+  // Cobranzas) para mandar a la oficina un rol de un día anterior que quedó sin
+  // imprimir: el vendedor que vino a la oficina lo imprime igual. No se mira para
+  // adelante (no hay rol del futuro).
+  const hoy = fechaLocalISO(new Date())
+  const [fecha, setFecha] = useState(hoy)
+  const esHoy = fecha === hoy
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['jornada-hoy', perfil?.id],
-    queryFn: () => obtenerJornadaDeHoy(perfil!.id),
+    queryKey: ['jornada-de-fecha', perfil?.id, fecha],
+    queryFn: () => obtenerJornadaDe(perfil!.id, fecha),
     enabled: !!perfil,
   })
+
+  function cambiarDia(delta: number) {
+    const d = new Date(`${fecha}T12:00:00`)
+    d.setDate(d.getDate() + delta)
+    const nueva = fechaLocalISO(d)
+    if (nueva > hoy) return
+    setFecha(nueva)
+  }
 
   const paradas = data?.paradas ?? []
   const visitadas = paradas.filter((p) => p.estado === 'visitada').length
@@ -55,7 +71,7 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
   const imprimir = useMutation<ResultadoImpresion, Error, void>({
     mutationFn: async () => {
       setAvance(null)
-      return imprimirRolDeVisita({ alAvisar: setAvance })
+      return imprimirRolDeVisita({ fecha, alAvisar: setAvance })
     },
     onSuccess: (r) => {
       setAvance(null)
@@ -81,7 +97,7 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
    * abajo queda de respaldo para cuando el vendedor está al lado de la impresora.
    */
   const encolar = useMutation({
-    mutationFn: () => encolarRol(fechaLocalISO(new Date())),
+    mutationFn: () => encolarRol(fecha),
     onSuccess: (r) => {
       Alert.alert(
         r.encolada ? 'Va a la oficina' : 'Ya estaba pedido',
@@ -131,7 +147,39 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
 
       <Panel contentStyle={estilos.contenido}>
         <BarraPanel alVolver={() => navigation.goBack()} />
-        <TituloPanel>{'ROL DE VISITA\nDE HOY'}</TituloPanel>
+        <TituloPanel>ROL DE VISITA</TituloPanel>
+
+        {/* Navegar por día, como en Cobranzas: el vendedor que vino a la oficina
+            manda a imprimir un rol de un día anterior que quedó sin imprimir.
+            "Hoy" no deja avanzar: no hay rol del futuro. */}
+        <View style={estilos.navDia}>
+          <Pressable
+            onPress={() => cambiarDia(-1)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Día anterior"
+            style={({ pressed }) => [estilos.flecha, pressed && estilos.flechaTocada]}
+          >
+            <Text style={estilos.flechaTexto}>‹</Text>
+          </Pressable>
+          <Text style={estilos.fechaTexto}>
+            {esHoy ? 'HOY' : formatearFechaCorta(`${fecha}T12:00:00`)}
+          </Text>
+          <Pressable
+            onPress={() => cambiarDia(1)}
+            disabled={esHoy}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Día siguiente"
+            style={({ pressed }) => [
+              estilos.flecha,
+              pressed && estilos.flechaTocada,
+              esHoy && estilos.flechaInactiva,
+            ]}
+          >
+            <Text style={[estilos.flechaTexto, esHoy && estilos.flechaTextoInactivo]}>›</Text>
+          </Pressable>
+        </View>
 
         {isLoading ? (
           <Cargando texto="Armando la planilla…" />
@@ -144,14 +192,18 @@ export function PantallaRolDeVisita({ navigation, route }: PropsPantalla<'RolDeV
           </>
         ) : paradas.length === 0 ? (
           <Vacio
-            titulo="Hoy no armaste recorrido"
-            detalle="Cuando tengas destinos cargados para hoy, vas a poder imprimir o compartir la planilla desde acá."
+            titulo={esHoy ? 'Hoy no armaste recorrido' : 'No armaste recorrido ese día'}
+            detalle={
+              esHoy
+                ? 'Cuando tengas destinos cargados para hoy, vas a poder imprimir la planilla desde acá.'
+                : 'Ese día no tuviste recorrido. Movete con ‹ › a un día en el que sí saliste a visitar.'
+            }
             icono="🗺️"
           />
         ) : (
           <>
             <View style={estilos.resumen}>
-              <Text style={estilos.resumenFecha}>{formatearFechaCorta(new Date())}</Text>
+              <Text style={estilos.resumenFecha}>{formatearFechaCorta(`${fecha}T12:00:00`)}</Text>
               <Text style={estilos.resumenLinea}>
                 {perfil?.nombre_completo ?? 'Vendedor'}
                 {perfil?.codigo_vendedor ? ` · Nº ${perfil.codigo_vendedor}` : ''}
@@ -255,6 +307,32 @@ function colorDeEstado(estado: EstadoParada, colores: Paleta): string {
 
 const usarEstilos = hojaDeTema((t) => ({
   contenido: { gap: espaciado.md },
+
+  // Navegador de día (‹ HOY ›), espejo del de Cobranzas.
+  navDia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: espaciado.xs,
+  },
+  flecha: {
+    paddingHorizontal: espaciado.base,
+    paddingVertical: espaciado.xs,
+  },
+  flechaTocada: { opacity: 0.5 },
+  flechaInactiva: { opacity: 0.25 },
+  flechaTexto: {
+    fontFamily: t.tipografia.familia.fuerte,
+    fontSize: t.tipografia.tamano.xl,
+    color: t.colores.rojo,
+  },
+  flechaTextoInactivo: { color: t.colores.tintaSuave },
+  fechaTexto: {
+    fontFamily: t.tipografia.familia.subtitulo,
+    fontSize: t.tipografia.tamano.base,
+    color: t.colores.tinta,
+    letterSpacing: 0.5,
+  },
 
   resumen: {
     backgroundColor: t.colores.campoBlanco,
