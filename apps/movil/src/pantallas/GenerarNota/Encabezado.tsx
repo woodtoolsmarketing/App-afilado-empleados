@@ -241,6 +241,15 @@ export function PasoCliente({
   const clienteRef = useRef<ClienteBuscado | null>(null)
 
   /**
+   * El vendedor eligió este cliente A MANO y todavía no eligió sucursal. Sólo
+   * cuando esto es true y el cliente tiene 2+ direcciones se obliga a elegir (se
+   * saca el default de la principal y se vacía la zona). Arranca en false para NO
+   * molestar al CORREGIR una nota ni al traerla del ROL (ahí no se pasa por
+   * `elegirCliente(manual)`, así que la dirección y la zona ya vienen puestas).
+   */
+  const necesitaElegirSucursal = useRef(false)
+
+  /**
    * Las direcciones del cliente, para elegir a qué sucursal va el pedido. El
    * selector sale recién cuando hay dos o más (lugares de entrega cargados desde
    * el panel); con una sola no se pregunta nada.
@@ -251,6 +260,40 @@ export function PasoCliente({
     enabled: !!form.cliente_id,
     staleTime: 60_000,
   })
+
+  /**
+   * Sucursal 100% obligatoria. Con 2+ direcciones el vendedor TIENE que elegir a
+   * cuál va el pedido. Se exige cuando:
+   *  - acaba de elegir el cliente a MANO (`necesitaElegirSucursal`): ahí además se
+   *    saca el default de la principal y se vacía la zona —la zona sale de la
+   *    sucursal elegida—, para que la elija a la vista; o
+   *  - el cliente tiene 2+ direcciones y NO hay una válida apuntada (una nota
+   *    vieja sin `direccion_id`, o un borrador restaurado a mitad de elección).
+   * NO molesta al traer la nota del rol ni al corregir una que ya apunta a una
+   * sucursal válida: ahí la dirección ya viene elegida.
+   */
+  useEffect(() => {
+    if (!form.cliente_id) return
+    const varias = sucursales.length >= 2
+    const eligioValida = !!form.direccion_id && sucursales.some((s) => s.id === form.direccion_id)
+    const debePedir = varias && (necesitaElegirSucursal.current || !eligioValida)
+
+    if (!debePedir) {
+      if (form.sucursal_pendiente) alCambiar({ sucursal_pendiente: false })
+      return
+    }
+    // Elección a mano todavía sobre el default de la principal: lo sacamos (y la
+    // zona heredada) para que elija a la vista. Si ya está vacío (borrador/legacy),
+    // sólo prendemos el pendiente. El guard evita el re-dispatch en loop.
+    if (necesitaElegirSucursal.current && (form.direccion_id || form.zona)) {
+      setZonaAuto(null)
+      setZonaDudosa([])
+      alCambiar({ direccion_id: null, zona: '', zona_id: '', sucursal_pendiente: true })
+    } else if (!form.sucursal_pendiente) {
+      alCambiar({ sucursal_pendiente: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sucursales, form.cliente_id])
 
   async function buscar(texto: string) {
     const mia = ++vigente.current
@@ -379,7 +422,10 @@ export function PasoCliente({
       cliente_contacto: '',
       cliente_telefono: '',
       cliente_email: '',
+      // Soltar el cliente también limpia el pendiente de sucursal.
+      sucursal_pendiente: false,
     })
+    necesitaElegirSucursal.current = false
     alReiniciarFacturacion?.()
   }
 
@@ -415,7 +461,10 @@ export function PasoCliente({
       cliente_telefono: '',
       cliente_email: '',
       datos_cliente: '',
+      // Un cliente nuevo a mano no tiene sucursales: no hay nada que elegir.
+      sucursal_pendiente: false,
     })
+    necesitaElegirSucursal.current = false
     alReiniciarFacturacion?.()
   }
 
@@ -454,9 +503,17 @@ export function PasoCliente({
     setZonaDudosa(candidatas.length > 1 ? candidatas : [])
     setZonaAuto(unica)
 
-    if (!unica) return
-    if (form.zona && !forzar) return
-    alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+    if (unica) {
+      if (form.zona && !forzar) return
+      alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+      return
+    }
+    // No hay zona única: la localidad es ambigua o no está en el catálogo. En un
+    // cambio FORZADO de contexto —elegir cliente o cambiar de sucursal— NO se deja
+    // la zona que había (la de la principal): se vacía para que el vendedor la
+    // elija, igual que `aplicarUbicacionParada`. Si cae en varias, `zonaDudosa` ya
+    // dejó armado el selector de "más de una zona".
+    if (forzar) alCambiar({ zona: '', zona_id: '' })
   }
 
   /**
@@ -467,11 +524,10 @@ export function PasoCliente({
    * estuvo en uno concreto. La zona se recalcula por rango desde la localidad
    * de la parada:
    *  - si cae en UNA zona, pisa la del principal;
-   *  - si cae en VARIAS, se vacía (no se deja la del principal) para que el
-   *    vendedor elija —y para que el Nº de vendedor no se derive de una zona
-   *    que no es la de la visita—;
-   *  - si no matchea ninguna, queda la del principal (zona y vendedor quedan
-   *    consistentes: no hay a qué cambiar).
+   *  - si cae en VARIAS o no matchea ninguna, se VACÍA (nunca se deja la del
+   *    principal: la zona sale de dónde se entrega, no del domicilio fiscal) para
+   *    que el vendedor elija —y para que el Nº de vendedor no se derive de una
+   *    zona que no es la de la visita—.
    *
    * Y como la parada tiene punto en el mapa, la nota apunta a ese lugar de
    * entrega y rearma los DATOS DEL CLIENTE con ESA dirección —igual que
@@ -487,7 +543,7 @@ export function PasoCliente({
     setZonaAuto(unica)
     setZonaDudosa(candidatas.length > 1 ? candidatas : [])
     if (unica) alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
-    else if (candidatas.length > 1) alCambiar({ zona: '', zona_id: '' })
+    else alCambiar({ zona: '', zona_id: '' })
 
     if (!u.direccionId) return
     const c = clienteRef.current
@@ -715,6 +771,9 @@ export function PasoCliente({
   function elegirCliente(c: ClienteBuscado, manual = true) {
     // Una elección a mano le gana al auto-select de la parada (ver `intervenido`).
     if (manual) intervenido.current = true
+    // Sólo una elección a mano obliga a elegir sucursal (ver el efecto de arriba):
+    // el rol y la corrección entran con la dirección ya resuelta.
+    necesitaElegirSucursal.current = manual
     // Nada de lo que esté viajando puede volver a abrir la lista encima del
     // cliente que el vendedor acaba de elegir. Ver `vigente`.
     vigente.current++
@@ -778,6 +837,8 @@ export function PasoCliente({
 
   /** Apunta la nota a otra sucursal: cambia el domicilio y rearma los datos. */
   function elegirSucursalNota(s: SucursalCliente) {
+    // El vendedor eligió: ya no queda pendiente de sucursal.
+    necesitaElegirSucursal.current = false
     const c = clienteRef.current
     const datos = [
       c?.razon_social ?? form.cliente_nombre,
@@ -794,6 +855,7 @@ export function PasoCliente({
       direccion_id: s.id,
       datos_cliente: datos,
       cliente_provincia: s.provincia ?? form.cliente_provincia,
+      sucursal_pendiente: false,
     })
 
     // La sucursal puede estar en otra localidad: la zona se recalcula sola.
@@ -1277,6 +1339,8 @@ export function PasoCliente({
       {form.cliente_id && sucursales.length >= 2 ? (
         <Desplegable<string>
           etiqueta="¿A QUÉ SUCURSAL?"
+          obligatorio
+          marcador="Elegí a qué sucursal va el pedido"
           valor={form.direccion_id}
           items={sucursales.map((s) => ({
             valor: s.id,
@@ -1287,6 +1351,7 @@ export function PasoCliente({
             const s = sucursales.find((x) => x.id === id)
             if (s) elegirSucursalNota(s)
           }}
+          error={errores.sucursal}
         />
       ) : null}
 

@@ -2281,7 +2281,7 @@ const PARTES_DEL_PASO: Record<1 | 2 | 3, ParteDeLaNota[]> = {
 
 /** Los mismos campos, para poder llevar al vendedor a la página que le falta. */
 const CAMPOS_DE_LA_PAGINA: Record<ParteDeLaNota, string[]> = {
-  cliente: ['cliente', 'cliente_nombre', 'zona', 'datos_cliente', 'fecha_entrega'],
+  cliente: ['cliente', 'cliente_nombre', 'zona', 'sucursal', 'datos_cliente', 'fecha_entrega'],
   operacion: ['servicios'],
   facturacion: ['tipo_nota', 'condicion_venta', 'condicion_venta_detalle'],
 }

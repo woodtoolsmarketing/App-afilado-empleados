@@ -1038,6 +1038,14 @@ export interface FormularioNotaEncabezado {
    * dirección. Con una sola dirección es, sin más, la principal.
    */
   direccion_id: string | null
+  /**
+   * Con 2+ sucursales, elegir a cuál va el pedido es OBLIGATORIO: hasta que el
+   * vendedor elija una, esto queda en true y el validador no deja seguir. Lo
+   * maneja `PasoCliente` (se prende al elegir a mano un cliente con varias
+   * direcciones —y ahí se vacía la zona, que sale de la sucursal elegida—, y se
+   * apaga al elegir una). Es estado del formulario: no se guarda en la nota.
+   */
+  sucursal_pendiente?: boolean
   vendedor: string
   /**
    * El número que va en "Vendedor Nº". Sale del perfil, pero se puede corregir:
@@ -1093,6 +1101,7 @@ export const ENCABEZADO_VACIO: FormularioNotaEncabezado = {
   cliente_nombre: '',
   cliente_cuit: '',
   direccion_id: null,
+  sucursal_pendiente: false,
   vendedor: '',
   vendedor_numero: '',
   zona: '',
@@ -2311,6 +2320,7 @@ export type CampoEncabezado =
   | 'cliente'
   | 'cliente_nombre'
   | 'zona'
+  | 'sucursal'
   | 'vendedor_numero'
   | 'datos_cliente'
   | 'tipo_nota'
@@ -2335,6 +2345,7 @@ const CAMPOS_DE_LA_PARTE: Record<ParteDeLaNota, CampoEncabezado[]> = {
     'cliente',
     'cliente_nombre',
     'zona',
+    'sucursal',
     'vendedor_numero',
     'datos_cliente',
     'fecha_entrega',
@@ -2429,6 +2440,14 @@ export function validarEncabezadoNota(
     }
   }
   if (!enc.zona.trim()) errores.zona = 'Falta la zona'
+
+  /**
+   * Con 2+ sucursales, elegir a cuál va el pedido es obligatorio: `PasoCliente`
+   * deja `sucursal_pendiente` en true hasta que el vendedor elija una. Antes el
+   * default era la principal y la zona salía de ahí, aunque la entrega fuera a
+   * otra sucursal en otra zona.
+   */
+  if (enc.sucursal_pendiente) errores.sucursal = 'Elegí a qué sucursal va el pedido'
 
   /**
    * El número de vendedor va IMPRESO en el comprobante, y hasta ahora no se
