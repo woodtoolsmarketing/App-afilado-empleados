@@ -123,10 +123,10 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   // El cobro se carga en un modal a pantalla completa que se abre al tildar
   // "COBRÓ". El tilde del parte queda puesto recién cuando se guarda un cobro.
   const [modalCobranza, setModalCobranza] = useState(false)
-  // "COTIZÓ": casilla local (no es un campo del parte) que abre el popup para
-  // anotar qué se cotizó; el texto armado va a la observación de la visita.
+  // "COTIZÓ" es un tipo de visita más (`form.cotizo`): marcarlo solo ya cuenta
+  // como visita hecha, sin obligar a cargar nada. El popup de abajo es OPCIONAL
+  // y sólo sirve para anotar qué se cotizó, que se suma a la observación.
   const [modalCotizacion, setModalCotizacion] = useState(false)
-  const [cotizo, setCotizo] = useState(false)
 
   /**
    * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
@@ -325,6 +325,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
     form.sin_pedido,
     form.otras,
     form.otras_detalle,
+    form.cotizo,
     form.motivo_no_visita,
     form.volver_a_las,
     form.contacto_nombre,
@@ -891,17 +892,14 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
               />
               <Casilla
                 etiqueta="COTIZÓ"
-                valor={cotizo}
-                alCambiar={(v) => {
-                  // Tildar abre el popup para anotar qué se cotizó; destildar sólo
-                  // baja la marca (lo ya anotado queda en la observación).
-                  if (v) setModalCotizacion(true)
-                  else setCotizo(false)
-                }}
+                valor={form.cotizo}
+                // Es un tipo de visita como los demás: tildar sólo marca, no pide
+                // nada más. Anotar qué se cotizó es opcional, con el botón de abajo.
+                alCambiar={(v) => actualizar({ cotizo: v })}
               />
-              {cotizo ? (
+              {form.cotizo ? (
                 <BotonSecundario
-                  titulo="＋ AGREGAR OTRA COTIZACIÓN"
+                  titulo="＋ ANOTAR QUÉ COTIZÓ (OPCIONAL)"
                   alTocar={() => setModalCotizacion(true)}
                 />
               ) : null}
@@ -955,13 +953,13 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 visible={modalCotizacion}
                 alCerrar={() => setModalCotizacion(false)}
                 alConfirmar={(texto) => {
-                  setCotizo(true)
                   setModalCotizacion(false)
                   escritaAMano.current = true
                   setForm((previo) => {
                     const sep = previo.observacion.trim() ? '\n' : ''
                     return {
                       ...previo,
+                      cotizo: true,
                       observacion: `${previo.observacion.trim()}${sep}Cotizó: ${texto}`,
                     }
                   })

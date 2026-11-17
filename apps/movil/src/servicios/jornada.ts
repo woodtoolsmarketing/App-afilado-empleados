@@ -100,7 +100,7 @@ export async function visitaDeParada(paradaId: string): Promise<FormularioVisita
   const { data, error } = await supabase
     .from('visitas')
     .select(
-      'visitado, vendio, cobro, retiro_afilado, entrego, sin_pedido, otras, otras_detalle, motivo_no_visita, contacto_nombre, observacion, observacion_origen',
+      'visitado, vendio, cobro, retiro_afilado, entrego, sin_pedido, otras, otras_detalle, cotizo, motivo_no_visita, contacto_nombre, observacion, observacion_origen',
     )
     .eq('parada_id', paradaId)
     .maybeSingle()
@@ -115,6 +115,7 @@ export async function visitaDeParada(paradaId: string): Promise<FormularioVisita
     sin_pedido: boolean | null
     otras: boolean | null
     otras_detalle: string | null
+    cotizo: boolean | null
     motivo_no_visita: FormularioVisita['motivo_no_visita']
     contacto_nombre: string | null
     observacion: string | null
@@ -129,6 +130,7 @@ export async function visitaDeParada(paradaId: string): Promise<FormularioVisita
     sin_pedido: !!v.sin_pedido,
     otras: !!v.otras,
     otras_detalle: v.otras_detalle ?? '',
+    cotizo: !!v.cotizo,
     motivo_no_visita: v.motivo_no_visita ?? null,
     volver_a_las: '',
     contacto_nombre: v.contacto_nombre ?? '',
@@ -342,6 +344,7 @@ export async function registrarVisita(datos: DatosRegistroVisita): Promise<Visit
     p_entrego: datos.entrego,
     p_sin_pedido: datos.sin_pedido,
     p_otras: datos.otras,
+    p_cotizo: datos.cotizo,
     p_otras_detalle: datos.otras_detalle.trim() || null,
     p_motivo: datos.motivo_no_visita,
     p_contacto: datos.contacto_nombre || null,

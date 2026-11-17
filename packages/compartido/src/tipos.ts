@@ -512,6 +512,8 @@ export interface Visita {
   /** "Otras": se lo visitó y pasó otra cosa, escrita a mano en otras_detalle. */
   otras: boolean
   otras_detalle: string | null
+  /** "Cotizó": se lo visitó y se le pasó un precio, aunque no terminara en nota. */
+  cotizo: boolean
   motivo_no_visita: MotivoNoVisita | null
   contacto_nombre: string | null
   observacion: string
@@ -584,6 +586,12 @@ export interface FormularioVisita {
   otras: boolean
   /** Lo que se escribe cuando se marca "Otras". Vacío mientras no esté marcada. */
   otras_detalle: string
+  /**
+   * "Cotizó": se le pasó un precio en la visita. Es un tipo de visita más, como
+   * VENDIÓ o COBRÓ: marcarlo solo ya cuenta como visita hecha. Anotar QUÉ se
+   * cotizó es opcional y se suma a la observación desde un popup aparte.
+   */
+  cotizo: boolean
   motivo_no_visita: MotivoNoVisita | null
   /**
    * A qué hora vuelve, en formato "HH:MM". Sólo con motivo "visitar más tarde".
@@ -606,6 +614,7 @@ export const FORMULARIO_VISITA_VACIO: FormularioVisita = {
   sin_pedido: false,
   otras: false,
   otras_detalle: '',
+  cotizo: false,
   motivo_no_visita: null,
   volver_a_las: '',
   contacto_nombre: '',
