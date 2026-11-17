@@ -86,9 +86,15 @@ export function SelectorCliente({
 
   function asignarZona(u: UbicacionCliente, forzar = false): void {
     const { unica } = zonaParaUbicacion(u)
-    if (!unica) return
-    if (form.zona && !forzar) return
-    alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+    if (unica) {
+      if (form.zona && !forzar) return
+      alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+      return
+    }
+    // Sin zona única (localidad ambigua o fuera del catálogo): en un cambio
+    // forzado de sucursal/cliente NO se deja la zona de la principal; se vacía
+    // para que el admin la elija a mano.
+    if (forzar) alCambiar({ zona: '', zona_id: '' })
   }
 
   function elegirCliente(c: ClienteBuscado) {
