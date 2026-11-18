@@ -217,6 +217,18 @@ async function arrancarTarea(esRecorrido: boolean): Promise<void> {
 
 /** Seguimiento de recorrido: se prende al iniciar un viaje y guarda la traza. */
 export async function iniciarSeguimiento(contexto: ContextoSeguimiento): Promise<void> {
+  // El seguimiento por HORARIO (rolVisitaId null) NO pisa un recorrido en curso.
+  // `revisarSeguimiento` puede dispararse en paralelo con el arranque de un
+  // recorrido (el reloj de 5 min o el foco al cerrarse el diálogo de permiso),
+  // y su rama de arranque decide con un `activo` que ya quedó viejo tras varios
+  // awaits de red. Sin esta guarda, su contexto `rolVisitaId:null` podía aterrizar
+  // DESPUÉS del contexto del recorrido y la tarea (ya corriendo) publicaba TODA la
+  // traza del viaje con rol_visita_id nulo: el recorrido quedaba sin traza. El
+  // recorrido siempre manda; lo cierra "finalizar". (La de parada ya re-lee igual.)
+  if (contexto.rolVisitaId === null) {
+    const previo = await leerContexto()
+    if (previo && previo.rolVisitaId !== null) return
+  }
   // El día local queda grabado en el contexto: es contra esto que la tarea
   // decide cortar cuando cambia el día. Si el llamador no lo pasa, es el de hoy
   // (que es cuando se inicia o se reanuda una jornada).
