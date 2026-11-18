@@ -21,10 +21,11 @@ import { usarSesion } from './src/nucleo/sesion'
 import { usarAjustesDeTema, usarTema } from './src/nucleo/tema'
 import { supabase } from './src/nucleo/supabase'
 
-// Se importa por su efecto secundario: registra la tarea de segundo plano.
-// TaskManager exige que la definición corra en el arranque, antes de que el
-// sistema pueda despertar la app para entregar ubicaciones.
-import './src/servicios/ubicacion'
+// La import nombrada TAMBIÉN corre el efecto secundario del módulo: registra la
+// tarea de segundo plano. TaskManager exige que la definición corra en el
+// arranque, antes de que el sistema pueda despertar la app para entregar
+// ubicaciones.
+import { pedirPermisoDeSeguimientoSiFalta, revisarSeguimiento } from './src/servicios/ubicacion'
 import { flushTelemetria, pausarTelemetria } from './src/servicios/telemetria'
 
 void SplashScreen.preventAutoHideAsync()
@@ -93,11 +94,38 @@ export default function App() {
       // en Navegacion, gateado por el candado (no contar la pantalla de bloqueo).
       if (!activo) pausarTelemetria()
       void flushTelemetria()
+      // Seguimiento por horario: al volver al frente se revisa si hay que prender
+      // (flag + habilitado + permiso) o apagar el seguimiento del vendedor.
+      if (activo) void revisarSeguimiento(usarSesion.getState().estado === 'habilitado')
     })
     supabase.auth.startAutoRefresh()
     // Al arrancar se drena lo que haya quedado de una sesión anterior sin señal.
     void flushTelemetria()
     return () => suscripcion.remove()
+  }, [])
+
+  // Seguimiento por horario: cuando cambia el acceso, se revisa. Al quedar
+  // habilitado se pide el permiso "siempre" si falta (una vez, y sólo a quien
+  // tiene el flag) y arranca si corresponde. Si DEJÓ de estar habilitado sin
+  // cerrar sesión, `revisarSeguimiento` lo corta.
+  useEffect(() => {
+    if (estado === 'cargando') return
+    const habilitado = estado === 'habilitado'
+    void (async () => {
+      if (habilitado) await pedirPermisoDeSeguimientoSiFalta()
+      await revisarSeguimiento(habilitado)
+    })()
+  }, [estado])
+
+  // Un reloj cada pocos minutos revisa el seguimiento: cubre el caso de que la
+  // oficina prenda/apague el flag con la app abierta y quieta, cuando no hay un
+  // cambio de foco que dispare el arranque o el corte.
+  useEffect(() => {
+    const t = setInterval(
+      () => void revisarSeguimiento(usarSesion.getState().estado === 'habilitado'),
+      5 * 60_000,
+    )
+    return () => clearInterval(t)
   }, [])
 
   if (!fuentesResueltas || !temaListo) return null
