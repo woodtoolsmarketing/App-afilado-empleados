@@ -10,9 +10,9 @@
  * (Argentina), así que la hora LOCAL de cada uno alcanza para decidir.
  */
 export interface HorarioSeguimiento {
-  /** Hora local en que arranca (0-23), inclusive. */
+  /** Hora local en que arranca, inclusive. Admite media hora en decimal: `7.5` = 7:30. */
   desde: number
-  /** Hora local en que termina (0-23), exclusive: `hasta: 17` corta a las 17:00. */
+  /** Hora local en que termina, exclusive: `hasta: 17` corta a las 17:00. Decimal, como `desde`. */
   hasta: number
   /** Días permitidos, en formato ISO: 1 = lunes … 7 = domingo. */
   dias: number[]
@@ -24,18 +24,25 @@ export const HORARIO_SEGUIMIENTO_DEFECTO: HorarioSeguimiento = {
   dias: [1, 2, 3, 4, 5],
 }
 
-/** Normaliza lo que venga de `configuracion` a un HorarioSeguimiento válido. */
+/**
+ * Normaliza lo que venga de `configuracion` a un HorarioSeguimiento válido.
+ *
+ * `desde`/`hasta` admiten media hora en decimal (7.5 = 7:30). Un cliente VIEJO
+ * (que exigía enteros) lee un `7.5` como inválido y cae al default 8: no rompe,
+ * sigue como antes hasta que se actualice; el nuevo sí respeta el 7:30.
+ */
 export function horarioSeguimientoDesde(valor: unknown): HorarioSeguimiento {
   const v = (valor ?? {}) as Partial<HorarioSeguimiento>
-  const desde = Number.isInteger(v.desde) ? (v.desde as number) : HORARIO_SEGUIMIENTO_DEFECTO.desde
-  const hasta = Number.isInteger(v.hasta) ? (v.hasta as number) : HORARIO_SEGUIMIENTO_DEFECTO.hasta
+  const esNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+  const desde = esNum(v.desde) ? (v.desde as number) : HORARIO_SEGUIMIENTO_DEFECTO.desde
+  const hasta = esNum(v.hasta) ? (v.hasta as number) : HORARIO_SEGUIMIENTO_DEFECTO.hasta
   const dias =
     Array.isArray(v.dias) && v.dias.length > 0
       ? v.dias.filter((d): d is number => Number.isInteger(d) && d >= 1 && d <= 7)
       : HORARIO_SEGUIMIENTO_DEFECTO.dias
   return {
-    desde: desde >= 0 && desde <= 23 ? desde : HORARIO_SEGUIMIENTO_DEFECTO.desde,
-    hasta: hasta >= 1 && hasta <= 24 ? hasta : HORARIO_SEGUIMIENTO_DEFECTO.hasta,
+    desde: desde >= 0 && desde < 24 ? desde : HORARIO_SEGUIMIENTO_DEFECTO.desde,
+    hasta: hasta > 0 && hasta <= 24 ? hasta : HORARIO_SEGUIMIENTO_DEFECTO.hasta,
     dias: dias.length > 0 ? dias : HORARIO_SEGUIMIENTO_DEFECTO.dias,
   }
 }
@@ -50,7 +57,8 @@ export function enHorarioDeSeguimiento(
   const diaJS = fecha.getDay() // 0 = domingo … 6 = sábado
   const diaISO = diaJS === 0 ? 7 : diaJS
   if (!horario.dias.includes(diaISO)) return false
-  const hora = fecha.getHours()
+  // En decimal, para que `desde: 7.5` (7:30) compare bien a nivel minuto.
+  const hora = fecha.getHours() + fecha.getMinutes() / 60
   return hora >= horario.desde && hora < horario.hasta
 }
 
@@ -70,5 +78,12 @@ export function describirHorarioSeguimiento(
       ? `${nombres[dias[0]]} a ${nombres[dias[dias.length - 1]]}`
       : dias.map((d) => nombres[d]).join(', ')
   }
-  return `${franjaDias}, de ${horario.desde} a ${horario.hasta} hs`
+  return `${franjaDias}, de ${formatearHora(horario.desde)} a ${formatearHora(horario.hasta)} hs`
+}
+
+/** `7` → "7", `7.5` → "7:30", `17` → "17". Para el texto del horario. */
+function formatearHora(h: number): string {
+  const hh = Math.floor(h)
+  const mm = Math.round((h - hh) * 60)
+  return mm === 0 ? `${hh}` : `${hh}:${String(mm).padStart(2, '0')}`
 }
