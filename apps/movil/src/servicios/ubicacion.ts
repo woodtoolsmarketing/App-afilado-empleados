@@ -227,7 +227,14 @@ export async function iniciarSeguimiento(contexto: ContextoSeguimiento): Promise
   // recorrido siempre manda; lo cierra "finalizar". (La de parada ya re-lee igual.)
   if (contexto.rolVisitaId === null) {
     const previo = await leerContexto()
-    if (previo && previo.rolVisitaId !== null) return
+    // Sólo cede ante un recorrido de HOY. Un contexto de recorrido de AYER (app
+    // matada a mitad del viaje, sin finalizar, y sin que el corte por día de la
+    // tarea llegara a dispararse porque la tarea ya estaba muerta) es basura: si
+    // lo respetáramos, bloquearía el horario en silencio hasta el próximo
+    // recorrido o cierre de sesión. La fecha de hoy lo distingue del fantasma.
+    if (previo && previo.rolVisitaId !== null && previo.fecha === fechaLocalISO(new Date())) {
+      return
+    }
   }
   // El día local queda grabado en el contexto: es contra esto que la tarea
   // decide cortar cuando cambia el día. Si el llamador no lo pasa, es el de hoy
