@@ -1,9 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { compararVersiones } from '@woodtools/compartido'
 import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system'
 
 import { supabase } from '../nucleo/supabase'
-import { estadoDeRed } from './ipp'
 
 /**
  * Buscar una versión nueva de la APP EN SÍ, no del código que viaja por aire.
@@ -29,13 +29,17 @@ import { estadoDeRed } from './ipp'
  *
  * ─── Cómo se baja e instala ──────────────────────────────────────────────────
  *
- * La app baja el APK adentro (con progreso) y lanza el instalador de Android
- * directo (`descargarEInstalarApk`), sin mandar al vendedor al navegador ni al
- * centro de descargas. Necesita el permiso `REQUEST_INSTALL_PACKAGES` (ver
- * `app.config.ts`), así que es un cambio NATIVO: sólo anda en un APK compilado
- * con ese permiso. Android igual pide UN toque "Instalar" y, la primera vez,
- * que se le permita "instalar apps de esta fuente": eso no se saltea sin
- * privilegios de sistema.
+ * La app baja el APK adentro y lanza el instalador de Android directo
+ * (`descargarEInstalarApk`), sin mandar al vendedor al navegador. Baja con lo que
+ * haya —wifi O datos móviles— (decisión del dueño: que la flota quede al día sin
+ * depender de encontrar un wifi). Para que eso NO cueste datos de más, la bajada
+ * es atómica y con cache: se baja a un `.part`, se valida (status 200 + que pese
+ * como un APK real) y recién ahí se renombra al nombre final; si el APK ya está
+ * en cache no se vuelve a bajar. Necesita el permiso `REQUEST_INSTALL_PACKAGES`
+ * (ver `app.config.ts`), así que es un cambio NATIVO: sólo anda en un APK
+ * compilado con ese permiso. Android igual pide UN toque "Instalar" y, la primera
+ * vez, permitir "instalar apps de esta fuente": eso no se saltea sin privilegios
+ * de sistema.
  */
 
 /** Dónde está el panel de la oficina, tal como él mismo lo publica. */
@@ -56,8 +60,104 @@ export interface ApkDisponible {
   notas: string | null
 }
 
-/** El APK bajado se guarda acá (cache): un nombre fijo, se pisa en cada descarga. */
-const ARCHIVO_APK = FileSystem.cacheDirectory + 'woodtools-actualizacion.apk'
+/**
+ * Piso de tamaño para dar por bueno un APK bajado.
+ *
+ * Es el ÚNICO chequeo de validez por tamaño, y es a propósito: un APK de esta app
+ * pesa decenas de MB, mientras que un cuerpo de error (un 403 de un enlace de EAS
+ * vencido, un HTML) pesa unos KB, así que 5 MB de piso deja pasar el APK y frena
+ * el error. NO se compara contra `versiones_app.tamano_bytes`: esa columna se
+ * carga a mano y suele faltar o quedar con el número de la versión anterior; atar
+ * la validación a ella hacía que, ante un número mal, la app re-bajara el APK
+ * entero en cada chequeo sin instalar nunca (dren de datos silencioso). El sello
+ * final de validez lo pone igual Android al instalar (firma + parseo del paquete).
+ */
+const APK_MINIMO_BYTES = 5_000_000
+
+/** Dónde se guarda el APK bajado (cache): un archivo por versión. */
+function archivoApk(version: string): string {
+  return `${FileSystem.cacheDirectory}woodtools-actualizacion-${version}.apk`
+}
+
+/** El archivo a medio bajar, antes de renombrarlo al nombre final. */
+function archivoParcial(version: string): string {
+  return `${archivoApk(version)}.part`
+}
+
+/**
+ * ¿El APK de esta versión ya está bajado y completo?
+ *
+ * El nombre FINAL sólo existe tras una descarga validada y renombrada (ver
+ * `bajarApk`): un `.part` a medio bajar NUNCA llega a ese nombre. Por eso la sola
+ * existencia del archivo final, con un tamaño de APK real (supera el piso), ya
+ * dice "completo" — sin depender de `versiones_app.tamano_bytes`.
+ */
+async function apkYaDescargado(apk: ApkDisponible): Promise<boolean> {
+  try {
+    const info = await FileSystem.getInfoAsync(archivoApk(apk.nueva))
+    return info.exists && !info.isDirectory && info.size > APK_MINIMO_BYTES
+  } catch {
+    return false
+  }
+}
+
+/** Borra los APK bajados de OTRAS versiones (y sus parciales), para no llenar el cache. */
+async function limpiarApksViejos(versionAMantener: string): Promise<void> {
+  try {
+    const dir = FileSystem.cacheDirectory
+    if (!dir) return
+    const finalActual = `woodtools-actualizacion-${versionAMantener}.apk`
+    const parcialActual = `${finalActual}.part`
+    const archivos = await FileSystem.readDirectoryAsync(dir)
+    await Promise.all(
+      archivos
+        .filter(
+          (n) =>
+            n.startsWith('woodtools-actualizacion') && n !== finalActual && n !== parcialActual,
+        )
+        .map((n) => FileSystem.deleteAsync(dir + n, { idempotent: true }).catch(() => undefined)),
+    )
+  } catch {
+    // Mejor esfuerzo: si no se puede limpiar, lo peor es un archivo viejo de más.
+  }
+}
+
+/**
+ * Lanza el instalador de Android sobre un APK ya bajado.
+ *
+ * El instalador no puede leer un `file://` de otra app: hace falta un `content://`
+ * (lo da el FileProvider de expo-file-system) con permiso de lectura
+ * (FLAG_GRANT_READ_URI_PERMISSION). Android igual pide UN toque "Instalar" y, la
+ * primera vez, permitir "instalar apps de esta fuente": eso no se saltea.
+ *
+ * Si ya hay un instalador abierto, expo-intent-launcher rechaza el segundo
+ * llamado (un único `pendingPromise` nativo): por eso dos vías que resuelven
+ * juntas no abren dos pantallas de instalación.
+ */
+async function lanzarInstalador(destino: string): Promise<void> {
+  const contentUri = await FileSystem.getContentUriAsync(destino)
+  // Import LAZY: expo-intent-launcher es nativo y sólo existe desde el APK 1.3.0.
+  const IntentLauncher = await import('expo-intent-launcher')
+  try {
+    await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+      data: contentUri,
+      type: 'application/vnd.android.package-archive',
+      flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+    })
+  } catch (e) {
+    // Si YA hay un instalador abierto, expo-intent-launcher rechaza el 2º llamado
+    // (tiene un único `pendingPromise` nativo) con E_ACTIVITY_ALREADY_STARTED. Eso
+    // NO es un fallo: el instalador ya está en pantalla. Cuando la vía automática y
+    // la manual resuelven juntas sobre la misma descarga, las dos llegan acá; tragar
+    // ese rechazo evita que el modal manual diga "No se pudo actualizar" sobre una
+    // instalación que sí abrió, y que la automática se saltee su throttle por un throw.
+    const err = e as { code?: string; message?: string }
+    const yaAbierto =
+      err?.code === 'E_ACTIVITY_ALREADY_STARTED' ||
+      /ActivityAlreadyStarted/i.test(err?.message ?? '')
+    if (!yaAbierto) throw e
+  }
+}
 
 /**
  * ¿Este teléfono puede bajar e instalar el APK solo?
@@ -72,57 +172,178 @@ export function debeAutoInstalar(apk: ApkDisponible): boolean {
 }
 
 /**
- * Baja el APK nuevo adentro de la app y lanza el instalador de Android.
+ * Un solo candado para TODA descarga: la automática y la del botón manual pasan
+ * por acá, así que nunca escriben el mismo archivo al mismo tiempo.
  *
- * `alAvanzar` recibe la fracción bajada (0 a 1) para la barra de progreso. Al
- * terminar, Android muestra su diálogo de instalación (un toque "Instalar", y
- * la primera vez el permiso de "instalar apps de esta fuente"): eso no se puede
- * saltear. Sólo se llama en 1.3.0+ (ver `debeAutoInstalar`).
+ * Antes cada vía tenía su propio candado —`bajandoEnSilencio` la automática, el
+ * estado del store la manual— y ninguno veía al otro: con la automática bajando
+ * en silencio, el botón manual arrancaba una SEGUNDA descarga sobre el mismo
+ * archivo (lo borraba y lo re-bajaba) y lo dejaba corrupto. Coalescer en una sola
+ * promesa cierra esa carrera: el segundo que llega espera la MISMA descarga.
+ *
+ * Como el segundo que engancha puede traer su propia barra de progreso (el modal
+ * manual), el progreso se reparte a TODOS los interesados (`suscriptoresProgreso`)
+ * y no sólo al primero: si no, el modal del que llega tarde se quedaba clavado en
+ * 0 % toda la descarga aunque por abajo estuviera avanzando.
+ */
+let descargaEnCurso: Promise<string> | null = null
+const suscriptoresProgreso = new Set<(fraccion: number) => void>()
+let progresoActual = 0
+
+/**
+ * Baja el APK a un `.part`, lo valida y lo renombra al nombre final. Devuelve la
+ * ruta final. No instala nada. Si ya está en cache, no baja: devuelve la ruta.
+ */
+async function bajarApk(
+  apk: ApkDisponible,
+  alAvanzar: (fraccion: number) => void,
+): Promise<string> {
+  const destino = archivoApk(apk.nueva)
+
+  if (await apkYaDescargado(apk)) {
+    alAvanzar(1)
+    return destino
+  }
+
+  await limpiarApksViejos(apk.nueva)
+
+  const parcial = archivoParcial(apk.nueva)
+  // Un parcial de un intento cortado se descarta: empezamos limpio.
+  await FileSystem.deleteAsync(parcial, { idempotent: true }).catch(() => undefined)
+
+  const descarga = FileSystem.createDownloadResumable(apk.direccion, parcial, {}, (p) => {
+    if (p.totalBytesExpectedToWrite > 0) {
+      alAvanzar(p.totalBytesWritten / p.totalBytesExpectedToWrite)
+    }
+  })
+
+  let resultado: FileSystem.FileSystemDownloadResult | undefined
+  try {
+    resultado = await descarga.downloadAsync()
+  } catch (e) {
+    await FileSystem.deleteAsync(parcial, { idempotent: true }).catch(() => undefined)
+    throw e
+  }
+
+  // `downloadAsync` NO rechaza ante 4xx/5xx: resuelve con un uri y escribe el
+  // cuerpo de error al archivo. Sin mirar el status, instalaríamos esa "página de
+  // error" (p. ej. un 403 de un enlace de EAS vencido) una y otra vez.
+  if (!resultado?.uri || resultado.status !== 200) {
+    await FileSystem.deleteAsync(parcial, { idempotent: true }).catch(() => undefined)
+    throw new Error(`No se pudo bajar el instalador (respuesta ${resultado?.status ?? 'sin conexión'}).`)
+  }
+
+  const info = await FileSystem.getInfoAsync(parcial)
+  const pesaComoApk = info.exists && !info.isDirectory && info.size > APK_MINIMO_BYTES
+  if (!pesaComoApk) {
+    await FileSystem.deleteAsync(parcial, { idempotent: true }).catch(() => undefined)
+    throw new Error('Lo que se bajó no parece un instalador (demasiado chico).')
+  }
+
+  // Recién con la descarga completa y validada se la "publica" al nombre final,
+  // con un rename atómico. Así `apkYaDescargado` nunca ve un archivo a medias.
+  await FileSystem.deleteAsync(destino, { idempotent: true }).catch(() => undefined)
+  await FileSystem.moveAsync({ from: parcial, to: destino })
+  return destino
+}
+
+/**
+ * Asegura que el APK esté bajado (coalescido: una sola descarga a la vez, la
+ * compartan la vía automática y la manual). Devuelve la ruta al archivo final.
+ * `alAvanzar` (opcional) se suscribe al progreso de la descarga en curso.
+ */
+function asegurarApkBajado(
+  apk: ApkDisponible,
+  alAvanzar?: (fraccion: number) => void,
+): Promise<string> {
+  if (alAvanzar) {
+    suscriptoresProgreso.add(alAvanzar)
+    // Ponerlo al día con lo que ya se bajó, para que no arranque en 0 si engancha
+    // tarde sobre una descarga ya avanzada.
+    alAvanzar(progresoActual)
+  }
+  if (descargaEnCurso) return descargaEnCurso
+  progresoActual = 0
+  descargaEnCurso = bajarApk(apk, (fraccion) => {
+    progresoActual = fraccion
+    suscriptoresProgreso.forEach((cb) => cb(fraccion))
+  }).finally(() => {
+    descargaEnCurso = null
+    progresoActual = 0
+    suscriptoresProgreso.clear()
+  })
+  return descargaEnCurso
+}
+
+/**
+ * MANUAL: baja (si hace falta) e instala. El vendedor fue a buscarla a mano, así
+ * que SIEMPRE se lanza el instalador. `alAvanzar` mueve la barra del modal.
  */
 export async function descargarEInstalarApk(
   apk: ApkDisponible,
   alAvanzar?: (fraccion: number) => void,
 ): Promise<void> {
-  // El instalador pesa ~50 MB: SÓLO se baja por wifi, para no comerse los datos
-  // móviles del vendedor. En la oficina sale gratis de la PC; en cualquier otro
-  // wifi, de internet. Con datos móviles se avisa y no se baja: era por acá que
-  // la app drenaba el plan (al no alcanzar la red local caía a bajar todo de
-  // internet, sin ningún freno).
-  const red = await estadoDeRed()
-  if (!red.enWifi) {
-    throw new Error(
-      'Conectate al wifi para bajar la actualización: son unos 50 MB y por datos móviles se consume mucho.',
+  const destino = await asegurarApkBajado(apk, alAvanzar)
+  // Si justo coalescimos sobre una descarga de OTRA versión (la oficina publicó
+  // una más nueva mientras bajaba la anterior), no instalamos la que no
+  // corresponde: el próximo chequeo baja la versión que se ofreció en pantalla.
+  if (destino !== archivoApk(apk.nueva)) {
+    throw new Error('Se está bajando otra versión. Probá de nuevo en un momento.')
+  }
+  await lanzarInstalador(destino)
+}
+
+// ─── Throttle del instalador automático ──────────────────────────────────────
+//
+// El chequeo automático corre en cada arranque (`ultimoChequeo` nace en 0 con el
+// proceso). Sin memoria, el instalador de Android reaparecería a pantalla
+// completa en CADA arranque mientras el vendedor posterga "Instalar". Se recuerda
+// en disco la última vez que se ofreció esta versión y no se vuelve a lanzar solo
+// hasta pasada una ventana: un recordatorio por día, no en cada apertura. El
+// botón manual no usa este freno (ahí el vendedor lo pidió).
+
+const CLAVE_INSTALADOR_OFRECIDO = 'woodtools.apk.instalador_ofrecido'
+const VENTANA_INSTALADOR_MS = 24 * 60 * 60 * 1000
+
+async function instaladorOfrecidoReciente(version: string): Promise<boolean> {
+  try {
+    const crudo = await AsyncStorage.getItem(CLAVE_INSTALADOR_OFRECIDO)
+    if (!crudo) return false
+    const dato = JSON.parse(crudo) as { version?: string; ts?: number }
+    return (
+      dato.version === version &&
+      typeof dato.ts === 'number' &&
+      Date.now() - dato.ts < VENTANA_INSTALADOR_MS
     )
+  } catch {
+    return false
   }
+}
 
-  // Un archivo viejo a medio bajar corrompe la instalación: se borra primero.
-  await FileSystem.deleteAsync(ARCHIVO_APK, { idempotent: true }).catch(() => undefined)
-
-  const descarga = FileSystem.createDownloadResumable(apk.direccion, ARCHIVO_APK, {}, (p) => {
-    if (p.totalBytesExpectedToWrite > 0) {
-      alAvanzar?.(p.totalBytesWritten / p.totalBytesExpectedToWrite)
-    }
-  })
-
-  const resultado = await descarga.downloadAsync()
-  if (!resultado?.uri) {
-    throw new Error('No se pudo bajar el instalador. Revisá la conexión y probá de nuevo.')
+async function marcarInstaladorOfrecido(version: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(CLAVE_INSTALADOR_OFRECIDO, JSON.stringify({ version, ts: Date.now() }))
+  } catch {
+    // Si no se puede guardar, lo peor es un recordatorio de más: no es grave.
   }
+}
 
-  // El instalador de Android no puede leer un `file://` de otra app: hace falta
-  // un `content://` (lo da el FileProvider de expo-file-system) y darle permiso
-  // de lectura con FLAG_GRANT_READ_URI_PERMISSION.
-  const contentUri = await FileSystem.getContentUriAsync(resultado.uri)
-
-  // Import LAZY: expo-intent-launcher es nativo y sólo existe desde el APK 1.3.0.
-  // Importarlo arriba de todo reventaría el bundle al cargar en un teléfono 1.2.1
-  // (que igual nunca llega acá: `ofrecerApk` lo manda al navegador).
-  const IntentLauncher = await import('expo-intent-launcher')
-  await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-    data: contentUri,
-    type: 'application/vnd.android.package-archive',
-    flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-  })
+/**
+ * AUTO: baja sola (callada, sin modal) y lanza el instalador —pero no más de una
+ * vez por día por versión, para no reaparecer en cada arranque—. Best-effort: la
+ * llama `autoActualizar` de `avisoDeApk`, que ya traga los errores.
+ */
+export async function autoActualizarApk(apk: ApkDisponible): Promise<void> {
+  // En un build que trae ESTE código la versión instalada es >= 1.3.0, así que el
+  // auto-install anda; el guardia es por si alguna vez corre en uno más viejo.
+  if (!debeAutoInstalar(apk)) return
+  const destino = await asegurarApkBajado(apk)
+  // Coalescimos sobre otra versión (se publicó una nueva mientras bajaba): no es la
+  // ofrecida, la deja para el próximo chequeo.
+  if (destino !== archivoApk(apk.nueva)) return
+  if (await instaladorOfrecidoReciente(apk.nueva)) return
+  await lanzarInstalador(destino)
+  await marcarInstaladorOfrecido(apk.nueva)
 }
 
 /** El canal con el que se compiló este APK: `interno`, `beta` o `produccion`. */
