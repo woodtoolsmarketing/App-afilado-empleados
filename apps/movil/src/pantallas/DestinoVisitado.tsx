@@ -2,6 +2,9 @@ import {
   espaciado,
   estaUbicada,
   ETIQUETA_MOTIVO_NO_VISITA,
+  fechaEntregaPorDefecto,
+  fechaLocalISO,
+  formatearFechaCorta,
   observacionSugerida,
   FORMULARIO_VISITA_VACIO,
   radios,
@@ -14,6 +17,7 @@ import {
   todaviaNoLeToca,
 } from '@woodtools/compartido'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { StackActions, useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -42,6 +46,7 @@ import {
   visitaDeParada,
   ubicarParada,
 } from '../servicios/jornada'
+import { agendarVisita } from '../servicios/agenda'
 import {
   guardarBorradorDeVisita,
   olvidarBorradorDeVisita,
@@ -127,6 +132,13 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
   // como visita hecha, sin obligar a cargar nada. El popup de abajo es OPCIONAL
   // y sólo sirve para anotar qué se cotizó, que se suma a la observación.
   const [modalCotizacion, setModalCotizacion] = useState(false)
+
+  // Agendar la próxima visita cuando el cliente no estaba o no tenía nada para
+  // dejar: por default dentro de una semana (editable), y se puede destildar si
+  // no piensa volver. Se agenda al guardar el parte (ver `guardar`).
+  const [agendarVolver, setAgendarVolver] = useState(true)
+  const [volverAVer, setVolverAVer] = useState<Date>(() => fechaEntregaPorDefecto())
+  const [calendarioVolver, setCalendarioVolver] = useState(false)
 
   /**
    * La visita ya quedó registrada: esta pantalla no se vuelve a guardar.
@@ -398,18 +410,65 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
         precision_m: posicion?.precision ?? null,
       })
 
+      // Agendar la próxima visita si el cliente no estaba o no tenía nada para
+      // dejar y el vendedor dejó el agendado puesto: queda como parada del
+      // recorrido de ese día (default, en una semana). Best-effort: un fallo acá
+      // no tira abajo el parte —que ya quedó registrado— pero SÍ se avisa en
+      // onSuccess, así el vendedor sabe que esa próxima visita no quedó y la
+      // carga a mano desde el calendario.
+      //
+      // `!esCorreccion`: al REABRIR un parte ya 'visitada' para corregirlo, el
+      // agendado ya se decidió en el guardado original, pero `agendarVolver` y
+      // `volverAVer` vuelven a su default (sí, +7) al reabrir. Sin este gate,
+      // cada corrección agendaría OTRA parada —en otro día, que `agendar_visita`
+      // no deduplica— y hasta reviviría un agendado que el vendedor había
+      // destildado. Se decide una sola vez, al registrar la visita.
+      let agendado: 'ok' | 'fallo' | null = null
+      if (
+        agendarVolver &&
+        clienteId &&
+        !esCorreccion &&
+        (form.sin_pedido || form.motivo_no_visita === 'cliente_ausente')
+      ) {
+        try {
+          await agendarVisita({
+            clienteId,
+            fecha: fechaLocalISO(volverAVer),
+            direccionId: ubicada?.direccion.id ?? null,
+          })
+          agendado = 'ok'
+        } catch {
+          // El parte ya se registró; se avisa abajo y se puede agendar a mano.
+          agendado = 'fallo'
+        }
+      }
+
       // El cierre de la jornada YA NO va acá. Cerrarla sola al registrar el
       // último parte dejaba al vendedor sin nada que hacer el resto del día: con
       // la jornada finalizada no se puede agregar un destino ni reabrirla, así
       // que un cliente que llama a las 16:00 no se podía registrar de ninguna
       // forma. Ahora se pregunta.
+
+      // Para el aviso de onSuccess: si la próxima visita quedó agendada (y para
+      // qué día) o si falló el agendado.
+      return { agendado, fechaAgendada: volverAVer }
     },
-    onSuccess: async () => {
+    onSuccess: async ({ agendado, fechaAgendada }) => {
       // Guardada de verdad: el borrador ya no tiene nada que recuperar, y esta
       // pantalla no se vuelve a guardar.
       registrada.current = true
       olvidarBorradorDeVisita(paradaId)
       await cliente.invalidateQueries()
+
+      // Lo que se le suma al aviso de "Visita registrada" según cómo salió el
+      // agendado de la próxima visita: confirmación con la fecha, o el pedido de
+      // cargarla a mano si falló. Vacío si no se agendó nada.
+      const avisoAgendado =
+        agendado === 'ok'
+          ? `\n\nAgendaste la próxima visita para el ${formatearFechaCorta(fechaAgendada)}.`
+          : agendado === 'fallo'
+            ? '\n\nLa visita quedó registrada, pero no pudimos agendar la próxima. Agregala desde el Calendario de visitas.'
+            : ''
 
       // De acá en adelante se sale con `salirA` (popTo) y no con navigate. En
       // React Navigation 7, navigate apila la pantalla nueva ENCIMA de ésta: la
@@ -418,7 +477,8 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       if (esUltima) {
         Alert.alert(
           'Visita registrada',
-          'Era tu último destino del día. ¿Cerramos la jornada?\n\nUna vez cerrada no se le pueden agregar más destinos.',
+          'Era tu último destino del día. ¿Cerramos la jornada?\n\nUna vez cerrada no se le pueden agregar más destinos.' +
+            avisoAgendado,
           [
             {
               text: 'Seguir abierta',
@@ -435,7 +495,7 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
       }
 
       // Encadena con el próximo destino: lanza la navegación y vuelve al mapa.
-      Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}`, [
+      Alert.alert('Visita registrada', `Próximo destino: ${nombreDe(siguiente)}${avisoAgendado}`, [
         { text: 'Ver recorrido', onPress: () => salirA('Recorrido') },
         {
           // Si el que sigue no tiene punto, el botón lo dice: lo que se abre es
@@ -1044,6 +1104,56 @@ export function PantallaDestinoVisitado({ navigation, route }: PropsPantalla<'De
                 })
               }}
             />
+          ) : null}
+
+          {/* ── ¿Cuándo lo vuelve a visitar? ──────────────────────────────────
+              Cuando el cliente NO ESTABA o NO TENÍA NADA para dejar, la próxima
+              visita no sale sola de ninguna nota: se agenda acá. Por default,
+              dentro de una semana; el vendedor cambia la fecha o lo destilda si
+              no piensa volver. (No va con "visitar más tarde": ése ya vuelve
+              HOY, a la hora que puso.) Se agenda al guardar el parte.
+
+              Sólo al REGISTRAR la visita (no al corregir un parte ya 'visitada':
+              ahí el agendado ya se decidió) y con un cliente de verdad —sin ficha
+              no hay a quién agendarle, y el guardado lo saltearía igual—. Así el
+              recuadro y el guardado coinciden: no se ofrece un agendado que
+              después no pasa. */}
+          {!esCorreccion &&
+          clienteId &&
+          (form.sin_pedido || form.motivo_no_visita === 'cliente_ausente') ? (
+            <View style={estilos.bloque}>
+              <Text style={estilos.bloqueTitulo}>¿CUÁNDO VAS A VISITARLO?</Text>
+              <Casilla
+                etiqueta="AGENDAR LA PRÓXIMA VISITA"
+                valor={agendarVolver}
+                alCambiar={setAgendarVolver}
+                compacta
+              />
+              {agendarVolver ? (
+                <>
+                  <BotonSecundario
+                    titulo={`Lo visito: ${formatearFechaCorta(volverAVer)}${
+                      fechaLocalISO(volverAVer) === fechaLocalISO(fechaEntregaPorDefecto())
+                        ? '  ·  en una semana'
+                        : ''
+                    }`}
+                    alTocar={() => setCalendarioVolver(true)}
+                  />
+                  {calendarioVolver ? (
+                    <DateTimePicker
+                      value={volverAVer}
+                      mode="date"
+                      display="calendar"
+                      minimumDate={new Date()}
+                      onChange={(_e, f) => {
+                        setCalendarioVolver(false)
+                        if (f) setVolverAVer(f)
+                      }}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+            </View>
           ) : null}
 
           {/* ── Observación ────────────────────────────────────────────────── */}
