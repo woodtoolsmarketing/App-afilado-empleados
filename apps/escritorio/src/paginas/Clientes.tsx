@@ -25,6 +25,8 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
   const [busqueda, setBusqueda] = useState('')
   const [editando, setEditando] = useState<ClienteConDirecciones | 'nuevo' | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
+  // Modo "corregir direcciones en iniciales": la tabla muestra esa lista aparte.
+  const [verIniciales, setVerIniciales] = useState(false)
 
   // Debounce: la búsqueda es una consulta al servidor, no un filtro en memoria.
   const [termino, setTermino] = useState('')
@@ -91,6 +93,18 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
     },
   })
 
+  // Clientes cuya calle está escrita con iniciales ("H.YRIGOYEN", "J.B.ALBERDI"):
+  // para que la oficina las complete a mano. La RPC gatea a quien ve todo.
+  const { data: iniciales } = useQuery({
+    queryKey: ['clientes-iniciales'],
+    enabled: esAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('clientes_con_iniciales', { p_limite: 1000 })
+      if (error) throw error
+      return (data ?? []) as ClienteConDirecciones[]
+    },
+  })
+
   const { data: vendedores } = useQuery({
     queryKey: ['vendedores'],
     queryFn: async () => {
@@ -106,6 +120,8 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
   })
 
   const filtrados = clientes ?? []
+  // Lo que se muestra en la tabla: la cartera normal, o la lista de iniciales.
+  const mostrados = verIniciales ? iniciales ?? [] : filtrados
 
   /**
    * Refresca TODO lo que mira esta pantalla.
@@ -123,6 +139,7 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
     for (const clave of [
       ['clientes'],
       ['clientes-provisorios'],
+      ['clientes-iniciales'],
       ['clientes-total'],
       ['clientes-en-mapa'],
     ]) {
@@ -180,6 +197,19 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
         </div>
       )}
 
+      {/* Direcciones escritas con iniciales de calle, para completar a mano. */}
+      {esAdmin && iniciales && iniciales.length > 0 && (
+        <div className="aviso atencion">
+          <strong>
+            {iniciales.length} cliente{iniciales.length === 1 ? '' : 's'} con la calle en iniciales
+          </strong>{' '}
+          (por ejemplo "H.YRIGOYEN", "J.B.ALBERDI"): conviene completar el nombre de la calle a mano.{' '}
+          <button className="chico" onClick={() => setVerIniciales((v) => !v)}>
+            {verIniciales ? '← Volver a la cartera' : 'Ver y corregir'}
+          </button>
+        </div>
+      )}
+
       <div className="tarjeta">
         <input
           placeholder="Buscar por código, razón social, nombre de fantasía o CUIT…"
@@ -192,8 +222,10 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
       <section className="tarjeta">
         {isLoading ? (
           <p>Cargando…</p>
-        ) : filtrados.length === 0 ? (
-          <p className="vacio">No hay clientes que coincidan.</p>
+        ) : mostrados.length === 0 ? (
+          <p className="vacio">
+            {verIniciales ? 'No hay direcciones en iniciales.' : 'No hay clientes que coincidan.'}
+          </p>
         ) : (
           <table>
             <thead>
@@ -208,7 +240,7 @@ export function PaginaClientes({ rol, esAdmin }: { rol: RolUsuario; esAdmin: boo
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((c) => (
+              {mostrados.map((c) => (
                 <tr key={c.id}>
                   <td>
                     <code>{c.codigo}</code>

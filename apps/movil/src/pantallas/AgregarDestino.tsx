@@ -38,6 +38,7 @@ import { BotonMenu, BotonSecundario } from '../componentes/Botones'
 import { CamposClienteNuevo } from '../componentes/CamposClienteNuevo'
 import { Campo, DensidadFormulario, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Aviso, Cargando, Pastilla, Vacio } from '../componentes/Estado'
+import { LeyendaCuidado, PastillaCuidado } from '../componentes/CuidadoCliente'
 import { Encabezado } from '../componentes/Encabezado'
 import { usarListaSemanalRapida } from '../componentes/ListaSemanalRapida'
 import { MapaUbicacionCliente } from '../componentes/MapaUbicacionCliente'
@@ -730,12 +731,18 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                     style={({ pressed }) => [
                       estilos.sugerencia,
                       estilos.sugerenciaInfo,
+                      c.con_alerta && {
+                        backgroundColor: colores.ambar + '22',
+                        borderLeftWidth: 3,
+                        borderLeftColor: colores.ambar,
+                      },
                       pressed && estilos.sugerenciaTocada,
                     ]}
                   >
                     <View style={estilos.sugerenciaFila}>
                       <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
                       {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
+                      {c.con_alerta ? <PastillaCuidado /> : null}
                       {/*
                         Antes decía "SIN DIRECCIÓN" y quedaba justo arriba de la
                         dirección del cliente, que sí estaba escrita. Lo que falta
@@ -769,6 +776,7 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                         Tel {c.telefono}
                       </Text>
                     ) : null}
+                    {c.con_alerta ? <LeyendaCuidado /> : null}
                   </Pressable>
 
                   {/* Atajo: sumarlo a la lista semanal sin elegirlo como destino. */}
@@ -900,7 +908,9 @@ function FormularioExistente({ navigation, route }: PropsPantalla<'AgregarDestin
                     color={colores.rojoAccion}
                   />
                 ) : null}
+                {elegido.con_alerta ? <PastillaCuidado /> : null}
               </View>
+              {elegido.con_alerta ? <LeyendaCuidado /> : null}
               <Text style={estilos.fichaDireccion}>
                 {elegido.direccion ?? 'Sin dirección cargada'}
               </Text>

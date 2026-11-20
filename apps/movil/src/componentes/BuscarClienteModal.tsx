@@ -5,6 +5,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'rea
 
 import { BotonSecundario } from './Botones'
 import { Aviso } from './Estado'
+import { LeyendaCuidado } from './CuidadoCliente'
 import { Campo } from './Formulario'
 import { Pantalla, Panel, TituloPanel } from './Pantalla'
 import { usarSesion } from '../nucleo/sesion'
@@ -205,6 +206,7 @@ export function BuscarClienteModal({
                           {c.direccion}
                         </Text>
                       ) : null}
+                      {c.con_alerta ? <LeyendaCuidado /> : null}
                     </Pressable>
                   ))}
 

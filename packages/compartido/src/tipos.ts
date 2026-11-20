@@ -647,6 +647,8 @@ export interface ClienteBuscado {
   telefono: string | null
   email: string | null
   provisorio: boolean
+  /** Cliente marcado "Cuidado con este cliente": se muestra en amarillo con aviso. */
+  con_alerta: boolean
   vendedor_id: string | null
   direccion_id: string | null
   direccion: string | null
