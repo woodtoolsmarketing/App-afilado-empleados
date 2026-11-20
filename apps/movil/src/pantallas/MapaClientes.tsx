@@ -21,6 +21,7 @@ import Supercluster from 'supercluster'
 import { BotonMenu, BotonPrincipal, BotonSecundario } from '../componentes/Botones'
 import { Campo, Desplegable, MensajeError } from '../componentes/Formulario'
 import { Encabezado } from '../componentes/Encabezado'
+import { LeyendaCuidado, PastillaCuidado } from '../componentes/CuidadoCliente'
 import { Pantalla } from '../componentes/Pantalla'
 import { supabase } from '../nucleo/supabase'
 import { hojaDeTema } from '../nucleo/tema'
@@ -666,6 +667,7 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
                   <View style={estilos.resultadoFila}>
                     <Text style={estilos.resultadoCodigo}>{c.codigo || 'Sin código'}</Text>
                     {c.lat === null ? <Text style={estilos.sinUbicar}>SIN UBICAR</Text> : null}
+                    {c.con_alerta ? <PastillaCuidado /> : null}
                   </View>
                   <Text style={estilos.resultadoNombre} numberOfLines={1}>
                     {c.razon_social}
@@ -675,6 +677,7 @@ export function PantallaMapaClientes({ navigation }: PropsPantalla<'MapaClientes
                       {c.direccion}
                     </Text>
                   ) : null}
+                  {c.con_alerta ? <LeyendaCuidado /> : null}
                 </Pressable>
               ))}
               {resultados.length >= LIMITE_CLIENTES ? (

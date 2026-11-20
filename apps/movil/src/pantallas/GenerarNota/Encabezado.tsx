@@ -29,6 +29,7 @@ import {
 } from '../../componentes/Formulario'
 import { CampoDictado } from '../../componentes/CampoDictado'
 import { Aviso, Pastilla } from '../../componentes/Estado'
+import { LeyendaCuidado, PastillaCuidado } from '../../componentes/CuidadoCliente'
 import { MapaUbicacionCliente } from '../../componentes/MapaUbicacionCliente'
 import { CLIENTE_A_MANO } from '../../nucleo/variante'
 import {
@@ -1161,11 +1162,20 @@ export function PasoCliente({
               onPress={() => elegirCliente(c)}
               accessibilityRole="button"
               accessibilityLabel={`${c.codigo}, ${c.razon_social}`}
-              style={({ pressed }) => [estilos.sugerencia, pressed && estilos.sugerenciaTocada]}
+              style={({ pressed }) => [
+                estilos.sugerencia,
+                c.con_alerta && {
+                  backgroundColor: colores.ambar + '22',
+                  borderLeftWidth: 3,
+                  borderLeftColor: colores.ambar,
+                },
+                pressed && estilos.sugerenciaTocada,
+              ]}
             >
               <View style={estilos.sugerenciaFila}>
                 <Text style={estilos.sugerenciaCodigo}>{c.codigo}</Text>
                 {c.provisorio ? <Pastilla texto="PROVISORIO" color={colores.ambarOscuro} /> : null}
+                {c.con_alerta ? <PastillaCuidado /> : null}
               </View>
               <Text style={estilos.sugerenciaNombre} numberOfLines={1}>
                 {c.razon_social}
@@ -1186,6 +1196,7 @@ export function PasoCliente({
                 </Text>
               ) : null}
               {c.cuit ? <Text style={estilos.sugerenciaDato}>CUIT {c.cuit}</Text> : null}
+              {c.con_alerta ? <LeyendaCuidado /> : null}
             </Pressable>
           ))}
         </View>
