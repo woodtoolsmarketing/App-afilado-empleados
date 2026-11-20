@@ -74,14 +74,14 @@ export function PantallaCalendarioEnvios({ navigation }: PropsPantalla<'Calendar
                   key={d.rol_visita_id}
                   style={estilos.dia}
                   onPress={() =>
-                    // El de hoy es el recorrido; los otros todavía no se recorren,
-                    // así que se miran desde el historial de esa fecha.
+                    // El de hoy es el recorrido; un día futuro abre el ORGANIZADOR
+                    // de esa fecha (Calendario de Visitas), donde el vendedor ve lo
+                    // agendado y lo ordena —reordenar, mover de día, ponerle hora,
+                    // agregar, sacar—. Antes caía directo en Agregar Destino, sin
+                    // poder ver ni organizar lo que ya tenía ese día.
                     esHoy
                       ? navigation.navigate('Recorrido')
-                      : navigation.navigate('AgregarDestino', {
-                          fecha: d.fecha,
-                          volverA: 'CalendarioEnvios',
-                        })
+                      : navigation.navigate('CalendarioVisitas', { fecha: d.fecha })
                   }
                 >
                   <View style={estilos.diaIzquierda}>

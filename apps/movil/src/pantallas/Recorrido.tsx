@@ -38,6 +38,7 @@ import {
   type JornadaCompleta,
 } from '../servicios/jornada'
 import { misCambiosPendientes, type CambioPendiente } from '../servicios/cambiosDireccion'
+import { usarPermisos } from '../servicios/permisos'
 import {
   buscarEnMapsPorTexto,
   decodificarPolilinea,
@@ -66,6 +67,7 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
   const { colores } = usarTema()
   const estilos = usarEstilos()
   const perfil = usarSesion((s) => s.perfil)
+  const { puedeVer } = usarPermisos()
   const cliente = useQueryClient()
   const mapa = useRef<MapView>(null)
   // Dos carteles separados a propósito: el de la JORNADA (permiso de ubicación,
@@ -1078,6 +1080,18 @@ export function PantallaRecorrido({ navigation, route }: PropsPantalla<'Recorrid
                   titulo={'AGREGAR\nNUEVO DESTINO'}
                   alTocar={() => navigation.navigate('AgregarDestino', { volverA: 'Recorrido' })}
                 />
+
+                {/* Mientras arma el recorrido de hoy, un atajo al organizador de la
+                    SEMANA: ahí ve lo que tiene agendado para los próximos días y lo
+                    ordena —reordenar, mover de día, ponerle hora, agregar, sacar—.
+                    Antes el calendario sólo se alcanzaba volviendo al menú. Gateado
+                    por el mismo permiso que el "Calendario de visitas" del menú. */}
+                {puedeVer('calendario') ? (
+                  <BotonSecundario
+                    titulo="🗓  Ver y organizar los próximos días"
+                    alTocar={() => navigation.navigate('CalendarioVisitas')}
+                  />
+                ) : null}
 
                 {!enCurso && !finalizada ? (
                   <BotonPrincipal
