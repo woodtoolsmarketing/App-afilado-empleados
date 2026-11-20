@@ -4,6 +4,7 @@ import {
   HORARIO_SEGUIMIENTO_DEFECTO,
   horarioSeguimientoDesde,
   urlesDeFotos,
+  versionAtrasada,
   type PosicionActual,
 } from '@woodtools/compartido'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,6 +23,13 @@ import { supabase } from '../nucleo/supabase'
 const FRESCURA_MINUTOS = 180
 
 /**
+ * La primera build de flota que trae el seguimiento por horario. Un teléfono con
+ * una APK anterior nunca manda posición continua aunque tenga el flag prendido:
+ * le falta el código. Por eso lo marcamos como "APK vieja" en el diagnóstico.
+ */
+const MIN_APK_SEGUIMIENTO = '2.3.0'
+
+/**
  * Mapa en vivo.
  *
  * Cada vendedor en recorrido aparece con su foto dentro de un círculo, como en
@@ -38,6 +46,19 @@ type PosicionConPerfil = PosicionActual & {
    */
   foto_firmada?: string | null
 }
+
+/** Una fila del diagnóstico "con seguimiento pero sin señal". */
+type EstadoSeguimiento = {
+  id: string
+  nombre_completo: string
+  codigo_vendedor: string | null
+  rol: string
+  estado: string
+  version_app: string | null
+  pos: { activo: boolean; actualizado_en: string } | null
+}
+
+type MotivoSeguimiento = { texto: string; nivel: 'alto' | 'medio' }
 
 const CENTRO_AMBA: [number, number] = [-34.6037, -58.3816]
 
@@ -91,6 +112,66 @@ export function PaginaMapaEnVivo() {
       }))
     },
     refetchInterval: 30_000,
+  })
+
+  // Diagnóstico "con seguimiento pero sin señal": quién tiene el flag prendido
+  // pero NO está apareciendo, y por qué. Cruza el flag (perfiles) con la última
+  // posición y la versión de APK del teléfono. La causa casi siempre está en el
+  // teléfono (APK vieja, permiso de fondo, o la app cerrada), no en la base.
+  const { data: diagnostico } = useQuery({
+    queryKey: ['seguimiento-sin-senal'],
+    queryFn: async (): Promise<EstadoSeguimiento[]> => {
+      const { data: perfilesData, error } = await supabase
+        .from('perfiles')
+        .select('id, nombre_completo, codigo_vendedor, rol, estado, seguimiento_24_7')
+        .eq('seguimiento_24_7', true)
+      if (error) throw error
+      const perfiles = (perfilesData ?? []) as unknown as {
+        id: string
+        nombre_completo: string
+        codigo_vendedor: string | null
+        rol: string
+        estado: string
+      }[]
+      if (perfiles.length === 0) return []
+      const ids = perfiles.map((p) => p.id)
+
+      const [posRes, dispRes] = await Promise.all([
+        supabase.from('posiciones_actuales').select('vendedor_id, activo, actualizado_en').in('vendedor_id', ids),
+        supabase
+          .from('dispositivos')
+          .select('perfil_id, version_app, ultimo_visto_en')
+          .in('perfil_id', ids)
+          .order('ultimo_visto_en', { ascending: false, nullsFirst: false }),
+      ])
+      if (posRes.error) throw posRes.error
+      if (dispRes.error) throw dispRes.error
+
+      const pos = (posRes.data ?? []) as unknown as {
+        vendedor_id: string
+        activo: boolean
+        actualizado_en: string
+      }[]
+      const disp = (dispRes.data ?? []) as unknown as { perfil_id: string; version_app: string | null }[]
+
+      const posPorId = new Map<string, { activo: boolean; actualizado_en: string }>(
+        pos.map((r) => [r.vendedor_id, { activo: r.activo, actualizado_en: r.actualizado_en }]),
+      )
+      // Vienen ordenados por ultimo_visto_en desc: el primero de cada perfil es su teléfono más reciente.
+      const versionPorId = new Map<string, string | null>()
+      for (const d of disp) if (!versionPorId.has(d.perfil_id)) versionPorId.set(d.perfil_id, d.version_app)
+
+      return perfiles.map((p) => ({
+        id: p.id,
+        nombre_completo: p.nombre_completo,
+        codigo_vendedor: p.codigo_vendedor,
+        rol: p.rol,
+        estado: p.estado,
+        version_app: versionPorId.get(p.id) ?? null,
+        pos: posPorId.get(p.id) ?? null,
+      }))
+    },
+    refetchInterval: 60_000,
   })
 
   // Suscripción en vivo: cada UPSERT de posición refresca el mapa sin esperar
@@ -207,6 +288,64 @@ export function PaginaMapaEnVivo() {
           </table>
         )}
       </section>
+
+      {(() => {
+        const sinSenal = (diagnostico ?? [])
+          .map((u) => ({ u, motivo: motivoSinSenal(u, dentroDeHorario) }))
+          .filter(
+            (x): x is { u: EstadoSeguimiento; motivo: MotivoSeguimiento } => x.motivo !== null,
+          )
+          .sort((a, b) => (a.motivo.nivel === b.motivo.nivel ? 0 : a.motivo.nivel === 'alto' ? -1 : 1))
+        if (sinSenal.length === 0) return null
+        return (
+          <section className="tarjeta" style={{ marginTop: 18 }}>
+            <h2>Con seguimiento, pero sin señal ({sinSenal.length})</h2>
+            <p className="vacio" style={{ marginBottom: 12 }}>
+              Tienen el seguimiento prendido pero no están apareciendo en el mapa. El motivo casi
+              siempre está en el teléfono: una APK vieja (sin la feature), el permiso de ubicación en
+              “Permitir siempre” sin conceder, o la app cerrada por el ahorro de batería.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Rol</th>
+                  <th>APK</th>
+                  <th>Motivo</th>
+                  <th>Última señal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sinSenal.map(({ u, motivo }) => (
+                  <tr key={u.id}>
+                    <td>
+                      {u.nombre_completo}
+                      {u.codigo_vendedor ? ` (#${u.codigo_vendedor})` : ''}
+                    </td>
+                    <td>{u.rol}</td>
+                    <td>{u.version_app ?? '—'}</td>
+                    <td>
+                      <span className={`pastilla ${motivo.nivel === 'alto' ? 'roja' : 'ambar'}`}>
+                        {motivo.texto}
+                      </span>
+                    </td>
+                    <td>
+                      {u.pos?.actualizado_en
+                        ? new Date(u.pos.actualizado_en).toLocaleString('es-AR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'nunca'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )
+      })()}
     </>
   )
 }
@@ -235,4 +374,36 @@ function iconoVendedor(p: PosicionConPerfil): L.DivIcon {
 
 function escapar(s: string): string {
   return s.replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+/**
+ * Por qué un usuario con el seguimiento prendido NO está apareciendo en el mapa.
+ * Devuelve null si está apareciendo —o si, fuera de horario, está simplemente en
+ * pausa, que no es un problema—. Los motivos "alto" (estructurales: APK vieja,
+ * sin teléfono, perfil no aprobado) se muestran siempre; los "medio" (transitorios:
+ * app cerrada, señal vieja) sólo dentro del horario.
+ */
+function motivoSinSenal(u: EstadoSeguimiento, dentroDeHorario: boolean): MotivoSeguimiento | null {
+  if (u.estado !== 'aprobado') return { texto: 'Perfil no aprobado', nivel: 'alto' }
+  if (!u.version_app) return { texto: 'Sin teléfono registrado', nivel: 'alto' }
+  if (versionAtrasada(u.version_app, MIN_APK_SEGUIMIENTO))
+    return { texto: `APK ${u.version_app} — vieja, sin seguimiento`, nivel: 'alto' }
+  if (!u.pos) return { texto: 'Nunca mandó posición (¿permiso de ubicación?)', nivel: 'alto' }
+
+  // Tiene una APK con la feature y ya mandó alguna vez. Fuera de horario el
+  // seguimiento está pausado para todos: no es un problema que reportar.
+  if (!dentroDeHorario) return null
+
+  if (!u.pos.activo) return { texto: 'App cerrada o detenida', nivel: 'medio' }
+  const minutos = Math.floor((Date.now() - new Date(u.pos.actualizado_en).getTime()) / 60_000)
+  if (minutos > FRESCURA_MINUTOS) return { texto: `Señal vieja (${describirHace(minutos)})`, nivel: 'medio' }
+  return null // activo y fresco → está apareciendo en el mapa
+}
+
+/** "hace 45 min" / "hace 3 h" / "hace 2 d" para un lapso en minutos. */
+function describirHace(minutos: number): string {
+  if (minutos < 120) return `hace ${minutos} min`
+  const horas = Math.floor(minutos / 60)
+  if (horas < 48) return `hace ${horas} h`
+  return `hace ${Math.floor(horas / 24)} d`
 }
