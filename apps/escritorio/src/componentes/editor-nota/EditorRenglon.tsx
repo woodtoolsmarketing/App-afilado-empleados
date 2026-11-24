@@ -36,7 +36,6 @@ import {
   maquinasDeLaHerramienta,
   MAQUINA_SUGERIDA,
   MECHAS_CON_MANO,
-  MEDIDA_PARA_CODIGO,
   normalizarMedida,
   SINGULAR_HERRAMIENTA,
   soloNumeros,
@@ -72,7 +71,7 @@ import {
   codigosMecanizado,
   mechasDelTipo,
   codigosSinRango,
-  medidasDisponibles,
+  todosLosCodigos,
   medidasEnCascada,
   preciosEspecialesDe,
   resolverCodigoDeItem,
@@ -127,7 +126,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
   dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
-  reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
+  reparar_dientes: '¿REPONER LOS DIENTES ROTOS?',
   rascadores: '¿CUÁNTOS RASCADORES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO DE CÓMPUTO',
@@ -594,61 +593,63 @@ export function EditorRenglon({
   // ── "¿Qué medidas hay?" ─────────────────────────────────────────────────────
   const [medidas, setMedidas] = useState<CodigoComputo[] | null>(null)
   const [verMedidas, setVerMedidas] = useState(false)
+  // El texto con el que el vendedor busca su código en la lista completa.
+  const [filtroCodigo, setFiltroCodigo] = useState('')
 
   useEffect(() => {
     if (!verMedidas || !item.herramienta || medidas) return
-    void medidasDisponibles(comoCuchilla ? 'cuchilla' : item.herramienta, item.servicio)
+    // La lista COMPLETA de la herramienta: todos los códigos de todos los
+    // servicios (reparación 7xxx, rectificado/afilado 9xxx, precio fijo), para
+    // elegir el propio aunque no sea el que recomienda la medida.
+    void todosLosCodigos(comoCuchilla ? 'cuchilla' : item.herramienta)
       .then(setMedidas)
       .catch(() => setMedidas([]))
-  }, [verMedidas, item.herramienta, item.servicio, medidas, comoCuchilla])
+  }, [verMedidas, item.herramienta, medidas, comoCuchilla])
 
   useEffect(() => {
     setMedidas(null)
     setVerMedidas(false)
+    setFiltroCodigo('')
   }, [item.herramienta, item.servicio, comoCuchilla])
 
-  function aplicarMedidaSugerida(m: CodigoComputo): void {
+  function elegirCodigoDeLaLista(m: CodigoComputo): void {
     if (!item.herramienta) return
     setVerMedidas(false)
+    // Que el buscador por medida NO lo pise, aunque el código elegido coincida
+    // con el último que propuso solo (ver el guard `intocado`).
+    propuesto.current = null
 
-    if (m.rango_min === null) {
-      propuesto.current = m.codigo
-      const porDiente = campos.includes('precio_por_diente')
-      const unidades = Math.max(1, aNumero(item.cantidad) || 1)
-      const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
+    // El vendedor eligió un código de la lista completa: se FIJA ése con su
+    // precio, sea cual sea su rango. No se escribe la medida ni se toca
+    // `propuesto.current`, así el buscador por medida lo trata como elección
+    // manual y no lo pisa (ver el guard `intocado`).
+    const porDiente = campos.includes('precio_por_diente')
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
 
-      const total =
-        importe === null
-          ? 0
-          : item.herramienta === 'cuchilla' || comoCuchilla
-            ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
-            : Math.round(importe * unidades * 100) / 100
+    const total =
+      importe === null
+        ? 0
+        : item.herramienta === 'cuchilla' || comoCuchilla
+          ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
+          : Math.round(importe * unidades * 100) / 100
 
-      alCambiar({
-        codigos_computo: [m.codigo],
-        ...(m.a_cotizar
-          ? porDiente
-            ? { precio_por_diente: '' }
-            : { precio_total: '' }
-          : importe !== null
-            ? porDiente
-              ? { precio_por_diente: String(importe).replace('.', ',') }
-              : {
-                  precio_total: String(total).replace('.', ','),
-                  moneda: 'ARS' as const,
-                }
-            : {}),
-        sin_cargo: esSinCargo(m.descripcion),
-      })
-      return
-    }
-
-    const campo = MEDIDA_PARA_CODIGO[item.herramienta]
-    if (!campo) return
     alCambiar({
-      [campo]: String(m.rango_min).replace('.', ','),
-      codigos_computo: [],
-    } as Partial<FormularioItemNota>)
+      codigos_computo: [m.codigo],
+      ...(m.a_cotizar
+        ? porDiente
+          ? { precio_por_diente: '' }
+          : { precio_total: '' }
+        : importe !== null
+          ? porDiente
+            ? { precio_por_diente: String(importe).replace('.', ',') }
+            : {
+                precio_total: String(total).replace('.', ','),
+                moneda: 'ARS' as const,
+              }
+          : {}),
+      sin_cargo: esSinCargo(m.descripcion),
+    })
   }
 
   function aplicarArticulo(articulo: ArticuloConMedidas) {
@@ -892,7 +893,11 @@ export function EditorRenglon({
           {rotos > 0 && totalDientes > 0 ? (
             <p style={cuentaEstilo}>
               {`${totalDientes} − ${rotos} rotos = ${aAfilar} dientes ${
-                item.reparar_dientes === true ? 'a rectificar' : 'a afilar'
+                item.servicio === 'rectificado'
+                  ? 'a rectificar'
+                  : item.servicio === 'reparacion'
+                    ? 'a reparar'
+                    : 'a afilar'
               }`}
               {item.reparar_dientes === true
                 ? `, y los ${rotos} rotos aparte con el código de reparación`
@@ -1053,8 +1058,18 @@ export function EditorRenglon({
             marcador="Contestá sí o no"
             valor={item.reparar_dientes === null ? null : item.reparar_dientes ? 'si' : 'no'}
             items={[
-              { valor: 'si', etiqueta: 'SÍ, REPARARLOS', descripcion: 'Los rotos se reparan y los sanos se rectifican' },
-              { valor: 'no', etiqueta: 'NO', descripcion: 'Sólo se descuentan de los dientes a afilar' },
+              { valor: 'si', etiqueta: 'SÍ, REPONERLOS', descripcion: 'Los rotos se reponen y los sanos se rectifican' },
+              {
+                valor: 'no',
+                etiqueta: 'NO',
+                descripcion: `Sólo se descuentan de los dientes a ${
+                  item.servicio === 'rectificado'
+                    ? 'rectificar'
+                    : item.servicio === 'reparacion'
+                      ? 'reparar'
+                      : 'afilar'
+                }`,
+              },
             ]}
             onChange={(v) =>
               alCambiar(
@@ -1235,60 +1250,81 @@ export function EditorRenglon({
           ) : null}
 
           <button type="button" className="chico" style={{ marginBottom: 8 }} onClick={() => setVerMedidas((v) => !v)}>
-            {verMedidas ? '▲' : '▼'} {sinRangos ? '¿Qué códigos' : '¿Qué medidas'} hay para{' '}
-            {comoCuchilla ? 'CUCHILLAS' : item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'esta herramienta'}?
+            {verMedidas ? '▲' : '▼'} Ver todos los códigos de{' '}
+            {comoCuchilla ? 'CUCHILLAS' : item.herramienta ? ETIQUETA_HERRAMIENTA[item.herramienta] : 'esta herramienta'}{' '}
+            y elegir el mío
           </button>
 
           {verMedidas ? (
             medidas === null ? (
               <p style={buscandoEstilo}>Buscando…</p>
             ) : medidas.length === 0 ? (
-              <Aviso tono="atencion">
-                Esta herramienta no tiene medidas cargadas en el catálogo: sus precios van por modelo,
-                no por rango. Buscá el código por descripción.
-              </Aviso>
+              <Aviso tono="atencion">Esta herramienta no tiene códigos cargados en el catálogo.</Aviso>
             ) : (
-              <div
-                style={{
-                  border: '2px solid var(--negro)',
-                  borderRadius: 'var(--radio)',
-                  background: 'var(--blanco)',
-                  overflow: 'hidden',
-                  marginBottom: 8,
-                }}
-              >
-                {medidas.map((m) => (
-                  <button
-                    key={m.codigo}
-                    type="button"
-                    onClick={() => aplicarMedidaSugerida(m)}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      border: 'none',
-                      borderBottom: '1px solid var(--panel-oscuro)',
-                      borderRadius: 0,
-                      background: 'none',
-                      padding: '8px 12px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontWeight: 700 }}>{m.codigo}</span>
-                      <span style={{ fontSize: 12, color: 'var(--tinta-suave)' }}>
-                        {m.rango_min === null
-                          ? m.precio_pesos !== null
-                            ? formatearPesos(Number(m.precio_pesos))
-                            : ''
-                          : describirRango(m.rango_min, m.rango_max)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--tinta-suave)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.descripcion}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <>
+                <Campo
+                  etiqueta="BUSCAR CÓDIGO"
+                  value={filtroCodigo}
+                  onChange={setFiltroCodigo}
+                  placeholder="Número de código o descripción"
+                  ayuda="Tocá el que va y queda puesto, aunque no sea el que se recomienda por la medida."
+                />
+                <div
+                  style={{
+                    border: '2px solid var(--negro)',
+                    borderRadius: 'var(--radio)',
+                    background: 'var(--blanco)',
+                    overflow: 'hidden',
+                    marginBottom: 8,
+                  }}
+                >
+                  {medidas
+                    .filter((m) => {
+                      const q = filtroCodigo.trim().toLowerCase()
+                      return (
+                        !q ||
+                        m.codigo.toLowerCase().includes(q) ||
+                        m.descripcion.toLowerCase().includes(q)
+                      )
+                    })
+                    .map((m) => (
+                      <button
+                        key={m.codigo}
+                        type="button"
+                        onClick={() => elegirCodigoDeLaLista(m)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          border: 'none',
+                          borderBottom: '1px solid var(--panel-oscuro)',
+                          borderRadius: 0,
+                          background: 'none',
+                          padding: '8px 12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontWeight: 700 }}>{m.codigo}</span>
+                          <span style={{ fontSize: 12, color: 'var(--tinta-suave)' }}>
+                            {m.rango_min === null
+                              ? m.precio_pesos !== null
+                                ? formatearPesos(Number(m.precio_pesos))
+                                : ''
+                              : describirRango(m.rango_min, m.rango_max)}
+                          </span>
+                          {m.rango_min !== null && m.precio_pesos !== null ? (
+                            <span style={{ fontSize: 12, fontWeight: 700 }}>
+                              {formatearPesos(Number(m.precio_pesos))}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--tinta-suave)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.descripcion}
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              </>
             )
           ) : null}
 

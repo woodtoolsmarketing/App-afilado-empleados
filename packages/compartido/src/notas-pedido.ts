@@ -2052,7 +2052,21 @@ export function renglonNuevo(
    */
   servicioElegido = false,
 ): FormularioItemNota {
-  return { ...ITEM_VACIO, servicio, herramienta, servicio_elegido: servicioElegido }
+  // Una fresa arranca en RECTIFICADO (el trabajo normal es rectificar los filos,
+  // 9xxx "AFIL. D.EXT."), no en afilado. Se pisa SÓLO el 'afilado' por defecto;
+  // reparar (7xxx) queda para reponer un diente roto. Vale para todos los caminos
+  // que crean un renglón de fresa —SUMAR OTRA, AGREGAR OTRAS HERRAMIENTAS—; el
+  // selector de herramienta hace lo mismo en `cambiarItem`. Sin esto, agregar una
+  // fresa por esos caminos la dejaba en afilado (9101-10) y cobraba de menos.
+  const servicioFinal: TipoServicio =
+    herramienta === 'fresa' && servicio === 'afilado' ? 'rectificado' : servicio
+  return {
+    ...ITEM_VACIO,
+    servicio: servicioFinal,
+    herramienta,
+    // Si la fresa se pasó a rectificado, es una decisión (como en el selector).
+    servicio_elegido: servicioElegido || servicioFinal !== servicio,
+  }
 }
 
 /**
