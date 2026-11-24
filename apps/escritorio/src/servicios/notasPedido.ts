@@ -231,10 +231,28 @@ export async function codigosSinRango(
   return codigosDeLaHerramienta(herramienta, servicio, false)
 }
 
+/**
+ * TODA la familia de la herramienta (con rango ∪ sin rango), de todos los
+ * servicios, para el buscador "elegí cualquier código". Reusa las dos consultas
+ * que ya existen; el tope de los sin rango se sube para no cortar la familia.
+ */
+export async function todosLosCodigos(
+  herramienta: Herramienta,
+  servicio?: TipoServicio,
+): Promise<CodigoComputo[]> {
+  const [conRango, sinRango] = await Promise.all([
+    codigosDeLaHerramienta(herramienta, servicio, true),
+    codigosDeLaHerramienta(herramienta, servicio, false, 200),
+  ])
+  const vistos = new Set(conRango.map((c) => c.codigo))
+  return [...conRango, ...sinRango.filter((c) => !vistos.has(c.codigo))]
+}
+
 async function codigosDeLaHerramienta(
   herramienta: Herramienta,
   servicio: TipoServicio | undefined,
   conRango: boolean,
+  limite = 60,
 ): Promise<CodigoComputo[]> {
   let consulta = supabase
     .from('vista_catalogo_vigente')
@@ -253,7 +271,7 @@ async function codigosDeLaHerramienta(
         .order('servicio_sugerido', { ascending: true, nullsFirst: false })
         .order('herramienta_sugerida', { ascending: true, nullsFirst: false })
         .order('codigo', { ascending: true })
-        .limit(60)
+        .limit(limite)
 
   if (servicio) {
     consulta = consulta.or(`servicio_sugerido.is.null,servicio_sugerido.eq.${servicio}`)

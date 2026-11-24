@@ -41,7 +41,6 @@ import {
   maquinasDeLaHerramienta,
   MAQUINA_SUGERIDA,
   MECHAS_CON_MANO,
-  MEDIDA_PARA_CODIGO,
   normalizarMedida,
   radios,
   SINGULAR_HERRAMIENTA,
@@ -88,7 +87,7 @@ import {
   codigosMecanizado,
   mechasDelTipo,
   codigosSinRango,
-  medidasDisponibles,
+  todosLosCodigos,
   medidasEnCascada,
   type ArticuloConMedidas,
   type CascadaMedidas,
@@ -143,7 +142,7 @@ const ETIQUETAS: Record<CampoItem, string> = {
   mano: '¿ES DERECHA O IZQUIERDA?',
   dientes_rotos: '¿TIENE DIENTES ROTOS?',
   dientes_rotos_cantidad: '¿CUÁNTOS DIENTES ROTOS?',
-  reparar_dientes: '¿DESEA REPARAR LOS DIENTES?',
+  reparar_dientes: '¿REPONER LOS DIENTES ROTOS?',
   rascadores: '¿CUÁNTOS RASCADORES?',
   afilado_reparacion: '¿AFILADO / REPARACIÓN?',
   codigos_computo: 'CÓDIGO DE CÓMPUTO',
@@ -930,19 +929,24 @@ export function PasoRenglon({
   // ── "¿Qué medidas hay?" ──────────────────────────────────────────────────
   const [medidas, setMedidas] = useState<CodigoComputo[] | null>(null)
   const [verMedidas, setVerMedidas] = useState(false)
+  // El texto con el que el vendedor busca su código en la lista completa.
+  const [filtroCodigo, setFiltroCodigo] = useState('')
 
   useEffect(() => {
     if (!verMedidas || !item.herramienta || medidas) return
-    // Un cabezal portacuchillas usa los códigos de la cuchilla, no los del
-    // cabezal: la lista de "¿qué códigos hay?" tiene que traer ésos.
-    void medidasDisponibles(comoCuchilla ? 'cuchilla' : item.herramienta, item.servicio)
+    // La lista completa de la herramienta: TODOS los códigos, de todos los
+    // servicios (reparación 7xxx, rectificado/afilado 9xxx, y los de precio
+    // fijo), para poder elegir el propio aunque no sea el que recomienda la
+    // medida. Un cabezal portacuchillas usa los códigos de la cuchilla.
+    void todosLosCodigos(comoCuchilla ? 'cuchilla' : item.herramienta)
       .then(setMedidas)
       .catch(() => setMedidas([]))
-  }, [verMedidas, item.herramienta, item.servicio, medidas, comoCuchilla])
+  }, [verMedidas, item.herramienta, medidas, comoCuchilla])
 
   useEffect(() => {
     setMedidas(null)
     setVerMedidas(false)
+    setFiltroCodigo('')
   }, [item.herramienta, item.servicio, comoCuchilla])
 
   /**
@@ -951,69 +955,57 @@ export function PasoRenglon({
    * rango y deja que el buscador haga el resto, en vez de que el vendedor
    * tenga que deducir qué número tipear.
    */
-  function aplicarMedidaSugerida(m: CodigoComputo): void {
+  function elegirCodigoDeLaLista(m: CodigoComputo): void {
     if (!item.herramienta) return
     setVerMedidas(false)
+    // Que el buscador por medida NO lo pise, aunque el código elegido coincida
+    // con el último que propuso solo: en null, el guard `intocado`
+    // (codigos[0] === propuesto.current) nunca da true sobre una elección a mano.
+    propuesto.current = null
 
     /*
-      Sin rango no hay medida que cargar: el código SE ELIGE. Es el caso de
-      mechas y cuchillas, donde el precio no depende de una medida.
+      El vendedor eligió un código de la lista completa (o del buscador): se FIJA
+      ése, con su precio, sea cual sea su rango. No se escribe la medida ni se
+      toca `propuesto.current`: así el buscador por medida lo trata como una
+      elección manual y no lo pisa (ver el guard `intocado`). Es justo lo que se
+      pide: poner el código propio cuando el que recomienda la medida no es el
+      correcto, y que quede.
 
-      El importe va al campo que la herramienta usa de verdad. Iba siempre a
-      PRECIO POR DIENTE, y las mechas, las cuchillas y las sierras sin fin no
-      tienen ese campo —no se cobran por diente— así que el renglón quedaba con
-      el código bien elegido y el precio en cero. En ésas el importe de la lista
-      es por unidad y va a PRECIO TOTAL, multiplicado por las que sean.
+      El importe va al campo que la herramienta usa de verdad: PRECIO POR DIENTE
+      las que se cobran por diente (sierra, fresa, cabezal, incisor), y PRECIO
+      TOTAL las que van por unidad (mecha, cuchilla, sierra sin fin), × cantidad.
+      La cuchilla se cobra por cada 100 mm. Un código a cotizar deja el precio en
+      blanco para que lo ponga el vendedor.
     */
-    if (m.rango_min === null) {
-      propuesto.current = m.codigo
-      const porDiente = campos.includes('precio_por_diente')
-      const unidades = Math.max(1, aNumero(item.cantidad) || 1)
-      const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
+    const porDiente = campos.includes('precio_por_diente')
+    const unidades = Math.max(1, aNumero(item.cantidad) || 1)
+    const importe = m.precio_pesos !== null ? Number(m.precio_pesos) : null
+    const total =
+      importe === null
+        ? 0
+        : item.herramienta === 'cuchilla' || comoCuchilla
+          ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
+          : Math.round(importe * unidades * 100) / 100
 
-      /*
-        La cuchilla se cobra por cada 100 mm, no por unidad.
-
-        Importa desde que los seis códigos de afilado de cuchilla aparecen en
-        esta lista: multiplicar el precio de lista por las unidades cobraría
-        $ 4.099,60 por cuchilla en vez de por tramo, y una de 640 mm son 6,4
-        tramos. Es la misma cuenta que hace `SelectorAfiladoCuchilla`.
-      */
-      const total =
-        importe === null
-          ? 0
-          : item.herramienta === 'cuchilla' || comoCuchilla
-            ? totalAfiladoCuchilla(importe, aNumero(item.largo), unidades)
-            : Math.round(importe * unidades * 100) / 100
-
-      alCambiar({
-        codigos_computo: [m.codigo],
-        ...(m.a_cotizar
-          ? porDiente
-            ? { precio_por_diente: '' }
-            : { precio_total: '' }
-          : importe !== null
-            ? porDiente
-              ? { precio_por_diente: String(importe).replace('.', ',') }
-              : {
-                  precio_total: String(total).replace('.', ','),
-                  // El servicio se cobra en pesos: `precio_pesos` ya viene
-                  // convertido, y dejar la moneda en dólares lo volvería a
-                  // convertir en la nota.
-                  moneda: 'ARS' as const,
-                }
-            : {}),
-        sin_cargo: esSinCargo(m.descripcion),
-      })
-      return
-    }
-
-    const campo = MEDIDA_PARA_CODIGO[item.herramienta]
-    if (!campo) return
     alCambiar({
-      [campo]: String(m.rango_min).replace('.', ','),
-      codigos_computo: [],
-    } as Partial<FormularioItemNota>)
+      codigos_computo: [m.codigo],
+      ...(m.a_cotizar
+        ? porDiente
+          ? { precio_por_diente: '' }
+          : { precio_total: '' }
+        : importe !== null
+          ? porDiente
+            ? { precio_por_diente: String(importe).replace('.', ',') }
+            : {
+                precio_total: String(total).replace('.', ','),
+                // El servicio se cobra en pesos: `precio_pesos` ya viene
+                // convertido, y dejar la moneda en dólares lo volvería a
+                // convertir en la nota.
+                moneda: 'ARS' as const,
+              }
+          : {}),
+      sin_cargo: esSinCargo(m.descripcion),
+    })
   }
 
   /**
@@ -1681,7 +1673,11 @@ export function PasoRenglon({
               {rotos > 0 && totalDientes > 0 ? (
                 <Text style={estilos.totalDientes}>
                   {`${totalDientes} − ${rotos} rotos = ${aAfilar} dientes ${
-                    item.reparar_dientes === true ? 'a rectificar' : 'a afilar'
+                    item.servicio === 'rectificado'
+                      ? 'a rectificar'
+                      : item.servicio === 'reparacion'
+                        ? 'a reparar'
+                        : 'a afilar'
                   }`}
                   {item.reparar_dientes === true
                     ? `, y los ${rotos} rotos aparte con el código de reparación`
@@ -1917,13 +1913,19 @@ export function PasoRenglon({
                 items={[
                   {
                     valor: 'si',
-                    etiqueta: 'SÍ, REPARARLOS',
-                    descripcion: 'Los rotos se reparan y los sanos se rectifican',
+                    etiqueta: 'SÍ, REPONERLOS',
+                    descripcion: 'Los rotos se reponen y los sanos se rectifican',
                   },
                   {
                     valor: 'no',
                     etiqueta: 'NO',
-                    descripcion: 'Sólo se descuentan de los dientes a afilar',
+                    descripcion: `Sólo se descuentan de los dientes a ${
+                      item.servicio === 'rectificado'
+                        ? 'rectificar'
+                        : item.servicio === 'reparacion'
+                          ? 'reparar'
+                          : 'afilar'
+                    }`,
                   },
                 ]}
                 /**
@@ -2165,8 +2167,10 @@ export function PasoRenglon({
                 )
               ) : null}
 
-              {/* La lista de medidas disponibles: la respuesta a "¿y entonces
-                  qué medidas hay?", que antes se contestaba probando números. */}
+              {/* La lista COMPLETA de códigos de la herramienta + buscador: para
+                  elegir el propio cuando el que se recomienda por la medida no es
+                  el correcto. Antes sólo listaba los que caen por medida (en una
+                  fresa de reparación, nada más que 7701/02/03). */}
               <Pressable
                 onPress={() => setVerMedidas((v) => !v)}
                 accessibilityRole="button"
@@ -2175,13 +2179,13 @@ export function PasoRenglon({
               >
                 <Text style={estilos.verMedidasTexto}>
                   {verMedidas ? '▲' : '▼'}{' '}
-                  {sinRangos ? '¿Qué códigos' : '¿Qué medidas'}{' '}
-                  hay para{' '}
+                  Ver todos los códigos de{' '}
                   {comoCuchilla
                     ? 'CUCHILLAS'
                     : item.herramienta
                       ? ETIQUETA_HERRAMIENTA[item.herramienta]
-                      : 'esta herramienta'}?
+                      : 'esta herramienta'}{' '}
+                  y elegir el mío
                 </Text>
               </Pressable>
 
@@ -2193,38 +2197,61 @@ export function PasoRenglon({
                   </View>
                 ) : medidas.length === 0 ? (
                   <Aviso tono="atencion">
-                    Esta herramienta no tiene medidas cargadas en el catálogo: sus precios van por
-                    modelo, no por rango. Buscá el código por descripción.
+                    Esta herramienta no tiene códigos cargados en el catálogo.
                   </Aviso>
                 ) : (
-                  <View style={estilos.opciones}>
-                    {medidas.map((m) => (
-                      <Pressable
-                        key={m.codigo}
-                        onPress={() => aplicarMedidaSugerida(m)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Usar ${m.codigo}, ${describirRango(m.rango_min, m.rango_max)}`}
-                        style={({ pressed }) => [estilos.opcion, pressed && estilos.tocado]}
-                      >
-                        <View style={estilos.opcionFila}>
-                          <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
-                          {/* Sin rango no se muestra "sin rango": lo que sirve
-                              ahí es el precio, que es lo que distingue una
-                              opción de la otra. */}
-                          <Text style={estilos.opcionRango}>
-                            {m.rango_min === null
-                              ? (m.precio_pesos !== null
-                                  ? formatearPesos(Number(m.precio_pesos))
-                                  : '')
-                              : describirRango(m.rango_min, m.rango_max)}
-                          </Text>
-                        </View>
-                        <Text style={estilos.opcionDesc} numberOfLines={1}>
-                          {m.descripcion}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                  <>
+                    <Campo
+                      etiqueta="BUSCAR CÓDIGO"
+                      value={filtroCodigo}
+                      onChangeText={setFiltroCodigo}
+                      placeholder="Número de código o descripción"
+                      ayuda="Tocá el que va y queda puesto, aunque no sea el que se recomienda por la medida."
+                    />
+                    <View style={estilos.opciones}>
+                      {medidas
+                        .filter((m) => {
+                          const q = filtroCodigo.trim().toLowerCase()
+                          return (
+                            !q ||
+                            m.codigo.toLowerCase().includes(q) ||
+                            m.descripcion.toLowerCase().includes(q)
+                          )
+                        })
+                        .map((m) => (
+                          <Pressable
+                            key={m.codigo}
+                            onPress={() => elegirCodigoDeLaLista(m)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Usar ${m.codigo}, ${m.descripcion}`}
+                            style={({ pressed }) => [estilos.opcion, pressed && estilos.tocado]}
+                          >
+                            <View style={estilos.opcionFila}>
+                              <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
+                              {/* Rango si lo tiene; si no, el precio, que es lo
+                                  que distingue una opción de la otra. */}
+                              <Text style={estilos.opcionRango}>
+                                {m.rango_min === null
+                                  ? (m.precio_pesos !== null
+                                      ? formatearPesos(Number(m.precio_pesos))
+                                      : '')
+                                  : describirRango(m.rango_min, m.rango_max)}
+                              </Text>
+                              {/* El precio también en los de rango: es lo que el
+                                  vendedor compara al elegir a mano. */}
+                              {m.rango_min !== null && m.precio_pesos !== null ? (
+                                <Text style={estilos.opcionPrecio}>
+                                  {formatearPesos(Number(m.precio_pesos))}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <Text style={estilos.opcionDesc} numberOfLines={1}>
+                              {m.descripcion}
+                            </Text>
+                          </Pressable>
+                        ))}
+                    </View>
+                  </>
                 )
               ) : null}
 
