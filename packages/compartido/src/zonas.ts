@@ -575,6 +575,17 @@ export function nombreDeZona(codigo: string | null | undefined): string {
   return encontradas.map((z) => z.nombre).join(' / ')
 }
 
+/**
+ * La zona (ZonaVenta) a partir de un código ya guardado —p.ej. la que el Gestión
+ * le puso al cliente—, para tener su `id` y su nombre. Con el 121, repetido,
+ * devuelve la primera: el código impreso es el mismo.
+ */
+export function zonaPorCodigo(codigo: string | null | undefined): ZonaVenta | null {
+  const c = String(codigo ?? '').trim()
+  if (!c) return null
+  return ZONAS.find((z) => z.codigo === c) ?? null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Asignación automática
 // ─────────────────────────────────────────────────────────────────────────────
