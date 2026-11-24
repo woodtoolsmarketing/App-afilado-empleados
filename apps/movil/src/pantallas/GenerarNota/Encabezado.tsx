@@ -7,6 +7,7 @@ import {
   radios,
   VENDEDORES_CON_CERO,
   zonaParaUbicacion,
+  zonaPorCodigo,
   lineaDeServicio,
   ZONAS,
   type ClienteBuscado,
@@ -499,7 +500,18 @@ export function PasoCliente({
    *
    * Nunca pisa una zona ya elegida a mano.
    */
-  function asignarZona(u: UbicacionCliente, forzar = false): void {
+  function asignarZona(u: UbicacionCliente, forzar = false, zonaGestion?: string | null): void {
+    // La zona que el Gestión le puso al cliente manda sobre la deducción por
+    // localidad (subdivide CABA, resuelve fiscal vs entrega…). Al venir del
+    // Gestión no hay duda: se limpia el selector de "más de una zona".
+    const delGestion = zonaGestion ? zonaPorCodigo(zonaGestion) : null
+    if (delGestion) {
+      setZonaDudosa([])
+      setZonaAuto(null)
+      if (form.zona && !forzar) return
+      alCambiar({ zona: delGestion.codigo, zona_id: delGestion.id })
+      return
+    }
     const { unica, candidatas } = zonaParaUbicacion(u)
     setZonaDudosa(candidatas.length > 1 ? candidatas : [])
     setZonaAuto(unica)
@@ -536,15 +548,27 @@ export function PasoCliente({
    * principal mientras la nota apunta a la sucursal.
    */
   function aplicarUbicacionParada(u: NonNullable<typeof ubicacionParada>): void {
-    const { unica, candidatas } = zonaParaUbicacion({
-      localidad: u.localidad,
-      provincia: u.provincia,
-      direccion: u.direccion,
-    })
-    setZonaAuto(unica)
-    setZonaDudosa(candidatas.length > 1 ? candidatas : [])
-    if (unica) alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
-    else alCambiar({ zona: '', zona_id: '' })
+    // Si la parada es el domicilio PRINCIPAL del cliente, la zona del Gestión
+    // manda (igual que en elegirCliente). Si es OTRA sucursal, se deduce de ahí:
+    // la zona del Gestión es la del principal, no la de un lugar de entrega suelto.
+    const cli = clienteRef.current
+    const delGestion =
+      cli?.zona && u.direccionId === cli.direccion_id ? zonaPorCodigo(cli.zona) : null
+    if (delGestion) {
+      setZonaAuto(null)
+      setZonaDudosa([])
+      alCambiar({ zona: delGestion.codigo, zona_id: delGestion.id })
+    } else {
+      const { unica, candidatas } = zonaParaUbicacion({
+        localidad: u.localidad,
+        provincia: u.provincia,
+        direccion: u.direccion,
+      })
+      setZonaAuto(unica)
+      setZonaDudosa(candidatas.length > 1 ? candidatas : [])
+      if (unica) alCambiar({ zona: unica.zona.codigo, zona_id: unica.zona.id })
+      else alCambiar({ zona: '', zona_id: '' })
+    }
 
     if (!u.direccionId) return
     const c = clienteRef.current
@@ -829,6 +853,7 @@ export function PasoCliente({
     asignarZona(
       { localidad: c.localidad, provincia: c.provincia, direccion: c.direccion },
       true,
+      c.zona,
     )
 
     // Y borra la facturación del cliente anterior: la tendencia de este cliente

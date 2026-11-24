@@ -3,6 +3,7 @@ import {
   numeroDeVendedorImpreso,
   VENDEDORES_CON_CERO,
   zonaParaUbicacion,
+  zonaPorCodigo,
   ZONAS,
   type ClienteBuscado,
   type FormularioNotaEncabezado,
@@ -84,7 +85,16 @@ export function SelectorCliente({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consulta])
 
-  function asignarZona(u: UbicacionCliente, forzar = false): void {
+  function asignarZona(u: UbicacionCliente, forzar = false, zonaGestion?: string | null): void {
+    // La zona que el Gestión le puso al cliente manda sobre la deducción por
+    // localidad: es la que usa la oficina (subdivide CABA, resuelve fiscal vs
+    // entrega… cosas que la deducción por texto no puede).
+    const delGestion = zonaGestion ? zonaPorCodigo(zonaGestion) : null
+    if (delGestion) {
+      if (form.zona && !forzar) return
+      alCambiar({ zona: delGestion.codigo, zona_id: delGestion.id })
+      return
+    }
     const { unica } = zonaParaUbicacion(u)
     if (unica) {
       if (form.zona && !forzar) return
@@ -131,8 +141,8 @@ export function SelectorCliente({
       datos_cliente: datos,
     })
 
-    // Es la ubicación la que manda: la zona se recalcula sobre el cliente nuevo.
-    asignarZona({ localidad: c.localidad, provincia: c.provincia, direccion: c.direccion }, true)
+    // La zona del Gestión del cliente manda; si no la tiene, se deduce de la ubicación.
+    asignarZona({ localidad: c.localidad, provincia: c.provincia, direccion: c.direccion }, true, c.zona)
 
     // El número de vendedor, si quedó vacío: lo cubre el de la zona.
     if (!form.vendedor_numero.trim() && c.localidad) {
