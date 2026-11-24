@@ -876,7 +876,44 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * después de consultar el catálogo— y con la copia vieja uno borraba al otro.
    */
   function cambiarItem(cambios: Partial<FormularioItemNota>) {
-    setItems((rs) => rs.map((r, i) => (i === activo ? { ...r, ...cambios } : r)))
+    // Una fresa ARRANCA en RECTIFICADO: el trabajo normal de la fresa es
+    // rectificar los filos (9xxx "AFIL. D.EXT."), no afilar. Se pisa SÓLO el
+    // 'afilado' por defecto; reparar (7xxx) queda para reponer un diente roto, y
+    // si el vendedor quiere afilar/reparar lo cambia en el selector —que aparece
+    // porque se agrega 'rectificado' a las operaciones de la nota—.
+    const vuelveFresa = cambios.herramienta === 'fresa' && renglon.herramienta !== 'fresa'
+    const arrancaRectificado =
+      vuelveFresa && (cambios.servicio ?? renglon.servicio) === 'afilado'
+    const cambiosFinal = arrancaRectificado
+      ? { ...cambios, servicio: 'rectificado' as const, servicio_elegido: true }
+      : cambios
+    setItems((rs) => rs.map((r, i) => (i === activo ? { ...r, ...cambiosFinal } : r)))
+    if (arrancaRectificado) {
+      // Al pasar la fresa a rectificado, su 'afilado' puede quedar huérfano: si
+      // ningún OTRO renglón lo usa (el activo ya pasó a rectificado), se saca,
+      // para no prender de la nada el selector por renglón ni dejar una operación
+      // que nadie usa.
+      const otrosUsanAfilado = items.some((r, i) => i !== activo && r.servicio === 'afilado')
+      setServicios((s) => {
+        const limpio = otrosUsanAfilado ? s : s.filter((x) => x !== 'afilado')
+        return limpio.includes('rectificado') ? limpio : [...limpio, 'rectificado']
+      })
+    }
+  }
+
+  /**
+   * Mantiene `servicios` ⊇ las operaciones que usan los renglones. Lo necesita el
+   * camino de agregar herramientas: una fresa agregada ahí arranca en rectificado
+   * (ver `renglonNuevo`), y esa operación tiene que estar para el selector por
+   * renglón. Nunca saca ninguna —eso lo maneja `cambiarItem`—.
+   */
+  function asegurarServicios(renglones: FormularioItemNota[]) {
+    setServicios((prev) => {
+      const faltan = renglones
+        .map((r) => r.servicio)
+        .filter((s, i, arr) => !prev.includes(s) && arr.indexOf(s) === i)
+      return faltan.length ? [...prev, ...faltan] : prev
+    })
   }
 
   useEffect(() => {
@@ -976,6 +1013,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     // no hay nada que volver a preguntar.
     const nuevos = [...items, renglonNuevo(servicio, herramienta, true)]
     setItems(nuevos)
+    asegurarServicios(nuevos)
     setActivo(nuevos.length - 1)
     setIntentado(false)
     setErrores({})
@@ -1156,6 +1194,7 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
       ...herramientasElegidas.map((hta) => renglonNuevo(renglon.servicio, hta, true)),
     ]
     setItems(nuevos)
+    asegurarServicios(nuevos)
     setActivo(items.length)
     setHerramientasElegidas([])
     setSeleccionandoHerramientas(false)

@@ -386,6 +386,29 @@ export async function codigosSinRango(
 }
 
 /**
+ * TODA la familia de la herramienta: los que tienen rango y los de precio fijo,
+ * a través de TODOS los servicios. Es lo que alimenta el buscador "elegí
+ * cualquier código": el vendedor ve todos los de la fresa (reparación 7xxx,
+ * rectificado/afilado 9xxx, y las operaciones de precio fijo) y filtra por texto.
+ *
+ * No es una RPC nueva: corre las dos consultas que ya existen —con rango y sin
+ * rango— y las junta. Los dos conjuntos son disjuntos (uno exige `rango_min`, el
+ * otro lo exige nulo), así que el dedupe es por las dudas. El tope de los sin
+ * rango se sube para no cortar la familia entera.
+ */
+export async function todosLosCodigos(
+  herramienta: Herramienta,
+  servicio?: TipoServicio,
+): Promise<CodigoComputo[]> {
+  const [conRango, sinRango] = await Promise.all([
+    codigosDeLaHerramienta(herramienta, servicio, true),
+    codigosDeLaHerramienta(herramienta, servicio, false, false, 200),
+  ])
+  const vistos = new Set(conRango.map((c) => c.codigo))
+  return [...conRango, ...sinRango.filter((c) => !vistos.has(c.codigo))]
+}
+
+/**
  * Los códigos de precio fijo (sin rango) de ESE servicio EXACTO —sin los de
  * servicio sin clasificar—, para SUMARLOS a los que caen por medida.
  *
@@ -412,6 +435,12 @@ async function codigosDeLaHerramienta(
    * no son de ese trabajo. Ver `codigosSinRangoDelServicio`.
    */
   soloServicioExacto = false,
+  /**
+   * Cuántas filas sin rango traer. El default alcanza para una lista por
+   * servicio; el buscador "todos los códigos" sube el tope para no truncar la
+   * familia entera de la herramienta a través de todos los servicios.
+   */
+  limite = 60,
 ): Promise<CodigoComputo[]> {
   let consulta = supabase
     .from('vista_catalogo_vigente')
@@ -469,7 +498,7 @@ async function codigosDeLaHerramienta(
         .order('servicio_sugerido', { ascending: true, nullsFirst: false })
         .order('herramienta_sugerida', { ascending: true, nullsFirst: false })
         .order('codigo', { ascending: true })
-        .limit(60)
+        .limit(limite)
 
   // Sin servicio no se filtra: se muestran todas las medidas de la herramienta.
   if (servicio) {
