@@ -72,13 +72,17 @@ begin
       nullif(btrim(coalesce(f->>'domicilio', '')), '')          as direccion,
       nullif(btrim(coalesce(f->>'localidad', '')), '')          as localidad,
       nullif(btrim(coalesce(f->>'cp', '')), '')                 as codigo_postal,
-      -- "Zona" y "Datos de entrega" no tienen columna propia: van a las notas
-      -- para no perderlas. La zona viene como texto ("ZONA LA PLATA TIT"), no
-      -- como el número de la nota de pedido; ese lo resuelve la localidad.
+      -- "Zona" y "Datos de entrega" van a las notas como texto, para no perderlas.
       nullif(btrim(concat_ws(' · ',
         nullif(btrim(coalesce(f->>'notas', '')), ''),
         nullif(btrim(coalesce(f->>'entrega', '')), '')
-      )), '')                                                   as notas
+      )), '')                                                   as notas,
+      -- La zona del Gestión, además, se mapea al CÓDIGO numérico de la nota y va a
+      -- clientes.zona: ésa es la fuente de verdad. Si el texto no mapea a una zona
+      -- geográfica (WEB, EXTERIOR, REVENDEDORES…), queda null y la app deduce.
+      interno.codigo_zona_desde_gestion(
+        nullif(btrim(coalesce(f->>'zona_gestion', '')), '')
+      )                                                         as zona
     from jsonb_array_elements(datos) f
     where btrim(coalesce(f->>'codigo', '')) <> ''
       and btrim(coalesce(f->>'razon_social', '')) <> ''
@@ -93,11 +97,11 @@ begin
   guardados as (
     insert into public.clientes as c (
       codigo, razon_social, nombre_fantasia, contacto_nombre,
-      telefono, email, direccion, localidad, codigo_postal, notas
+      telefono, email, direccion, localidad, codigo_postal, notas, zona
     )
     select
       codigo, razon_social, nombre_fantasia, contacto_nombre,
-      telefono, email, direccion, localidad, codigo_postal, notas
+      telefono, email, direccion, localidad, codigo_postal, notas, zona
     from unicos
     on conflict (codigo) do update set
       razon_social    = excluded.razon_social,
@@ -109,6 +113,9 @@ begin
       localidad       = excluded.localidad,
       codigo_postal   = excluded.codigo_postal,
       notas           = excluded.notas,
+      -- Sólo pisa la zona si el listado trae una mapeable; si no, deja la que haya
+      -- (p.ej. una corregida a mano desde el panel) en vez de borrarla.
+      zona            = coalesce(excluded.zona, c.zona),
       actualizado_en  = now()
     returning 1
   )

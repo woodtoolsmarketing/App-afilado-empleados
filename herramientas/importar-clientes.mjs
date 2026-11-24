@@ -38,9 +38,10 @@
  *   Contacto          → `contacto_nombre`
  *   Teléfonos         → `telefono`
  *   Mail / notas      → `email` si tiene arroba; si no, va a `notas`
- *   Zona              → a `notas`. Viene como texto ("ZONA LA PLATA TIT"), no
- *                       como el número que usa la nota de pedido; ese número lo
- *                       resuelve la localidad, que es lo que la app ya sabe hacer
+ *   Zona              → a `clientes.zona` (el código, vía la función de mapeo del
+ *                       servidor) Y a `notas` como texto. La columna zona es la
+ *                       fuente de verdad de la nota; la deducción por la localidad
+ *                       queda sólo de respaldo para clientes sin zona del Gestión
  *   Datos de entrega  → a `notas`
  *
  * El listado NO trae CUIT, así que la búsqueda por CUIT no encuentra a estos
@@ -161,6 +162,9 @@ for (const f of filas) {
     contacto: limpio(f[I.contacto]),
     telefono: limpio(f[I.telefonos]),
     email: esEmail ? mail : '',
+    // La zona del Gestión va DOS veces: como texto a `notas` (para poder leerla) y
+    // como código a `clientes.zona` (lo resuelve la RPC), que es la fuente de verdad.
+    zona_gestion: limpio(f[I.zona]),
     notas: [
       limpio(f[I.zona]) ? `Zona (Gestión): ${limpio(f[I.zona])}` : '',
       !esEmail && mail ? mail : '',
