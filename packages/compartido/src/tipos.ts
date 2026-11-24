@@ -658,6 +658,12 @@ export interface ClienteBuscado {
   /** De la dirección principal. Con esto la nota le asigna la zona sola. */
   localidad: string | null
   provincia: string | null
+  /**
+   * El código de zona que el Gestión le puso al cliente (`clientes.zona`). Es la
+   * fuente de verdad: cuando está, la nota la usa en vez de deducir por la
+   * localidad. Null si el cliente no la tiene (ahí la app deduce de la dirección).
+   */
+  zona: string | null
 }
 
 /**
