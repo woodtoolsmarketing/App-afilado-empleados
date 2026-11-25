@@ -13,6 +13,8 @@ import {
   numeroDeNotaImpreso,
   renglonEnBlanco,
   renglonNuevo,
+  servicioNormalizadoDeFresa,
+  normalizarItemsDeFresa,
   resumenRenglon,
   SUMAR_OTRA,
   tieneRenglonesEnDolares,
@@ -134,7 +136,7 @@ export function EditorNota({
     setCondicionVenta(borrador.condicionVenta)
     setCondicionDetalle(borrador.condicionDetalle)
     setFechaEntrega(borrador.fechaEntrega ?? '')
-    if (borrador.items.length > 0) setItems(borrador.items)
+    if (borrador.items.length > 0) setItems(normalizarItemsDeFresa(borrador.items))
     setObservaciones([...borrador.observaciones, ''])
     setObservacionesDelSistema(borrador.observacionesDelSistema)
     if (borrador.tipoCambio) setCambioPropio(borrador.tipoCambio)
@@ -167,26 +169,33 @@ export function EditorNota({
   }
 
   function cambiarItem(cambios: Partial<FormularioItemNota>) {
-    // Una fresa ARRANCA en RECTIFICADO: el trabajo normal de la fresa es
-    // rectificar los filos (9xxx "AFIL. D.EXT."), no afilar. Se pisa SÓLO el
-    // 'afilado' por defecto; reparar (7xxx) queda para reponer un diente roto, y
-    // si el vendedor quiere afilar/reparar lo cambia en el selector —que aparece
-    // porque se agrega 'rectificado' a las operaciones de la nota—.
-    const vuelveFresa = cambios.herramienta === 'fresa' && renglon.herramienta !== 'fresa'
-    const arrancaRectificado =
-      vuelveFresa && (cambios.servicio ?? renglon.servicio) === 'afilado'
-    const cambiosFinal = arrancaRectificado
-      ? { ...cambios, servicio: 'rectificado' as const, servicio_elegido: true }
-      : cambios
+    // Una fresa SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."):
+    // se normaliza el servicio sobre el estado RESULTANTE, así se corrige tanto al
+    // elegir la herramienta como al elegir afilado/reparación en el selector por
+    // renglón (que también pasa por acá) y desde el efecto de normalización.
+    // Reponer un diente roto (7xxx) va aparte, en el sub-flujo de rotos.
+    const fusion = { ...renglon, ...cambios }
+    const servicioNorm = servicioNormalizadoDeFresa(fusion.herramienta, fusion.servicio)
+    const cambiosFinal =
+      servicioNorm !== fusion.servicio
+        ? { ...cambios, servicio: servicioNorm, servicio_elegido: true }
+        : cambios
     setItems((rs) => rs.map((r, i) => (i === activo ? { ...r, ...cambiosFinal } : r)))
-    if (arrancaRectificado) {
-      // Al pasar la fresa a rectificado, su 'afilado' puede quedar huérfano: si
-      // ningún OTRO renglón lo usa (el activo ya pasó a rectificado), se saca,
-      // para no prender de la nada el selector por renglón ni dejar una operación
-      // que nadie usa.
-      const otrosUsanAfilado = items.some((r, i) => i !== activo && r.servicio === 'afilado')
+
+    // Si la fresa dejó atrás afilado/reparación por rectificado, mantener
+    // `servicios` consistente: agregar rectificado y sacar el VIEJO si ningún otro
+    // renglón lo usa. Se mira el servicio VIEJO del renglón, no el de `cambios`,
+    // para que el efecto —que ya manda servicio:'rectificado'— también limpie.
+    const servicioViejo = renglon.servicio
+    const servicioFinal = cambiosFinal.servicio ?? renglon.servicio
+    if (
+      fusion.herramienta === 'fresa' &&
+      servicioFinal === 'rectificado' &&
+      (servicioViejo === 'afilado' || servicioViejo === 'reparacion')
+    ) {
+      const otrosUsan = items.some((r, i) => i !== activo && r.servicio === servicioViejo)
       setServicios((s) => {
-        const limpio = otrosUsanAfilado ? s : s.filter((x) => x !== 'afilado')
+        const limpio = otrosUsan ? s : s.filter((x) => x !== servicioViejo)
         return limpio.includes('rectificado') ? limpio : [...limpio, 'rectificado']
       })
     }
@@ -270,7 +279,9 @@ export function EditorNota({
     setItems((rs) =>
       rs.map((r) => {
         const sigue = nuevos.includes(r.servicio)
-        const servicio = sigue ? r.servicio : principal
+        // Una fresa re-ubicada vuelve a rectificado (no a 'afilado'): así no se le
+        // borra el código 9xxx ni cae en "sin código". Ver `servicioNormalizadoDeFresa`.
+        const servicio = servicioNormalizadoDeFresa(r.herramienta, sigue ? r.servicio : principal)
         const elegido = unaSola ? true : sigue && r.servicio_elegido && !renglonEnBlanco(r)
         if (servicio === r.servicio) {
           return elegido === r.servicio_elegido ? r : { ...r, servicio_elegido: elegido }

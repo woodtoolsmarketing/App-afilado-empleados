@@ -57,6 +57,7 @@ import {
   unaPieza,
   type AfiladoMecha,
   type CampoItem,
+  servicioNormalizadoDeFresa,
   type FormularioItemNota,
   type Herramienta,
   type ManoMecha,
@@ -932,22 +933,35 @@ export function PasoRenglon({
   // El texto con el que el vendedor busca su código en la lista completa.
   const [filtroCodigo, setFiltroCodigo] = useState('')
 
+  // Una fresa SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."): si
+  // quedó en afilado o reparación —por el servicio de la nota, por el selector por
+  // renglón, o al reabrir— se normaliza acá a rectificado. Reponer un diente roto
+  // (7xxx) va aparte, en el sub-flujo de rotos. Idempotente: al normalizar,
+  // `item.servicio` pasa a rectificado y no vuelve a disparar; `alCambiar`
+  // (=`cambiarItem`) mantiene `servicios` consistente.
   useEffect(() => {
-    if (!verMedidas || !item.herramienta || medidas) return
-    // La lista completa de la herramienta: TODOS los códigos, de todos los
-    // servicios (reparación 7xxx, rectificado/afilado 9xxx, y los de precio
-    // fijo), para poder elegir el propio aunque no sea el que recomienda la
-    // medida. Un cabezal portacuchillas usa los códigos de la cuchilla.
+    const norm = servicioNormalizadoDeFresa(item.herramienta, item.servicio)
+    if (norm !== item.servicio) alCambiar({ servicio: norm, servicio_elegido: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.herramienta, item.servicio])
+
+  // La lista completa de la herramienta (TODOS los códigos, de todos los
+  // servicios: reparación 7xxx, rectificado/afilado 9xxx, y los de precio fijo) se
+  // carga apenas hay herramienta, para que el buscador de abajo —SIEMPRE visible—
+  // filtre sin tener que desplegar nada. Un cabezal portacuchillas usa los de la
+  // cuchilla.
+  useEffect(() => {
+    if (!item.herramienta || medidas) return
     void todosLosCodigos(comoCuchilla ? 'cuchilla' : item.herramienta)
       .then(setMedidas)
       .catch(() => setMedidas([]))
-  }, [verMedidas, item.herramienta, medidas, comoCuchilla])
+  }, [item.herramienta, medidas, comoCuchilla])
 
   useEffect(() => {
     setMedidas(null)
     setVerMedidas(false)
     setFiltroCodigo('')
-  }, [item.herramienta, item.servicio, comoCuchilla])
+  }, [item.herramienta, comoCuchilla])
 
   /**
    * Tocar una medida de la lista carga su piso en el campo correspondiente.
@@ -2167,10 +2181,19 @@ export function PasoRenglon({
                 )
               ) : null}
 
-              {/* La lista COMPLETA de códigos de la herramienta + buscador: para
-                  elegir el propio cuando el que se recomienda por la medida no es
-                  el correcto. Antes sólo listaba los que caen por medida (en una
-                  fresa de reparación, nada más que 7701/02/03). */}
+              {/* Buscador de código de cómputo, SIEMPRE visible: se escribe el
+                  número o la descripción y se toca el que va; queda puesto aunque
+                  no sea el que recomienda la medida. Antes estaba escondido tras
+                  "Ver todos los códigos" y en una fresa de reparación no salía
+                  ningún código. */}
+              <Campo
+                etiqueta="BUSCAR CÓDIGO DE CÓMPUTO"
+                value={filtroCodigo}
+                onChangeText={setFiltroCodigo}
+                placeholder="Número de código o descripción"
+                ayuda="Escribí para buscar en la lista de la herramienta; el que tocás queda puesto."
+              />
+
               <Pressable
                 onPress={() => setVerMedidas((v) => !v)}
                 accessibilityRole="button"
@@ -2184,12 +2207,13 @@ export function PasoRenglon({
                     ? 'CUCHILLAS'
                     : item.herramienta
                       ? ETIQUETA_HERRAMIENTA[item.herramienta]
-                      : 'esta herramienta'}{' '}
-                  y elegir el mío
+                      : 'esta herramienta'}
                 </Text>
               </Pressable>
 
-              {verMedidas ? (
+              {/* La lista aparece al ESCRIBIR (lo que coincide) o al tocar "Ver
+                  todos". */}
+              {filtroCodigo.trim() || verMedidas ? (
                 medidas === null ? (
                   <View style={estilos.buscando}>
                     <ActivityIndicator size="small" color={colores.rojo} />
@@ -2200,58 +2224,45 @@ export function PasoRenglon({
                     Esta herramienta no tiene códigos cargados en el catálogo.
                   </Aviso>
                 ) : (
-                  <>
-                    <Campo
-                      etiqueta="BUSCAR CÓDIGO"
-                      value={filtroCodigo}
-                      onChangeText={setFiltroCodigo}
-                      placeholder="Número de código o descripción"
-                      ayuda="Tocá el que va y queda puesto, aunque no sea el que se recomienda por la medida."
-                    />
-                    <View style={estilos.opciones}>
-                      {medidas
-                        .filter((m) => {
-                          const q = filtroCodigo.trim().toLowerCase()
-                          return (
-                            !q ||
-                            m.codigo.toLowerCase().includes(q) ||
-                            m.descripcion.toLowerCase().includes(q)
-                          )
-                        })
-                        .map((m) => (
-                          <Pressable
-                            key={m.codigo}
-                            onPress={() => elegirCodigoDeLaLista(m)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Usar ${m.codigo}, ${m.descripcion}`}
-                            style={({ pressed }) => [estilos.opcion, pressed && estilos.tocado]}
-                          >
-                            <View style={estilos.opcionFila}>
-                              <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
-                              {/* Rango si lo tiene; si no, el precio, que es lo
-                                  que distingue una opción de la otra. */}
-                              <Text style={estilos.opcionRango}>
-                                {m.rango_min === null
-                                  ? (m.precio_pesos !== null
-                                      ? formatearPesos(Number(m.precio_pesos))
-                                      : '')
-                                  : describirRango(m.rango_min, m.rango_max)}
-                              </Text>
-                              {/* El precio también en los de rango: es lo que el
-                                  vendedor compara al elegir a mano. */}
-                              {m.rango_min !== null && m.precio_pesos !== null ? (
-                                <Text style={estilos.opcionPrecio}>
-                                  {formatearPesos(Number(m.precio_pesos))}
-                                </Text>
-                              ) : null}
-                            </View>
-                            <Text style={estilos.opcionDesc} numberOfLines={1}>
-                              {m.descripcion}
+                  <View style={estilos.opciones}>
+                    {medidas
+                      .filter((m) => {
+                        const q = filtroCodigo.trim().toLowerCase()
+                        return (
+                          !q ||
+                          m.codigo.toLowerCase().includes(q) ||
+                          m.descripcion.toLowerCase().includes(q)
+                        )
+                      })
+                      .map((m) => (
+                        <Pressable
+                          key={m.codigo}
+                          onPress={() => elegirCodigoDeLaLista(m)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Usar ${m.codigo}, ${m.descripcion}`}
+                          style={({ pressed }) => [estilos.opcion, pressed && estilos.tocado]}
+                        >
+                          <View style={estilos.opcionFila}>
+                            <Text style={estilos.opcionCodigo}>{m.codigo}</Text>
+                            <Text style={estilos.opcionRango}>
+                              {m.rango_min === null
+                                ? (m.precio_pesos !== null
+                                    ? formatearPesos(Number(m.precio_pesos))
+                                    : '')
+                                : describirRango(m.rango_min, m.rango_max)}
                             </Text>
-                          </Pressable>
-                        ))}
-                    </View>
-                  </>
+                            {m.rango_min !== null && m.precio_pesos !== null ? (
+                              <Text style={estilos.opcionPrecio}>
+                                {formatearPesos(Number(m.precio_pesos))}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Text style={estilos.opcionDesc} numberOfLines={1}>
+                            {m.descripcion}
+                          </Text>
+                        </Pressable>
+                      ))}
+                  </View>
                 )
               ) : null}
 
