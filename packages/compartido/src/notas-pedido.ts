@@ -2090,6 +2090,46 @@ export function validarItemNota(
  * de la mecha anterior sería adivinar, y un valor heredado sin querer es más
  * difícil de ver que uno vacío.
  */
+/**
+ * El servicio que le corresponde a una herramienta, normalizado.
+ *
+ * Una FRESA SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."): no
+ * queda nunca en 'afilado' ni en 'reparación' —reponer un diente roto (7xxx) va
+ * en el sub-flujo de dientes rotos, aparte—. La regla vive en UN solo lugar: la
+ * usan `renglonNuevo`, `cambiarItem`, la normalización al reabrir y el efecto de
+ * los renglones, para que no se escape por ningún camino.
+ */
+export function servicioNormalizadoDeFresa(
+  herramienta: Herramienta | null,
+  servicio: TipoServicio,
+): TipoServicio {
+  return herramienta === 'fresa' && (servicio === 'afilado' || servicio === 'reparacion')
+    ? 'rectificado'
+    : servicio
+}
+
+/**
+ * Pasa una lista de renglones por `servicioNormalizadoDeFresa`, para usar al
+ * REABRIR una nota (corrección o borrador): una fresa guardada en afilado o
+ * reparación vuelve a rectificado, y se limpia un `servicio_antes_de_rotos` viejo
+ * que si no repondría ese servicio malo al destildar "¿tiene dientes rotos?".
+ */
+export function normalizarItemsDeFresa(items: FormularioItemNota[]): FormularioItemNota[] {
+  return items.map((it) => {
+    const servicio = servicioNormalizadoDeFresa(it.herramienta, it.servicio)
+    if (servicio === it.servicio) return it
+    return {
+      ...it,
+      servicio,
+      servicio_elegido: true,
+      servicio_antes_de_rotos:
+        it.servicio_antes_de_rotos === 'afilado' || it.servicio_antes_de_rotos === 'reparacion'
+          ? null
+          : it.servicio_antes_de_rotos,
+    }
+  })
+}
+
 export function renglonNuevo(
   servicio: TipoServicio,
   herramienta: Herramienta | null = null,
@@ -2100,14 +2140,11 @@ export function renglonNuevo(
    */
   servicioElegido = false,
 ): FormularioItemNota {
-  // Una fresa arranca en RECTIFICADO (el trabajo normal es rectificar los filos,
-  // 9xxx "AFIL. D.EXT."), no en afilado. Se pisa SÓLO el 'afilado' por defecto;
-  // reparar (7xxx) queda para reponer un diente roto. Vale para todos los caminos
-  // que crean un renglón de fresa —SUMAR OTRA, AGREGAR OTRAS HERRAMIENTAS—; el
-  // selector de herramienta hace lo mismo en `cambiarItem`. Sin esto, agregar una
-  // fresa por esos caminos la dejaba en afilado (9101-10) y cobraba de menos.
-  const servicioFinal: TipoServicio =
-    herramienta === 'fresa' && servicio === 'afilado' ? 'rectificado' : servicio
+  // Una fresa arranca en RECTIFICADO (ver `servicioNormalizadoDeFresa`); reparar
+  // (7xxx) queda para reponer un diente roto. Vale para todos los caminos que
+  // crean un renglón de fresa —SUMAR OTRA, AGREGAR OTRAS HERRAMIENTAS—; el
+  // selector de herramienta hace lo mismo en `cambiarItem`.
+  const servicioFinal = servicioNormalizadoDeFresa(herramienta, servicio)
   return {
     ...ITEM_VACIO,
     servicio: servicioFinal,
