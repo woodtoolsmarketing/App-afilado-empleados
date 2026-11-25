@@ -933,10 +933,10 @@ export function PasoRenglon({
   // El texto con el que el vendedor busca su código en la lista completa.
   const [filtroCodigo, setFiltroCodigo] = useState('')
 
-  // Una fresa SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."): si
-  // quedó en afilado o reparación —por el servicio de la nota, por el selector por
-  // renglón, o al reabrir— se normaliza acá a rectificado. Reponer un diente roto
-  // (7xxx) va aparte, en el sub-flujo de rotos. Idempotente: al normalizar,
+  // En la fresa el afilado se trata como RECTIFICADO (9xxx "AFIL. D.EXT."): si
+  // quedó en 'afilado' —por el servicio de la nota, por el selector por renglón, o
+  // al reabrir— se normaliza acá a rectificado. La REPARACIÓN (7xxx "REP. DTE.")
+  // es otro trabajo y se respeta: no se toca. Idempotente: al normalizar,
   // `item.servicio` pasa a rectificado y no vuelve a disparar; `alCambiar`
   // (=`cambiarItem`) mantiene `servicios` consistente.
   useEffect(() => {

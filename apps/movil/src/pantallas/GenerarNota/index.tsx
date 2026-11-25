@@ -814,8 +814,9 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
     setItems((rs) =>
       rs.map((r) => {
         const sigue = nuevos.includes(r.servicio)
-        // Una fresa re-ubicada vuelve a rectificado (no a 'afilado'): así no se le
-        // borra el código 9xxx ni cae en "sin código". Ver `servicioNormalizadoDeFresa`.
+        // Una fresa que sigue en reparación la respeta (7xxx); una re-ubicada o en
+        // afilado cae en rectificado (no en 'afilado'), así no se le borra el código
+        // 9xxx ni queda "sin código". Ver `servicioNormalizadoDeFresa`.
         const servicio = servicioNormalizadoDeFresa(r.herramienta, sigue ? r.servicio : principal)
         /**
          * Con una sola operación no hay nada que elegir y queda puesta.
@@ -880,11 +881,11 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
    * después de consultar el catálogo— y con la copia vieja uno borraba al otro.
    */
   function cambiarItem(cambios: Partial<FormularioItemNota>) {
-    // Una fresa SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."):
-    // se normaliza el servicio sobre el estado RESULTANTE, así se corrige tanto al
-    // elegir la herramienta como al elegir afilado/reparación en el selector por
-    // renglón (que también pasa por acá) y desde el efecto de normalización.
-    // Reponer un diente roto (7xxx) va aparte, en el sub-flujo de rotos.
+    // En la fresa el afilado se trata como RECTIFICADO (9xxx "AFIL. D.EXT."): se
+    // normaliza el servicio sobre el estado RESULTANTE, así se corrige al elegir la
+    // herramienta, al elegir "afilado" en el selector por renglón (que también pasa
+    // por acá) y desde el efecto de normalización. La REPARACIÓN (7xxx "REP. DTE.")
+    // es otro trabajo y se respeta: si el vendedor la elige, queda en reparación.
     const fusion = { ...renglon, ...cambios }
     const servicioNorm = servicioNormalizadoDeFresa(fusion.herramienta, fusion.servicio)
     const cambiosFinal =
@@ -893,7 +894,8 @@ export function PantallaGenerarNota({ navigation, route }: PropsPantalla<'Genera
         : cambios
     setItems((rs) => rs.map((r, i) => (i === activo ? { ...r, ...cambiosFinal } : r)))
 
-    // Si la fresa dejó atrás afilado/reparación por rectificado, mantener
+    // Si la fresa quedó en rectificado dejando atrás afilado (automático) o
+    // reparación (porque el vendedor eligió rectificado a propósito), mantener
     // `servicios` consistente: agregar rectificado y sacar el VIEJO si ningún otro
     // renglón lo usa (así no prende el selector de la nada ni queda huérfano). Se
     // mira el servicio VIEJO del renglón, no el de `cambios`, para que el efecto
