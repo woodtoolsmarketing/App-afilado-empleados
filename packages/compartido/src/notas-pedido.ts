@@ -2045,26 +2045,33 @@ export function validarItemNota(
 /**
  * El servicio que le corresponde a una herramienta, normalizado.
  *
- * Una FRESA SIEMPRE rectifica como trabajo principal (9xxx "AFIL. D.EXT."): no
- * queda nunca en 'afilado' ni en 'reparación' —reponer un diente roto (7xxx) va
- * en el sub-flujo de dientes rotos, aparte—. La regla vive en UN solo lugar: la
- * usan `renglonNuevo`, `cambiarItem`, la normalización al reabrir y el efecto de
- * los renglones, para que no se escape por ningún camino.
+ * En la FRESA el trabajo normal es RECTIFICAR el diámetro exterior (9xxx "AFIL.
+ * D.EXT."), no el afilado de la cara del diente (9101-9110): por eso un afilado
+ * de fresa se trata como rectificado —misma plata, el código 9xxx correcto— y la
+ * palabra "afilado" no aparece para fresas, dice "rectificado".
+ *
+ * La REPARACIÓN (reponer dientes, 7xxx "REP. DTE.") es OTRO trabajo y SE RESPETA:
+ * NO se pisa a rectificado. Si el vendedor elige "reparación" tiene que ver los
+ * códigos de reparación (7701-7703), no los de rectificado. Antes esto se
+ * colapsaba y la reparación mostraba códigos 9xxx —el bug que reportó el dueño—.
+ *
+ * La regla vive en UN solo lugar: la usan `renglonNuevo`, `cambiarItem`, la
+ * normalización al reabrir y el efecto de los renglones, para que afilado→
+ * rectificado no se escape por ningún camino (y reparación quede intacta).
  */
 export function servicioNormalizadoDeFresa(
   herramienta: Herramienta | null,
   servicio: TipoServicio,
 ): TipoServicio {
-  return herramienta === 'fresa' && (servicio === 'afilado' || servicio === 'reparacion')
-    ? 'rectificado'
-    : servicio
+  return herramienta === 'fresa' && servicio === 'afilado' ? 'rectificado' : servicio
 }
 
 /**
  * Pasa una lista de renglones por `servicioNormalizadoDeFresa`, para usar al
- * REABRIR una nota (corrección o borrador): una fresa guardada en afilado o
- * reparación vuelve a rectificado, y se limpia un `servicio_antes_de_rotos` viejo
- * que si no repondría ese servicio malo al destildar "¿tiene dientes rotos?".
+ * REABRIR una nota (corrección o borrador): una fresa guardada en afilado vuelve
+ * a rectificado (la reparación guardada se respeta tal cual), y se limpia un
+ * `servicio_antes_de_rotos` en 'afilado' —que si no repondría ese servicio viejo
+ * al destildar "¿tiene dientes rotos?"—.
  */
 export function normalizarItemsDeFresa(items: FormularioItemNota[]): FormularioItemNota[] {
   return items.map((it) => {
@@ -2075,9 +2082,7 @@ export function normalizarItemsDeFresa(items: FormularioItemNota[]): FormularioI
       servicio,
       servicio_elegido: true,
       servicio_antes_de_rotos:
-        it.servicio_antes_de_rotos === 'afilado' || it.servicio_antes_de_rotos === 'reparacion'
-          ? null
-          : it.servicio_antes_de_rotos,
+        it.servicio_antes_de_rotos === 'afilado' ? null : it.servicio_antes_de_rotos,
     }
   })
 }
